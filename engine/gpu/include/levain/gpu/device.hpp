@@ -1,15 +1,18 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 
 #include <nvrhi/nvrhi.h>
 
 #include "levain/core/error.hpp"
+#include "levain/gpu/webgpu.hpp"
 #include "levain/platform/window.hpp"
 
 namespace levain::gpu
 {
 
+#ifndef __EMSCRIPTEN__
 /// Ce que NVRHI ne crée pas lui-même : instance, surface et device Vulkan. Défini dans
 /// `device_vk.cpp` : ni Vulkan ni vk-bootstrap n'apparaissent dans cet en-tête.
 struct VulkanContext;
@@ -29,6 +32,7 @@ struct SwapchainDeleter
 {
     void operator()(Swapchain* swapchain) const noexcept;
 };
+#endif
 
 struct DeviceOptions
 {
@@ -41,6 +45,7 @@ struct DeviceOptions
     nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
 };
 
+#ifndef __EMSCRIPTEN__
 /// Le GPU vu par le moteur : un `nvrhi::IDevice`, les objets Vulkan qui le portent, et la
 /// swapchain où il dessine.
 ///
@@ -56,7 +61,24 @@ struct GpuDevice
     /// Sans swapchain (WebGPU en natif), l'image où dessiner, à la taille de la fenêtre.
     nvrhi::TextureHandle offscreen;
 };
+#else
+/// Dans le navigateur : le device NVRHI sur WebGPU et le canvas de la fenêtre, où il dessine
+/// (ADR-0023). Le canvas disparaît avant le device.
+struct GpuDevice
+{
+    nvrhi::DeviceHandle nvrhi;
+    WebGpuCanvasHandle canvas;
+};
+#endif
 
+using GpuDeviceCallback = std::function<void(core::Result<GpuDevice>)>;
+
+/// Le device, par callback : dans le navigateur, il arrive une fois la main rendue (ADR-0023,
+/// point 2), toujours sur WebGPU ; en natif, avant le retour, comme `createGpuDevice`.
+void requestGpuDevice(const platform::Window& window, const DeviceOptions& options,
+                      const GpuDeviceCallback& onDevice);
+
+#ifndef __EMSCRIPTEN__
 /// Crée le device Vulkan sur le GPU le plus adapté (discret de préférence), puis le device NVRHI
 /// par-dessus. Le nom du GPU et la version du pilote sont journalisés dans la catégorie `gpu`.
 ///
@@ -64,6 +86,7 @@ struct GpuDevice
 /// semaphores), ou si la validation est demandée sans que ses couches soient installées.
 [[nodiscard]] core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
                                                       const DeviceOptions& options);
+#endif
 
 /// Le format des images de la swapchain : les pipelines qui y dessinent en ont besoin à leur
 /// création.

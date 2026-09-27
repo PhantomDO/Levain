@@ -308,4 +308,10 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
                      .offscreen = nullptr};
 }
 
+void requestGpuDevice(const platform::Window& window, const DeviceOptions& options,
+                      const GpuDeviceCallback& onDevice)
+{
+    onDevice(createGpuDevice(window, options));
+}
+
 } // namespace levain::gpu

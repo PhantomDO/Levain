@@ -61,10 +61,10 @@ add_subdirectory(shaders)
 add_subdirectory(engine/gpu)
 add_subdirectory(engine/render)
 
-# Le reste attend son portage au web (M4.6) : la fenêtre et l'entrée (SDL3 sous Emscripten, #186).
+add_subdirectory(engine/platform)
+add_subdirectory(engine/input)
+# Le cuiseur est un outil de la machine de développement : les assets arrivent cuits au navigateur.
 if(NOT EMSCRIPTEN)
-    add_subdirectory(engine/platform)
-    add_subdirectory(engine/input)
     add_subdirectory(tools/cook)
 endif()
 
