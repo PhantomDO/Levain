@@ -4,8 +4,8 @@ find_package(nvrhi CONFIG REQUIRED)
 # Le backend WebGPU de NVRHI (src/webgpu/, ADR-0023) se compile partout : dans le navigateur, et en
 # natif sur Dawn pour le développer et le tester.
 add_library(levain_gpu STATIC src/nvrhi_messages.cpp src/webgpu/bindings.cpp src/webgpu/conversions.cpp
-                              src/webgpu/commandlist.cpp src/webgpu/device.cpp
-                              src/webgpu/pipelines.cpp)
+                              src/webgpu/commandlist.cpp src/webgpu/create.cpp
+                              src/webgpu/device.cpp src/webgpu/pipelines.cpp)
 add_library(levain::gpu ALIAS levain_gpu)
 
 target_include_directories(levain_gpu PUBLIC include)
@@ -15,16 +15,17 @@ target_include_directories(levain_gpu PUBLIC include)
 target_link_libraries(levain_gpu PRIVATE levain::core dawn::webgpu_dawn PUBLIC nvrhi)
 
 if(EMSCRIPTEN)
+    # La surface d'un canvas HTML : le navigateur seulement.
+    target_sources(levain_gpu PRIVATE src/webgpu/canvas.cpp)
     return()
 endif()
 
-# En natif : le device Vulkan et sa swapchain, et la création du device WebGPU hors écran, qui
-# attend Dawn sur place (le navigateur aura la sienne, asynchrone, #184 partie C).
+# En natif : le device Vulkan et sa swapchain.
 find_package(SDL3 CONFIG REQUIRED)
 find_package(VulkanHeaders CONFIG REQUIRED)
 find_package(vk-bootstrap CONFIG REQUIRED)
 
-target_sources(levain_gpu PRIVATE src/device_vk.cpp src/swapchain_vk.cpp src/webgpu/create.cpp)
+target_sources(levain_gpu PRIVATE src/device_vk.cpp src/swapchain_vk.cpp)
 
 # platform et nvrhi sont PUBLIC : ils font partie de l'API (device.hpp). Le backend Vulkan de
 # NVRHI, vk-bootstrap, les en-têtes Vulkan et SDL restent PRIVATE : ils ne sortent pas du module.

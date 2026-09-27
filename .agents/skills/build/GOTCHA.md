@@ -3,6 +3,14 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## clang-tidy sur un fichier que le build ne compile pas (2026-09-27)
+
+- **Symptôme** : l'analyse statique de la CI échoue sur `canvas.cpp` (« use of undeclared identifier
+  'WebGpuCanvasDeleter' »), puis compte ses 12 erreurs à chaque fichier suivant.
+- **Cause** : la CI donnait à clang-tidy tous les `.cpp` du dépôt. Un fichier compilé seulement sous Emscripten
+  n'est pas dans `compile_commands.json` du build natif : clang-tidy l'analyse sans `__EMSCRIPTEN__`, donc à tort.
+- **Parade** : la liste vient de `compile_commands.json` (SKILL, section clang-tidy ; `ci.yml`).
+
 ## WebAssembly révèle les alignements supposés (2026-09-27)
 
 - **Symptôme** : en WebAssembly, « le pool distribue des blocs distincts et alignés » échoue sur

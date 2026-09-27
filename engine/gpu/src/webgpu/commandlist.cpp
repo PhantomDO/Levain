@@ -28,6 +28,9 @@ wgpu::TextureView attachmentView(const nvrhi::FramebufferAttachment& attachment)
     const nvrhi::TextureSubresourceSet subresources =
         attachment.subresources.resolve(texture->desc, true);
     wgpu::TextureViewDescriptor viewDesc{};
+    // Le format déclaré à NVRHI : c'est une vue sRGB de l'image du canvas, qui ne l'est pas.
+    viewDesc.format =
+        textureFormatOf(texture->desc.format).value_or(wgpu::TextureFormat::Undefined);
     viewDesc.dimension = wgpu::TextureViewDimension::e2D;
     viewDesc.baseMipLevel = subresources.baseMipLevel;
     viewDesc.mipLevelCount = 1;
@@ -99,6 +102,9 @@ void CommandList::beginPass(nvrhi::IFramebuffer* framebuffer)
         depth.view = attachmentView(desc.depthAttachment);
         depth.depthLoadOp = wgpu::LoadOp::Load;
         depth.depthStoreOp = wgpu::StoreOp::Store;
+        // Sans effacement, la valeur d'effacement ne sert pas, mais le navigateur refuse la valeur
+        // « indéfinie » (NaN) que Dawn natif tolère.
+        depth.depthClearValue = 1.0f;
         depth.depthReadOnly = desc.depthAttachment.isReadOnly;
         passDesc.depthStencilAttachment = &depth;
     }

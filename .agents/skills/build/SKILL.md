@@ -38,7 +38,9 @@ Format et analyse statique, comme la CI :
 
 ```bash
 find engine sandbox tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror
-find engine sandbox tests -name '*.cpp' | xargs clang-tidy -p build/linux-debug --warnings-as-errors='*'
+# les fichiers du build natif seulement : ceux du navigateur ne s'analysent pas sans leurs options
+jq -r '.[].file' build/linux-debug/compile_commands.json | grep -E "^$PWD/(engine|sandbox|tests|tools)/" \
+  | sort -u | xargs clang-tidy -p build/linux-debug --warnings-as-errors='*'
 ```
 
 Le build web demande Emscripten (emsdk dans `~/emsdk`, version figée par `EMSDK_VERSION` dans la CI) :

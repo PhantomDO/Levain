@@ -42,6 +42,21 @@ Device::Device(wgpu::Instance instance, wgpu::Adapter adapter, wgpu::Device devi
     emptyGroup = this->device.CreateBindGroup(&groupDesc);
 }
 
+nvrhi::Object Device::getNativeObject(nvrhi::ObjectType type)
+{
+    switch (type)
+    {
+    case object_types::Instance:
+        return instance.Get();
+    case object_types::Adapter:
+        return adapter.Get();
+    case object_types::Device:
+        return device.Get();
+    default:
+        return nullptr;
+    }
+}
+
 nvrhi::FramebufferHandle Device::createFramebuffer(const nvrhi::FramebufferDesc& desc)
 {
     // Rien à créer : WebGPU décrit ses attachements à chaque passe de rendu (commandlist.cpp).
