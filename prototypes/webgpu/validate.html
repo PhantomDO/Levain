@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Validation WGSL</title>
+<script type="module">
+// Fait compiler par le navigateur les shaders du moteur traduits en WGSL par Slang, et le dit dans
+// la console et le titre : erreurs du compilateur WGSL, puis création d'un pipeline pour le compute.
+const report = [];
+try {
+  const adapter = await navigator.gpu.requestAdapter();
+  const device = await adapter.requestDevice();
+  for (const name of ["triangle", "mesh", "skinning"]) {
+    const code = await (await fetch(`engine/${name}.wgsl`)).text();
+    const module = device.createShaderModule({ code });
+    const info = await module.getCompilationInfo();
+    const errors = info.messages.filter((m) => m.type === "error");
+    for (const m of info.messages) console.log(`${name} ${m.type} ${m.lineNum}:${m.linePos} ${m.message}`);
+    let pipeline = "";
+    if (name === "skinning" && errors.length === 0) {
+      device.pushErrorScope("validation");
+      device.createComputePipeline({ layout: "auto", compute: { module, entryPoint: "computeMain" } });
+      const error = await device.popErrorScope();
+      pipeline = error ? ` pipeline refusé : ${error.message}` : " pipeline compute accepté";
+    }
+    report.push(`${name} : ${errors.length === 0 ? "OK" : errors.length + " erreur(s)"}${pipeline}`);
+  }
+} catch (e) {
+  report.push(`échec : ${e}`);
+}
+document.title = report.join(" ; ");
+console.log(document.title);
+</script>
