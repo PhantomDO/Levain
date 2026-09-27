@@ -2,6 +2,9 @@
 // son depth buffer —, relit l'image et la compare à tests/data/<scène>.ppm. En CI, il tourne sur
 // lavapipe.
 //
+// Avec « webgpu », la même scène passe par le backend WebGPU de NVRHI, sur Dawn (ADR-0023), et doit
+// donner la même image que Vulkan : c'est la preuve que le backend traduit fidèlement le moteur.
+//
 // Mettre à jour une référence après un changement voulu du rendu :
 //   LEVAIN_UPDATE_REFERENCE=1 SDL_VIDEO_DRIVER=offscreen \
 //     ./build/linux-debug/tests/levain_smoke_render cube
@@ -29,6 +32,7 @@
 #include "levain/assets/image.hpp"
 #include "levain/core/file.hpp"
 #include "levain/gpu/device.hpp"
+#include "levain/gpu/webgpu.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/camera.hpp"
 #include "levain/render/mesh.hpp"
@@ -229,22 +233,35 @@ levain::core::Result<Image> renderScene(nvrhi::IDevice& device, std::string_view
     return image;
 }
 
-int runSmokeTest(std::string_view scene)
+/// L'image de `scene`, rendue par Vulkan (une fenêtre, pour la surface) ou par WebGPU (sans
+/// fenêtre).
+levain::core::Result<Image> renderWith(std::string_view backend, std::string_view scene)
 {
+    if (backend == "webgpu")
+    {
+        auto device = levain::gpu::createWebGpuDevice({.enableValidation = true});
+        if (!device)
+        {
+            return std::unexpected(device.error());
+        }
+        return renderScene(**device, scene);
+    }
     auto window = levain::platform::createWindow("Levain - test de fumée", ImageSize, ImageSize);
     if (!window)
     {
-        std::println(stderr, "{}", window.error().message);
-        return 1;
+        return std::unexpected(window.error());
     }
     auto gpu = levain::gpu::createGpuDevice(*window, {.enableValidation = true});
     if (!gpu)
     {
-        std::println(stderr, "{}", gpu.error().message);
-        return 1;
+        return std::unexpected(gpu.error());
     }
+    return renderScene(*gpu->nvrhi, scene);
+}
 
-    auto actual = renderScene(*gpu->nvrhi, scene);
+int runSmokeTest(std::string_view scene, std::string_view backend)
+{
+    auto actual = renderWith(backend, scene);
     if (!actual)
     {
         std::println(stderr, "{}", actual.error().message);
@@ -275,7 +292,7 @@ int runSmokeTest(std::string_view scene)
     }
 
     // L'image obtenue reste à côté du binaire, pour la comparer à l'œil à la référence.
-    writePpm(std::format("{}.actual.ppm", scene), *actual);
+    writePpm(std::format("{}.{}.actual.ppm", scene, backend), *actual);
     return 1;
 }
 
@@ -287,13 +304,16 @@ int main(int argc, char** argv)
     try
     {
         const std::span arguments{argv, static_cast<std::size_t>(argc)};
-        if (arguments.size() != 2 || (std::string_view{arguments[1]} != "triangle" &&
-                                      std::string_view{arguments[1]} != "cube"))
+        const std::string_view backend = arguments.size() == 3 ? arguments[2] : "vulkan";
+        if (arguments.size() < 2 || arguments.size() > 3 ||
+            (std::string_view{arguments[1]} != "triangle" &&
+             std::string_view{arguments[1]} != "cube") ||
+            (backend != "vulkan" && backend != "webgpu"))
         {
-            std::println(stderr, "usage : levain_smoke_render triangle|cube");
+            std::println(stderr, "usage : levain_smoke_render triangle|cube [vulkan|webgpu]");
             return 2;
         }
-        return runSmokeTest(arguments[1]);
+        return runSmokeTest(arguments[1], backend);
     }
     catch (const std::exception& e)
     {

@@ -104,6 +104,10 @@ foreach(scene triangle cube)
     add_test(NAME smoke.${scene} COMMAND levain_smoke_render ${scene})
     set_tests_properties(smoke.${scene} PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endforeach()
+# Les mêmes scènes par le backend WebGPU de NVRHI, sur Dawn : mêmes références (ADR-0023, #184).
+foreach(scene triangle cube)
+    add_test(NAME smoke.webgpu.${scene} COMMAND levain_smoke_render ${scene} webgpu)
+endforeach()
 
 # ADR-0018 : le moteur vu d'un jeu. La frontière des plugins, sur un moteur miniature qu'on
 # configure trois fois ; les deux scénarios interdits doivent échouer avec le bon message, et non
