@@ -1,5 +1,5 @@
-// Prototype jetable (spike/webgpu) : le cube texturé de M2.2 en WebGPU, dans le navigateur, par
-// Emscripten et emdawnwebgpu. Il répond à une question : ce que le moteur demande à NVRHI (buffers,
+// Prototype jetable (spike/webgpu) : le cube texturé de M2.2 en WebGPU, dans le navigateur (par
+// Emscripten et emdawnwebgpu) et en natif hors écran (par Dawn, via vcpkg) : le même code de rendu. Il répond à une question : ce que le moteur demande à NVRHI (buffers,
 // texture, sampler, binding set, pipeline, profondeur, envoi par writeBuffer) passe-t-il en WebGPU,
 // avec des shaders Slang compilés en WGSL ? Il ne sera pas fusionné.
 
@@ -13,8 +13,10 @@
 #include <string>
 #include <vector>
 
+#ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
+#endif
 #include <webgpu/webgpu_cpp.h>
 
 namespace
@@ -181,6 +183,16 @@ wgpu::Buffer createBuffer(const void* data, std::size_t size, wgpu::BufferUsage 
     return buffer;
 }
 
+void createDepth()
+{
+    wgpu::TextureDescriptor depthDesc{};
+    depthDesc.size = {app.width, app.height, 1};
+    depthDesc.format = wgpu::TextureFormat::Depth32Float;
+    depthDesc.usage = wgpu::TextureUsage::RenderAttachment;
+    app.depth = app.device.CreateTexture(&depthDesc);
+}
+
+#ifdef __EMSCRIPTEN__
 void resizeTargets()
 {
     double cssWidth = 0;
@@ -204,19 +216,24 @@ void resizeTargets()
     config.height = height;
     config.presentMode = wgpu::PresentMode::Fifo;
     app.surface.Configure(&config);
-    wgpu::TextureDescriptor depthDesc{};
-    depthDesc.size = {width, height, 1};
-    depthDesc.format = wgpu::TextureFormat::Depth32Float;
-    depthDesc.usage = wgpu::TextureUsage::RenderAttachment;
-    app.depth = app.device.CreateTexture(&depthDesc);
+    createDepth();
 }
+#endif
 
 void createScene()
 {
+#ifdef __EMSCRIPTEN__
     wgpu::SurfaceCapabilities capabilities;
     app.surface.GetCapabilities(app.adapter, &capabilities);
     app.format = capabilities.formats[0];
     resizeTargets();
+#else
+    // Hors écran : une image de 960 × 540, relue à la fin.
+    app.format = wgpu::TextureFormat::RGBA8Unorm;
+    app.width = 960;
+    app.height = 540;
+    createDepth();
+#endif
 
     // Le shader Slang, compilé en WGSL au build et embarqué dans le .wasm (--embed-file).
     const std::string wgsl = readFile("cube.wgsl");
@@ -290,29 +307,15 @@ void createScene()
     app.ready = true;
 }
 
-void frame()
+/// Enregistre et soumet une image du cube dans `target` : le code commun au web et au natif.
+void drawCube(const wgpu::TextureView& target, float seconds)
 {
-    if (!app.ready)
-    {
-        return;
-    }
-    resizeTargets();
-    const auto now = std::chrono::steady_clock::now();
-    const float seconds = std::chrono::duration<float>(now - app.start).count();
     const std::array<Mat4, 2> constants{
         viewProjection(static_cast<float>(app.width) / static_cast<float>(app.height)),
         rotation(seconds)};
     app.device.GetQueue().WriteBuffer(app.uniforms, 0, constants.data(), sizeof(constants));
-
-    wgpu::SurfaceTexture surfaceTexture;
-    app.surface.GetCurrentTexture(&surfaceTexture);
-    if (surfaceTexture.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal &&
-        surfaceTexture.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal)
-    {
-        return;
-    }
     wgpu::RenderPassColorAttachment color{};
-    color.view = surfaceTexture.texture.CreateView();
+    color.view = target;
     color.loadOp = wgpu::LoadOp::Clear;
     color.storeOp = wgpu::StoreOp::Store;
     color.clearValue = {0.55, 0.32, 0.14, 1.0}; // la croûte de levain du sandbox
@@ -336,6 +339,26 @@ void frame()
     pass.End();
     wgpu::CommandBuffer commands = encoder.Finish();
     app.device.GetQueue().Submit(1, &commands);
+}
+
+#ifdef __EMSCRIPTEN__
+void frame()
+{
+    if (!app.ready)
+    {
+        return;
+    }
+    resizeTargets();
+    const auto now = std::chrono::steady_clock::now();
+    const float seconds = std::chrono::duration<float>(now - app.start).count();
+    wgpu::SurfaceTexture surfaceTexture;
+    app.surface.GetCurrentTexture(&surfaceTexture);
+    if (surfaceTexture.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal &&
+        surfaceTexture.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal)
+    {
+        return;
+    }
+    drawCube(surfaceTexture.texture.CreateView(), seconds);
 
     // Les images par seconde, toutes les deux secondes, dans la console et le titre de la page.
     ++app.periodFrames;
@@ -352,9 +375,11 @@ void frame()
         app.periodFrames = 0;
     }
 }
+#endif
 
 } // namespace
 
+#ifdef __EMSCRIPTEN__
 int main()
 {
     app.instance = wgpu::CreateInstance(nullptr);
@@ -407,3 +432,101 @@ int main()
     emscripten_set_main_loop(frame, 0, false);
     return 0;
 }
+#else
+/// En natif : Dawn, sans fenêtre. 300 images hors écran, chacune attendue, puis la dernière écrite
+/// en PPM. Les callbacks sont les mêmes qu'au web ; seule l'attente diffère (WaitAny ici).
+int main()
+{
+    static const auto TimedWaitAny = wgpu::InstanceFeatureName::TimedWaitAny;
+    wgpu::InstanceDescriptor instanceDesc{};
+    instanceDesc.requiredFeatureCount = 1;
+    instanceDesc.requiredFeatures = &TimedWaitAny;
+    app.instance = wgpu::CreateInstance(&instanceDesc);
+
+    wgpu::RequestAdapterOptions adapterOptions{};
+    adapterOptions.powerPreference = wgpu::PowerPreference::HighPerformance;
+    app.instance.WaitAny(
+        app.instance.RequestAdapter(
+            &adapterOptions, wgpu::CallbackMode::WaitAnyOnly,
+            [](wgpu::RequestAdapterStatus status, wgpu::Adapter adapter, wgpu::StringView)
+            { app.adapter = status == wgpu::RequestAdapterStatus::Success ? adapter : nullptr; }),
+        UINT64_MAX);
+    if (!app.adapter)
+    {
+        std::printf("ÉCHEC adaptateur\n");
+        return 1;
+    }
+    wgpu::AdapterInfo info;
+    app.adapter.GetInfo(&info);
+    std::printf("adaptateur : %.*s (%.*s)\n", static_cast<int>(info.device.length), info.device.data,
+                static_cast<int>(info.description.length), info.description.data);
+
+    wgpu::DeviceDescriptor deviceDesc{};
+    deviceDesc.SetUncapturedErrorCallback(
+        [](const wgpu::Device&, wgpu::ErrorType, wgpu::StringView error)
+        { std::printf("ERREUR WebGPU : %.*s\n", static_cast<int>(error.length), error.data); });
+    app.instance.WaitAny(
+        app.adapter.RequestDevice(
+            &deviceDesc, wgpu::CallbackMode::WaitAnyOnly,
+            [](wgpu::RequestDeviceStatus status, wgpu::Device device, wgpu::StringView)
+            { app.device = status == wgpu::RequestDeviceStatus::Success ? device : nullptr; }),
+        UINT64_MAX);
+    if (!app.device)
+    {
+        std::printf("ÉCHEC device\n");
+        return 1;
+    }
+    createScene();
+
+    wgpu::TextureDescriptor colorDesc{};
+    colorDesc.size = {app.width, app.height, 1};
+    colorDesc.format = app.format;
+    colorDesc.usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::CopySrc;
+    wgpu::Texture color = app.device.CreateTexture(&colorDesc);
+    const wgpu::TextureView view = color.CreateView();
+
+    constexpr int Frames = 300;
+    const auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < Frames; ++i)
+    {
+        drawCube(view, static_cast<float>(i) / 60.0f);
+        app.instance.WaitAny(app.device.GetQueue().OnSubmittedWorkDone(
+                                 wgpu::CallbackMode::WaitAnyOnly, [](wgpu::QueueWorkDoneStatus, wgpu::StringView) {}),
+                             UINT64_MAX);
+    }
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    std::printf("%d images en %.1f ms : %.3f ms par image, attente du GPU comprise\n", Frames, ms, ms / Frames);
+
+    // La relecture : une copie vers un buffer, puis MapAsync, attendu.
+    const std::uint32_t bytesPerRow = app.width * 4; // 3 840, multiple de 256 comme WebGPU l'exige
+    wgpu::BufferDescriptor readDesc{};
+    readDesc.size = static_cast<std::uint64_t>(bytesPerRow) * app.height;
+    readDesc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead;
+    wgpu::Buffer readback = app.device.CreateBuffer(&readDesc);
+    wgpu::CommandEncoder encoder = app.device.CreateCommandEncoder();
+    wgpu::TexelCopyTextureInfo source{};
+    source.texture = color;
+    wgpu::TexelCopyBufferInfo destination{};
+    destination.buffer = readback;
+    destination.layout.bytesPerRow = bytesPerRow;
+    destination.layout.rowsPerImage = app.height;
+    wgpu::Extent3D extent{app.width, app.height, 1};
+    encoder.CopyTextureToBuffer(&source, &destination, &extent);
+    wgpu::CommandBuffer commands = encoder.Finish();
+    app.device.GetQueue().Submit(1, &commands);
+    app.instance.WaitAny(readback.MapAsync(wgpu::MapMode::Read, 0, readDesc.size,
+                                           wgpu::CallbackMode::WaitAnyOnly,
+                                           [](wgpu::MapAsyncStatus, wgpu::StringView) {}),
+                         UINT64_MAX);
+    const auto* pixels = static_cast<const std::uint8_t*>(readback.GetConstMappedRange());
+    std::FILE* file = std::fopen("cube-natif.ppm", "wb");
+    std::fprintf(file, "P6 %u %u 255\n", app.width, app.height);
+    for (std::uint32_t p = 0; p < app.width * app.height; ++p)
+    {
+        std::fwrite(pixels + p * 4, 1, 3, file);
+    }
+    std::fclose(file);
+    std::printf("capture : cube-natif.ppm\n");
+    return 0;
+}
+#endif
