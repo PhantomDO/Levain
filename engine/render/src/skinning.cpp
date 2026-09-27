@@ -1,5 +1,7 @@
 #include "levain/render/skinning.hpp"
 
+#include <cstdint>
+
 #include "shader.hpp"
 
 #include "levain/core/assert.hpp"
@@ -24,9 +26,9 @@ core::Result<SkinningPass> createSkinningPass(nvrhi::IDevice& device)
     }
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::Compute;
-    layoutDesc.bindings = {nvrhi::BindingLayoutItem::RawBuffer_SRV(0),
+    layoutDesc.bindings = {nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0),
                            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1),
-                           nvrhi::BindingLayoutItem::RawBuffer_UAV(0)};
+                           nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0)};
     nvrhi::BindingLayoutHandle layout = device.createBindingLayout(layoutDesc);
     nvrhi::ComputePipelineHandle pipeline = device.createComputePipeline(
         nvrhi::ComputePipelineDesc().setComputeShader(*shader).addBindingLayout(layout));
@@ -50,7 +52,7 @@ SkinnedMesh createSkinnedMesh(nvrhi::IDevice& device, nvrhi::ICommandList& comma
     // Tracking » dans la documentation de NVRHI).
     mesh.source = device.createBuffer(nvrhi::BufferDesc()
                                           .setByteSize(vertices.size_bytes())
-                                          .setCanHaveRawViews(true)
+                                          .setStructStride(sizeof(std::uint32_t))
                                           .setInitialState(nvrhi::ResourceStates::ShaderResource)
                                           .setKeepInitialState(true)
                                           .setDebugName("skinning : sommets d'origine"));
@@ -67,7 +69,7 @@ SkinnedMesh createSkinnedMesh(nvrhi::IDevice& device, nvrhi::ICommandList& comma
                                     .setByteSize(vertices.size() * sizeof(MeshVertex))
                                     .setIsVertexBuffer(true)
                                     .setCanHaveUAVs(true)
-                                    .setCanHaveRawViews(true)
+                                    .setStructStride(sizeof(std::uint32_t))
                                     .setInitialState(nvrhi::ResourceStates::VertexBuffer)
                                     .setKeepInitialState(true)
                                     .setDebugName("skinning : sommets déformés")),
@@ -81,9 +83,9 @@ SkinnedMesh createSkinnedMesh(nvrhi::IDevice& device, nvrhi::ICommandList& comma
     };
     mesh.bindings = device.createBindingSet(
         nvrhi::BindingSetDesc()
-            .addItem(nvrhi::BindingSetItem::RawBuffer_SRV(0, mesh.source))
+            .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, mesh.source))
             .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, mesh.jointMatrices))
-            .addItem(nvrhi::BindingSetItem::RawBuffer_UAV(0, mesh.skinned.vertexBuffer)),
+            .addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(0, mesh.skinned.vertexBuffer)),
         pass.layout);
     commandList.writeBuffer(mesh.source, vertices.data(), vertices.size_bytes());
     commandList.writeBuffer(mesh.skinned.indexBuffer, indices.data(), indices.size_bytes());
