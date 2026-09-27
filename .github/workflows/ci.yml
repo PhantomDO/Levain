@@ -400,3 +400,34 @@ jobs:
           # La page du sandbox (#186), que publiera GitHub Pages.
           test -s build/web/sandbox/levain_sandbox.wasm \
             || { echo "::error::le sandbox web n'a pas été construit"; exit 1; }
+
+      # Le sandbox publié sur GitHub Pages (ADR-0023), depuis main seulement : la page et ses trois
+      # fichiers, rien d'autre du build.
+      - name: Préparer la page
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p pages
+          cp build/web/sandbox/levain_sandbox.{html,js,wasm,data} pages/
+          cp pages/levain_sandbox.html pages/index.html
+
+      - name: Envoyer la page
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+
+  # Publie ce que le job web a préparé. Les droits d'écriture sur Pages ne sont donnés qu'à ce job.
+  pages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: web
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publier
+        id: deployment
+        uses: actions/deploy-pages@v4
