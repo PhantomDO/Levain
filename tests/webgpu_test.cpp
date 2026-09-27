@@ -9,6 +9,8 @@
 
 #include "levain/core/file.hpp"
 #include "levain/gpu/webgpu.hpp"
+#include "levain/render/mesh_pass.hpp"
+#include "levain/render/skinning.hpp"
 
 namespace
 {
@@ -110,4 +112,30 @@ TEST_CASE("le backend WebGPU déclare absent ce que WebGPU n'a pas")
            nvrhi::FormatSupport::ShaderSample) != nvrhi::FormatSupport::None);
     // Le BC1 : ce backend ne propose que le BC7 des textures cuites (ADR-0020).
     CHECK(device->queryFormatSupport(nvrhi::Format::BC1_UNORM) == nvrhi::FormatSupport::None);
+}
+
+TEST_CASE("les passes du moteur se créent sur le backend WebGPU")
+{
+    const nvrhi::DeviceHandle device = webGpuDevice();
+    const nvrhi::FramebufferInfo target = nvrhi::FramebufferInfo()
+                                              .addColorFormat(nvrhi::Format::RGBA8_UNORM)
+                                              .setDepthFormat(levain::render::DepthFormat);
+
+    // La passe des meshes : constantes volatiles (groupe 0), groupe 1 vide, matériau (groupe 2).
+    auto meshPass = levain::render::createMeshPass(*device, target);
+    INFO("erreur : " << (meshPass ? std::string{} : meshPass.error().message));
+    REQUIRE(meshPass.has_value());
+    const nvrhi::TextureHandle texture =
+        device->createTexture(nvrhi::TextureDesc()
+                                  .setWidth(2)
+                                  .setHeight(2)
+                                  .setFormat(nvrhi::Format::SRGBA8_UNORM)
+                                  .setDebugName("albedo"));
+    const nvrhi::SamplerHandle sampler = device->createSampler(nvrhi::SamplerDesc());
+    CHECK(levain::render::createMaterialBindings(*device, *meshPass, *texture, *sampler));
+
+    // Le skinning : un pipeline compute et ses storage buffers.
+    auto skinning = levain::render::createSkinningPass(*device);
+    INFO("erreur : " << (skinning ? std::string{} : skinning.error().message));
+    CHECK(skinning.has_value());
 }

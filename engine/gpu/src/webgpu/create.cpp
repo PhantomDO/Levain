@@ -98,6 +98,18 @@ core::Result<nvrhi::DeviceHandle> createWebGpuDevice(const WebGpuOptions& option
             callback->message(nvrhi::MessageSeverity::Error, text.c_str());
         },
         messages);
+    // Un device perdu (pilote planté, GPU retiré) n'est pas un bug du moteur : on le dit. Sa
+    // destruction normale, à la fin du programme, ne dit rien.
+    deviceDesc.SetDeviceLostCallback(
+        wgpu::CallbackMode::AllowSpontaneous,
+        [](const wgpu::Device&, wgpu::DeviceLostReason reason, wgpu::StringView message)
+        {
+            if (reason != wgpu::DeviceLostReason::Destroyed)
+            {
+                core::log("gpu", core::LogLevel::Error, "device WebGPU perdu : {}",
+                          viewOf(message));
+            }
+        });
     instance.WaitAny(adapter.RequestDevice(&deviceDesc, wgpu::CallbackMode::WaitAnyOnly,
                                            [&](wgpu::RequestDeviceStatus status, wgpu::Device found,
                                                wgpu::StringView message)
