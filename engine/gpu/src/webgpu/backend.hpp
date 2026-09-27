@@ -112,6 +112,109 @@ public:
     std::vector<nvrhi::VertexAttributeDesc> attributes;
 };
 
+class Framebuffer final : public nvrhi::RefCounter<nvrhi::IFramebuffer>
+{
+public:
+    explicit Framebuffer(const nvrhi::FramebufferDesc& desc) : desc{desc}, info{desc} {}
+
+    [[nodiscard]] const nvrhi::FramebufferDesc& getDesc() const override { return desc; }
+
+    [[nodiscard]] const nvrhi::FramebufferInfoEx& getFramebufferInfo() const override
+    {
+        return info;
+    }
+
+    nvrhi::FramebufferDesc desc;
+    nvrhi::FramebufferInfoEx info;
+};
+
+/// Un binding layout devient un bind group layout. `dynamicBindings` : les numéros de binding des
+/// constantes volatiles, dans l'ordre croissant où WebGPU attend leurs offsets dynamiques.
+class BindingLayout final : public nvrhi::RefCounter<nvrhi::IBindingLayout>
+{
+public:
+    BindingLayout(const nvrhi::BindingLayoutDesc& desc, wgpu::BindGroupLayout layout)
+        : desc{desc}, layout{std::move(layout)}
+    {
+    }
+
+    [[nodiscard]] const nvrhi::BindingLayoutDesc* getDesc() const override { return &desc; }
+
+    [[nodiscard]] const nvrhi::BindlessLayoutDesc* getBindlessDesc() const override
+    {
+        return nullptr;
+    }
+
+    nvrhi::BindingLayoutDesc desc;
+    wgpu::BindGroupLayout layout;
+};
+
+/// Un binding set devient un bind group. `volatileBuffers` : ses buffers de constantes volatils,
+/// dans l'ordre de leurs offsets dynamiques ; la command list donne à chacun sa version courante.
+class BindingSet final : public nvrhi::RefCounter<nvrhi::IBindingSet>
+{
+public:
+    BindingSet(const nvrhi::BindingSetDesc& desc, nvrhi::BindingLayoutHandle layout,
+               wgpu::BindGroup group, std::vector<nvrhi::BufferHandle> volatileBuffers)
+        : desc{desc}, layout{std::move(layout)}, group{std::move(group)},
+          volatileBuffers{std::move(volatileBuffers)}
+    {
+    }
+
+    [[nodiscard]] const nvrhi::BindingSetDesc* getDesc() const override { return &desc; }
+
+    [[nodiscard]] nvrhi::IBindingLayout* getLayout() const override { return layout; }
+
+    nvrhi::BindingSetDesc desc;
+    nvrhi::BindingLayoutHandle layout;
+    wgpu::BindGroup group;
+    std::vector<nvrhi::BufferHandle> volatileBuffers;
+};
+
+/// Ce que partagent les pipelines : le numéro de groupe de chacun de leurs binding layouts, dans
+/// l'ordre de `bindingLayouts` (celui des binding sets de la command list), et le nombre de
+/// groupes.
+struct PipelineGroups
+{
+    std::vector<uint32_t> groupOf;
+    uint32_t groupCount = 0;
+};
+
+class GraphicsPipeline final : public nvrhi::RefCounter<nvrhi::IGraphicsPipeline>
+{
+public:
+    GraphicsPipeline(const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::FramebufferInfo& info,
+                     wgpu::RenderPipeline pipeline, PipelineGroups groups)
+        : desc{desc}, info{info}, pipeline{std::move(pipeline)}, groups{std::move(groups)}
+    {
+    }
+
+    [[nodiscard]] const nvrhi::GraphicsPipelineDesc& getDesc() const override { return desc; }
+
+    [[nodiscard]] const nvrhi::FramebufferInfo& getFramebufferInfo() const override { return info; }
+
+    nvrhi::GraphicsPipelineDesc desc;
+    nvrhi::FramebufferInfo info;
+    wgpu::RenderPipeline pipeline;
+    PipelineGroups groups;
+};
+
+class ComputePipeline final : public nvrhi::RefCounter<nvrhi::IComputePipeline>
+{
+public:
+    ComputePipeline(const nvrhi::ComputePipelineDesc& desc, wgpu::ComputePipeline pipeline,
+                    PipelineGroups groups)
+        : desc{desc}, pipeline{std::move(pipeline)}, groups{std::move(groups)}
+    {
+    }
+
+    [[nodiscard]] const nvrhi::ComputePipelineDesc& getDesc() const override { return desc; }
+
+    nvrhi::ComputePipelineDesc desc;
+    wgpu::ComputePipeline pipeline;
+    PipelineGroups groups;
+};
+
 /// Le device : l'adaptateur et le device WebGPU, et la file où tout est soumis.
 class Device final : public nvrhi::RefCounter<nvrhi::IDevice>
 {
@@ -129,6 +232,20 @@ public:
                                                uint32_t attributeCount,
                                                nvrhi::IShader* vertexShader) override;
 
+    nvrhi::FramebufferHandle createFramebuffer(const nvrhi::FramebufferDesc& desc) override;
+    // bindings.cpp
+    nvrhi::BindingLayoutHandle createBindingLayout(const nvrhi::BindingLayoutDesc& desc) override;
+    nvrhi::BindingSetHandle createBindingSet(const nvrhi::BindingSetDesc& desc,
+                                             nvrhi::IBindingLayout* layout) override;
+    // pipelines.cpp
+    nvrhi::GraphicsPipelineHandle
+    createGraphicsPipeline(const nvrhi::GraphicsPipelineDesc& desc,
+                           nvrhi::FramebufferInfo const& info) override;
+    nvrhi::GraphicsPipelineHandle createGraphicsPipeline(const nvrhi::GraphicsPipelineDesc& desc,
+                                                         nvrhi::IFramebuffer* framebuffer) override;
+    nvrhi::ComputePipelineHandle
+    createComputePipeline(const nvrhi::ComputePipelineDesc& desc) override;
+
     nvrhi::GraphicsAPI getGraphicsAPI() override { return nvrhi::GraphicsAPI::WEBGPU; }
 
     bool queryFeatureSupport(nvrhi::Feature feature, void* info, size_t infoSize) override;
@@ -141,7 +258,7 @@ public:
 
     nvrhi::Object getNativeObject(nvrhi::ObjectType) override { return nullptr; }
 
-    // À venir (#184, partie B) : bindings, pipelines, command lists, relecture, requêtes.
+    // À venir (#184, partie B2) : command lists, relecture, requêtes.
     nvrhi::StagingTextureHandle createStagingTexture(const nvrhi::TextureDesc&,
                                                      nvrhi::CpuAccessMode) override
     {
@@ -155,39 +272,6 @@ public:
     }
 
     void unmapStagingTexture(nvrhi::IStagingTexture*) override {}
-
-    nvrhi::FramebufferHandle createFramebuffer(const nvrhi::FramebufferDesc&) override
-    {
-        return nullptr;
-    }
-
-    nvrhi::GraphicsPipelineHandle createGraphicsPipeline(const nvrhi::GraphicsPipelineDesc&,
-                                                         nvrhi::FramebufferInfo const&) override
-    {
-        return nullptr;
-    }
-
-    nvrhi::GraphicsPipelineHandle createGraphicsPipeline(const nvrhi::GraphicsPipelineDesc&,
-                                                         nvrhi::IFramebuffer*) override
-    {
-        return nullptr;
-    }
-
-    nvrhi::ComputePipelineHandle createComputePipeline(const nvrhi::ComputePipelineDesc&) override
-    {
-        return nullptr;
-    }
-
-    nvrhi::BindingLayoutHandle createBindingLayout(const nvrhi::BindingLayoutDesc&) override
-    {
-        return nullptr;
-    }
-
-    nvrhi::BindingSetHandle createBindingSet(const nvrhi::BindingSetDesc&,
-                                             nvrhi::IBindingLayout*) override
-    {
-        return nullptr;
-    }
 
     nvrhi::CommandListHandle createCommandList(const nvrhi::CommandListParameters&) override
     {
@@ -362,10 +446,21 @@ public:
     wgpu::Device device;
     wgpu::Queue queue;
 
-private:
+    /// Le groupe vide, lié là où un pipeline n'a pas de binding layout (l'espace de registres 1 de
+    /// la passe des meshes, ADR-0013) : WebGPU veut un groupe à chaque numéro qu'il utilise.
+    wgpu::BindGroupLayout emptyLayout;
+    wgpu::BindGroup emptyGroup;
+
+    /// Les groupes d'un pipeline qui utilise `layouts` (pipelines.cpp).
+    [[nodiscard]] PipelineGroups groupsOf(const nvrhi::BindingLayoutVector& layouts) const;
+    /// Son pipeline layout WebGPU : les bind group layouts, et le groupe vide dans les trous.
+    [[nodiscard]] wgpu::PipelineLayout pipelineLayoutOf(const nvrhi::BindingLayoutVector& layouts,
+                                                        const PipelineGroups& groups) const;
+
     /// Signale une erreur à NVRHI comme le font ses backends : par le callback de messages.
     void error(const std::string& message) const;
 
+private:
     nvrhi::IMessageCallback* m_messageCallback;
     nvrhi::AftermathCrashDumpHelper m_aftermath; ///< Vide : Aftermath est propre à NVIDIA.
 };

@@ -35,6 +35,17 @@ Device::Device(wgpu::Instance instance, wgpu::Adapter adapter, wgpu::Device devi
     : instance{std::move(instance)}, adapter{std::move(adapter)}, device{std::move(device)},
       queue{this->device.GetQueue()}, m_messageCallback{messageCallback}
 {
+    wgpu::BindGroupLayoutDescriptor layoutDesc{};
+    emptyLayout = this->device.CreateBindGroupLayout(&layoutDesc);
+    wgpu::BindGroupDescriptor groupDesc{};
+    groupDesc.layout = emptyLayout;
+    emptyGroup = this->device.CreateBindGroup(&groupDesc);
+}
+
+nvrhi::FramebufferHandle Device::createFramebuffer(const nvrhi::FramebufferDesc& desc)
+{
+    // Rien à créer : WebGPU décrit ses attachements à chaque passe de rendu (commandlist.cpp).
+    return nvrhi::FramebufferHandle::Create(new Framebuffer{desc});
 }
 
 void Device::error(const std::string& message) const
