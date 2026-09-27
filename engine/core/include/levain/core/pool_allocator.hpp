@@ -41,6 +41,7 @@ private:
     [[nodiscard]] bool owns(const void* block) const noexcept;
 
     std::unique_ptr<std::byte[]> m_buffer;
+    std::byte* m_blocks = nullptr; ///< Le premier bloc, aligné dans `m_buffer`.
     std::size_t m_blockSize;
     std::size_t m_blockCount;
     std::size_t m_freeBlocks;

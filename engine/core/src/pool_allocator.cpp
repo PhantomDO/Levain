@@ -1,5 +1,6 @@
 #include "levain/core/pool_allocator.hpp"
 
+#include <cstdint>
 #include <cstring>
 
 #include "levain/core/assert.hpp"
@@ -42,14 +43,19 @@ PoolAllocator::PoolAllocator(std::size_t blockSize, std::size_t blockAlignment,
                   "l'alignement doit convenir au chaînon stocké dans le bloc");
     LEVAIN_ASSERT(blockCount > 0, "un pool vide n'a pas de sens");
 
-    m_buffer = std::make_unique<std::byte[]>(m_blockSize * m_blockCount);
+    // new std::byte[] ne garantit que alignof(std::max_align_t) : 16 octets sur un PC 64 bits,
+    // 8 en WebAssembly. On réserve de quoi décaler le premier bloc jusqu'à l'alignement demandé,
+    // comme LinearAllocator aligne ses adresses réelles.
+    m_buffer = std::make_unique<std::byte[]>((m_blockSize * m_blockCount) + blockAlignment - 1);
+    const auto base = reinterpret_cast<std::uintptr_t>(m_buffer.get());
+    m_blocks = m_buffer.get() + (alignUp(base, blockAlignment) - base);
 
     // Chaînage initial : chaque bloc pointe vers le suivant, le dernier vers nullptr.
     // Parcouru à l'envers pour que la liste sorte dans l'ordre croissant des adresses,
     // ce qui rend les premières allocations contiguës et donc amies du cache.
     for (std::size_t index = m_blockCount; index-- > 0;)
     {
-        std::byte* const block = m_buffer.get() + (index * m_blockSize);
+        std::byte* const block = m_blocks + (index * m_blockSize);
         writeNext(block, m_freeList);
         m_freeList = block;
     }
@@ -86,7 +92,7 @@ void PoolAllocator::deallocate(void* block) noexcept
 bool PoolAllocator::owns(const void* block) const noexcept
 {
     const auto* const bytes = static_cast<const std::byte*>(block);
-    const std::byte* const begin = m_buffer.get();
+    const std::byte* const begin = m_blocks;
     const std::byte* const end = begin + (m_blockSize * m_blockCount);
 
     if (bytes < begin || bytes >= end)

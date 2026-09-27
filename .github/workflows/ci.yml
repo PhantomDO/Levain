@@ -287,3 +287,80 @@ jobs:
         run: |
           find engine sandbox tests tools -name '*.cpp' \
             | xargs clang-tidy -p build/${{ matrix.preset }} --warnings-as-errors='*'
+
+  # Le code CPU compilé en WebAssembly, ses tests lancés par Node (ADR-0023, #182). Un job à part :
+  # ni LLVM, ni Vulkan, ni X11, mais Emscripten, figé sur la version de la machine de référence.
+  # Pas encore un check requis par la protection de `main` : à décider avec Donnovan.
+  web:
+    name: web
+    runs-on: ubuntu-latest
+
+    env:
+      VCPKG_TAG: "2026.07.29"
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/vcpkg-downloads
+      EMSDK_VERSION: "6.0.10"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Outils
+        run: sudo apt-get update && sudo apt-get install -y ninja-build zip unzip
+
+      - name: Cache d'Emscripten
+        uses: actions/cache@v4
+        with:
+          path: emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}
+
+      # Installé seulement s'il n'est pas déjà dans le cache. emsdk apporte aussi Node, qui lance
+      # les tests (CMAKE_CROSSCOMPILING_EMULATOR, posé par la toolchain d'Emscripten).
+      - name: Emscripten
+        run: |
+          set -euo pipefail
+          if [ ! -x emsdk/upstream/emscripten/emcc ]; then
+            rm -rf emsdk
+            git clone --depth 1 https://github.com/emscripten-core/emsdk.git emsdk
+            ./emsdk/emsdk install ${{ env.EMSDK_VERSION }}
+          fi
+          ./emsdk/emsdk activate ${{ env.EMSDK_VERSION }}
+
+      - name: Cloner vcpkg
+        run: git clone --depth 1 --branch "${{ env.VCPKG_TAG }}" https://github.com/microsoft/vcpkg.git vcpkg
+
+      - name: Cache des téléchargements vcpkg
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-downloads
+          key: vcpkg-downloads-web-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
+          restore-keys: vcpkg-downloads-web-${{ env.VCPKG_TAG }}-
+
+      - name: Créer le dossier des téléchargements
+        run: mkdir -p vcpkg-downloads
+
+      - name: Bootstrap vcpkg
+        run: ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+
+      # Une clé à part des jobs natifs : les paquets wasm32-emscripten ne leur servent pas, et deux
+      # jobs qui écrivent la même clé se la disputent.
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-web-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
+
+      - name: Créer le dossier de cache
+        run: mkdir -p vcpkg-cache
+
+      - name: Configurer, compiler et tester
+        run: |
+          set -euo pipefail
+          source emsdk/emsdk_env.sh
+          emcc --version | head -1
+          cmake --preset web
+          cmake --build --preset web
+          ctest --test-dir build/web --output-on-failure -j4
+          # Au moins les tests du code CPU : une liste vide passerait sans rien vérifier (règle n°7).
+          count=$(ctest --test-dir build/web -N | sed -nE 's/^Total Tests: ([0-9]+)/\1/p')
+          [ "$count" -ge 80 ] || { echo "::error::seulement $count tests web"; exit 1; }

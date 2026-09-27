@@ -110,6 +110,18 @@ TEST_CASE("le pool distribue des blocs distincts et alignés")
     CHECK(pool.allocate() == nullptr);
 }
 
+TEST_CASE("le pool aligne ses blocs au-delà de ce que garantit new")
+{
+    // new std::byte[] ne garantit que alignof(std::max_align_t) : 16 octets sur un PC 64 bits,
+    // 8 en WebAssembly. Une ligne de cache en demande 64.
+    PoolAllocator pool{64, 64, 8};
+
+    for (int i = 0; i < 8; ++i)
+    {
+        CHECK(isAligned(pool.allocate(), 64));
+    }
+}
+
 TEST_CASE("un bloc rendu au pool est redistribué")
 {
     PoolAllocator pool{32, 16, 2};
