@@ -19,5 +19,11 @@ target_include_directories(levain_render PUBLIC include)
 # soit l'API en dessous (SPECS §7).
 target_link_libraries(levain_render PUBLIC levain::core nvrhi glm::glm)
 
-target_compile_definitions(levain_render PRIVATE LEVAIN_SHADER_DIR="${LEVAIN_SHADER_DIR}")
+# Dans le navigateur, les shaders sont dans le système de fichiers d'Emscripten, où l'exécutable
+# les précharge (--preload-file <build>/shaders@/shaders).
+if(EMSCRIPTEN)
+    target_compile_definitions(levain_render PRIVATE LEVAIN_SHADER_DIR="/shaders")
+else()
+    target_compile_definitions(levain_render PRIVATE LEVAIN_SHADER_DIR="${LEVAIN_SHADER_DIR}")
+endif()
 add_dependencies(levain_render levain_shaders)

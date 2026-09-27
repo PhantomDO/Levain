@@ -4,7 +4,16 @@
 # slangc. Un shader qui sort du sous-ensemble portable (un ByteAddressBuffer, par exemple) échoue
 # donc dès le build natif, bien avant d'arriver dans un navigateur.
 
-set(vcpkgTools "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools")
+# Les compilateurs de shaders tournent sur la machine qui compile : ce sont des outils de l'hôte
+# (`"host": true` dans vcpkg.json), installés sous son triplet. Dans le build web, le triplet cible
+# est wasm32-emscripten, et ses outils n'existent pas.
+# En natif, l'hôte est la cible : VCPKG_HOST_TRIPLET n'est posé que par le preset web.
+if(VCPKG_HOST_TRIPLET)
+    set(hostTriplet "${VCPKG_HOST_TRIPLET}")
+else()
+    set(hostTriplet "${VCPKG_TARGET_TRIPLET}")
+endif()
+set(vcpkgTools "${VCPKG_INSTALLED_DIR}/${hostTriplet}/tools")
 
 # NO_DEFAULT_PATH : un slangc installé sur le système contournerait la baseline figée (ADR-0007),
 # comme le spdlog d'Arch en M0.3.
@@ -12,7 +21,7 @@ find_program(LEVAIN_SLANGC slangc PATHS "${vcpkgTools}/shader-slang" NO_DEFAULT_
 find_program(LEVAIN_DXC dxc PATHS "${vcpkgTools}/directx-dxc" NO_DEFAULT_PATH REQUIRED)
 
 # slangc produit le DXIL en chargeant libdxcompiler.so, fournie par le port directx-dxc.
-set(dxcLibraryDir "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib")
+set(dxcLibraryDir "${VCPKG_INSTALLED_DIR}/${hostTriplet}/lib")
 
 # Décalages de binding de NVRHI sous Vulkan (nvrhi::VulkanBindingOffsets) : les registres t, s, b
 # et u de HLSL partagent un seul espace de bindings Vulkan, qu'on découpe en quatre plages.

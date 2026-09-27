@@ -64,7 +64,8 @@
         "VCPKG_TARGET_TRIPLET": "wasm32-emscripten",
         "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
         "CMAKE_CXX_FLAGS": "-fwasm-exceptions",
-        "CMAKE_EXE_LINKER_FLAGS": "-fwasm-exceptions"
+        "CMAKE_EXE_LINKER_FLAGS": "-fwasm-exceptions",
+        "VCPKG_HOST_TRIPLET": "x64-linux"
       }
     }
   ],

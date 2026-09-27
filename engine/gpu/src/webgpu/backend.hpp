@@ -18,6 +18,15 @@
 namespace levain::gpu::webgpu
 {
 
+/// Nos types d'objets natifs, pour `getNativeObject` : NVRHI occupe les plages 0x0000 à 0x0003
+/// (D3D11, D3D12, Vulkan) ; WebGPU prend 0x0010. La couche de validation les relaie au device.
+namespace object_types
+{
+inline constexpr nvrhi::ObjectType Instance = 0x00100001;
+inline constexpr nvrhi::ObjectType Adapter = 0x00100002;
+inline constexpr nvrhi::ObjectType Device = 0x00100003;
+} // namespace object_types
+
 class Buffer final : public nvrhi::RefCounter<nvrhi::IBuffer>
 {
 public:
@@ -256,7 +265,7 @@ public:
 
     nvrhi::IMessageCallback* getMessageCallback() override { return m_messageCallback; }
 
-    nvrhi::Object getNativeObject(nvrhi::ObjectType) override { return nullptr; }
+    nvrhi::Object getNativeObject(nvrhi::ObjectType type) override;
 
     // commandlist.cpp : command lists, relecture, requêtes.
     nvrhi::CommandListHandle createCommandList(const nvrhi::CommandListParameters& params) override;
