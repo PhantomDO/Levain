@@ -1,6 +1,11 @@
 # Roadmap v1
 
-> Version 0.7 — 25/09/2026 — statut : **validé par Donnovan** (clôture de la phase 4)
+> Version 0.8 — 27/09/2026 — statut : **validé par Donnovan** (cible web, ADR-0023)
+>
+> v0.8 : **la cible web** ([ADR-0023](adr/0023-cible-web-webgpu.md)) : un backend WebGPU pour NVRHI, le moteur
+> compilé en WebAssembly, et des fonctionnalités de rendu activées selon la plateforme. M4.6 est ajouté avant la
+> phase 5, à la demande de Donnovan, sur la foi d'un prototype. Total : **56,9 h → 60,4 h** ; échéances
+> inchangées.
 >
 > v0.7 : **clôture de la phase 4**, ratio 0,73 : **aucun recalibrage**, par décision de Donnovan (le ratio cumulé
 > des phases 0 à 4 vaut 0,87, dans la fourchette). Les **études** passent de 0,15 à **0,4 h** (E2 à E4 en ont
@@ -46,17 +51,17 @@
 | 1 | Fenêtre et premier triangle | 3,0 (réel, 4,5 estimées) | 3 | fini le 21/09/2026 |
 | 2 | 3D de base | 4,25 (réel, 3,75 estimées) | 4 | fini le 22/09/2026 |
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
-| 4 | Assets | 6,0 (réel, 8,25 estimées) | 9 | fini le 25/09/2026 |
+| 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 3,5 | 14 | M4.6 : 13/12/2026 |
 | 5 | Rendu PBR et monde | 10,5 | 12 | 31/01/2027 |
 | 6 | Physique et traversée | 7,15 | 6 | 28/02/2027 |
 | 7 | Éditeur | 7,5 | 8 | 04/04/2027 |
 | 8 | Audio et le jeu | 8,25 | 8 | 16/05/2027 |
-| **Total** | | **56,9** | **59** | |
+| **Total** | | **60,4** | **64** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante après la phase 4 (33,4 h) selon le rythme : **2 h/sem. → 17 semaines** (fin janvier 2027) ·
-**1,5 h/sem. → 23 semaines** (début mars 2027) · **1 h/sem. → 34 semaines** (mai 2027).
+Durée restante après la phase 4 et M4.6 (36,9 h) selon le rythme : **2 h/sem. → 19 semaines** (début février
+2027) · **1,5 h/sem. → 25 semaines** (mi-mars 2027) · **1 h/sem. → 37 semaines** (juin 2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 09/05/2027.
@@ -215,6 +220,7 @@ Actors/Components d'Unreal, GameObject d'Unity, Nodes de Godot.
 | M4.3 Cuisson des assets | 2,0 | 2 | 29/11/2026 |
 | M4.4 Hot-reload des assets | 1,0 | 1 | 06/12/2026 |
 | M4.5 Animation squelettique | 2,0 | 2 | 13/12/2026 |
+| M4.6 Cible web (ajouté après la clôture de la phase) | 3,5 | 5 | 13/12/2026 |
 
 **M4.1 — Import glTF.** fastgltf : meshes, matériaux, textures et hiérarchie convertis en entités flecs. En
 préalable, le sandbox capture sa dernière image en PNG (`--capture`), pour que Donnovan voie les rendus à
@@ -238,6 +244,12 @@ avant et après.
 états simple (repos, marche, course, saut, chute, nage, vol plané). ozz-animation derrière une passerelle glTF,
 skinning en compute ([ADR-0022](adr/0022-animation-squelettique.md)).
 *Critère* : le personnage Quaternius passe du repos à la course selon sa vitesse, sans saut visible.
+
+**M4.6 — Cible web.** Un backend WebGPU pour NVRHI, écrit dans le dépôt ; le moteur compilé en WebAssembly par
+Emscripten ; les shaders compilés aussi en WGSL ; le sandbox publié sur GitHub Pages. En natif, le backend tourne
+sur Dawn, pour le développer et le tester en CI ([ADR-0023](adr/0023-cible-web-webgpu.md)).
+*Critères* : le sandbox (cubes, sol, modèle glTF, renard animé) tourne dans Firefox et dans un navigateur
+Chromium, depuis GitHub Pages ; la CI compile et teste le backend.
 
 **Étude E4 — Pipelines d'assets** : `.uasset` et Derived Data Cache d'Unreal, `.meta` et `Library/` d'Unity,
 `.import` et UID de Godot.
