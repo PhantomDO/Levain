@@ -39,6 +39,9 @@ else()
     target_link_libraries(levain_tests PRIVATE
         levain::animation levain::assets levain::core levain::gpu levain::input levain::platform
         levain::render levain::scene doctest::doctest)
+    # Le WGSL produit par le build, que webgpu_test.cpp fait compiler au backend WebGPU.
+    target_compile_definitions(levain_tests PRIVATE LEVAIN_SHADER_DIR="${LEVAIN_SHADER_DIR}")
+    add_dependencies(levain_tests levain_shaders)
 endif()
 
 # La macro qui génère le main de doctest ne doit s'appliquer qu'à une seule unité de

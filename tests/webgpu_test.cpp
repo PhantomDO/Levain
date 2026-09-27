@@ -2,14 +2,31 @@
 // lavapipe, son adaptateur de repli.
 
 #include <string>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <nvrhi/nvrhi.h>
 
+#include "levain/core/file.hpp"
 #include "levain/gpu/webgpu.hpp"
 
 namespace
 {
+
+/// Garde les messages au lieu de s'arrêter dessus : pour vérifier qu'une erreur est signalée.
+class CollectMessages final : public nvrhi::IMessageCallback
+{
+public:
+    void message(nvrhi::MessageSeverity severity, const char* text) override
+    {
+        if (severity >= nvrhi::MessageSeverity::Error)
+        {
+            errors.emplace_back(text);
+        }
+    }
+
+    std::vector<std::string> errors;
+};
 
 nvrhi::DeviceHandle webGpuDevice(nvrhi::IMessageCallback* messages = nullptr)
 {
@@ -44,6 +61,43 @@ TEST_CASE("le device WebGPU crée buffers, textures et samplers, sous la validat
     CHECK(texture->getDesc().mipLevels == 3);
 
     CHECK(device->createSampler(nvrhi::SamplerDesc().setAllFilters(true).setMaxAnisotropy(16)));
+}
+
+TEST_CASE("le WGSL des shaders du moteur, produit par le build, compile sur le device WebGPU")
+{
+    const nvrhi::DeviceHandle device = webGpuDevice();
+    for (const char* name : {"triangle.vertexMain", "triangle.fragmentMain", "mesh.vertexMain",
+                             "mesh.fragmentMain", "skinning.computeMain"})
+    {
+        CAPTURE(name);
+        const auto wgsl =
+            levain::core::readFile(std::string{LEVAIN_SHADER_DIR "/"} + name + ".wgsl");
+        REQUIRE(wgsl.has_value());
+        const std::string entry = std::string{name}.substr(std::string{name}.find('.') + 1);
+        CHECK(device->createShader(nvrhi::ShaderDesc()
+                                       .setShaderType(nvrhi::ShaderType::All)
+                                       .setEntryName(entry)
+                                       .setDebugName(name),
+                                   wgsl->data(), wgsl->size()));
+    }
+}
+
+TEST_CASE("un shader WGSL invalide est refusé et signalé, sans arrêter le programme")
+{
+    CollectMessages messages;
+    const nvrhi::DeviceHandle device = webGpuDevice(&messages);
+    const std::string wgsl = "ceci n'est pas du WGSL";
+
+    const nvrhi::ShaderHandle shader =
+        device->createShader(nvrhi::ShaderDesc()
+                                 .setShaderType(nvrhi::ShaderType::Vertex)
+                                 .setEntryName("main")
+                                 .setDebugName("invalide"),
+                             wgsl.data(), wgsl.size());
+
+    CHECK_FALSE(shader);
+    REQUIRE(messages.errors.size() == 1);
+    CHECK(messages.errors[0].find("invalide") != std::string::npos);
 }
 
 TEST_CASE("le backend WebGPU déclare absent ce que WebGPU n'a pas")
