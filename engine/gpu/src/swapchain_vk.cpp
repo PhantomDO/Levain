@@ -226,21 +226,57 @@ createSwapchain(const VulkanContext& vulkan, nvrhi::vulkan::IDevice& nvrhi,
     return swapchain;
 }
 
+namespace
+{
+
+/// Le format de l'image hors écran : celui qu'aurait une swapchain en sRGB.
+constexpr nvrhi::Format OffscreenFormat = nvrhi::Format::SRGBA8_UNORM;
+
+/// Sans swapchain, une image hors écran à la taille de la fenêtre, recréée quand elle change.
+nvrhi::ITexture* offscreenFrame(GpuDevice& gpu, platform::PixelSize size)
+{
+    const auto width = static_cast<std::uint32_t>(size.width);
+    const auto height = static_cast<std::uint32_t>(size.height);
+    if (!gpu.offscreen || gpu.offscreen->getDesc().width != width ||
+        gpu.offscreen->getDesc().height != height)
+    {
+        gpu.offscreen =
+            gpu.nvrhi->createTexture(nvrhi::TextureDesc()
+                                         .setWidth(width)
+                                         .setHeight(height)
+                                         .setFormat(OffscreenFormat)
+                                         .setIsRenderTarget(true)
+                                         .setInitialState(nvrhi::ResourceStates::RenderTarget)
+                                         .setKeepInitialState(true)
+                                         .setDebugName("image hors écran"));
+    }
+    return gpu.offscreen;
+}
+
+} // namespace
+
 nvrhi::Format swapchainFormat(const GpuDevice& gpu)
 {
+    if (!gpu.swapchain)
+    {
+        return OffscreenFormat;
+    }
     return toNvrhiFormat(gpu.swapchain->swapchain.image_format);
 }
 
 nvrhi::ITexture* beginFrame(GpuDevice& gpu, const platform::Window& window)
 {
-    Swapchain& swapchain = *gpu.swapchain;
-
     // Minimisée sous X11, la fenêtre mesure 0 × 0 : aucune swapchain ne peut avoir cette taille.
     const platform::PixelSize size = platform::windowPixelSize(window);
     if (isEmpty(size))
     {
         return nullptr;
     }
+    if (!gpu.swapchain)
+    {
+        return offscreenFrame(gpu, size);
+    }
+    Swapchain& swapchain = *gpu.swapchain;
 
     // Sous Wayland, la swapchain n'est jamais déclarée périmée au redimensionnement : c'est à nous
     // de comparer sa taille à celle de la fenêtre.
@@ -279,6 +315,10 @@ nvrhi::ITexture* beginFrame(GpuDevice& gpu, const platform::Window& window)
 
 void presentFrame(GpuDevice& gpu)
 {
+    if (!gpu.swapchain)
+    {
+        return;
+    }
     Swapchain& swapchain = *gpu.swapchain;
 
     // NVRHI ne signale un sémaphore qu'à la soumission suivante : une soumission vide l'envoie
