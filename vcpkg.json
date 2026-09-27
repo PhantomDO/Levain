@@ -12,13 +12,20 @@
       "host": true
     },
     "flecs",
+    {
+      "name": "dawn",
+      "default-features": false,
+      "features": [
+        {
+          "name": "vulkan",
+          "platform": "!emscripten"
+        }
+      ]
+    },
     "fastgltf",
     "glm",
     "ktx",
-    {
-      "name": "nvrhi",
-      "platform": "!emscripten"
-    },
+    "nvrhi",
     "ozz-animation",
     {
       "name": "shader-slang",

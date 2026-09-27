@@ -3,7 +3,7 @@ find_package(SDL3 CONFIG REQUIRED)
 find_package(VulkanHeaders CONFIG REQUIRED)
 find_package(vk-bootstrap CONFIG REQUIRED)
 
-add_library(levain_gpu STATIC src/device_vk.cpp src/swapchain_vk.cpp)
+add_library(levain_gpu STATIC src/device_vk.cpp src/nvrhi_messages.cpp src/swapchain_vk.cpp)
 add_library(levain::gpu ALIAS levain_gpu)
 
 target_include_directories(levain_gpu PUBLIC include)

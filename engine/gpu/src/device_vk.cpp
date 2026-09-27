@@ -13,6 +13,7 @@
 #include <nvrhi/vulkan.h>
 #include <vulkan/vulkan.hpp>
 
+#include "nvrhi_messages.hpp"
 #include "vulkan_context.hpp"
 
 #include "levain/core/assert.hpp"
@@ -63,22 +64,6 @@ core::LogLevel toLogLevel(VkDebugUtilsMessageSeverityFlagBitsEXT severity)
     }
 }
 
-core::LogLevel toLogLevel(nvrhi::MessageSeverity severity)
-{
-    switch (severity)
-    {
-    case nvrhi::MessageSeverity::Info:
-        return core::LogLevel::Info;
-    case nvrhi::MessageSeverity::Warning:
-        return core::LogLevel::Warning;
-    case nvrhi::MessageSeverity::Error:
-        return core::LogLevel::Error;
-    case nvrhi::MessageSeverity::Fatal:
-        return core::LogLevel::Critical;
-    }
-    return core::LogLevel::Critical;
-}
-
 /// Une erreur des couches de validation, par opposition aux messages du loader Vulkan : un loader
 /// qui signale une couche tierce cassée (SPECS §10) n'est pas un bug du moteur. Seule une
 /// assertion s'en sert, d'où [[maybe_unused]] pour le Release (skill build, GOTCHA.md).
@@ -102,20 +87,6 @@ VKAPI_ATTR VkBool32 VKAPI_CALL onVulkanMessage(VkDebugUtilsMessageSeverityFlagBi
 
     return VK_FALSE; // la spécification l'impose pour un messager de l'application
 }
-
-/// Messages de NVRHI, et de sa couche de validation en Debug.
-class NvrhiMessages final : public nvrhi::IMessageCallback
-{
-public:
-    void message(nvrhi::MessageSeverity severity, const char* messageText) override
-    {
-        core::log("nvrhi", toLogLevel(severity), "{}", messageText);
-        LEVAIN_ASSERT(severity < nvrhi::MessageSeverity::Error, "erreur NVRHI, voir ci-dessus");
-    }
-};
-
-// Sans état, et avec une durée de vie statique : il survit à tous les devices qui le référencent.
-NvrhiMessages nvrhiMessages;
 
 /// Transforme l'échec d'une étape de vk-bootstrap en erreur lisible, raisons détaillées comprises
 /// (par exemple, pourquoi chaque GPU a été écarté).
@@ -274,7 +245,7 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
     // {} et non une déclaration nue : transferQueue et computeQueue n'ont pas de valeur par
     // défaut, et NVRHI prendrait des valeurs indéterminées pour de vraies queues.
     nvrhi::vulkan::DeviceDesc desc{};
-    desc.errorCB = &nvrhiMessages;
+    desc.errorCB = &nvrhiMessages();
     desc.instance = vulkan->instance.instance;
     desc.physicalDevice = vulkan->device.physical_device.physical_device;
     desc.device = vulkan->device.device;
