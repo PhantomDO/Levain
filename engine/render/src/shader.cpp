@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <format>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -13,11 +14,27 @@ namespace levain::render
 namespace
 {
 
-/// SPIR-V pour Vulkan, DXIL pour Direct3D 12 : shaders/CMakeLists.txt produit les deux. C'est la
-/// seule ligne du module qui dépend de l'API graphique.
+/// SPIR-V pour Vulkan, WGSL pour WebGPU, DXIL pour Direct3D 12 : shaders/CMakeLists.txt produit
+/// les trois. Avec `entryNameFor`, c'est tout ce que le module sait de l'API graphique.
 std::string_view shaderExtensionFor(nvrhi::GraphicsAPI api)
 {
-    return api == nvrhi::GraphicsAPI::VULKAN ? ".spv" : ".dxil";
+    switch (api)
+    {
+    case nvrhi::GraphicsAPI::VULKAN:
+        return ".spv";
+    case nvrhi::GraphicsAPI::WEBGPU:
+        return ".wgsl";
+    default:
+        return ".dxil";
+    }
+}
+
+/// Le point d'entrée dans le fichier compilé. slangc nomme « main » celui d'un SPIR-V ou d'un DXIL
+/// ; un WGSL garde le nom de la fonction, celui qui suit le point dans « mesh.vertexMain ».
+std::string entryNameFor(nvrhi::GraphicsAPI api, std::string_view name)
+{
+    return api == nvrhi::GraphicsAPI::WEBGPU ? std::string{name.substr(name.rfind('.') + 1)}
+                                             : std::string{"main"};
 }
 
 // ponytail: chemin absolu du dossier de build, suffisant tant qu'on lance depuis le build. À
@@ -39,9 +56,11 @@ core::Result<nvrhi::ShaderHandle> loadShader(nvrhi::IDevice& device, std::string
         return std::unexpected(std::move(bytecode.error()));
     }
 
-    // slangc nomme « main » le point d'entrée de chaque fichier SPIR-V qu'il produit.
     nvrhi::ShaderHandle shader =
-        device.createShader(nvrhi::ShaderDesc().setShaderType(type).setEntryName("main"),
+        device.createShader(nvrhi::ShaderDesc()
+                                .setShaderType(type)
+                                .setEntryName(entryNameFor(device.getGraphicsAPI(), name))
+                                .setDebugName(std::string{name}),
                             bytecode->data(), bytecode->size());
     if (!shader)
     {

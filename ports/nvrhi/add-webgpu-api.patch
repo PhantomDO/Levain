@@ -1,0 +1,23 @@
+--- a/include/nvrhi/nvrhi.h
++++ b/include/nvrhi/nvrhi.h
+@@ -154,7 +154,9 @@
+     {
+         D3D11,
+         D3D12,
+-        VULKAN
++        VULKAN,
++        // Levain (ADR-0023) : le backend WebGPU, écrit dans le dépôt de Levain, hors de NVRHI.
++        WEBGPU
+     };
+ 
+     enum class Format : uint8_t
+--- a/src/common/utils.cpp
++++ b/src/common/utils.cpp
+@@ -172,6 +172,7 @@
+         case GraphicsAPI::D3D11:  return "D3D11";
+         case GraphicsAPI::D3D12:  return "D3D12";
+         case GraphicsAPI::VULKAN: return "Vulkan";
++        case GraphicsAPI::WEBGPU: return "WebGPU";
+         default:                         return "<UNKNOWN>";
+         }
+     }
