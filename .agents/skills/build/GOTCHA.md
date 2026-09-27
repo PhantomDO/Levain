@@ -3,6 +3,16 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Helium headless ne charge aucune page (2026-09-27)
+
+- **Symptôme** : Helium 0.18 (Chromium 154) en `--headless=new`, profil neuf : l'onglet reste sur `about:blank`,
+  `Page.navigate` ne répond jamais. Même `example.com`.
+- **Cause** : son uBlock Origin intégré suspend le réseau jusqu'au chargement de ses listes de filtres, qu'il
+  ne peut pas télécharger (services de Helium désactivés) : `µBlock.readyToFilter` reste à `false`.
+  `--disable-extensions` ne le retire pas. Chez Donnovan, Helium ne charge pas non plus google.com.
+- **Parade** : pas de Helium pour les tests. Firefox pour `tools/web-smoke.sh` ; un Chromium sur téléphone
+  (navigateur DuckDuckGo, WebView système) pour le critère « Chromium ».
+
 ## SDL dans une page web (2026-09-27)
 
 - **Symptôme 1** : « Document.querySelector: '##canvas' is not a valid selector ». **Cause** :
