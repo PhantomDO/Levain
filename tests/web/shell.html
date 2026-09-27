@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Levain : en attente du device</title>
+<style>html, body { margin: 0; background: #000; } canvas { display: block; width: 64px; height: 64px; }</style>
+</head>
+<body>
+<canvas id="canvas" width="64" height="64"></canvas>
+<script>
+// Sans WebGPU, le dire dans le titre plutôt que laisser une page noire.
+if (!navigator.gpu) { document.title = "Levain : échec, navigator.gpu absent"; }
+var Module = { canvas: document.getElementById("canvas"), print: console.log, printErr: console.error };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>
