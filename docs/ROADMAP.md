@@ -51,12 +51,12 @@
 | 1 | Fenêtre et premier triangle | 3,0 (réel, 4,5 estimées) | 3 | fini le 21/09/2026 |
 | 2 | 3D de base | 4,25 (réel, 3,75 estimées) | 4 | fini le 22/09/2026 |
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
-| 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 3,5 | 14 | M4.6 : 13/12/2026 |
+| 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
 | 5 | Rendu PBR et monde | 10,5 | 12 | 31/01/2027 |
 | 6 | Physique et traversée | 7,15 | 6 | 28/02/2027 |
 | 7 | Éditeur | 7,5 | 8 | 04/04/2027 |
 | 8 | Audio et le jeu | 8,25 | 8 | 16/05/2027 |
-| **Total** | | **60,4** | **64** | |
+| **Total** | | **61,4** | **64** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
@@ -220,7 +220,7 @@ Actors/Components d'Unreal, GameObject d'Unity, Nodes de Godot.
 | M4.3 Cuisson des assets | 2,0 | 2 | 29/11/2026 |
 | M4.4 Hot-reload des assets | 1,0 | 1 | 06/12/2026 |
 | M4.5 Animation squelettique | 2,0 | 2 | 13/12/2026 |
-| M4.6 Cible web (ajouté après la clôture de la phase) | 3,5 | 5 | 13/12/2026 |
+| M4.6 Cible web (ajouté après la clôture de la phase) | 4,5 (réel, 3,5 estimées) | 5 | fini le 27/09/2026 |
 
 **M4.1 — Import glTF.** fastgltf : meshes, matériaux, textures et hiérarchie convertis en entités flecs. En
 préalable, le sandbox capture sa dernière image en PNG (`--capture`), pour que Donnovan voie les rendus à

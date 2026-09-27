@@ -25,8 +25,53 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 | 2 | 3,75 | **4,25** | **1,13** |
 | 3 | 4,5 | **5,25** | **1,17** |
 | 4 | 8,25 | **6,0** | **0,73** |
+| 4 (M4.6) | 3,5 | **4,5** | **1,29** |
 
 ---
+
+## 2026-09-27 — M4.6 — Clôture : le renard court dans le navigateur, sur le backend WebGPU de NVRHI
+
+- **Temps Donnovan : 4,5 h** (estimé 3,5 h), déclaré « en tout » : 2,5 h pour le prototype, l'ADR-0023 et ses
+  sondages, les relectures de #187 et #188 et l'activation de GitHub Pages, puis 2 h pour relire les PR #189 à
+  #199. Réparti au prorata des estimations : #182 0,64 h, #183 0,32 h, #184 1,29 h, #185 0,96 h, #186 1,29 h.
+  **Ratio 1,29.** Sur la phase 4 entière, M4.6 compris : 10,5 h pour 11,75 estimées, **0,89**, dans la
+  fourchette : pas de recalibrage.
+- Sessions Claude Code : 1
+- Fait :
+  - **un backend WebGPU pour NVRHI**, dans `engine/gpu/src/webgpu/` : device, ressources, shaders WGSL, bindings,
+    pipelines, command lists (#189 à #194). Il tourne en natif sur Dawn et dans le navigateur par
+    emdawnwebgpu ;
+  - **le cube du test de fumée dans Firefox** (#195), comparé par `tools/web-smoke.sh` ;
+  - **`levain_sandbox --gpu webgpu`** (#196), qui dessine hors écran : la CI y fait courir le renard et afficher
+    Sponza, en Debug ;
+  - **le sandbox dans le navigateur** : `requestGpuDevice`, une boucle en fonction par image, un système de
+    fichiers préchargé (#197, #198) ;
+  - **publié sur GitHub Pages** (#199) : https://phantomdo.github.io/Levain/
+- Mesures :
+  - cube WebGPU = référence Vulkan : 0 pixel différent sur 4 096, en natif (`ctest -R smoke.webgpu.cube`) et dans
+    Firefox 156 (`tools/web-smoke.sh`) ;
+  - renard skinné par WebGPU : 2 pixels différents de Vulkan sur 2 073 600 ; Sponza (105 dessins) : 105 pixels,
+    sans erreur de validation (`levain_sandbox --gpu webgpu --time 1.5 --capture …`, puis sur Vulkan) ;
+  - le renard court sur WebGPU : os le plus rapide à 502 unités/s, contre 504 sur Vulkan (`--seconds 8
+    --locomotion Survey,Walk,Run`) ;
+  - le sandbox publié tourne à 61 images/s dans Firefox (`node tools/web-smoke.mjs
+    https://phantomdo.github.io/Levain/ - …`) et dans un moteur Chromium : le navigateur DuckDuckGo sur le
+    téléphone Android de Donnovan (WebView système), capture de Donnovan ;
+  - tests : 126 en natif, 83 en WebAssembly (`ctest`).
+- Décisions : l'[ADR-0023](adr/0023-cible-web-webgpu.md) (NVRHI garde toutes les plateformes, un backend WebGPU
+  écrit chez nous, des fonctionnalités par plateforme). En natif, WebGPU dessine hors écran : Dawn n'a pas de
+  surface pour le pilote SDL « offscreen » de la CI. Sponza n'est jamais publié (licence).
+- Écarts et problèmes :
+  - trois PR au-delà des 400 lignes, bloc GPU signalé : #190 (973 lignes), #192 (695), #193 (848). Environ 540
+    lignes en tout sont des bouchons d'interface NVRHI ;
+  - timer queries WebGPU non faites : Firefox n'offre pas `timestamp-query`, le sandbox n'affiche pas de temps GPU
+    sur ce backend ;
+  - la CI passait clang-tidy sur tous les `.cpp`, y compris ceux du seul navigateur : la liste vient maintenant de
+    `compile_commands.json` ;
+  - aucun navigateur Chromium ne charge de page sur la machine de Donnovan (Helium compris, Firefox oui) : le
+    critère « Chromium » est vérifié sur son téléphone, et il testera aussi sur sa tablette.
+- Prochaine étape : aligner *Rando* sur le moteur (`ports/nvrhi`, `triplets/`, Dawn et les filtres de plateforme
+  dans son manifeste), puis la phase 5.
 
 ## 2026-09-25 — hors milestone — Un échec de chargement sans fuite GPU
 
