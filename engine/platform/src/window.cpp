@@ -138,15 +138,16 @@ core::Result<Window> createWindow(const std::string& title, int width, int heigh
     // HIGH_PIXEL_DENSITY : sans ce drapeau, sur un écran à 200 %, SDL demande une surface en
     // basse résolution que le compositeur agrandit, et l'image est floue. VULKAN : SDL refuse de
     // créer une surface Vulkan pour une fenêtre qui ne l'a pas annoncé (engine/gpu). Dans le
-    // navigateur, la fenêtre est le canvas de la page, où WebGPU dessine sans rien demander à SDL.
+    // navigateur, la fenêtre est le canvas de la page, où WebGPU dessine sans rien demander à SDL ;
+    // FILL_DOCUMENT lui donne toute la page, quelle que soit la taille demandée (une tablette).
 #ifdef __EMSCRIPTEN__
-    constexpr SDL_WindowFlags GpuFlag = 0;
+    constexpr SDL_WindowFlags PlatformFlag = SDL_WINDOW_FILL_DOCUMENT;
 #else
-    constexpr SDL_WindowFlags GpuFlag = SDL_WINDOW_VULKAN;
+    constexpr SDL_WindowFlags PlatformFlag = SDL_WINDOW_VULKAN;
 #endif
     SDL_Window* handle =
         SDL_CreateWindow(title.c_str(), width, height,
-                         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | GpuFlag);
+                         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | PlatformFlag);
     if (handle == nullptr)
     {
         std::string message = std::format("SDL_CreateWindow : {}", SDL_GetError());

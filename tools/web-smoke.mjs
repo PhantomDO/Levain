@@ -1,7 +1,8 @@
-// Ouvre la page du cube (tests/web) dans un Firefox lancé par tools/web-smoke.sh, attend que le
-// titre annonce le cube dessiné, capture la page par WebDriver BiDi et compare ses 64 × 64 premiers
-// pixels à la référence rendue par Vulkan. Code de sortie non nul au moindre écart.
-//   node tools/web-smoke.mjs <url> <référence.ppm> <capture.png> [port]
+// Ouvre une page dans un Firefox lancé par tools/web-smoke.sh, attend que son titre annonce une
+// image rendue, et la capture par WebDriver BiDi. Avec une référence, compare ses premiers pixels à
+// la référence rendue par Vulkan ; avec « - », la page doit seulement tourner (le sandbox, dont le
+// titre donne les images/s). Code de sortie non nul au moindre écart.
+//   node tools/web-smoke.mjs <url> <référence.ppm | -> <capture.png> [port]
 import { readFileSync, writeFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 
@@ -45,7 +46,7 @@ for (const start = Date.now(); Date.now() - start < TimeoutMs; ) {
   const result = await send("script.evaluate", {
     expression: "document.title", target: { context }, awaitPromise: false });
   title = result.result.value;
-  if (title.includes("dessiné") || title.includes("échec")) break;
+  if (/dessiné|images\/s|échec/.test(title)) break;
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
 const shot = await send("browsingContext.captureScreenshot", { context });
@@ -53,9 +54,13 @@ await send("session.end");
 socket.close();
 const png = Buffer.from(shot.data, "base64");
 writeFileSync(capturePath, png);
-if (!title.includes("dessiné")) {
-  console.error(`ÉCHEC : la page n'a pas dessiné le cube (titre : « ${title} »)`);
+if (!/dessiné|images\/s/.test(title)) {
+  console.error(`ÉCHEC : la page n'a rien rendu (titre : « ${title} »)`);
   process.exit(1);
+}
+if (referencePath === "-") {
+  console.log(`la page tourne : ${title}`);
+  process.exit(0);
 }
 
 // --- Décodage minimal d'un PNG 8 bits RGB ou RGBA non entrelacé, ce que rend Firefox ---

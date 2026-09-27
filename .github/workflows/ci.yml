@@ -374,6 +374,18 @@ jobs:
       - name: Créer le dossier de cache
         run: mkdir -p vcpkg-cache
 
+      # Le sandbox web précharge le renard et le camion : même cache que les jobs Linux.
+      - name: Cache des assets de test
+        uses: actions/cache@v4
+        with:
+          path: |
+            assets-cache
+            !assets-cache/.cooked
+          key: assets-${{ hashFiles('tools/assets.lock') }}
+
+      - name: Assets de test
+        run: ./tools/fetch-assets.sh
+
       - name: Configurer, compiler et tester
         run: |
           set -euo pipefail
@@ -385,3 +397,6 @@ jobs:
           # Au moins les tests du code CPU : une liste vide passerait sans rien vérifier (règle n°7).
           count=$(ctest --test-dir build/web -N | sed -nE 's/^Total Tests: ([0-9]+)/\1/p')
           [ "$count" -ge 80 ] || { echo "::error::seulement $count tests web"; exit 1; }
+          # La page du sandbox (#186), que publiera GitHub Pages.
+          test -s build/web/sandbox/levain_sandbox.wasm \
+            || { echo "::error::le sandbox web n'a pas été construit"; exit 1; }

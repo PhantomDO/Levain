@@ -54,10 +54,15 @@ ctest --test-dir build/web --output-on-failure
 Le triplet `triplets/wasm32-emscripten.cmake` reprend celui de la communauté vcpkg, avec une parade pour ktx
 (GOTCHA). Les tests lisent le disque par `-sNODERAWFS` : les chemins de `tests/data` restent ceux de la machine.
 
-Le backend WebGPU dans un vrai navigateur : `tools/web-smoke.sh` sert `build/web/tests/levain_web_cube.html`,
-l'ouvre dans un Firefox headless au profil jetable (WebGPU activé, le profil de Donnovan n'est pas touché), et
-compare le canvas à `tests/data/cube.ppm`, rendue par Vulkan. Il faut un GPU : pas en CI pour l'instant. La
-capture reste dans `build/web/web-smoke.png`.
+Le backend WebGPU dans un vrai navigateur : `tools/web-smoke.sh` sert `build/web`, ouvre les pages dans un
+Firefox headless au profil jetable (WebGPU activé, le profil de Donnovan n'est pas touché), compare le cube à
+`tests/data/cube.ppm`, rendue par Vulkan, et vérifie que le sandbox tourne. Il faut un GPU : pas en CI pour
+l'instant. Les captures restent dans `build/web/web-smoke.png` et `build/web/web-sandbox.png`.
+
+Le sandbox web (`build/web/sandbox/levain_sandbox.html`) précharge `data/`, les shaders WGSL, le renard et le
+camion (jamais Sponza, licence) : `tools/fetch-assets.sh` d'abord. Ses arguments passent par l'URL,
+`?args=--model%20/assets-cache/Models/CesiumMilkTruck/glTF/CesiumMilkTruck.gltf` ; le renard par défaut. Pour
+le voir soi-même : `python3 -m http.server -d build/web/sandbox`, puis `http://localhost:8000/levain_sandbox.html`.
 
 `-pedantic-errors` (C++23 strict) et `-Wall -Wextra -Werror` sont dans le `CMakeLists.txt` racine : **ne jamais
 les retirer**. Un avertissement ou une extension C++26 doit casser le build.

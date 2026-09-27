@@ -1,6 +1,5 @@
 // Le GpuDevice dans le navigateur : WebGPU et le canvas de la fenêtre SDL (ADR-0023).
 
-#include <format>
 #include <string>
 #include <utility>
 
@@ -15,11 +14,11 @@ namespace levain::gpu
 void requestGpuDevice(const platform::Window& window, const DeviceOptions& options,
                       const GpuDeviceCallback& onDevice)
 {
-    // Le canvas que SDL a pris pour la fenêtre, « canvas » par défaut (SDL_video.h,
-    // SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING).
-    const std::string selector = std::format(
-        "#{}", SDL_GetStringProperty(SDL_GetWindowProperties(window.handle.get()),
-                                     SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING, "canvas"));
+    // Le sélecteur du canvas que SDL a pris pour la fenêtre, « #canvas » par défaut (SDL_video.h,
+    // SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING : dièse compris, malgré son nom).
+    const std::string selector =
+        SDL_GetStringProperty(SDL_GetWindowProperties(window.handle.get()),
+                              SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING, "#canvas");
     requestWebGpuDevice(
         {.enableValidation = options.enableValidation},
         [selector, onDevice](core::Result<nvrhi::DeviceHandle> device)
