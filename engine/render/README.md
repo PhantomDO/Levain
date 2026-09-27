@@ -119,9 +119,10 @@ elle ne sait rien de l'animation, et les ombres (M5.3) les reliront de même.
 Ce qu'apporte le compute à ce qu'on savait déjà :
 
 - **un pipeline compute** (`nvrhi::IComputePipeline`) : un shader et ses binding layouts, sans état de rendu ;
-- **des vues brutes** (`RawBuffer_SRV`, `RawBuffer_UAV`) : le shader lit et écrit octet par octet, pour que la
-  disposition soit exactement celle du C++. Un `StructuredBuffer` de `float3` serait aligné sur 16 octets sous
-  Vulkan, et décalerait tout sans erreur ;
+- **des tampons de mots** (`StructuredBuffer<uint>`, vues `StructuredBuffer_SRV` et `StructuredBuffer_UAV` de
+  pas 4) : le shader lit et écrit mot de 32 bits par mot, pour que la disposition soit exactement celle du C++.
+  Un `StructuredBuffer` de `float3` serait aligné sur 16 octets sous Vulkan, et décalerait tout sans erreur. Pas
+  de `ByteAddressBuffer`, que la cible WGSL de Slang ne sait pas lire (ADR-0023) ;
 - **les transitions entre compute et dessin** : le même buffer est écrit par le compute (état *UnorderedAccess*)
   puis lu comme vertex buffer. NVRHI suit l'état de chaque ressource et place la barrière entre les deux
   (suivi automatique des états, activé par défaut).

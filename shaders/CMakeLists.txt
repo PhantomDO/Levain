@@ -1,6 +1,8 @@
 # Compilation des shaders Slang au build (ADR-0005, amendement du 2026-09-21). Une commande par
-# point d'entrée, qui produit le SPIR-V et le DXIL : seul un shader modifié est recompilé, et une
-# erreur de shader fait échouer le build avec le message de slangc.
+# point d'entrée, qui produit le SPIR-V, le DXIL et le WGSL (le navigateur, ADR-0023) : seul un
+# shader modifié est recompilé, et une erreur de shader fait échouer le build avec le message de
+# slangc. Un shader qui sort du sous-ensemble portable (un ByteAddressBuffer, par exemple) échoue
+# donc dès le build natif, bien avant d'arriver dans un navigateur.
 
 set(vcpkgTools "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools")
 
@@ -24,20 +26,26 @@ set(commonFlags -matrix-layout-column-major -warnings-as-errors all)
 set(LEVAIN_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL "Shaders compilés")
 set(shaderOutputs)
 
-# levain_add_shader(triangle vertexMain vertex) produit triangle.vertexMain.spv et .dxil.
+# levain_add_shader(triangle vertexMain vertex) produit triangle.vertexMain.spv, .dxil et .wgsl.
 function(levain_add_shader name entry stage)
     set(source "${CMAKE_CURRENT_SOURCE_DIR}/${name}.slang")
     set(spirv "${CMAKE_CURRENT_BINARY_DIR}/${name}.${entry}.spv")
     set(dxil "${CMAKE_CURRENT_BINARY_DIR}/${name}.${entry}.dxil")
+    set(wgsl "${CMAKE_CURRENT_BINARY_DIR}/${name}.${entry}.wgsl")
 
     add_custom_command(
-        OUTPUT "${spirv}" "${dxil}"
+        OUTPUT "${spirv}" "${dxil}" "${wgsl}"
         COMMAND "${LEVAIN_SLANGC}" "${source}" -entry ${entry} -stage ${stage}
                 -target spirv ${vulkanShifts} ${commonFlags}
                 -o "${spirv}" -depfile "${spirv}.d"
         COMMAND "${LEVAIN_SLANGC}" "${source}" -entry ${entry} -stage ${stage}
                 -target dxil -profile sm_6_0 -dxc-path "${dxcLibraryDir}" ${commonFlags}
                 -o "${dxil}"
+        # Les mêmes décalages que sous Vulkan : WebGPU n'a qu'un espace de bindings par groupe,
+        # comme un descriptor set, et le backend WebGPU de NVRHI les lira de même (ADR-0023).
+        COMMAND "${LEVAIN_SLANGC}" "${source}" -entry ${entry} -stage ${stage}
+                -target wgsl ${vulkanShifts} ${commonFlags}
+                -o "${wgsl}"
         DEPENDS "${source}"
         DEPFILE "${spirv}.d"
         COMMENT "Slang : ${name}.${entry}"
@@ -47,7 +55,7 @@ function(levain_add_shader name entry stage)
     # au moins qu'il est bien formé, plutôt que de produire des fichiers que rien ne relit.
     add_test(NAME "dxil.${name}.${entry}" COMMAND "${LEVAIN_DXC}" -dumpbin "${dxil}")
 
-    set(shaderOutputs ${shaderOutputs} "${spirv}" "${dxil}" PARENT_SCOPE)
+    set(shaderOutputs ${shaderOutputs} "${spirv}" "${dxil}" "${wgsl}" PARENT_SCOPE)
 endfunction()
 
 levain_add_shader(triangle vertexMain vertex)

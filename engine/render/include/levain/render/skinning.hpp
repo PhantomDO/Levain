@@ -23,8 +23,8 @@ struct SkinnedVertex
     glm::vec4 weights;
 };
 
-static_assert(sizeof(SkinnedVertex) == 56, "disposition lue octet par octet par skinning.slang");
-static_assert(sizeof(MeshVertex) == 32, "disposition écrite octet par octet par skinning.slang");
+static_assert(sizeof(SkinnedVertex) == 56, "disposition lue mot par mot par skinning.slang");
+static_assert(sizeof(MeshVertex) == 32, "disposition écrite mot par mot par skinning.slang");
 
 /// Le skinning en compute (ADR-0022) : un seul pipeline, pour tous les meshes skinnés.
 struct SkinningPass

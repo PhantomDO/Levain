@@ -1212,6 +1212,10 @@ struct SandboxOptions
     std::optional<std::string> locomotion;
     /// L'échelle du modèle (voir `modelPlacement`).
     float modelScale = 2.0f;
+    /// Le temps de la scène, figé : les cubes et les animations s'arrêtent à cet instant. Deux
+    /// captures prises avec le même `--time` se comparent pixel par pixel (d'un build, d'un
+    /// shader ou d'un backend à l'autre).
+    std::optional<double> frozenSeconds;
     /// Où écrire une capture de la dernière image, en PNG. Avec `--seconds`, c'est ce qui montre un
     /// rendu à distance, sans écran ni capture du bureau.
     std::optional<std::filesystem::path> capturePath;
@@ -1266,6 +1270,10 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         {
             options.maxAnisotropy = static_cast<float>(*value);
         }
+        else if (name == "--time")
+        {
+            options.frozenSeconds = value;
+        }
         else if (name == "--model-scale")
         {
             options.modelScale = static_cast<float>(*value);
@@ -1313,7 +1321,8 @@ bool captureFrame(levain::gpu::GpuDevice& gpu, const levain::platform::Window& w
 bool runMainLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, DemoScene& scene,
                  double loopSeconds, const levain::input::Bindings& bindings,
                  const CameraActions& actions,
-                 const std::optional<std::filesystem::path>& capturePath)
+                 const std::optional<std::filesystem::path>& capturePath,
+                 std::optional<double> frozenSeconds)
 {
     const nvrhi::CommandListHandle commandList = gpu.nvrhi->createCommandList();
     LoopState state;
@@ -1390,8 +1399,10 @@ bool runMainLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, 
 
         {
             LEVAIN_PROFILE_SCOPE_NAMED("rendu");
-            if (const auto gpuMs = renderFrame(gpu, window, scene, *commandList,
-                                               secondsBetween(loopStart, Clock::now())))
+            // Le temps de la scène : celui de la boucle, ou celui de --time, figé.
+            if (const auto gpuMs =
+                    renderFrame(gpu, window, scene, *commandList,
+                                frozenSeconds.value_or(secondsBetween(loopStart, Clock::now()))))
             {
                 periodGpu.totalMs += *gpuMs;
                 ++periodGpu.samples;
@@ -1447,8 +1458,10 @@ bool runMainLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, 
                           skinning.gpuSamples, skinning.maxJointSpeed);
     }
 
-    return !capturePath || captureFrame(gpu, window, scene, *commandList,
-                                        secondsBetween(loopStart, Clock::now()), *capturePath);
+    return !capturePath ||
+           captureFrame(gpu, window, scene, *commandList,
+                        frozenSeconds.value_or(secondsBetween(loopStart, Clock::now())),
+                        *capturePath);
 }
 
 } // namespace
@@ -1466,7 +1479,7 @@ int main(int argc, char** argv)
             std::println(stderr, "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
                                  "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
                                  "repos,marche,course] "
-                                 "[--model-scale N]]");
+                                 "[--model-scale N]] [--time secondes]");
             return 2;
         }
 
@@ -1531,7 +1544,7 @@ int main(int argc, char** argv)
                           bindings->actions.size(), bindings->axes.size());
 
         if (!runMainLoop(*window, *gpu, *scene, options->loopSeconds, *bindings, *actions,
-                         options->capturePath))
+                         options->capturePath, options->frozenSeconds))
         {
             return 1;
         }

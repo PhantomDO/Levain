@@ -164,6 +164,10 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 
 - **`pkill -f <motif>` tue le shell qui le lance** (2026-09-21) : le motif figure dans sa propre ligne de
   commande. Chercher par nom exact : `pgrep -a -x levain_sandbox`, `pkill -x levain_sandbox`.
+  Le 2026-09-27, trois fois de plus, sous d'autres formes : `pgrep -f`, puis `ps | grep "[h]ttp.server"`,
+  alors que la même commande lançait ensuite `python3 -m http.server` (le texte du motif était dans le script
+  du shell). **Garder le PID au lancement** (`programme & echo $! > fichier.pid`, puis `kill $(cat
+  fichier.pid)`) pour tout processus qu'on arrêtera plus tard : serveur HTTP, Firefox de test.
 - **Une faute injectée pour un contre-test se retire depuis une copie** (`cp fichier copie`, puis `cp copie
   fichier`), jamais par `git checkout -- fichier` : il efface aussi tout ce qui n'était pas encore commité. C'est
   arrivé le 2026-09-21 à l'intégration du device dans le sandbox, réécrite ensuite.
