@@ -1331,134 +1331,185 @@ bool captureFrame(levain::gpu::GpuDevice& gpu, const levain::platform::Window& w
     return true;
 }
 
-/// La boucle principale ; rend `false` si la capture demandée a échoué.
-bool runMainLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, DemoScene& scene,
-                 double loopSeconds, const levain::input::Bindings& bindings,
-                 const CameraActions& actions,
-                 const std::optional<std::filesystem::path>& capturePath,
-                 std::optional<double> frozenSeconds)
+/// Ce que la boucle garde d'une image à l'autre. Une image est une fonction (`runFrame`) : en
+/// natif, la boucle l'appelle ; dans le navigateur, c'est lui, à chaque image (ADR-0023, point 3).
+struct Loop
 {
-    const nvrhi::CommandListHandle commandList = gpu.nvrhi->createCommandList();
+    levain::platform::Window& window;
+    levain::gpu::GpuDevice& gpu;
+    DemoScene& scene;
+    const levain::input::Bindings& bindings;
+    const CameraActions& actions;
+    double loopSeconds;
+    std::optional<double> frozenSeconds;
+
+    nvrhi::CommandListHandle commandList;
     LoopState state;
     levain::core::FrameTimeAccumulator frameTimes;
     GpuTimeAverage periodGpu; ///< Depuis la dernière mise à jour du titre.
     GpuTimeAverage totalGpu;  ///< Depuis le début de la boucle, journalisé à la fin.
-    const Clock::time_point loopStart = Clock::now();
-    Clock::time_point previousFrameEnd = loopStart;
+    Clock::time_point loopStart;
+    Clock::time_point previousFrameEnd;
     int frameCount = 0;
-    ShaderReload shaderReload = startShaderReload();
-    TextureReload textureReload = startTextureReload(scene.registry);
-    const nvrhi::FramebufferInfo sceneTarget = sceneTargetOf(gpu);
-
-    levain::input::InputState input = levain::input::makeInputState(bindings);
+    ShaderReload shaderReload;
+    TextureReload textureReload;
+    nvrhi::FramebufferInfo sceneTarget;
+    levain::input::InputState input;
     bool mouseCaptured = false;
-    // La première image n'a pas d'image précédente : un pas de simulation, pour démarrer.
-    double lastFrameSeconds = scene.fixedStep.stepSeconds;
+    /// La durée de l'image précédente. La première n'en a pas : un pas de simulation, pour
+    /// démarrer.
+    double lastFrameSeconds;
+};
 
-    while (state.isRunning && secondsBetween(loopStart, Clock::now()) < loopSeconds)
+Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, DemoScene& scene,
+               const levain::input::Bindings& bindings, const CameraActions& actions,
+               double loopSeconds, std::optional<double> frozenSeconds)
+{
+    const Clock::time_point now = Clock::now();
+    return Loop{.window = window,
+                .gpu = gpu,
+                .scene = scene,
+                .bindings = bindings,
+                .actions = actions,
+                .loopSeconds = loopSeconds,
+                .frozenSeconds = frozenSeconds,
+                .commandList = gpu.nvrhi->createCommandList(),
+                .state = {},
+                .frameTimes = {},
+                .periodGpu = {},
+                .totalGpu = {},
+                .loopStart = now,
+                .previousFrameEnd = now,
+                .frameCount = 0,
+                .shaderReload = startShaderReload(),
+                .textureReload = startTextureReload(scene.registry),
+                .sceneTarget = sceneTargetOf(gpu),
+                .input = levain::input::makeInputState(bindings),
+                .mouseCaptured = false,
+                .lastFrameSeconds = scene.fixedStep.stepSeconds};
+}
+
+/// Le temps de la scène : celui de la boucle, ou celui de --time, figé.
+double sceneSecondsOf(const Loop& loop)
+{
+    return loop.frozenSeconds.value_or(secondsBetween(loop.loopStart, Clock::now()));
+}
+
+/// Une image de la boucle ; `false` quand elle s'arrête (fenêtre fermée, --seconds écoulées).
+bool runFrame(Loop& loop)
+{
+    if (!loop.state.isRunning || secondsBetween(loop.loopStart, Clock::now()) >= loop.loopSeconds)
     {
-        if (!state.isVisible)
-        {
-            // Pas au-delà de --seconds : masquée sans événement (bureau verrouillé), la boucle
-            // dormirait sinon indéfiniment. L'infini par défaut attend sans limite.
-            const double remainingSeconds = loopSeconds - secondsBetween(loopStart, Clock::now());
-            for (const auto& event : levain::platform::waitEvents(window, remainingSeconds).window)
-            {
-                applyWindowEvent(state, event);
-            }
+        return false;
+    }
+    DemoScene& scene = loop.scene;
 
-            // Le temps passé masquée n'est pas une frame. Sans cette remise à l'heure, la
-            // première frame après la restauration durerait toute la minimisation, et le
-            // maximum affiché serait de plusieurs secondes.
-            previousFrameEnd = Clock::now();
-            continue;
+    if (!loop.state.isVisible)
+    {
+        // Pas au-delà de --seconds : masquée sans événement (bureau verrouillé), la boucle
+        // dormirait sinon indéfiniment. L'infini par défaut attend sans limite.
+        const double remainingSeconds =
+            loop.loopSeconds - secondsBetween(loop.loopStart, Clock::now());
+        for (const auto& event : levain::platform::waitEvents(loop.window, remainingSeconds).window)
+        {
+            applyWindowEvent(loop.state, event);
         }
 
-        {
-            LEVAIN_PROFILE_SCOPE_NAMED("événements");
-
-            const levain::platform::Events events = levain::platform::pollEvents(window);
-            for (const auto& event : events.window)
-            {
-                applyWindowEvent(state, event);
-            }
-            levain::input::updateInput(input, bindings, events.input,
-                                       static_cast<float>(lastFrameSeconds));
-
-            // La souris ne se capture que pendant le regard : sinon on ne pourrait plus rien
-            // faire d'autre de la fenêtre.
-            const bool looking = levain::input::actionHeld(input, actions.lookEnable);
-            if (looking != mouseCaptured)
-            {
-                levain::platform::setMouseCaptured(window, looking);
-                mouseCaptured = looking;
-            }
-            // Ce que le joueur demande, posé pour le prochain pas de simulation.
-            scene.world.set<levain::scene::FpsInput>(fpsInputFrom(input, actions));
-        }
-
-        reloadChangedShaders(shaderReload, *gpu.nvrhi, sceneTarget, scene.meshPass);
-        reloadChangedTextures(textureReload, *gpu.nvrhi, scene.registry, scene.modelCache,
-                              scene.models, scene.meshPass, *scene.sampler);
-
-        {
-            // Un tour du monde : les pas de simulation que la dernière image a mérités, puis une
-            // passe de rendu qui interpole et compose les matrices monde (ADR-0016). La durée
-            // passée est celle de l'image précédente : celle-ci n'est pas encore finie.
-            LEVAIN_PROFILE_SCOPE_NAMED("monde");
-            levain::scene::advanceWorld(scene.world, scene.fixedStep,
-                                        static_cast<float>(lastFrameSeconds));
-            updateRenderCamera(scene.camera, scene.cameraEntity);
-        }
-
-        {
-            LEVAIN_PROFILE_SCOPE_NAMED("rendu");
-            // Le temps de la scène : celui de la boucle, ou celui de --time, figé.
-            if (const auto gpuMs =
-                    renderFrame(gpu, window, scene, *commandList,
-                                frozenSeconds.value_or(secondsBetween(loopStart, Clock::now()))))
-            {
-                periodGpu.totalMs += *gpuMs;
-                ++periodGpu.samples;
-                totalGpu.totalMs += *gpuMs;
-                ++totalGpu.samples;
-            }
-        }
-
-        // Fin d'image : ce que plus aucune entité n'utilise se décharge, du CPU et du GPU
-        // (ADR-0019). NVRHI garde vivantes les ressources qu'une command list en vol utilise
-        // encore.
-        for (const levain::assets::AssetId& unused : levain::assets::takeUnusedAssets(scene.world))
-        {
-            scene.models.erase(unused);
-            scene.modelCache.models.erase(unused);
-        }
-
-        const Clock::time_point frameEnd = Clock::now();
-        const double frameSeconds = secondsBetween(previousFrameEnd, frameEnd);
-        previousFrameEnd = frameEnd;
-        lastFrameSeconds = frameSeconds;
-
-        if (const auto summary =
-                levain::core::recordFrame(frameTimes, frameSeconds, FrameTimePeriodSeconds))
-        {
-            LEVAIN_PROFILE_SCOPE_NAMED("titre");
-            levain::platform::setWindowTitle(window,
-                                             describeFrameTimes(*summary, averageOf(periodGpu)));
-            periodGpu = {};
-        }
-
-        ++frameCount;
-        LEVAIN_PROFILE_FRAME();
+        // Le temps passé masquée n'est pas une frame. Sans cette remise à l'heure, la
+        // première frame après la restauration durerait toute la minimisation, et le
+        // maximum affiché serait de plusieurs secondes.
+        loop.previousFrameEnd = Clock::now();
+        return true;
     }
 
+    {
+        LEVAIN_PROFILE_SCOPE_NAMED("événements");
+
+        const levain::platform::Events events = levain::platform::pollEvents(loop.window);
+        for (const auto& event : events.window)
+        {
+            applyWindowEvent(loop.state, event);
+        }
+        levain::input::updateInput(loop.input, loop.bindings, events.input,
+                                   static_cast<float>(loop.lastFrameSeconds));
+
+        // La souris ne se capture que pendant le regard : sinon on ne pourrait plus rien
+        // faire d'autre de la fenêtre.
+        const bool looking = levain::input::actionHeld(loop.input, loop.actions.lookEnable);
+        if (looking != loop.mouseCaptured)
+        {
+            levain::platform::setMouseCaptured(loop.window, looking);
+            loop.mouseCaptured = looking;
+        }
+        // Ce que le joueur demande, posé pour le prochain pas de simulation.
+        scene.world.set<levain::scene::FpsInput>(fpsInputFrom(loop.input, loop.actions));
+    }
+
+    reloadChangedShaders(loop.shaderReload, *loop.gpu.nvrhi, loop.sceneTarget, scene.meshPass);
+    reloadChangedTextures(loop.textureReload, *loop.gpu.nvrhi, scene.registry, scene.modelCache,
+                          scene.models, scene.meshPass, *scene.sampler);
+
+    {
+        // Un tour du monde : les pas de simulation que la dernière image a mérités, puis une
+        // passe de rendu qui interpole et compose les matrices monde (ADR-0016). La durée
+        // passée est celle de l'image précédente : celle-ci n'est pas encore finie.
+        LEVAIN_PROFILE_SCOPE_NAMED("monde");
+        levain::scene::advanceWorld(scene.world, scene.fixedStep,
+                                    static_cast<float>(loop.lastFrameSeconds));
+        updateRenderCamera(scene.camera, scene.cameraEntity);
+    }
+
+    {
+        LEVAIN_PROFILE_SCOPE_NAMED("rendu");
+        if (const auto gpuMs =
+                renderFrame(loop.gpu, loop.window, scene, *loop.commandList, sceneSecondsOf(loop)))
+        {
+            loop.periodGpu.totalMs += *gpuMs;
+            ++loop.periodGpu.samples;
+            loop.totalGpu.totalMs += *gpuMs;
+            ++loop.totalGpu.samples;
+        }
+    }
+
+    // Fin d'image : ce que plus aucune entité n'utilise se décharge, du CPU et du GPU
+    // (ADR-0019). NVRHI garde vivantes les ressources qu'une command list en vol utilise
+    // encore.
+    for (const levain::assets::AssetId& unused : levain::assets::takeUnusedAssets(scene.world))
+    {
+        scene.models.erase(unused);
+        scene.modelCache.models.erase(unused);
+    }
+
+    const Clock::time_point frameEnd = Clock::now();
+    const double frameSeconds = secondsBetween(loop.previousFrameEnd, frameEnd);
+    loop.previousFrameEnd = frameEnd;
+    loop.lastFrameSeconds = frameSeconds;
+
+    if (const auto summary =
+            levain::core::recordFrame(loop.frameTimes, frameSeconds, FrameTimePeriodSeconds))
+    {
+        LEVAIN_PROFILE_SCOPE_NAMED("titre");
+        levain::platform::setWindowTitle(loop.window,
+                                         describeFrameTimes(*summary, averageOf(loop.periodGpu)));
+        loop.periodGpu = {};
+    }
+
+    ++loop.frameCount;
+    LEVAIN_PROFILE_FRAME();
+    return true;
+}
+
+/// Le bilan de la boucle, puis la capture demandée ; `false` si elle a échoué.
+bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& capturePath)
+{
     // Lu par la CI, qui échoue si la boucle a tourné moins d'une seconde : un démarrage lent
     // (lavapipe, validation, sanitizers) peut sinon manger tout le délai sans que rien ne rougisse.
     levain::core::log(
         "sandbox", levain::core::LogLevel::Info,
         "boucle arrêtée après {:.1f} s et {} frames ; GPU : {:.3f} ms en moyenne sur {} mesures",
-        secondsBetween(loopStart, Clock::now()), frameCount, averageOf(totalGpu), totalGpu.samples);
-    const SkinningCost& skinning = scene.skinningCost;
+        secondsBetween(loop.loopStart, Clock::now()), loop.frameCount, averageOf(loop.totalGpu),
+        loop.totalGpu.samples);
+    const SkinningCost& skinning = loop.scene.skinningCost;
     if (skinning.frames > 0)
     {
         levain::core::log("sandbox", levain::core::LogLevel::Info,
@@ -1472,10 +1523,8 @@ bool runMainLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, 
                           skinning.gpuSamples, skinning.maxJointSpeed);
     }
 
-    return !capturePath ||
-           captureFrame(gpu, window, scene, *commandList,
-                        frozenSeconds.value_or(secondsBetween(loopStart, Clock::now())),
-                        *capturePath);
+    return !capturePath || captureFrame(loop.gpu, loop.window, loop.scene, *loop.commandList,
+                                        sceneSecondsOf(loop), *capturePath);
 }
 
 } // namespace
@@ -1558,8 +1607,12 @@ int main(int argc, char** argv)
                           "regarder, ZQSD ou WASD pour avancer",
                           bindings->actions.size(), bindings->axes.size());
 
-        if (!runMainLoop(*window, *gpu, *scene, options->loopSeconds, *bindings, *actions,
-                         options->capturePath, options->frozenSeconds))
+        Loop loop = startLoop(*window, *gpu, *scene, *bindings, *actions, options->loopSeconds,
+                              options->frozenSeconds);
+        while (runFrame(loop))
+        {
+        }
+        if (!finishLoop(loop, options->capturePath))
         {
             return 1;
         }

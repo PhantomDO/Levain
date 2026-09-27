@@ -14,26 +14,28 @@ target_include_directories(levain_gpu PUBLIC include)
 # interfaces NVRHI.
 target_link_libraries(levain_gpu PRIVATE levain::core dawn::webgpu_dawn PUBLIC nvrhi)
 
+# platform est PUBLIC : il fait partie de l'API (device.hpp, la fenêtre). SDL reste PRIVATE.
+find_package(SDL3 CONFIG REQUIRED)
+target_link_libraries(levain_gpu PRIVATE SDL3::SDL3 PUBLIC levain::platform)
+
 if(EMSCRIPTEN)
-    # La surface d'un canvas HTML : le navigateur seulement.
-    target_sources(levain_gpu PRIVATE src/webgpu/canvas.cpp)
+    # Le GpuDevice du navigateur, sur le canvas HTML de la fenêtre.
+    target_sources(levain_gpu PRIVATE src/device_web.cpp src/webgpu/canvas.cpp)
     return()
 endif()
 
 # En natif : le device Vulkan et sa swapchain.
-find_package(SDL3 CONFIG REQUIRED)
 find_package(VulkanHeaders CONFIG REQUIRED)
 find_package(vk-bootstrap CONFIG REQUIRED)
 
 target_sources(levain_gpu PRIVATE src/device_vk.cpp src/swapchain_vk.cpp)
 
-# platform et nvrhi sont PUBLIC : ils font partie de l'API (device.hpp). Le backend Vulkan de
-# NVRHI, vk-bootstrap, les en-têtes Vulkan et SDL restent PRIVATE : ils ne sortent pas du module.
-# nvrhi_vk est listé avant nvrhi, dont il appelle le code : l'éditeur de liens ne parcourt les
+# Le backend Vulkan de NVRHI, vk-bootstrap et les en-têtes Vulkan restent PRIVATE : ils ne sortent
+# pas du module. nvrhi_vk est listé avant nvrhi, dont il appelle le code : l'éditeur de liens ne parcourt les
 # bibliothèques statiques qu'une fois, dans l'ordre.
 target_link_libraries(levain_gpu
-    PRIVATE nvrhi_vk vk-bootstrap::vk-bootstrap Vulkan::Headers SDL3::SDL3
-    PUBLIC levain::platform nvrhi)
+    PRIVATE nvrhi_vk vk-bootstrap::vk-bootstrap Vulkan::Headers
+    PUBLIC nvrhi)
 
 # Doit correspondre à NVRHI, qui compile Vulkan-Hpp en mode dispatcher dynamique
 # (src/vulkan/vulkan-backend.h) : sinon le dispatcher défini dans device_vk.cpp n'est pas le sien.
