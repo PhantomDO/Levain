@@ -1,6 +1,6 @@
 # Roadmap v1
 
-> Version 0.8 — 27/09/2026 — statut : **proposé** (cible web, ADR-0023)
+> Version 0.8 — 27/09/2026 — statut : **validé par Donnovan** (cible web, ADR-0023)
 >
 > v0.8 : **la cible web** ([ADR-0023](adr/0023-cible-web-webgpu.md)) : un backend WebGPU pour NVRHI, le moteur
 > compilé en WebAssembly, et des fonctionnalités de rendu activées selon la plateforme. M4.6 est ajouté avant la

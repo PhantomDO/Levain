@@ -1,6 +1,6 @@
 # ADR-0023 — Cible web : un backend WebGPU pour NVRHI, des fonctionnalités par plateforme
 
-- **Statut** : proposé
+- **Statut** : accepté le 2026-09-27 (validé par Donnovan)
 - **Date** : 2026-09-27
 - **Milestone** : M4.6 (nouveau, avant la phase 5)
 
