@@ -3,15 +3,16 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
-## Helium headless ne charge aucune page (2026-09-27)
+## Aucun Chromium ne charge de page sur la machine de référence (2026-09-27)
 
-- **Symptôme** : Helium 0.18 (Chromium 154) en `--headless=new`, profil neuf : l'onglet reste sur `about:blank`,
-  `Page.navigate` ne répond jamais. Même `example.com`.
-- **Cause** : son uBlock Origin intégré suspend le réseau jusqu'au chargement de ses listes de filtres, qu'il
-  ne peut pas télécharger (services de Helium désactivés) : `µBlock.readyToFilter` reste à `false`.
-  `--disable-extensions` ne le retire pas. Chez Donnovan, Helium ne charge pas non plus google.com.
-- **Parade** : pas de Helium pour les tests. Firefox pour `tools/web-smoke.sh` ; un Chromium sur téléphone
-  (navigateur DuckDuckGo, WebView système) pour le critère « Chromium ».
+- **Symptôme** : Helium 0.18 (Chromium 154), en headless comme chez Donnovan en fenêtre : l'onglet reste sur
+  `about:blank`, `Page.navigate` ne répond jamais, même pour `example.com` ou google.com. Donnovan le constate
+  pour tous les Chromium de la machine ; Firefox charge tout.
+- **Cause** : non identifiée, du côté du système. En headless, l'uBlock intégré de Helium attend aussi des listes
+  de filtres qu'il ne peut pas télécharger (`µBlock.readyToFilter` à `false`), mais lever sa suspension ne
+  suffit pas.
+- **Parade** : pas de Chromium pour les tests sur cette machine. Firefox pour `tools/web-smoke.sh` ; le
+  téléphone ou la tablette de Donnovan pour le critère « Chromium » (navigateur DuckDuckGo, WebView système).
 
 ## SDL dans une page web (2026-09-27)
 

@@ -25,17 +25,17 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 | 2 | 3,75 | **4,25** | **1,13** |
 | 3 | 4,5 | **5,25** | **1,17** |
 | 4 | 8,25 | **6,0** | **0,73** |
-| 4 (M4.6) | 3,5 | **2,5** | **0,71** |
+| 4 (M4.6) | 3,5 | **4,5** | **1,29** |
 
 ---
 
 ## 2026-09-27 — M4.6 — Clôture : le renard court dans le navigateur, sur le backend WebGPU de NVRHI
 
-- **Temps Donnovan : 2,5 h** (estimé 3,5 h), déclaré « en tout » : le prototype, l'ADR-0023 et ses sondages, les
-  relectures de #187 et #188, et l'activation de GitHub Pages. Réparti au prorata des estimations : #182 0,36 h,
-  #183 0,18 h, #184 0,71 h, #185 0,54 h, #186 0,71 h. **Ratio 0,71, provisoire** : les PR #189 à #199 ont été
-  fusionnées sur son accord (« si tout fonctionne tu peux merge ») et seront relues plus tard ; ce temps
-  s'ajoutera.
+- **Temps Donnovan : 4,5 h** (estimé 3,5 h), déclaré « en tout » : 2,5 h pour le prototype, l'ADR-0023 et ses
+  sondages, les relectures de #187 et #188 et l'activation de GitHub Pages, puis 2 h pour relire les PR #189 à
+  #199. Réparti au prorata des estimations : #182 0,64 h, #183 0,32 h, #184 1,29 h, #185 0,96 h, #186 1,29 h.
+  **Ratio 1,29.** Sur la phase 4 entière, M4.6 compris : 10,5 h pour 11,75 estimées, **0,89**, dans la
+  fourchette : pas de recalibrage.
 - Sessions Claude Code : 1
 - Fait :
   - **un backend WebGPU pour NVRHI**, dans `engine/gpu/src/webgpu/` : device, ressources, shaders WGSL, bindings,
@@ -68,9 +68,8 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
     sur ce backend ;
   - la CI passait clang-tidy sur tous les `.cpp`, y compris ceux du seul navigateur : la liste vient maintenant de
     `compile_commands.json` ;
-  - Helium n'a pas pu être testé : en headless, il ne charge aucune page (son uBlock intégré attend des listes
-    de filtres qu'il ne peut pas télécharger), et chez Donnovan, il ne charge pas non plus google.com. Le
-    navigateur Chromium du critère est donc celui du téléphone.
+  - aucun navigateur Chromium ne charge de page sur la machine de Donnovan (Helium compris, Firefox oui) : le
+    critère « Chromium » est vérifié sur son téléphone, et il testera aussi sur sa tablette.
 - Prochaine étape : aligner *Rando* sur le moteur (`ports/nvrhi`, `triplets/`, Dawn et les filtres de plateforme
   dans son manifeste), puis la phase 5.
 
