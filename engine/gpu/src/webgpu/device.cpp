@@ -92,6 +92,46 @@ nvrhi::TextureHandle Device::createTexture(const nvrhi::TextureDesc& desc)
     return nvrhi::TextureHandle::Create(new Texture{desc, std::move(texture)});
 }
 
+nvrhi::ShaderHandle Device::createShader(const nvrhi::ShaderDesc& desc, const void* binary,
+                                         size_t binarySize)
+{
+    // Le « binaire » d'un shader WebGPU est son texte WGSL (shaders/CMakeLists.txt, ADR-0023).
+    std::string wgsl{static_cast<const char*>(binary), binarySize};
+    wgpu::ShaderSourceWGSL source{};
+    source.code = {wgsl.data(), wgsl.size()};
+    wgpu::ShaderModuleDescriptor moduleDesc{};
+    moduleDesc.nextInChain = &source;
+    moduleDesc.label = labelOf(desc.debugName);
+#ifdef __EMSCRIPTEN__
+    // Le navigateur ne permet pas d'attendre le compilateur WGSL : ses erreurs arrivent par le
+    // callback d'erreurs du device.
+    wgpu::ShaderModule module = device.CreateShaderModule(&moduleDesc);
+#else
+    // En natif, on attend le verdict de WebGPU : un shader invalide est refusé ici, avec le message
+    // du compilateur WGSL, comme le serait un SPIR-V invalide. Un error scope capture l'erreur, qui
+    // n'arrive donc pas une seconde fois au callback d'erreurs du device.
+    device.PushErrorScope(wgpu::ErrorFilter::Validation);
+    wgpu::ShaderModule module = device.CreateShaderModule(&moduleDesc);
+    std::string failure;
+    instance.WaitAny(device.PopErrorScope(wgpu::CallbackMode::WaitAnyOnly,
+                                          [&failure](wgpu::PopErrorScopeStatus,
+                                                     wgpu::ErrorType type, wgpu::StringView message)
+                                          {
+                                              if (type != wgpu::ErrorType::NoError)
+                                              {
+                                                  failure = std::string_view{message};
+                                              }
+                                          }),
+                     UINT64_MAX);
+    if (!failure.empty())
+    {
+        error(std::format("shader « {} » refusé : {}", desc.debugName, failure));
+        return nullptr;
+    }
+#endif
+    return nvrhi::ShaderHandle::Create(new Shader{desc, std::move(wgsl), std::move(module)});
+}
+
 nvrhi::SamplerHandle Device::createSampler(const nvrhi::SamplerDesc& desc)
 {
     // WebGPU n'accepte l'anisotropie qu'avec des filtres tous linéaires, et au plus 16.
@@ -117,6 +157,23 @@ nvrhi::SamplerHandle Device::createSampler(const nvrhi::SamplerDesc& desc)
         return nullptr;
     }
     return nvrhi::SamplerHandle::Create(new Sampler{desc, std::move(sampler)});
+}
+
+nvrhi::InputLayoutHandle Device::createInputLayout(const nvrhi::VertexAttributeDesc* attributes,
+                                                   uint32_t attributeCount, nvrhi::IShader*)
+{
+    // WebGPU décrit les sommets dans le pipeline : on garde la description jusqu'à sa création.
+    std::vector<nvrhi::VertexAttributeDesc> copy{attributes, attributes + attributeCount};
+    for (const nvrhi::VertexAttributeDesc& attribute : copy)
+    {
+        if (!vertexFormatOf(attribute.format))
+        {
+            error(std::format("attribut « {} » : format {} sans équivalent WebGPU", attribute.name,
+                              nvrhi::getFormatInfo(attribute.format).name));
+            return nullptr;
+        }
+    }
+    return nvrhi::InputLayoutHandle::Create(new InputLayout{std::move(copy)});
 }
 
 bool Device::queryFeatureSupport(nvrhi::Feature, void*, size_t)

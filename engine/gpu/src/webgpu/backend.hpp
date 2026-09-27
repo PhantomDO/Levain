@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <nvrhi/common/aftermath.h>
 #include <nvrhi/nvrhi.h>
@@ -67,6 +68,50 @@ public:
     wgpu::Sampler sampler;
 };
 
+/// Un shader WGSL. Le point d'entrée est celui de `desc.entryName` : WGSL garde les noms des
+/// fonctions, là où slangc nomme « main » celui d'un SPIR-V.
+class Shader final : public nvrhi::RefCounter<nvrhi::IShader>
+{
+public:
+    Shader(const nvrhi::ShaderDesc& desc, std::string wgsl, wgpu::ShaderModule module)
+        : desc{desc}, wgsl{std::move(wgsl)}, module{std::move(module)}
+    {
+    }
+
+    [[nodiscard]] const nvrhi::ShaderDesc& getDesc() const override { return desc; }
+
+    void getBytecode(const void** bytecode, size_t* size) const override
+    {
+        *bytecode = wgsl.data();
+        *size = wgsl.size();
+    }
+
+    nvrhi::ShaderDesc desc;
+    std::string wgsl;
+    wgpu::ShaderModule module;
+};
+
+class InputLayout final : public nvrhi::RefCounter<nvrhi::IInputLayout>
+{
+public:
+    explicit InputLayout(std::vector<nvrhi::VertexAttributeDesc> attributes)
+        : attributes{std::move(attributes)}
+    {
+    }
+
+    [[nodiscard]] uint32_t getNumAttributes() const override
+    {
+        return static_cast<uint32_t>(attributes.size());
+    }
+
+    [[nodiscard]] const nvrhi::VertexAttributeDesc* getAttributeDesc(uint32_t index) const override
+    {
+        return index < attributes.size() ? &attributes[index] : nullptr;
+    }
+
+    std::vector<nvrhi::VertexAttributeDesc> attributes;
+};
+
 /// Le device : l'adaptateur et le device WebGPU, et la file où tout est soumis.
 class Device final : public nvrhi::RefCounter<nvrhi::IDevice>
 {
@@ -77,8 +122,12 @@ public:
     // Ce que le moteur utilise (device.cpp).
     nvrhi::TextureHandle createTexture(const nvrhi::TextureDesc& desc) override;
     nvrhi::BufferHandle createBuffer(const nvrhi::BufferDesc& desc) override;
-
+    nvrhi::ShaderHandle createShader(const nvrhi::ShaderDesc& desc, const void* binary,
+                                     size_t binarySize) override;
     nvrhi::SamplerHandle createSampler(const nvrhi::SamplerDesc& desc) override;
+    nvrhi::InputLayoutHandle createInputLayout(const nvrhi::VertexAttributeDesc* attributes,
+                                               uint32_t attributeCount,
+                                               nvrhi::IShader* vertexShader) override;
 
     nvrhi::GraphicsAPI getGraphicsAPI() override { return nvrhi::GraphicsAPI::WEBGPU; }
 
@@ -92,19 +141,7 @@ public:
 
     nvrhi::Object getNativeObject(nvrhi::ObjectType) override { return nullptr; }
 
-    // À venir (#184) : les shaders et l'input layout (3/3), puis les bindings, les pipelines, les
-    // command lists, la relecture et les requêtes (partie B).
-    nvrhi::ShaderHandle createShader(const nvrhi::ShaderDesc&, const void*, size_t) override
-    {
-        return nullptr;
-    }
-
-    nvrhi::InputLayoutHandle createInputLayout(const nvrhi::VertexAttributeDesc*, uint32_t,
-                                               nvrhi::IShader*) override
-    {
-        return nullptr;
-    }
-
+    // À venir (#184, partie B) : bindings, pipelines, command lists, relecture, requêtes.
     nvrhi::StagingTextureHandle createStagingTexture(const nvrhi::TextureDesc&,
                                                      nvrhi::CpuAccessMode) override
     {
