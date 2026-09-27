@@ -34,6 +34,19 @@ if(EMSCRIPTEN)
     # temporaires des tests. La pile par défaut (64 Kio) est trop courte pour doctest et flecs.
     target_link_options(levain_tests PRIVATE
         -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1MB -sEXIT_RUNTIME=1)
+
+    # Le cube du test de fumée dans un canvas, par le backend WebGPU (ADR-0023, #184) : la page
+    # web_cube.html, que tools/web-smoke.sh ouvre dans Firefox et compare à data/cube.ppm. Les
+    # shaders WGSL et la texture sont préchargés dans le système de fichiers d'Emscripten.
+    add_executable(levain_web_cube web/web_cube.cpp)
+    set_target_properties(levain_web_cube PROPERTIES SUFFIX ".html")
+    target_link_libraries(levain_web_cube PRIVATE levain::assets levain::gpu levain::render)
+    target_link_options(levain_web_cube PRIVATE
+        -sALLOW_MEMORY_GROWTH=1
+        "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html"
+        "--preload-file=${LEVAIN_SHADER_DIR}@/shaders"
+        "--preload-file=${CMAKE_CURRENT_SOURCE_DIR}/data/rgbw-2x2.png@/data/rgbw-2x2.png")
+    add_dependencies(levain_web_cube levain_shaders)
 else()
     add_executable(levain_tests doctest_main.cpp ${cpuTests} ${nativeTests})
     target_link_libraries(levain_tests PRIVATE

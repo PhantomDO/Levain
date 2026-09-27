@@ -24,7 +24,7 @@ set -Ux VCPKG_ROOT ~/vcpkg   # fish ; bash : echo 'export VCPKG_ROOT=~/vcpkg' >>
 | `linux-debug` | Debug, assertions actives |
 | `linux-release` | RelWithDebInfo |
 | `linux-asan` | Debug + AddressSanitizer, LeakSanitizer, UBSan |
-| `web` | WebAssembly par Emscripten (ADR-0023) : pour l'instant le code CPU (`core`, `scene`, `assets`, `animation`) et ses tests, lancés par Node |
+| `web` | WebAssembly par Emscripten (ADR-0023) : le moteur sans fenêtre (`core`, `scene`, `assets`, `animation`, `gpu` sur WebGPU, `render`), ses tests lancés par Node, et la page du cube pour le navigateur |
 
 ```bash
 cmake --preset linux-debug && cmake --build --preset linux-debug
@@ -53,6 +53,11 @@ ctest --test-dir build/web --output-on-failure
 
 Le triplet `triplets/wasm32-emscripten.cmake` reprend celui de la communauté vcpkg, avec une parade pour ktx
 (GOTCHA). Les tests lisent le disque par `-sNODERAWFS` : les chemins de `tests/data` restent ceux de la machine.
+
+Le backend WebGPU dans un vrai navigateur : `tools/web-smoke.sh` sert `build/web/tests/levain_web_cube.html`,
+l'ouvre dans un Firefox headless au profil jetable (WebGPU activé, le profil de Donnovan n'est pas touché), et
+compare le canvas à `tests/data/cube.ppm`, rendue par Vulkan. Il faut un GPU : pas en CI pour l'instant. La
+capture reste dans `build/web/web-smoke.png`.
 
 `-pedantic-errors` (C++23 strict) et `-Wall -Wextra -Werror` sont dans le `CMakeLists.txt` racine : **ne jamais
 les retirer**. Un avertissement ou une extension C++26 doit casser le build.

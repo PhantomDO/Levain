@@ -3,6 +3,16 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Dawn natif tolère ce que le navigateur refuse (2026-09-27)
+
+- **Symptôme** : le cube passe en natif sur Dawn (0 pixel d'écart), mais dans Firefox la page reste noire, avec
+  en console « 'depthClearValue' member … is not a finite floating-point value ».
+- **Cause** : dans `webgpu.h`, `depthClearValue` vaut NaN par défaut (« indéfini »). Dawn natif l'accepte quand
+  la profondeur est chargée (`LoadOp::Load`) ; la couche JavaScript du navigateur valide le dictionnaire avant
+  de regarder l'opération.
+- **Parade** : donner une valeur finie à tout champ numérique d'un descripteur, même inutilisé. Le test en natif
+  ne suffit pas : passer `tools/web-smoke.sh` après toute modification du backend WebGPU.
+
 ## clang-tidy sur un fichier que le build ne compile pas (2026-09-27)
 
 - **Symptôme** : l'analyse statique de la CI échoue sur `canvas.cpp` (« use of undeclared identifier
