@@ -1,5 +1,4 @@
 find_package(spdlog CONFIG REQUIRED)
-find_package(Tracy CONFIG REQUIRED)
 
 add_library(levain_core STATIC
     src/assert.cpp
@@ -32,6 +31,11 @@ target_compile_definitions(levain_core PUBLIC
 option(LEVAIN_PROFILING "Activer l'instrumentation Tracy" OFF)
 
 if(LEVAIN_PROFILING)
+    # Tracy n'existe pas dans le navigateur : vcpkg ne l'installe pas pour Emscripten (ADR-0023).
+    if(EMSCRIPTEN)
+        message(FATAL_ERROR "LEVAIN_PROFILING n'est pas disponible dans le build web")
+    endif()
+    find_package(Tracy CONFIG REQUIRED)
     # Garde-fou : sans TRACY_ENABLE, les macros de Tracy se compilent en rien. Le build réussit,
     # le binaire ne profile rien, et TRACY_NO_EXIT n'attend personne. C'est arrivé au passage à
     # Tracy 0.14, qui a changé la valeur par défaut (ports/tracy/portfile.cmake).

@@ -3,6 +3,27 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## WebAssembly révèle les alignements supposés (2026-09-27)
+
+- **Symptôme** : en WebAssembly, « le pool distribue des blocs distincts et alignés » échoue sur
+  `isAligned(block, 16)` ; en natif, tout passait.
+- **Cause** : `PoolAllocator` prenait `new std::byte[]` pour assez aligné. La norme ne garantit que
+  `alignof(std::max_align_t)` : 16 octets sur un PC 64 bits, 8 en wasm32. En natif, un pool aligné sur 64 octets
+  (une ligne de cache) échouait déjà, sans qu'aucun test le demande.
+- **Parade** : réserver `alignement − 1` octets de plus et aligner l'adresse réelle du premier bloc, comme
+  `LinearAllocator`. Un test demande 64 octets. Tout calcul d'alignement se fait sur l'adresse, jamais sur un
+  décalage depuis le début d'un tampon.
+
+## ktx ne compile pas sous Emscripten (2026-09-27)
+
+- **Symptôme** : `cmake --preset web` échoue dans vcpkg sur ktx, « embind requires -std=c++17 or newer », dans
+  `interface/js_binding/transcoder_wrapper.cpp`. Suivi d'un trompeur « unable to find a build program
+  corresponding to Ninja » : c'est la suite de l'échec de vcpkg, pas un Ninja manquant.
+- **Cause** : sous Emscripten, ktx 4.4.2 compile toujours ses liaisons JavaScript, en C++11, qu'Emscripten 6
+  refuse. Aucune option ne les coupe.
+- **Parade** : `triplets/wasm32-emscripten.cmake` passe `-DCMAKE_CXX_STANDARD=17` à ktx seulement. À retirer
+  quand la baseline aura une version de ktx qui compile sans.
+
 ## Une erreur de chargement qui finit en assertion Vulkan (2026-09-25)
 
 - **Symptôme** : un modèle dont une texture est illisible (`unknown image type`), ou un mauvais nom de

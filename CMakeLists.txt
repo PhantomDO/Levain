@@ -51,21 +51,29 @@ if(NOT PROJECT_IS_TOP_LEVEL)
     levain_check_vcpkg_manifest("${PROJECT_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}")
 endif()
 
-add_subdirectory(shaders)
+# Le code CPU se compile partout, navigateur compris (ADR-0023).
 add_subdirectory(engine/core)
-add_subdirectory(engine/platform)
-add_subdirectory(engine/gpu)
-add_subdirectory(engine/render)
+add_subdirectory(engine/scene)
 add_subdirectory(engine/assets)
 add_subdirectory(engine/animation)
-add_subdirectory(engine/scene)
-add_subdirectory(engine/input)
-add_subdirectory(tools/cook)
+
+# Le reste attend son portage au web (M4.6) : la fenêtre et l'entrée (SDL3 sous Emscripten, #186),
+# le GPU et le rendu (le backend WebGPU de NVRHI, #184 et #185), les shaders en WGSL (#183).
+if(NOT EMSCRIPTEN)
+    add_subdirectory(shaders)
+    add_subdirectory(engine/platform)
+    add_subdirectory(engine/gpu)
+    add_subdirectory(engine/render)
+    add_subdirectory(engine/input)
+    add_subdirectory(tools/cook)
+endif()
 
 # La démo et les tests ne concernent que le moteur : un jeu qui l'inclut n'en paie pas la
 # compilation.
 if(PROJECT_IS_TOP_LEVEL)
     enable_testing()
-    add_subdirectory(sandbox)
+    if(NOT EMSCRIPTEN)
+        add_subdirectory(sandbox)
+    endif()
     add_subdirectory(tests)
 endif()

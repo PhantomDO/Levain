@@ -1,31 +1,44 @@
 find_package(doctest CONFIG REQUIRED)
 
-add_executable(levain_tests
+# Les tests du code CPU, qui tournent aussi en WebAssembly sous Node (ADR-0023, #182), puis ceux
+# qui ont besoin d'une fenêtre, de l'entrée ou du GPU, natifs seulement jusqu'à leur portage (M4.6).
+set(cpuTests
     allocator_test.cpp
     animation_test.cpp
     asset_ref_test.cpp
     assert_test.cpp
-    camera_control_test.cpp
-    camera_test.cpp
     cooked_test.cpp
     cooked_texture_test.cpp
-    doctest_main.cpp
     error_test.cpp
     file_test.cpp
     frame_time_test.cpp
     gltf_test.cpp
     image_test.cpp
-    input_test.cpp
     log_test.cpp
-    process_test.cpp
     registry_test.cpp
     scene_test.cpp
+    version_test.cpp)
+set(nativeTests
+    camera_control_test.cpp
+    camera_test.cpp
+    input_test.cpp
+    process_test.cpp
     texture_test.cpp
-    version_test.cpp
     window_test.cpp)
-target_link_libraries(levain_tests PRIVATE
-    levain::animation levain::assets levain::core levain::input levain::platform levain::render levain::scene
-    doctest::doctest)
+if(EMSCRIPTEN)
+    add_executable(levain_tests doctest_main.cpp ${cpuTests})
+    target_link_libraries(levain_tests PRIVATE
+        levain::animation levain::assets levain::core levain::scene doctest::doctest)
+    # NODERAWFS : Node lit le disque de la machine, où sont tests/data et les dossiers
+    # temporaires des tests. La pile par défaut (64 Kio) est trop courte pour doctest et flecs.
+    target_link_options(levain_tests PRIVATE
+        -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1MB -sEXIT_RUNTIME=1)
+else()
+    add_executable(levain_tests doctest_main.cpp ${cpuTests} ${nativeTests})
+    target_link_libraries(levain_tests PRIVATE
+        levain::animation levain::assets levain::core levain::input levain::platform levain::render
+        levain::scene doctest::doctest)
+endif()
 
 # La macro qui génère le main de doctest ne doit s'appliquer qu'à une seule unité de
 # compilation, sinon chaque fichier de test en produirait un. On la pose donc sur ce fichier
@@ -47,6 +60,11 @@ target_compile_definitions(levain_tests PRIVATE
 include(doctest)
 # SDL_VIDEO_DRIVER=offscreen : window_test.cpp ouvre une vraie fenêtre, sans écran en CI.
 doctest_discover_tests(levain_tests PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+
+# Le reste (benchmarks, contrôles des sources, rendu hors écran) ne concerne que le build natif.
+if(EMSCRIPTEN)
+    return()
+endif()
 
 # Benchmark : compilé par la CI pour qu'il ne pourrisse pas, mais pas lancé par ctest.
 # Un chiffre de performance dépend de la machine ; il se mesure à la main sur la machine

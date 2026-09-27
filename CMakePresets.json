@@ -54,6 +54,18 @@
         "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
       }
+    },
+    {
+      "name": "web",
+      "displayName": "Web : WebAssembly par Emscripten (ADR-0023)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "wasm32-emscripten",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+        "CMAKE_CXX_FLAGS": "-fwasm-exceptions",
+        "CMAKE_EXE_LINKER_FLAGS": "-fwasm-exceptions"
+      }
     }
   ],
   "buildPresets": [
@@ -68,6 +80,10 @@
     {
       "name": "linux-asan",
       "configurePreset": "linux-asan"
+    },
+    {
+      "name": "web",
+      "configurePreset": "web"
     }
   ]
 }

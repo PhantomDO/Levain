@@ -4,7 +4,7 @@
   "description": "Animation squelettique : échantillonnage, fondus, IK. Port overlay de Levain : bibliothèques seules, sans outils, exemples ni tests (ADR-0022).",
   "homepage": "https://github.com/guillaumeblanc/ozz-animation",
   "license": "MIT",
-  "supports": "linux",
+  "supports": "linux | emscripten",
   "dependencies": [
     {
       "name": "vcpkg-cmake",

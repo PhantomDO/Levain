@@ -15,7 +15,10 @@
     "fastgltf",
     "glm",
     "ktx",
-    "nvrhi",
+    {
+      "name": "nvrhi",
+      "platform": "!emscripten"
+    },
     "ozz-animation",
     {
       "name": "shader-slang",
@@ -25,19 +28,37 @@
       "name": "sdl3",
       "default-features": false,
       "features": [
-        "vulkan",
-        "wayland",
-        "x11"
+        {
+          "name": "vulkan",
+          "platform": "!emscripten"
+        },
+        {
+          "name": "wayland",
+          "platform": "!emscripten"
+        },
+        {
+          "name": "x11",
+          "platform": "!emscripten"
+        }
       ]
     },
     "spdlog",
     "stb",
-    "tracy",
-    "vk-bootstrap"
+    {
+      "name": "tracy",
+      "platform": "!emscripten"
+    },
+    {
+      "name": "vk-bootstrap",
+      "platform": "!emscripten"
+    }
   ],
   "vcpkg-configuration": {
     "overlay-ports": [
       "./ports"
+    ],
+    "overlay-triplets": [
+      "./triplets"
     ]
   }
 }

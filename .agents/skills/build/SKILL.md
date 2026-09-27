@@ -24,6 +24,7 @@ set -Ux VCPKG_ROOT ~/vcpkg   # fish ; bash : echo 'export VCPKG_ROOT=~/vcpkg' >>
 | `linux-debug` | Debug, assertions actives |
 | `linux-release` | RelWithDebInfo |
 | `linux-asan` | Debug + AddressSanitizer, LeakSanitizer, UBSan |
+| `web` | WebAssembly par Emscripten (ADR-0023) : pour l'instant le code CPU (`core`, `scene`, `assets`, `animation`) et ses tests, lancés par Node |
 
 ```bash
 cmake --preset linux-debug && cmake --build --preset linux-debug
@@ -39,6 +40,17 @@ Format et analyse statique, comme la CI :
 find engine sandbox tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror
 find engine sandbox tests -name '*.cpp' | xargs clang-tidy -p build/linux-debug --warnings-as-errors='*'
 ```
+
+Le build web demande Emscripten (emsdk dans `~/emsdk`, version figée par `EMSDK_VERSION` dans la CI) :
+
+```bash
+source ~/emsdk/emsdk_env.sh
+cmake --preset web && cmake --build --preset web
+ctest --test-dir build/web --output-on-failure
+```
+
+Le triplet `triplets/wasm32-emscripten.cmake` reprend celui de la communauté vcpkg, avec une parade pour ktx
+(GOTCHA). Les tests lisent le disque par `-sNODERAWFS` : les chemins de `tests/data` restent ceux de la machine.
 
 `-pedantic-errors` (C++23 strict) et `-Wall -Wextra -Werror` sont dans le `CMakeLists.txt` racine : **ne jamais
 les retirer**. Un avertissement ou une extension C++26 doit casser le build.
