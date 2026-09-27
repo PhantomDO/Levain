@@ -1218,7 +1218,11 @@ struct SandboxOptions
     std::optional<double> frozenSeconds;
     /// Où écrire une capture de la dernière image, en PNG. Avec `--seconds`, c'est ce qui montre un
     /// rendu à distance, sans écran ni capture du bureau.
-    std::optional<std::filesystem::path> capturePath;
+    std::optional<std::filesystem::path>
+        capturePath; /// `--gpu webgpu` : le backend WebGPU sur Dawn, hors écran, pour le vérifier
+                     /// sans navigateur
+    /// (ADR-0023).
+    nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
 };
 
 /// Un nombre strictement positif, écrit en entier. Vide sinon, NaN compris.
@@ -1249,6 +1253,16 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         {
             (name == "--clip" ? options.clipName : options.locomotion) =
                 std::string{arguments[i + 1]};
+            continue;
+        }
+        if (name == "--gpu")
+        {
+            const std::string_view api{arguments[i + 1]};
+            if (api != "vulkan" && api != "webgpu")
+            {
+                return std::nullopt;
+            }
+            options.api = api == "webgpu" ? nvrhi::GraphicsAPI::WEBGPU : nvrhi::GraphicsAPI::VULKAN;
             continue;
         }
         if (name == "--capture" || name == "--model")
@@ -1479,7 +1493,7 @@ int main(int argc, char** argv)
             std::println(stderr, "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
                                  "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
                                  "repos,marche,course] "
-                                 "[--model-scale N]] [--time secondes]");
+                                 "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu]");
             return 2;
         }
 
@@ -1499,7 +1513,8 @@ int main(int argc, char** argv)
         // Déclaré après window, gpu sera détruit avant elle : la surface Vulkan doit disparaître
         // avant la fenêtre SDL qui la porte.
         const Clock::time_point deviceStart = Clock::now();
-        auto gpu = levain::gpu::createGpuDevice(*window, {.enableValidation = EnableValidation});
+        auto gpu = levain::gpu::createGpuDevice(
+            *window, {.enableValidation = EnableValidation, .api = options->api});
         if (!gpu)
         {
             levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}",

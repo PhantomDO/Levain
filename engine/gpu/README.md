@@ -9,6 +9,11 @@ Donner un GPU au moteur : instance, surface et device Vulkan, puis le device NVR
 **État en M1.2** : device Vulkan et device NVRHI, validation redirigée vers nos logs (#12) ; swapchain
 reconstruite au redimensionnement, frames cadencées par l'écran (#13).
 
+**État en M4.6** : un second backend de NVRHI, **WebGPU** (ADR-0023, `src/webgpu/`), écrit dans le dépôt : dans
+le navigateur par emdawnwebgpu, en natif sur Dawn. En natif, il ne sert qu'à développer et vérifier le backend
+(`levain_sandbox --gpu webgpu`, rendu hors écran, `--capture` pour voir l'image) : le moteur reste sur Vulkan.
+Il reproduit les images de Vulkan (test de fumée à 0 pixel près, renard et Sponza).
+
 ## Invariants
 
 1. **Ni Vulkan ni vk-bootstrap dans l'API.** `device.hpp` n'expose que NVRHI et `platform::Window` ;
@@ -26,6 +31,8 @@ reconstruite au redimensionnement, frames cadencées par l'écran (#13).
 | Fichier | Contenu |
 |---|---|
 | [`include/levain/gpu/device.hpp`](include/levain/gpu/device.hpp) | `createGpuDevice`, `GpuDevice`, `DeviceOptions`, `swapchainFormat`, `beginFrame`, `presentFrame` |
+| [`include/levain/gpu/webgpu.hpp`](include/levain/gpu/webgpu.hpp) | `requestWebGpuDevice` (asynchrone dans le navigateur), `createWebGpuDevice` (natif), le canvas HTML (web) |
+| [`src/webgpu/`](src/webgpu/) | Le backend : `device.cpp` (ressources), `bindings.cpp`, `pipelines.cpp`, `commandlist.cpp`, `canvas.cpp` |
 
 ## Ce que NVRHI fait pour nous, et ce qu'il ne fait pas
 

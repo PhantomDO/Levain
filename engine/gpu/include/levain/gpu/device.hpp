@@ -35,6 +35,10 @@ struct DeviceOptions
     /// Couches de validation Vulkan et couche de validation NVRHI, exigées en Debug (règle n°4).
     /// Une erreur de l'une ou de l'autre arrête le programme sur une assertion.
     bool enableValidation = false;
+    /// Vulkan, ou WebGPU sur Dawn (ADR-0023) : ce dernier sert à développer et vérifier le backend
+    /// WebGPU sans navigateur. Il dessine hors écran : la fenêtre reste vide, `--capture` montre
+    /// l'image.
+    nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
 };
 
 /// Le GPU vu par le moteur : un `nvrhi::IDevice`, les objets Vulkan qui le portent, et la
@@ -49,6 +53,8 @@ struct GpuDevice
     std::unique_ptr<VulkanContext, VulkanContextDeleter> vulkan;
     nvrhi::DeviceHandle nvrhi;
     std::unique_ptr<Swapchain, SwapchainDeleter> swapchain;
+    /// Sans swapchain (WebGPU en natif), l'image où dessiner, à la taille de la fenêtre.
+    nvrhi::TextureHandle offscreen;
 };
 
 /// Crée le device Vulkan sur le GPU le plus adapté (discret de préférence), puis le device NVRHI

@@ -235,6 +235,16 @@ jobs:
           [ -n "$fastest" ] || { echo "::error::le skinning du renard n'a pas tourné"; exit 1; }
           [ "$fastest" -le 1000 ] \
             || { echo "::error::un os a bougé à $fastest unités/s : saut de pose"; exit 1; }
+          # Le même renard sur le backend WebGPU (Dawn, hors écran, ADR-0023), validation active :
+          # le skinning compute passe par le backend, et doit tourner.
+          timeout --foreground --preserve-status -k 10 60 \
+            ./build/${{ matrix.preset }}/sandbox/levain_sandbox --gpu webgpu --seconds 8 \
+            --model assets-cache/Models/Fox/glTF/Fox.gltf --model-scale 0.05 \
+            --locomotion Survey,Walk,Run | tee fox-webgpu.log
+          grep -q "WebGPU en natif" fox-webgpu.log \
+            || { echo "::error::le renard n'a pas tourné sur WebGPU"; exit 1; }
+          grep -Eq "os le plus rapide : [1-9]" fox-webgpu.log \
+            || { echo "::error::le skinning du renard n'a pas tourné sur WebGPU"; exit 1; }
 
 
       # Sponza : 105 dessins par image. En Debug seulement, où la validation de NVRHI est active :
@@ -250,6 +260,14 @@ jobs:
             --model assets-cache/Models/Sponza/glTF/Sponza.gltf | tee sponza.log
           grep -Eq "boucle arrêtée après ([1-9]|[0-9]{2,})\.[0-9] s" sponza.log \
             || { echo "::error::la boucle avec Sponza a tourné moins d'une seconde"; exit 1; }
+          # Sponza sur le backend WebGPU, validation active (#185).
+          timeout --foreground --preserve-status -k 10 120 \
+            ./build/${{ matrix.preset }}/sandbox/levain_sandbox --gpu webgpu --seconds 2 \
+            --model assets-cache/Models/Sponza/glTF/Sponza.gltf | tee sponza-webgpu.log
+          grep -q "WebGPU en natif" sponza-webgpu.log \
+            || { echo "::error::Sponza n'a pas tourné sur WebGPU"; exit 1; }
+          grep -Eq "boucle arrêtée après ([1-9]|[0-9]{2,})\.[0-9] s" sponza-webgpu.log \
+            || { echo "::error::la boucle de Sponza sur WebGPU a tourné moins d'une seconde"; exit 1; }
 
 
       # Le cuiseur, sans GPU (ADR-0020), en Release seulement : l'encodage UASTC y est 5 fois plus

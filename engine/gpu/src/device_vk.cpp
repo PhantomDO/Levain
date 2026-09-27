@@ -19,6 +19,7 @@
 #include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
 #include "levain/gpu/device.hpp"
+#include "levain/gpu/webgpu.hpp"
 
 // NVRHI est compilé en bibliothèque statique : c'est à l'application de définir le dispatcher
 // dynamique de Vulkan-Hpp, une seule fois dans tout le programme, puis de l'initialiser. Seule la
@@ -126,6 +127,20 @@ std::string describeGpu(vk::PhysicalDevice physicalDevice)
 core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
                                         const DeviceOptions& options)
 {
+    if (options.api == nvrhi::GraphicsAPI::WEBGPU)
+    {
+        auto device = createWebGpuDevice({.enableValidation = options.enableValidation});
+        if (!device)
+        {
+            return std::unexpected{std::move(device.error())};
+        }
+        core::log("gpu", core::LogLevel::Info, "WebGPU en natif : rendu hors écran (--capture)");
+        return GpuDevice{.vulkan = nullptr,
+                         .nvrhi = std::move(*device),
+                         .swapchain = nullptr,
+                         .offscreen = nullptr};
+    }
+
     std::unique_ptr<VulkanContext, VulkanContextDeleter> vulkan{new VulkanContext{}};
 
     // SDL sait quelles extensions de surface réclame son pilote vidéo : Wayland, X11, ou
@@ -289,7 +304,8 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
 
     return GpuDevice{.vulkan = std::move(vulkan),
                      .nvrhi = std::move(nvrhiDevice),
-                     .swapchain = std::move(*swapchain)};
+                     .swapchain = std::move(*swapchain),
+                     .offscreen = nullptr};
 }
 
 } // namespace levain::gpu
