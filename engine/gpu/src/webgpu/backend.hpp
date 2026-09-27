@@ -258,42 +258,26 @@ public:
 
     nvrhi::Object getNativeObject(nvrhi::ObjectType) override { return nullptr; }
 
-    // À venir (#184, partie B2) : command lists, relecture, requêtes.
-    nvrhi::StagingTextureHandle createStagingTexture(const nvrhi::TextureDesc&,
-                                                     nvrhi::CpuAccessMode) override
-    {
-        return nullptr;
-    }
-
-    void* mapStagingTexture(nvrhi::IStagingTexture*, const nvrhi::TextureSlice&,
-                            nvrhi::CpuAccessMode, size_t*) override
-    {
-        return nullptr;
-    }
-
-    void unmapStagingTexture(nvrhi::IStagingTexture*) override {}
-
-    nvrhi::CommandListHandle createCommandList(const nvrhi::CommandListParameters&) override
-    {
-        return nullptr;
-    }
-
-    uint64_t executeCommandLists(nvrhi::ICommandList* const*, size_t, nvrhi::CommandQueue) override
-    {
-        return 0;
-    }
-
-    nvrhi::EventQueryHandle createEventQuery() override { return nullptr; }
+    // commandlist.cpp : command lists, relecture, requêtes.
+    nvrhi::CommandListHandle createCommandList(const nvrhi::CommandListParameters& params) override;
+    uint64_t executeCommandLists(nvrhi::ICommandList* const* commandLists, size_t count,
+                                 nvrhi::CommandQueue queue) override;
+    nvrhi::StagingTextureHandle createStagingTexture(const nvrhi::TextureDesc& desc,
+                                                     nvrhi::CpuAccessMode access) override;
+    void* mapStagingTexture(nvrhi::IStagingTexture* texture, const nvrhi::TextureSlice& slice,
+                            nvrhi::CpuAccessMode access, size_t* rowPitch) override;
+    void unmapStagingTexture(nvrhi::IStagingTexture* texture) override;
+    nvrhi::EventQueryHandle createEventQuery() override;
 
     void setEventQuery(nvrhi::IEventQuery*, nvrhi::CommandQueue) override {}
 
     bool pollEventQuery(nvrhi::IEventQuery*) override { return true; }
 
-    void waitEventQuery(nvrhi::IEventQuery*) override {}
+    void waitEventQuery(nvrhi::IEventQuery*) override { waitForIdle(); }
 
     void resetEventQuery(nvrhi::IEventQuery*) override {}
 
-    nvrhi::TimerQueryHandle createTimerQuery() override { return nullptr; }
+    nvrhi::TimerQueryHandle createTimerQuery() override;
 
     bool pollTimerQuery(nvrhi::ITimerQuery*) override { return false; }
 
