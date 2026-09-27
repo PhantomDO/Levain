@@ -24,6 +24,7 @@ set(nativeTests
     input_test.cpp
     process_test.cpp
     texture_test.cpp
+    webgpu_test.cpp
     window_test.cpp)
 if(EMSCRIPTEN)
     add_executable(levain_tests doctest_main.cpp ${cpuTests})
@@ -36,8 +37,8 @@ if(EMSCRIPTEN)
 else()
     add_executable(levain_tests doctest_main.cpp ${cpuTests} ${nativeTests})
     target_link_libraries(levain_tests PRIVATE
-        levain::animation levain::assets levain::core levain::input levain::platform levain::render
-        levain::scene doctest::doctest)
+        levain::animation levain::assets levain::core levain::gpu levain::input levain::platform
+        levain::render levain::scene doctest::doctest)
 endif()
 
 # La macro qui génère le main de doctest ne doit s'appliquer qu'à une seule unité de

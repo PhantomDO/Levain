@@ -56,13 +56,14 @@ add_subdirectory(engine/core)
 add_subdirectory(engine/scene)
 add_subdirectory(engine/assets)
 add_subdirectory(engine/animation)
+# Le GPU : dans le navigateur, son seul backend WebGPU (ADR-0023).
+add_subdirectory(engine/gpu)
 
 # Le reste attend son portage au web (M4.6) : la fenêtre et l'entrée (SDL3 sous Emscripten, #186),
-# le GPU et le rendu (le backend WebGPU de NVRHI, #184 et #185), les shaders en WGSL (#183).
+# le rendu (#184 et #185).
 if(NOT EMSCRIPTEN)
     add_subdirectory(shaders)
     add_subdirectory(engine/platform)
-    add_subdirectory(engine/gpu)
     add_subdirectory(engine/render)
     add_subdirectory(engine/input)
     add_subdirectory(tools/cook)
