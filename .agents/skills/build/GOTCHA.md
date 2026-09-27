@@ -3,6 +3,17 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## SDL dans une page web (2026-09-27)
+
+- **Symptôme 1** : « Document.querySelector: '##canvas' is not a valid selector ». **Cause** :
+  `SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING` rend un sélecteur, dièse compris, malgré son nom. **Parade** : le
+  prendre tel quel (`device_web.cpp`).
+- **Symptôme 2** : les crédits de la page ont disparu. **Cause** : avec `SDL_WINDOW_FILL_DOCUMENT`, SDL range tout
+  ce qui n'est pas le canvas dans un élément caché (`SDL3_fill_document_background_elements`). **Parade** : un
+  calque unique, qu'un `MutationObserver` ressort (`sandbox/web/shell.html`).
+- **Symptôme 3** : une modification du modèle de page n'apparaît pas. **Cause** : `--shell-file` est une option
+  de lien, pas une dépendance ; ninja ne relie pas. **Parade** : `LINK_DEPENDS` sur la cible.
+
 ## Dawn natif tolère ce que le navigateur refuse (2026-09-27)
 
 - **Symptôme** : le cube passe en natif sur Dawn (0 pixel d'écart), mais dans Firefox la page reste noire, avec

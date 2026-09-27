@@ -18,9 +18,13 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <tuple>
 #include <utility>
 #include <vector>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
 #include <flecs.h>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -1331,6 +1335,48 @@ bool captureFrame(levain::gpu::GpuDevice& gpu, const levain::platform::Window& w
     return true;
 }
 
+/// Ce que la boucle anime et lit, créé une fois le device là.
+struct Sandbox
+{
+    DemoScene scene;
+    levain::input::Bindings bindings;
+    CameraActions actions;
+};
+
+levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
+                                            const SandboxOptions& options)
+{
+    const levain::render::SamplerSettings sampler{.maxAnisotropy = options.maxAnisotropy};
+    levain::core::log("sandbox", levain::core::LogLevel::Info, "filtrage anisotrope : {}",
+                      levain::render::clampAnisotropy(sampler.maxAnisotropy));
+    auto scene = createDemoScene(gpu, sampler, options.modelPath, options.clipName,
+                                 options.locomotion, options.modelScale);
+    if (!scene)
+    {
+        return std::unexpected{std::move(scene.error())};
+    }
+
+    // Les liaisons d'entrée : changer une touche dans data/input.cfg ne demande aucune
+    // recompilation (ADR-0017). Un nom inconnu échoue ici, avec son numéro de ligne.
+    auto bindings = levain::input::loadBindings(LEVAIN_DATA_DIR "/input.cfg");
+    if (!bindings)
+    {
+        return std::unexpected{std::move(bindings.error())};
+    }
+    auto actions = cameraActionsOf(*bindings);
+    if (!actions)
+    {
+        return std::unexpected{std::move(actions.error())};
+    }
+
+    levain::core::log("sandbox", levain::core::LogLevel::Info,
+                      "liaisons : {} actions et {} axes (data/input.cfg) ; clic droit pour "
+                      "regarder, ZQSD ou WASD pour avancer",
+                      bindings->actions.size(), bindings->axes.size());
+    return Sandbox{
+        .scene = std::move(*scene), .bindings = std::move(*bindings), .actions = *actions};
+}
+
 /// Ce que la boucle garde d'une image à l'autre. Une image est une fonction (`runFrame`) : en
 /// natif, la boucle l'appelle ; dans le navigateur, c'est lui, à chaque image (ADR-0023, point 3).
 struct Loop
@@ -1361,16 +1407,16 @@ struct Loop
     double lastFrameSeconds;
 };
 
-Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, DemoScene& scene,
-               const levain::input::Bindings& bindings, const CameraActions& actions,
+Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, Sandbox& sandbox,
                double loopSeconds, std::optional<double> frozenSeconds)
 {
+    DemoScene& scene = sandbox.scene;
     const Clock::time_point now = Clock::now();
     return Loop{.window = window,
                 .gpu = gpu,
                 .scene = scene,
-                .bindings = bindings,
-                .actions = actions,
+                .bindings = sandbox.bindings,
+                .actions = sandbox.actions,
                 .loopSeconds = loopSeconds,
                 .frozenSeconds = frozenSeconds,
                 .commandList = gpu.nvrhi->createCommandList(),
@@ -1384,7 +1430,7 @@ Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, De
                 .shaderReload = startShaderReload(),
                 .textureReload = startTextureReload(scene.registry),
                 .sceneTarget = sceneTargetOf(gpu),
-                .input = levain::input::makeInputState(bindings),
+                .input = levain::input::makeInputState(sandbox.bindings),
                 .mouseCaptured = false,
                 .lastFrameSeconds = scene.fixedStep.stepSeconds};
 }
@@ -1406,6 +1452,10 @@ bool runFrame(Loop& loop)
 
     if (!loop.state.isVisible)
     {
+#ifdef __EMSCRIPTEN__
+        // Le navigateur n'appelle plus un onglet caché : rien à attendre, et rien ne s'y attend.
+        return true;
+#endif
         // Pas au-delà de --seconds : masquée sans événement (bureau verrouillé), la boucle
         // dormirait sinon indéfiniment. L'infini par défaut attend sans limite.
         const double remainingSeconds =
@@ -1527,6 +1577,59 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
                                         sceneSecondsOf(loop), *capturePath);
 }
 
+#ifdef __EMSCRIPTEN__
+/// Dans le navigateur, main rend la main avant que le device n'arrive (ADR-0023, point 2) : ce que
+/// la boucle utilise vit ici, jusqu'à la fermeture de l'onglet.
+struct WebSandbox
+{
+    SandboxOptions options;
+    std::optional<levain::platform::Window> window;
+    std::optional<levain::gpu::GpuDevice> gpu;
+    std::optional<Sandbox> sandbox;
+    std::optional<Loop> loop;
+};
+
+WebSandbox& webSandbox()
+{
+    static WebSandbox instance;
+    return instance;
+}
+
+void runWebFrame()
+{
+    WebSandbox& web = webSandbox();
+    if (!runFrame(*web.loop))
+    {
+        std::ignore = finishLoop(*web.loop, std::nullopt);
+        emscripten_cancel_main_loop();
+    }
+}
+
+/// La suite de main, quand le navigateur a donné le device.
+void startWebSandbox(levain::core::Result<levain::gpu::GpuDevice> gpu)
+{
+    WebSandbox& web = webSandbox();
+    if (!gpu)
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}", gpu.error().message);
+        return;
+    }
+    web.gpu.emplace(std::move(*gpu));
+    auto sandbox = createSandbox(*web.gpu, web.options);
+    if (!sandbox)
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}",
+                          sandbox.error().message);
+        return;
+    }
+    web.sandbox.emplace(std::move(*sandbox));
+    web.loop.emplace(startLoop(*web.window, *web.gpu, *web.sandbox, web.options.loopSeconds,
+                               web.options.frozenSeconds));
+    // 0 : au rythme de requestAnimationFrame, celui de l'écran.
+    emscripten_set_main_loop(runWebFrame, 0, false);
+}
+#endif
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1559,6 +1662,13 @@ int main(int argc, char** argv)
             return 1;
         }
 
+#ifdef __EMSCRIPTEN__
+        WebSandbox& web = webSandbox();
+        web.options = *options;
+        web.window.emplace(std::move(*window));
+        levain::gpu::requestGpuDevice(*web.window, {.enableValidation = EnableValidation},
+                                      startWebSandbox);
+#else
         // Déclaré après window, gpu sera détruit avant elle : la surface Vulkan doit disparaître
         // avant la fenêtre SDL qui la porte.
         const Clock::time_point deviceStart = Clock::now();
@@ -1573,42 +1683,16 @@ int main(int argc, char** argv)
         levain::core::log("sandbox", levain::core::LogLevel::Info, "device créé en {:.1f} ms",
                           secondsBetween(deviceStart, Clock::now()) * 1000.0);
 
-        const levain::render::SamplerSettings sampler{.maxAnisotropy = options->maxAnisotropy};
-        levain::core::log("sandbox", levain::core::LogLevel::Info, "filtrage anisotrope : {}",
-                          levain::render::clampAnisotropy(sampler.maxAnisotropy));
-        auto scene = createDemoScene(*gpu, sampler, options->modelPath, options->clipName,
-                                     options->locomotion, options->modelScale);
-        if (!scene)
+        auto sandbox = createSandbox(*gpu, *options);
+        if (!sandbox)
         {
             levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}",
-                              scene.error().message);
+                              sandbox.error().message);
             return 1;
         }
 
-        // Les liaisons d'entrée : changer une touche dans data/input.cfg ne demande aucune
-        // recompilation (ADR-0017). Un nom inconnu échoue ici, avec son numéro de ligne.
-        auto bindings = levain::input::loadBindings(LEVAIN_DATA_DIR "/input.cfg");
-        if (!bindings)
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}",
-                              bindings.error().message);
-            return 1;
-        }
-        const auto actions = cameraActionsOf(*bindings);
-        if (!actions)
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}",
-                              actions.error().message);
-            return 1;
-        }
-
-        levain::core::log("sandbox", levain::core::LogLevel::Info,
-                          "liaisons : {} actions et {} axes (data/input.cfg) ; clic droit pour "
-                          "regarder, ZQSD ou WASD pour avancer",
-                          bindings->actions.size(), bindings->axes.size());
-
-        Loop loop = startLoop(*window, *gpu, *scene, *bindings, *actions, options->loopSeconds,
-                              options->frozenSeconds);
+        Loop loop =
+            startLoop(*window, *gpu, *sandbox, options->loopSeconds, options->frozenSeconds);
         while (runFrame(loop))
         {
         }
@@ -1617,6 +1701,7 @@ int main(int argc, char** argv)
             return 1;
         }
         levain::core::log("sandbox", levain::core::LogLevel::Info, "fenêtre fermée");
+#endif
     }
     catch (const std::exception& e)
     {

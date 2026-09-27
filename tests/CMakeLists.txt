@@ -39,7 +39,8 @@ if(EMSCRIPTEN)
     # web_cube.html, que tools/web-smoke.sh ouvre dans Firefox et compare à data/cube.ppm. Les
     # shaders WGSL et la texture sont préchargés dans le système de fichiers d'Emscripten.
     add_executable(levain_web_cube web/web_cube.cpp)
-    set_target_properties(levain_web_cube PROPERTIES SUFFIX ".html")
+    # LINK_DEPENDS : la page se régénère quand son modèle change, pas seulement le code.
+    set_target_properties(levain_web_cube PROPERTIES SUFFIX ".html" LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html")
     target_link_libraries(levain_web_cube PRIVATE levain::assets levain::gpu levain::render)
     target_link_options(levain_web_cube PRIVATE
         -sALLOW_MEMORY_GROWTH=1
