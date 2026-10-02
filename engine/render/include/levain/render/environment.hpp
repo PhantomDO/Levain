@@ -6,6 +6,7 @@
 // mieux sur le GPU, sans la déformation aux pôles de l'équirectangulaire.
 
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include <glm/glm.hpp>
@@ -25,6 +26,31 @@ struct EnvironmentImage
     std::uint32_t height = 0;
     std::span<const float> rgba;
 };
+
+/// Le soleil : une lumière directionnelle, qui touche tout l'écran (hors des clusters, ADR-0024).
+/// `extractSun` le tire d'une HDRI.
+struct Sun
+{
+    glm::vec3 direction{0.0f, 1.0f, 0.0f}; ///< Vers le soleil.
+    glm::vec3 color{1.0f};
+    float intensity = 3.0f;
+};
+
+/// Le soleil se détache du ciel : un pixel au moins `SunContrast` fois plus lumineux que la
+/// moyenne de l'image. En dessous (un ciel couvert), l'HDRI n'a pas de soleil.
+inline constexpr float SunContrast = 1000.0f;
+/// Le soleil occupe les pixels à moins de `SunRadiusDegrees` du plus brillant, qui dépassent
+/// `SunThresholdRatio` fois sa luminance : le disque et son halo, pas un nuage éclairé au loin.
+inline constexpr float SunRadiusDegrees = 5.0f;
+inline constexpr float SunThresholdRatio = 1e-3f;
+
+/// Trouve le soleil de l'image équirectangulaire `rgba` (`width` × `height` pixels, quatre
+/// flottants chacun) et l'en retire : ses pixels sont ramenés au seuil, et l'énergie retirée
+/// devient une lumière directionnelle, qui jette des ombres. Sans cela, le soleil de l'HDRI
+/// éclairerait aussi par l'IBL, qui n'a pas d'ombres, et les pâlirait. `nullopt`, image intacte,
+/// sans soleil.
+[[nodiscard]] std::optional<Sun> extractSun(std::uint32_t width, std::uint32_t height,
+                                            std::span<float> rgba);
 
 /// 16 bits flottants par canal : assez pour un ciel, jusqu'à 65504. Les storage textures de
 /// WebGPU l'acceptent, et le GPU sait le filtrer partout (le 32 bits demande une extension).

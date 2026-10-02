@@ -241,6 +241,7 @@ struct DemoScene
     levain::render::ShadowPass shadows; ///< Les ombres du soleil, en cascades (M5.3).
     levain::render::CascadeSettings cascadeSettings;
     levain::render::Environment environment; ///< Le ciel qui éclaire la scène (IBL, M5.4).
+    levain::render::Sun sun;                 ///< Celui du ciel, ou celui de la démo sans HDRI.
     /// Le ciel en fond, avec `--sky` seulement : sans HDRI, le fond reste la croûte de levain.
     std::optional<levain::render::SkyPass> sky;
     levain::render::TonemapPass tonemap; ///< De l'image HDR à la swapchain (M5.2).
@@ -738,19 +739,49 @@ void logScanReport(const levain::assets::ScanReport& report)
     }
 }
 
-/// Le ciel de `--sky`, ou sans HDRI un ciel uniforme et sombre, l'ambiance d'avant l'IBL. Le temps
-/// de calcul est donné : il se paie à chaque chargement.
-levain::core::Result<levain::render::Environment>
-loadEnvironment(nvrhi::IDevice& device, const std::optional<std::filesystem::path>& skyPath)
+/// Le soleil de la démo : haut, de biais, légèrement chaud.
+constexpr levain::render::Sun DemoSun{
+    .direction = {-0.7f, 0.45f, 0.5f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
+
+/// Le ciel qui éclaire la scène, et son soleil.
+struct Sky
+{
+    levain::render::Environment environment;
+    levain::render::Sun sun;
+};
+
+/// Le ciel de `--sky`, ou sans HDRI un ciel uniforme et sombre, l'ambiance d'avant l'IBL, sous le
+/// soleil de la démo. Le soleil de l'HDRI en est retiré, pour devenir celui de la scène, qui jette
+/// les ombres. Le temps de calcul est donné : il se paie à chaque chargement.
+levain::core::Result<Sky> loadSky(nvrhi::IDevice& device,
+                                  const std::optional<std::filesystem::path>& skyPath)
 {
     if (!skyPath)
     {
-        return levain::render::createUniformEnvironment(device, glm::vec3{0.1f});
+        auto uniform = levain::render::createUniformEnvironment(device, glm::vec3{0.1f});
+        if (!uniform)
+        {
+            return std::unexpected(uniform.error());
+        }
+        return Sky{.environment = std::move(*uniform), .sun = DemoSun};
     }
     auto image = levain::assets::loadHdrImage(*skyPath);
     if (!image)
     {
         return std::unexpected(image.error());
+    }
+    const std::optional<levain::render::Sun> sun =
+        levain::render::extractSun(image->width, image->height, image->rgba);
+    if (sun)
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Info,
+                          "soleil de l'HDRI : direction ({:.2f}, {:.2f}, {:.2f}), intensité {:.2f}",
+                          sun->direction.x, sun->direction.y, sun->direction.z, sun->intensity);
+    }
+    else
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Warning,
+                          "pas de soleil dans l'HDRI : le soleil de la démo éclaire la scène");
     }
     const auto start = std::chrono::steady_clock::now();
     auto environment = levain::render::createEnvironment(
@@ -761,7 +792,11 @@ loadEnvironment(nvrhi::IDevice& device, const std::optional<std::filesystem::pat
     levain::core::log("sandbox", levain::core::LogLevel::Info,
                       "ciel : {} ({} × {}), environnement calculé en {:.1f} ms",
                       skyPath->filename().string(), image->width, image->height, elapsed.count());
-    return environment;
+    if (!environment)
+    {
+        return std::unexpected(environment.error());
+    }
+    return Sky{.environment = std::move(*environment), .sun = sun.value_or(DemoSun)};
 }
 
 /// Crée la passe des meshes et envoie au GPU le cube, la grille, le sol, la texture du damier, le
@@ -895,22 +930,22 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(shadows.error());
     }
-    auto environment = loadEnvironment(*gpu.nvrhi, skyPath);
-    if (!environment)
+    auto sky = loadSky(*gpu.nvrhi, skyPath);
+    if (!sky)
     {
-        return std::unexpected(environment.error());
+        return std::unexpected(sky.error());
     }
     auto meshPass = levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *clusters,
-                                                   *shadows, *environment);
-    std::optional<levain::render::SkyPass> sky;
+                                                   *shadows, sky->environment);
+    std::optional<levain::render::SkyPass> skyPass;
     if (skyPath)
     {
-        auto pass = levain::render::createSkyPass(*gpu.nvrhi, sceneTargetOf(gpu), *environment);
+        auto pass = levain::render::createSkyPass(*gpu.nvrhi, sceneTargetOf(gpu), sky->environment);
         if (!pass)
         {
             return std::unexpected(pass.error());
         }
-        sky = std::move(*pass);
+        skyPass = std::move(*pass);
     }
     if (!meshPass)
     {
@@ -1045,8 +1080,9 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .skinning = std::move(*skinning),
                      .shadows = std::move(*shadows),
                      .cascadeSettings = cascadeSettings,
-                     .environment = std::move(*environment),
-                     .sky = std::move(sky),
+                     .environment = std::move(sky->environment),
+                     .sun = sky->sun,
+                     .sky = std::move(skyPass),
                      .tonemap = std::move(*tonemap),
                      .tonemapSettings = {},
                      .hdr = {},
@@ -1071,10 +1107,6 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .shadowGpu = {},
                      .depth = {}};
 }
-
-/// Le soleil de la démo : haut, de biais, légèrement chaud.
-constexpr levain::render::Sun DemoSun{
-    .direction = {-0.7f, 0.45f, 0.5f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
 
 /// Huit lumières de couleur qui tournent autour du modèle (`modelPlacement`), un tour en 12 s :
 /// de quoi voir le forward+ éclairer le modèle et le sol.
@@ -1239,9 +1271,9 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         const levain::render::FrameLighting lighting{
             .view = levain::render::clusterViewOf(scene.camera, aspect),
             .cameraPosition = scene.camera.position,
-            .sun = DemoSun,
+            .sun = scene.sun,
             .environmentIntensity = 1.0f,
-            .cascades = levain::render::cascadesOf(scene.camera, aspect, DemoSun.direction,
+            .cascades = levain::render::cascadesOf(scene.camera, aspect, scene.sun.direction,
                                                    scene.cascadeSettings)};
 
         // La couleur de fond : une croûte de levain. Locale et non globale : le constructeur de

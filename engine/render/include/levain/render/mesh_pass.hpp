@@ -32,14 +32,6 @@ struct SceneConstants
     glm::mat4 model;
 };
 
-/// Le soleil : une lumière directionnelle, qui touche tout l'écran (hors des clusters, ADR-0024).
-struct Sun
-{
-    glm::vec3 direction{0.0f, 1.0f, 0.0f}; ///< Vers le soleil.
-    glm::vec3 color{1.0f};
-    float intensity = 3.0f;
-};
-
 /// L'éclairage d'une image : la caméra (pour les reflets, et pour retrouver le cluster d'un pixel),
 /// le soleil, et le ciel (l'environnement de `createMeshPass`), multiplié par
 /// `environmentIntensity`.

@@ -13,6 +13,7 @@
 
 #include "shader.hpp"
 
+#include "levain/core/assert.hpp"
 #include "levain/render/texture.hpp"
 
 namespace levain::render
@@ -23,6 +24,12 @@ namespace
 
 /// `numthreads` des passes de shaders/environment.slang.
 constexpr std::uint32_t TexelsPerGroupSide = 8;
+
+/// La luminance d'une couleur linéaire (Rec. 709) : ce que l'œil en perçoit.
+float luminanceOf(glm::vec3 color)
+{
+    return glm::dot(color, glm::vec3{0.2126f, 0.7152f, 0.0722f});
+}
 
 /// Le plus grand flottant 16 bits. Au-delà, la conversion donnerait l'infini, qui empoisonnerait
 /// toutes les moyennes des mips : un soleil trop fort est écrêté, pas perdu.
@@ -236,6 +243,67 @@ core::Result<Environment> createUniformEnvironment(nvrhi::IDevice& device, glm::
 {
     const std::array pixel{radiance.r, radiance.g, radiance.b, 1.0f};
     return createEnvironment(device, {.width = 1, .height = 1, .rgba = pixel}, 1);
+}
+
+std::optional<Sun> extractSun(std::uint32_t width, std::uint32_t height, std::span<float> rgba)
+{
+    LEVAIN_ASSERT(rgba.size() == std::size_t{width} * height * 4, "quatre flottants par pixel");
+    const auto colorAt = [&rgba](std::size_t pixel)
+    { return glm::vec3{rgba[pixel * 4], rgba[(pixel * 4) + 1], rgba[(pixel * 4) + 2]}; };
+    const auto uvOf = [width, height](std::size_t pixel)
+    {
+        const std::size_t row = pixel / width; // la division entière : l'indice de la ligne
+        return glm::vec2{(static_cast<float>(pixel % width) + 0.5f) / static_cast<float>(width),
+                         (static_cast<float>(row) + 0.5f) / static_cast<float>(height)};
+    };
+    const std::size_t pixels = std::size_t{width} * height;
+    std::size_t peak = 0;
+    float peakLuminance = 0.0f;
+    double total = 0.0;
+    for (std::size_t pixel = 0; pixel < pixels; ++pixel)
+    {
+        const float luminance = luminanceOf(colorAt(pixel));
+        total += luminance;
+        if (luminance > peakLuminance)
+        {
+            peak = pixel;
+            peakLuminance = luminance;
+        }
+    }
+    const auto mean = static_cast<float>(total / static_cast<double>(pixels));
+    if (!(peakLuminance > SunContrast * mean))
+    {
+        return std::nullopt;
+    }
+
+    const float threshold = peakLuminance * SunThresholdRatio;
+    const glm::vec3 peakDirection = equirectDirectionOf(uvOf(peak));
+    const float minimumCosine = std::cos(glm::radians(SunRadiusDegrees));
+    // Un pixel couvre un angle solide qui rétrécit vers les pôles, comme le sinus de sa latitude.
+    const float pixelArea = 2.0f * std::numbers::pi_v<float> / static_cast<float>(width) *
+                            std::numbers::pi_v<float> / static_cast<float>(height);
+    glm::dvec3 energy{0.0};
+    glm::dvec3 towardSun{0.0};
+    for (std::size_t pixel = 0; pixel < pixels; ++pixel)
+    {
+        const glm::vec3 color = colorAt(pixel);
+        const float luminance = luminanceOf(color);
+        const glm::vec3 direction = equirectDirectionOf(uvOf(pixel));
+        if (luminance <= threshold || glm::dot(direction, peakDirection) < minimumCosine)
+        {
+            continue;
+        }
+        const glm::vec3 kept = color * (threshold / luminance);
+        const float solidAngle = pixelArea * std::sqrt(1.0f - (direction.y * direction.y));
+        energy += glm::dvec3{(color - kept) * solidAngle};
+        towardSun += glm::dvec3{direction * ((luminance - threshold) * solidAngle)};
+        std::copy_n(&kept.x, 3, rgba.begin() + static_cast<std::ptrdiff_t>(pixel * 4));
+    }
+    const glm::vec3 irradiance{energy};
+    const float intensity = luminanceOf(irradiance);
+    return Sun{.direction = glm::normalize(glm::vec3{towardSun}),
+               .color = irradiance / intensity,
+               .intensity = intensity};
 }
 
 glm::vec3 cubeDirectionOf(std::uint32_t face, glm::vec2 uv)

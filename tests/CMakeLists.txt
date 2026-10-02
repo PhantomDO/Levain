@@ -21,6 +21,7 @@ set(cpuTests
 set(nativeTests
     camera_control_test.cpp
     camera_test.cpp
+    environment_test.cpp
     input_test.cpp
     light_clusters_test.cpp
     shadows_test.cpp
