@@ -331,9 +331,9 @@ public:
         return nullptr;
     }
 
-    void* mapBuffer(nvrhi::IBuffer*, nvrhi::CpuAccessMode) override { return nullptr; }
+    void* mapBuffer(nvrhi::IBuffer* buffer, nvrhi::CpuAccessMode access) override;
 
-    void unmapBuffer(nvrhi::IBuffer*) override {}
+    void unmapBuffer(nvrhi::IBuffer* buffer) override;
 
     nvrhi::MemoryRequirements getBufferMemoryRequirements(nvrhi::IBuffer*) override { return {}; }
 
@@ -452,6 +452,9 @@ public:
 
     /// Signale une erreur à NVRHI comme le font ses backends : par le callback de messages.
     void error(const std::string& message) const;
+    /// Ouvre un buffer `MapRead` au CPU, en attendant le GPU : en natif seulement, le navigateur
+    /// ne sait pas attendre (commandlist.cpp). `nullptr` et une erreur signalée sinon.
+    [[nodiscard]] void* mapForRead(wgpu::Buffer& buffer);
 
 private:
     nvrhi::IMessageCallback* m_messageCallback;

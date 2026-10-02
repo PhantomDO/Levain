@@ -3,13 +3,36 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <format>
 #include <limits>
+
+#include "shader.hpp"
 
 namespace levain::render
 {
 
 namespace
 {
+
+/// Les clusters d'un groupe de threads : `numthreads` dans `shaders/light_clusters.slang`.
+constexpr std::uint32_t ClustersPerGroup = 64;
+
+/// Les tris qu'une command list peut enregistrer : un par vue (la caméra, plus tard les ombres).
+constexpr std::uint32_t MaxSortsPerCommandList = 4;
+
+/// Les constantes du tri, telles que les lit `shaders/light_clusters.slang`.
+struct ClusterConstants
+{
+    glm::mat4 view;
+    glm::mat4 inverseProjection;
+    glm::uvec3 grid;
+    std::uint32_t lightCount;
+    float nearPlane;
+    float farPlane;
+    glm::vec2 padding;
+};
+
+static_assert(sizeof(ClusterConstants) == 160, "disposition lue par light_clusters.slang");
 
 /// La direction, dans le repère de la caméra, du rayon qui passe par le point (`ndc`) de l'écran,
 /// mise à l'échelle pour que z vaille −1 : un point à la profondeur d est `rayOf(ndc) * d`.
@@ -99,6 +122,108 @@ std::vector<std::vector<std::uint32_t>> lightsPerClusterOf(const ClusterGrid& gr
         }
     }
     return result;
+}
+
+core::Result<LightClusterPass> createLightClusterPass(nvrhi::IDevice& device,
+                                                      const ClusterGrid& grid)
+{
+    auto shader = loadShader(device, "light_clusters.computeMain", nvrhi::ShaderType::Compute);
+    if (!shader)
+    {
+        return std::unexpected(shader.error());
+    }
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.bindings = {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+                           nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0),
+                           nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0),
+                           nvrhi::BindingLayoutItem::StructuredBuffer_UAV(1)};
+
+    LightClusterPass pass;
+    pass.grid = grid;
+    pass.shader = std::move(*shader);
+    pass.layout = device.createBindingLayout(layoutDesc);
+    pass.pipeline = device.createComputePipeline(
+        nvrhi::ComputePipelineDesc().setComputeShader(pass.shader).addBindingLayout(pass.layout));
+    // Volatile, comme les constantes de scène (mesh_pass.cpp) : quelques tris par command list au
+    // plus (une par vue).
+    pass.constants = device.createBuffer(nvrhi::BufferDesc()
+                                             .setByteSize(sizeof(ClusterConstants))
+                                             .setIsConstantBuffer(true)
+                                             .setIsVolatile(true)
+                                             .setMaxVersions(MaxSortsPerCommandList)
+                                             .setDebugName("clusters : constantes"));
+    pass.lights = device.createBuffer(nvrhi::BufferDesc()
+                                          .setByteSize(MaxPointLights * sizeof(PointLight))
+                                          .setStructStride(sizeof(PointLight))
+                                          .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                          .setKeepInitialState(true)
+                                          .setDebugName("clusters : lumières"));
+    const std::uint32_t clusters = clusterCountOf(grid);
+    // Les deux listes servent au compute (écriture), puis au shader d'éclairage (lecture) : NVRHI
+    // place la barrière entre les deux (suivi automatique des états).
+    const auto listDesc = [](std::uint64_t size, const char* name)
+    {
+        return nvrhi::BufferDesc()
+            .setByteSize(size)
+            .setStructStride(sizeof(std::uint32_t))
+            .setCanHaveUAVs(true)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true)
+            .setDebugName(name);
+    };
+    pass.lightCounts = device.createBuffer(
+        listDesc(std::uint64_t{clusters} * sizeof(std::uint32_t), "clusters : comptes"));
+    pass.lightIndices = device.createBuffer(
+        listDesc(std::uint64_t{clusters} * MaxLightsPerCluster * sizeof(std::uint32_t),
+                 "clusters : indices des lumières"));
+    if (!pass.layout || !pass.pipeline || !pass.constants || !pass.lights || !pass.lightCounts ||
+        !pass.lightIndices)
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               "passe de tri des lumières refusée par NVRHI");
+    }
+    pass.bindings = device.createBindingSet(
+        nvrhi::BindingSetDesc()
+            .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, pass.constants))
+            .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, pass.lights))
+            .addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(0, pass.lightCounts))
+            .addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(1, pass.lightIndices)),
+        pass.layout);
+    return pass;
+}
+
+core::Result<void> assignLightsToClusters(nvrhi::ICommandList& commandList,
+                                          const LightClusterPass& pass,
+                                          std::span<const PointLight> lights,
+                                          const ClusterView& view)
+{
+    if (lights.size() > MaxPointLights)
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               std::format("{} lumières ponctuelles, {} au plus (ADR-0024)",
+                                           lights.size(), MaxPointLights));
+    }
+    const ClusterConstants constants{
+        .view = view.view,
+        .inverseProjection = glm::inverse(view.projection),
+        .grid = {pass.grid.x, pass.grid.y, pass.grid.z},
+        .lightCount = static_cast<std::uint32_t>(lights.size()),
+        .nearPlane = view.nearPlane,
+        .farPlane = view.farPlane,
+        .padding = {},
+    };
+    commandList.writeBuffer(pass.constants, &constants, sizeof(constants));
+    if (!lights.empty())
+    {
+        commandList.writeBuffer(pass.lights, lights.data(), lights.size_bytes());
+    }
+    nvrhi::ComputeState state;
+    state.pipeline = pass.pipeline;
+    state.addBindingSet(pass.bindings);
+    commandList.setComputeState(state);
+    commandList.dispatch((clusterCountOf(pass.grid) + ClustersPerGroup - 1) / ClustersPerGroup);
+    return {};
 }
 
 } // namespace levain::render

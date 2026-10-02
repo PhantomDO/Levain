@@ -108,6 +108,14 @@ add_test(NAME assets.metas-committed
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/check_asset_metas.cmake)
 
+# Le tri des lumières en clusters sur le GPU, comparé à sa référence CPU (ADR-0024), sur les deux
+# backends.
+add_executable(levain_light_clusters light_clusters_gpu.cpp)
+target_link_libraries(levain_light_clusters PRIVATE levain::gpu levain::platform levain::render)
+add_test(NAME gpu.light-clusters.vulkan COMMAND levain_light_clusters vulkan)
+set_tests_properties(gpu.light-clusters.vulkan PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+add_test(NAME gpu.light-clusters.webgpu COMMAND levain_light_clusters webgpu)
+
 # Un programme qui ne relie que levain::gpu (gpu_alone.cpp) : une dépendance manquante ou mal ordonnée
 # casse le build, comme elle casserait celui d'un jeu.
 add_executable(levain_gpu_alone gpu_alone.cpp)

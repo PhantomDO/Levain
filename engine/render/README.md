@@ -33,7 +33,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/texture.hpp`](include/levain/render/texture.hpp) | `TextureLevel`, `createTexture` — une texture sRGB et tous ses niveaux de mip ; `SamplerSettings`, `createSampler`, `clampAnisotropy` |
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
 | [`include/levain/render/skinning.hpp`](include/levain/render/skinning.hpp) | `SkinnedVertex`, `createSkinningPass`, `createSkinnedMesh`, `skinMesh` — le skinning en compute |
-| [`include/levain/render/light_clusters.hpp`](include/levain/render/light_clusters.hpp) | `PointLight`, `ClusterGrid`, `clusterBoxOf`, `lightsPerClusterOf` — le découpage en clusters du forward+, et la référence CPU du tri des lumières |
+| [`include/levain/render/light_clusters.hpp`](include/levain/render/light_clusters.hpp) | `PointLight`, `ClusterGrid`, `createLightClusterPass`, `assignLightsToClusters` — le tri des lumières ponctuelles en clusters (forward+) ; `lightsPerClusterOf`, sa référence CPU |
 
 ## Ce qu'il faut pour dessiner un triangle avec NVRHI
 
@@ -138,10 +138,14 @@ l'atteindre. Le volume de la caméra est découpé en une grille 3D (`ClusterGri
 24 tranches en profondeur) ; les tranches s'épaississent avec la distance (`sliceDepthOf`), parce que la
 précision compte surtout près de la caméra.
 
-Un cluster est une boîte dans le repère de la caméra (`clusterBoxOf`) : les quatre coins de sa case à l'écran,
-prolongés jusqu'aux deux profondeurs de sa tranche. Une lumière le touche si sa sphère touche la boîte
-(`sphereTouchesBox`). `lightsPerClusterOf` fait le tri sur le CPU : c'est la référence à laquelle se comparera
-le compute.
+`assignLightsToClusters` envoie les lumières et lance `shaders/light_clusters.slang`, un thread par cluster : il
+calcule la boîte du cluster dans le repère de la caméra (les quatre coins de sa case, prolongés jusqu'aux deux
+profondeurs de sa tranche), puis garde les lumières dont la sphère la touche. Il écrit deux listes : le **compte**
+exact par cluster, et les indices des `MaxLightsPerCluster` premières lumières. Un compte plus grand que la
+limite se voit, au lieu de disparaître.
+
+Le même calcul existe côté CPU (`lightsPerClusterOf`) : `levain_light_clusters` compare les deux, cluster par
+cluster, sur Vulkan et sur WebGPU.
 
 ## Mesurer le temps GPU
 
