@@ -1,5 +1,6 @@
-// Un mesh indexé, coloré par sommet et texturé (M2.2). Les ressources suivent l'ADR-0013 : space0
-// pour ce qui change une fois par frame, space2 pour ce qui change à chaque matériau.
+// Un mesh indexé, coloré par sommet et texturé (M2.2), avec un matériau glTF metallic-roughness
+// (M5.1). Les ressources suivent l'ADR-0013 : space0 pour ce qui change une fois par frame, space2
+// pour ce qui change à chaque matériau.
 
 struct SceneConstants
 {
@@ -9,8 +10,21 @@ struct SceneConstants
 
 ConstantBuffer<SceneConstants> scene : register(b0, space0);
 
-Texture2D albedo : register(t0, space2);
-SamplerState albedoSampler : register(s0, space2);
+/// Les facteurs du matériau (glTF metallic-roughness) : ils multiplient leur texture.
+struct MaterialConstants
+{
+    float4 baseColorFactor;
+    float metallicFactor;
+    float roughnessFactor;
+    float normalScale;
+    float padding;
+};
+
+ConstantBuffer<MaterialConstants> material : register(b0, space2);
+Texture2D baseColorTexture : register(t0, space2);         ///< sRGB : lue en lumière linéaire.
+Texture2D metallicRoughnessTexture : register(t1, space2); ///< Rugosité en vert, métal en bleu.
+Texture2D normalTexture : register(t2, space2);            ///< Dans l'espace tangent.
+SamplerState materialSampler : register(s0, space2);
 
 struct VertexInput
 {
@@ -52,5 +66,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target
 {
     // La texture est en sRGB : Sample rend déjà de la lumière linéaire, et une cible sRGB, comme la
     // swapchain, reconvertit à l'écriture.
-    return float4(input.color * albedo.Sample(albedoSampler, input.uv).rgb, 1.0);
+    const float4 baseColor =
+        material.baseColorFactor * baseColorTexture.Sample(materialSampler, input.uv);
+    return float4(input.color * baseColor.rgb, 1.0);
 }

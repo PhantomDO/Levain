@@ -168,6 +168,14 @@ public:
         : desc{desc}, layout{std::move(layout)}, group{std::move(group)},
           volatileBuffers{std::move(volatileBuffers)}
     {
+        // Un BindingSetItem ne tient sa ressource que par un pointeur brut : c'est au binding set
+        // de la garder vivante, comme le fait le backend Vulkan de NVRHI (ses `resources`). Sans
+        // cela, un buffer qu'on ne garde que par son binding set disparaît à la création.
+        resources.reserve(desc.bindings.size());
+        for (const nvrhi::BindingSetItem& item : desc.bindings)
+        {
+            resources.emplace_back(item.resourceHandle);
+        }
     }
 
     [[nodiscard]] const nvrhi::BindingSetDesc* getDesc() const override { return &desc; }
@@ -178,6 +186,7 @@ public:
     nvrhi::BindingLayoutHandle layout;
     wgpu::BindGroup group;
     std::vector<nvrhi::BufferHandle> volatileBuffers;
+    std::vector<nvrhi::ResourceHandle> resources;
 };
 
 /// Ce que partagent les pipelines : le numéro de groupe de chacun de leurs binding layouts, dans

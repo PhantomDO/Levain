@@ -2,9 +2,13 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
+#include <span>
 #include <utility>
 
 #include "shader.hpp"
+
+#include "levain/render/texture.hpp"
 
 namespace levain::render
 {
@@ -96,8 +100,10 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
     nvrhi::BindingLayoutDesc materialLayoutDesc;
     materialLayoutDesc.visibility = nvrhi::ShaderType::Pixel;
     materialLayoutDesc.setRegisterSpaceAndDescriptorSet(2);
-    materialLayoutDesc.bindings = {nvrhi::BindingLayoutItem::Texture_SRV(0),
-                                   nvrhi::BindingLayoutItem::Sampler(0)};
+    materialLayoutDesc.bindings = {
+        nvrhi::BindingLayoutItem::ConstantBuffer(0), nvrhi::BindingLayoutItem::Texture_SRV(0),
+        nvrhi::BindingLayoutItem::Texture_SRV(1), nvrhi::BindingLayoutItem::Texture_SRV(2),
+        nvrhi::BindingLayoutItem::Sampler(0)};
     nvrhi::BindingLayoutHandle materialLayout = device.createBindingLayout(materialLayoutDesc);
 
     // Volatile : le contenu ne vit que le temps d'une command list, et NVRHI en fournit une
@@ -157,13 +163,56 @@ core::Result<void> reloadMeshPassShaders(nvrhi::IDevice& device, MeshPass& pass,
     return {};
 }
 
-nvrhi::BindingSetHandle createMaterialBindings(nvrhi::IDevice& device, const MeshPass& pass,
-                                               nvrhi::ITexture& albedo, nvrhi::ISampler& sampler)
+MaterialDefaults createMaterialDefaults(nvrhi::IDevice& device, nvrhi::ICommandList& commandList)
 {
-    return device.createBindingSet(nvrhi::BindingSetDesc()
-                                       .addItem(nvrhi::BindingSetItem::Texture_SRV(0, &albedo))
-                                       .addItem(nvrhi::BindingSetItem::Sampler(0, &sampler)),
-                                   pass.materialLayout);
+    const auto texel = [&](std::array<std::uint8_t, 4> rgba, const char* name, nvrhi::Format format)
+    {
+        const std::array<TextureLevel, 1> level{
+            TextureLevel{.width = 1, .height = 1, .bytes = std::as_bytes(std::span{rgba})}};
+        return createTexture(device, commandList, level, name, format);
+    };
+    return MaterialDefaults{
+        .white = texel({255, 255, 255, 255}, "matériau : blanc", nvrhi::Format::SRGBA8_UNORM),
+        .whiteData = texel({255, 255, 255, 255}, "matériau : rugosité-métal neutre",
+                           nvrhi::Format::RGBA8_UNORM),
+        // (0, 0, 1) dans l'espace tangent, rangé de [−1, 1] vers [0, 1] : 128, 128, 255.
+        .flatNormal =
+            texel({128, 128, 255, 255}, "matériau : normale droite", nvrhi::Format::RGBA8_UNORM),
+    };
+}
+
+MaterialTextures withDefaults(MaterialTextures textures, const MaterialDefaults& defaults)
+{
+    textures.baseColor = textures.baseColor != nullptr ? textures.baseColor : defaults.white.Get();
+    textures.metallicRoughness = textures.metallicRoughness != nullptr ? textures.metallicRoughness
+                                                                       : defaults.whiteData.Get();
+    textures.normal = textures.normal != nullptr ? textures.normal : defaults.flatNormal.Get();
+    return textures;
+}
+
+nvrhi::BindingSetHandle
+createMaterialBindings(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
+                       const MeshPass& pass, const MaterialConstants& constants,
+                       const MaterialTextures& textures, nvrhi::ISampler& sampler)
+{
+    // Un buffer par matériau, écrit une fois : le binding set le garde vivant (NVRHI compte ses
+    // références).
+    const nvrhi::BufferHandle buffer =
+        device.createBuffer(nvrhi::BufferDesc()
+                                .setByteSize(sizeof(MaterialConstants))
+                                .setIsConstantBuffer(true)
+                                .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
+                                .setKeepInitialState(true)
+                                .setDebugName("constantes de matériau"));
+    commandList.writeBuffer(buffer, &constants, sizeof(constants));
+    return device.createBindingSet(
+        nvrhi::BindingSetDesc()
+            .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, buffer))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(0, textures.baseColor))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(1, textures.metallicRoughness))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(2, textures.normal))
+            .addItem(nvrhi::BindingSetItem::Sampler(0, &sampler)),
+        pass.materialLayout);
 }
 
 nvrhi::ITexture* ensureDepthTexture(nvrhi::IDevice& device, nvrhi::TextureHandle& depth,

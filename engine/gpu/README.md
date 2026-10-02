@@ -76,6 +76,7 @@ Mesuré sur la machine de référence : device créé en 30 à 40 ms, validation
 | LeakSanitizer signale 128 octets alloués par RADV | Faux positif : le loader décharge le pilote à la destruction de l'instance. Voir le skill `build`, `GOTCHA.md` |
 | RADV affiche « radv is not a conformant Vulkan implementation » | Information de Mesa pour ce GPU récent (GFX1201), pas une erreur |
 | La couche de validation de NVRHI enveloppe le device et n'expose pas `nvrhi::vulkan::IDevice`, seule interface qui connaît les sémaphores Vulkan | La swapchain garde le device Vulkan de NVRHI, le reste du moteur l'enveloppe (comme Donut) |
+| Un `nvrhi::BindingSetItem` ne tient sa ressource que par un pointeur brut : un buffer qu'on ne garde que par son binding set (les constantes d'un matériau) disparaît à la création, et le suivant reprend son adresse | Le binding set garde une référence sur chaque ressource, comme le backend Vulkan de NVRHI ; le backend WebGPU le fait aussi (`webgpu::BindingSet::resources`) |
 | Des sémaphores détruits pendant un redimensionnement peuvent encore être attendus par le moteur de présentation, et Vulkan ne dit pas quand il a fini | Ils ne sont jamais détruits avant la swapchain : on en ajoute si le nombre d'images augmente |
 
 ## Équivalents ailleurs

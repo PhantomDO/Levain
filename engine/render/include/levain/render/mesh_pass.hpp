@@ -29,6 +29,44 @@ struct SceneConstants
     glm::mat4 model;
 };
 
+/// Les facteurs d'un matériau metallic-roughness, avec les défauts de glTF. Doit correspondre à
+/// `MaterialConstants` dans `shaders/mesh.slang`.
+struct MaterialConstants
+{
+    glm::vec4 baseColorFactor{1.0f};
+    float metallicFactor = 1.0f;
+    float roughnessFactor = 1.0f;
+    float normalScale = 1.0f;
+    float padding = 0.0f;
+};
+
+static_assert(sizeof(MaterialConstants) == 32, "disposition lue par shaders/mesh.slang");
+
+/// Les textures d'un matériau. La couleur de base est en sRGB ; rugosité-métal et normal map sont
+/// des données, à créer dans un format UNORM : le GPU ne doit pas les « délinéariser ».
+struct MaterialTextures
+{
+    nvrhi::ITexture* baseColor = nullptr;
+    nvrhi::ITexture* metallicRoughness = nullptr;
+    nvrhi::ITexture* normal = nullptr;
+};
+
+/// Des textures 1 × 1 qui ne changent rien, pour un matériau qui n'a pas les siennes : du blanc
+/// (couleur, et rugosité-métal, que ses facteurs règlent seuls) et la normale « tout droit ».
+struct MaterialDefaults
+{
+    nvrhi::TextureHandle white;
+    nvrhi::TextureHandle whiteData;
+    nvrhi::TextureHandle flatNormal;
+};
+
+[[nodiscard]] MaterialDefaults createMaterialDefaults(nvrhi::IDevice& device,
+                                                      nvrhi::ICommandList& commandList);
+
+/// Les textures de `textures`, et celles de `defaults` là où il en manque.
+[[nodiscard]] MaterialTextures withDefaults(MaterialTextures textures,
+                                            const MaterialDefaults& defaults);
+
 /// Dessine des meshes indexés avec un depth buffer. Tout est créé une fois ; chaque dessin ne fait
 /// qu'écrire les constantes et enregistrer un draw.
 struct MeshPass
@@ -61,12 +99,13 @@ inline constexpr const char* MeshPassShaderFile = "mesh";
                                                   nvrhi::TextureHandle& depth, std::uint32_t width,
                                                   std::uint32_t height);
 
-/// Le binding set d'un matériau (`space2`, ADR-0013) : sa texture et son sampler. Créé une fois par
-/// matériau, pas à chaque dessin.
-[[nodiscard]] nvrhi::BindingSetHandle createMaterialBindings(nvrhi::IDevice& device,
-                                                             const MeshPass& pass,
-                                                             nvrhi::ITexture& albedo,
-                                                             nvrhi::ISampler& sampler);
+/// Le binding set d'un matériau (`space2`, ADR-0013) : ses constantes, ses trois textures (aucune
+/// absente : `withDefaults`) et son sampler. Créé une fois par matériau, pas à chaque dessin ; ses
+/// constantes s'envoient par `commandList`.
+[[nodiscard]] nvrhi::BindingSetHandle
+createMaterialBindings(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
+                       const MeshPass& pass, const MaterialConstants& constants,
+                       const MaterialTextures& textures, nvrhi::ISampler& sampler);
 
 /// Enregistre le dessin de toutes les `instances` de `mesh`, en un seul appel, dans `framebuffer`,
 /// qui doit avoir un depth buffer.
