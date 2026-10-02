@@ -76,5 +76,7 @@ levain_add_shader(light_clusters computeMain compute)
 levain_add_shader(shadow vertexMain vertex)
 levain_add_shader(tonemap vertexMain vertex)
 levain_add_shader(tonemap fragmentMain fragment)
+levain_add_shader(environment cubeFromEquirect compute)
+levain_add_shader(environment downsample compute)
 
 add_custom_target(levain_shaders ALL DEPENDS ${shaderOutputs})

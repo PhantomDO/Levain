@@ -118,6 +118,13 @@ add_test(NAME gpu.light-clusters.vulkan COMMAND levain_light_clusters vulkan)
 set_tests_properties(gpu.light-clusters.vulkan PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 add_test(NAME gpu.light-clusters.webgpu COMMAND levain_light_clusters webgpu)
 
+# L'HDRI converti en cubemap, mips comprises (IBL, #130), sur les deux backends.
+add_executable(levain_environment environment_gpu.cpp)
+target_link_libraries(levain_environment PRIVATE levain::gpu levain::platform levain::render)
+add_test(NAME gpu.environment.vulkan COMMAND levain_environment vulkan)
+set_tests_properties(gpu.environment.vulkan PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+add_test(NAME gpu.environment.webgpu COMMAND levain_environment webgpu)
+
 # Un programme qui ne relie que levain::gpu (gpu_alone.cpp) : une dépendance manquante ou mal ordonnée
 # casse le build, comme elle casserait celui d'un jeu.
 add_executable(levain_gpu_alone gpu_alone.cpp)
