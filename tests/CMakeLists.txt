@@ -130,12 +130,12 @@ target_link_libraries(levain_smoke_render PRIVATE
     levain::assets levain::gpu levain::render levain::platform)
 target_compile_definitions(levain_smoke_render PRIVATE
     LEVAIN_REFERENCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
-foreach(scene triangle cube)
+foreach(scene triangle cube shadow)
     add_test(NAME smoke.${scene} COMMAND levain_smoke_render ${scene})
     set_tests_properties(smoke.${scene} PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endforeach()
 # Les mêmes scènes par le backend WebGPU de NVRHI, sur Dawn : mêmes références (ADR-0023, #184).
-foreach(scene triangle cube)
+foreach(scene triangle cube shadow)
     add_test(NAME smoke.webgpu.${scene} COMMAND levain_smoke_render ${scene} webgpu)
 endforeach()
 

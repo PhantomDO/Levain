@@ -3,6 +3,15 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Une texture comparée doit être une `DepthTexture2D` pour le WGSL (2026-10-02)
+
+- **Symptôme** : `Texture2D shadowAtlas` lu par `SampleCmpLevelZero` compile en SPIR-V, mais Slang écrit en WGSL
+  `texture_2d<f32>` avec `textureSampleCompareLevel`, que WebGPU refuse : seule une `texture_depth_2d` se
+  compare.
+- **Cause** : en HLSL, rien ne distingue une texture de profondeur ; Slang ne le devine pas.
+- **Parade** : `DepthTexture2D` (type de Slang) : `texture_depth_2d` en WGSL, et le même SPIR-V. Le backend WebGPU
+  déduit ensuite le layout de cette déclaration (`DepthBinding`).
+
 ## Un `float3` après un scalaire, dans un constant buffer : 16 octets de trop en WGSL (2026-10-02)
 
 - **Symptôme** : sur WebGPU seulement, « bound with size 16 … requires a buffer binding which is at least 32

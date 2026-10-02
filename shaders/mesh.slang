@@ -28,6 +28,11 @@ struct FrameConstants
     uint padding;
     uint3 clusterGrid;
     uint padding2;
+    /// Les ombres du soleil (M5.3) : la projection de chaque cascade, la profondeur où elle finit,
+    /// et la taille d'un de ses texels, dans le monde.
+    float4x4 cascadeViewProjection[4];
+    float4 cascadeFarDepths;
+    float4 cascadeTexelSizes;
 };
 
 struct PointLight
@@ -43,6 +48,10 @@ ConstantBuffer<FrameConstants> frame : register(b1, space0);
 StructuredBuffer<PointLight> pointLights : register(t0, space0);
 StructuredBuffer<uint> clusterLightCounts : register(t1, space0);
 StructuredBuffer<uint> clusterLightIndices : register(t2, space0);
+/// DepthTexture2D et non Texture2D : en WGSL, seule une texture de profondeur se compare
+/// (build/GOTCHA.md).
+DepthTexture2D shadowAtlas : register(t3, space0);
+SamplerComparisonState shadowSampler : register(s0, space0);
 
 /// Les facteurs du matériau (glTF metallic-roughness) : ils multiplient leur texture.
 struct MaterialConstants
@@ -151,6 +160,28 @@ float attenuationOf(float distance, float range)
     return window * window / max(distance * distance, 1e-4);
 }
 
+/// La part du soleil qui atteint le point : 1 en pleine lumière, 0 dans l'ombre. Le point se projette
+/// dans la shadow map de la cascade de sa profondeur (un quart de l'atlas, shadows.hpp), décalé le
+/// long de sa normale d'un texel et demi, contre l'« acné » ; le sampler compare et filtre les 2 × 2
+/// texels voisins.
+float sunVisibilityOf(float3 worldPosition, float3 normal, float viewDepth)
+{
+    if (viewDepth >= frame.cascadeFarDepths[3])
+    {
+        return 1.0; // au-delà de la distance d'ombre
+    }
+    uint cascade = 0;
+    while (cascade < 3 && viewDepth >= frame.cascadeFarDepths[cascade])
+    {
+        ++cascade;
+    }
+    const float3 biased = worldPosition + normal * (1.5 * frame.cascadeTexelSizes[cascade]);
+    const float4 clip = mul(frame.cascadeViewProjection[cascade], float4(biased, 1.0));
+    const float2 uv = float2(clip.x * 0.5 + 0.5, 0.5 - clip.y * 0.5);
+    const float2 cell = float2(cascade % 2, cascade / 2);
+    return shadowAtlas.SampleCmpLevelZero(shadowSampler, (cell + saturate(uv)) * 0.5, clip.z);
+}
+
 /// L'indice du cluster du pixel, par sa position à l'écran et sa profondeur : le calcul inverse de
 /// celui du tri (shaders/light_clusters.slang).
 uint clusterOf(float4 clipPosition, float3 worldPosition)
@@ -179,8 +210,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target
     const float3 toEye = normalize(frame.cameraPosition - input.worldPosition);
 
     float3 color = frame.ambient * albedo;
+    const float viewDepth = -mul(frame.view, float4(input.worldPosition, 1.0)).z;
+    const float sunVisibility =
+        sunVisibilityOf(input.worldPosition, normalize(input.normal), viewDepth);
     color += brdf(normal, toEye, normalize(frame.sunDirection), albedo, metallic, roughness,
-                  frame.sunColor * frame.sunIntensity);
+                  frame.sunColor * frame.sunIntensity * sunVisibility);
 
     // Les lumières ponctuelles du cluster : seules celles que le tri y a rangées.
     const uint cluster = clusterOf(input.clipPosition, input.worldPosition);

@@ -8,6 +8,7 @@
 #include "levain/core/error.hpp"
 #include "levain/render/light_clusters.hpp"
 #include "levain/render/mesh.hpp"
+#include "levain/render/shadows.hpp"
 
 namespace levain::render
 {
@@ -46,6 +47,8 @@ struct FrameLighting
     glm::vec3 cameraPosition{0.0f};
     Sun sun;
     glm::vec3 ambient{0.1f};
+    /// Les cascades des ombres du soleil (`cascadesOf`), que la passe d'ombres a dessinées.
+    std::array<Cascade, CascadeCount> cascades{};
 };
 
 /// Les facteurs d'un matériau metallic-roughness, avec les défauts de glTF. Doit correspondre à
@@ -102,15 +105,18 @@ struct MeshPass
 };
 
 /// Crée la passe pour des framebuffers de ce format, couleur et profondeur (`DepthFormat`). Ses
-/// shaders lisent les lumières ponctuelles triées par `lights` (ADR-0024).
+/// shaders lisent les lumières ponctuelles triées par `lights` (ADR-0024) et l'atlas des ombres de
+/// `shadows` (M5.3).
 [[nodiscard]] core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device,
                                                     const nvrhi::FramebufferInfo& target,
-                                                    const LightClusterPass& lights);
+                                                    const LightClusterPass& lights,
+                                                    const ShadowPass& shadows);
 
 /// Enregistre l'éclairage de l'image, une fois par command list, avant les dessins : après
 /// `assignLightsToClusters`, dont il reprend la grille.
 void setFrameLighting(nvrhi::ICommandList& commandList, const MeshPass& pass,
-                      const LightClusterPass& lights, const FrameLighting& lighting);
+                      const LightClusterPass& lights, const ShadowPass& shadows,
+                      const FrameLighting& lighting);
 
 /// Le nom des sources de la passe dans `shaders/`, sans extension : le hot-reload recrée la passe
 /// quand ce fichier change (ADR-0014).
