@@ -15,6 +15,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include "levain/core/error.hpp"
+#include "levain/render/camera.hpp"
 
 namespace levain::render
 {
@@ -54,6 +55,9 @@ struct ClusterView
     float nearPlane = 0.1f;
     float farPlane = 100.0f;
 };
+
+/// Ce que le découpage voit de `camera`, pour une image de ce rapport largeur / hauteur.
+[[nodiscard]] ClusterView clusterViewOf(const Camera& camera, float aspectRatio);
 
 /// Une boîte alignée sur les axes, dans le repère de la caméra (qui regarde vers −Z).
 struct ClusterBox

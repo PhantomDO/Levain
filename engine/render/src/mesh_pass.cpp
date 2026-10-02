@@ -16,6 +16,28 @@ namespace levain::render
 namespace
 {
 
+/// L'éclairage de l'image, tel que le lit `shaders/mesh.slang` : chaque `vec3` partage ses 16
+/// octets avec le scalaire qui le suit, comme le veulent les constant buffers.
+struct FrameConstants
+{
+    glm::mat4 view;
+    glm::vec3 cameraPosition;
+    float sunIntensity;
+    glm::vec3 sunDirection;
+    float nearPlane;
+    glm::vec3 sunColor;
+    float farPlane;
+    glm::vec3 ambient;
+    std::uint32_t padding;
+    glm::uvec3 clusterGrid;
+    std::uint32_t padding2;
+};
+
+static_assert(sizeof(FrameConstants) == 144, "disposition lue par shaders/mesh.slang");
+
+/// Les images qu'une command list peut éclairer : une par vue (la caméra, plus tard les ombres).
+constexpr std::uint32_t MaxFramesPerCommandList = 4;
+
 /// Le pipeline des shaders de `pass`, avec ses layouts : ce que recrée le hot-reload.
 nvrhi::GraphicsPipelineHandle createPipeline(nvrhi::IDevice& device, const MeshPass& pass,
                                              const nvrhi::FramebufferInfo& target)
@@ -38,7 +60,8 @@ nvrhi::GraphicsPipelineHandle createPipeline(nvrhi::IDevice& device, const MeshP
 
 } // namespace
 
-core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::FramebufferInfo& target)
+core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::FramebufferInfo& target,
+                                      const LightClusterPass& lights)
 {
     auto vertexShader = loadShader(device, "mesh.vertexMain", nvrhi::ShaderType::Vertex);
     auto pixelShader = loadShader(device, "mesh.fragmentMain", nvrhi::ShaderType::Pixel);
@@ -91,7 +114,11 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
     nvrhi::BindingLayoutDesc frameLayoutDesc;
     frameLayoutDesc.visibility = nvrhi::ShaderType::All;
     frameLayoutDesc.setRegisterSpaceAndDescriptorSet(0);
-    frameLayoutDesc.bindings = {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0)};
+    frameLayoutDesc.bindings = {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+                                nvrhi::BindingLayoutItem::VolatileConstantBuffer(1),
+                                nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0),
+                                nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1),
+                                nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2)};
     nvrhi::BindingLayoutHandle frameLayout = device.createBindingLayout(frameLayoutDesc);
 
     // Celui du matériau occupe space2, descriptor set 2 ; space1, réservé aux ressources de passe,
@@ -116,8 +143,21 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
                                 .setIsVolatile(true)
                                 .setMaxVersions(MaxMeshDrawsPerCommandList)
                                 .setDebugName("constantes de scène"));
+    nvrhi::BufferHandle frameConstants =
+        device.createBuffer(nvrhi::BufferDesc()
+                                .setByteSize(sizeof(FrameConstants))
+                                .setIsConstantBuffer(true)
+                                .setIsVolatile(true)
+                                .setMaxVersions(MaxFramesPerCommandList)
+                                .setDebugName("constantes d'éclairage"));
+    // Les lumières et leurs listes par cluster, telles que le tri les a écrites.
     nvrhi::BindingSetHandle frameBindings = device.createBindingSet(
-        nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::ConstantBuffer(0, sceneConstants)),
+        nvrhi::BindingSetDesc()
+            .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, sceneConstants))
+            .addItem(nvrhi::BindingSetItem::ConstantBuffer(1, frameConstants))
+            .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, lights.lights))
+            .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, lights.lightCounts))
+            .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, lights.lightIndices)),
         frameLayout);
 
     MeshPass pass{.vertexShader = std::move(*vertexShader),
@@ -126,11 +166,12 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
                   .frameLayout = std::move(frameLayout),
                   .materialLayout = std::move(materialLayout),
                   .sceneConstants = std::move(sceneConstants),
+                  .frameConstants = std::move(frameConstants),
                   .frameBindings = std::move(frameBindings),
                   .pipeline = {}};
     pass.pipeline = createPipeline(device, pass, target);
     if (!pass.inputLayout || !pass.frameLayout || !pass.materialLayout || !pass.sceneConstants ||
-        !pass.frameBindings || !pass.pipeline)
+        !pass.frameConstants || !pass.frameBindings || !pass.pipeline)
     {
         return core::makeError(core::ErrorCode::InvalidData, "passe des meshes refusée par NVRHI");
     }
@@ -233,6 +274,25 @@ nvrhi::ITexture* ensureDepthTexture(nvrhi::IDevice& device, nvrhi::TextureHandle
     desc.debugName = "depth buffer";
     depth = device.createTexture(desc);
     return depth;
+}
+
+void setFrameLighting(nvrhi::ICommandList& commandList, const MeshPass& pass,
+                      const LightClusterPass& lights, const FrameLighting& lighting)
+{
+    const FrameConstants constants{
+        .view = lighting.view.view,
+        .cameraPosition = lighting.cameraPosition,
+        .sunIntensity = lighting.sun.intensity,
+        .sunDirection = glm::normalize(lighting.sun.direction),
+        .nearPlane = lighting.view.nearPlane,
+        .sunColor = lighting.sun.color,
+        .farPlane = lighting.view.farPlane,
+        .ambient = lighting.ambient,
+        .padding = 0,
+        .clusterGrid = {lights.grid.x, lights.grid.y, lights.grid.z},
+        .padding2 = 0,
+    };
+    commandList.writeBuffer(pass.frameConstants, &constants, sizeof(constants));
 }
 
 void drawMesh(nvrhi::ICommandList& commandList, const MeshPass& pass,

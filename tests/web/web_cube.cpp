@@ -31,6 +31,7 @@ struct Scene
 {
     nvrhi::DeviceHandle device;
     levain::gpu::WebGpuCanvasHandle canvas;
+    levain::render::LightClusterPass clusters;
     levain::render::MeshPass meshPass;
     nvrhi::TextureHandle texture;
     nvrhi::SamplerHandle sampler;
@@ -62,7 +63,13 @@ void createScene(nvrhi::DeviceHandle device)
     const nvrhi::FramebufferInfo target = nvrhi::FramebufferInfo()
                                               .addColorFormat(levain::gpu::canvasFormat(**canvas))
                                               .setDepthFormat(levain::render::DepthFormat);
-    auto meshPass = levain::render::createMeshPass(*device, target);
+    auto clusters = levain::render::createLightClusterPass(*device);
+    if (!clusters)
+    {
+        fail(clusters.error().message);
+        return;
+    }
+    auto meshPass = levain::render::createMeshPass(*device, target, *clusters);
     auto image = levain::assets::loadImage("/data/rgbw-2x2.png");
     if (!meshPass || !image)
     {
@@ -81,6 +88,7 @@ void createScene(nvrhi::DeviceHandle device)
 
     Scene created{.device = device,
                   .canvas = std::move(*canvas),
+                  .clusters = std::move(*clusters),
                   .meshPass = std::move(*meshPass),
                   .texture = {},
                   .sampler = levain::render::createSampler(*device, {}),
@@ -97,7 +105,12 @@ void createScene(nvrhi::DeviceHandle device)
     const std::array<glm::vec3, 1> origin{glm::vec3{0.0f}};
     created.instances = levain::render::createInstances(*device, *upload, origin);
     created.material = levain::render::createMaterialBindings(
-        *device, *upload, created.meshPass, {},
+        *device, *upload, created.meshPass,
+        {.baseColorFactor = glm::vec4{1.0f},
+         .metallicFactor = 0.0f,
+         .roughnessFactor = 0.8f,
+         .normalScale = 1.0f,
+         .padding = 0.0f},
         levain::render::withDefaults({.baseColor = created.texture},
                                      levain::render::createMaterialDefaults(*device, *upload)),
         *created.sampler);
@@ -130,6 +143,16 @@ void frame()
                                   nvrhi::Color{0.0f, 0.0f, 0.0f, 1.0f});
     commandList.clearDepthStencilTexture(scene->depth, nvrhi::AllSubresources, true, 1.0f, false,
                                          0);
+    // Le même éclairage que le test de fumée (tests/smoke_render.cpp) : la même référence.
+    const levain::render::Camera camera;
+    const levain::render::FrameLighting lighting{
+        .view = levain::render::clusterViewOf(camera, 1.0f),
+        .cameraPosition = camera.position,
+        .sun = {.direction = {0.4f, 1.0f, 0.6f}, .color = glm::vec3{1.0f}, .intensity = 3.0f},
+        .ambient = glm::vec3{0.1f}};
+    std::ignore =
+        levain::render::assignLightsToClusters(commandList, scene->clusters, {}, lighting.view);
+    levain::render::setFrameLighting(commandList, scene->meshPass, scene->clusters, lighting);
     levain::render::drawMesh(commandList, scene->meshPass, *framebuffer, scene->cube,
                              scene->instances, *scene->material, constants);
     commandList.close();

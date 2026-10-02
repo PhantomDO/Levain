@@ -149,6 +149,28 @@ limite se voit, au lieu de disparaître.
 Le même calcul existe côté CPU (`lightsPerClusterOf`) : `levain_light_clusters` compare les deux, cluster par
 cluster, sur Vulkan et sur WebGPU.
 
+## L'éclairage PBR
+
+Le fragment shader de la passe des meshes (`shaders/mesh.slang`) éclaire chaque pixel selon le modèle de matériau
+de glTF, *metallic-roughness* :
+
+- **la couleur de base** (`baseColorFactor` × texture sRGB × couleur du sommet) ;
+- **le métal et la rugosité** (facteurs × texture de données : rugosité en vert, métal en bleu). Un diélectrique
+  réfléchit 4 % de la lumière de face, un métal réfléchit sa couleur, et n'a pas de diffus ;
+- **la normale**, inclinée par la normal map dans le repère (tangente, bitangente, normale) du sommet.
+
+La BRDF est celle de Cook-Torrance, la même que dans Unreal, Unity et Godot : une distribution des micro-facettes
+(GGX), leur ombrage mutuel (Smith) et la part réfléchie selon l'angle (Fresnel, approximation de Schlick), plus
+le diffus de Lambert pour la lumière qui entre dans la matière. Les lumières :
+
+- **le soleil** (`Sun`) touche tout l'écran ;
+- **les lumières ponctuelles** ne sont lues que dans le cluster du pixel (`clusterOf`, le calcul inverse du
+  tri) ; leur atténuation est l'inverse du carré de la distance, ramené à zéro à leur portée ;
+- **une lumière ambiante** uniforme remplace l'éclairage d'environnement en attendant l'IBL (M5.4).
+
+`setFrameLighting` écrit ces constantes une fois par command list, après le tri (`assignLightsToClusters`). Le
+résultat est de la lumière linéaire : au-delà de 1, la cible 8 bits la coupe, jusqu'au HDR de M5.2.
+
 ## Mesurer le temps GPU
 
 Le CPU ne voit que le temps qu'il passe à enregistrer : le GPU exécute plus tard, en parallèle. Une **timer
