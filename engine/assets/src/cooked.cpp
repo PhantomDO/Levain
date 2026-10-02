@@ -25,7 +25,8 @@ static_assert(std::is_trivially_copyable_v<ModelVertex>);
 static_assert(std::is_trivially_copyable_v<scene::Transform>);
 
 constexpr std::array<char, 4> Signature{'L', 'V', 'M', 'S'};
-constexpr std::uint32_t FormatVersion = 2; ///< 2 : le skinning des sommets, les nœuds os (M4.5).
+/// 2 : le skinning des sommets, les nœuds os (M4.5). 3 : les tangentes des sommets (M5.1).
+constexpr std::uint32_t FormatVersion = 3;
 
 /// Ce qu'on écrit, dans l'ordre : des valeurs simples, des chaînes et des tableaux, préfixés de
 /// leur taille.

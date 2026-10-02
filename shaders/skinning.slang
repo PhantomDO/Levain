@@ -8,8 +8,8 @@
 // ByteAddressBuffer : la cible WGSL de Slang ne sait pas le lire, et le shader doit aussi tourner dans
 // le navigateur (ADR-0023).
 
-static const uint SourceStride = 56; // SkinnedVertex : position, couleur, uv, os, poids
-static const uint SkinnedStride = 32; // MeshVertex : position, couleur, uv
+static const uint SourceStride = 84; // SkinnedVertex : position, normale, tangente, couleur, uv, os, poids
+static const uint SkinnedStride = 60; // MeshVertex : position, normale, tangente, couleur, uv
 
 StructuredBuffer<uint> sourceVertices : register(t0);
 StructuredBuffer<float4x4> jointMatrices : register(t1);
@@ -38,26 +38,46 @@ void computeMain(uint3 thread : SV_DispatchThreadID)
 
     const uint source = thread.x * SourceStride;
     const float3 position = asfloat(loadWords(source, 3).xyz);
-    const uint3 colorBits = loadWords(source + 12, 3).xyz;
-    const uint2 uvBits = loadWords(source + 24, 2).xy;
+    const float3 normal = asfloat(loadWords(source + 12, 3).xyz);
+    const float4 tangent = asfloat(loadWords(source + 24, 4));
+    const uint3 colorBits = loadWords(source + 40, 3).xyz;
+    const uint2 uvBits = loadWords(source + 52, 2).xy;
     // Quatre indices de 16 bits, rangés deux par mot.
-    const uint2 packedJoints = loadWords(source + 32, 2).xy;
+    const uint2 packedJoints = loadWords(source + 60, 2).xy;
     const uint4 joints = uint4(packedJoints.x & 0xFFFF, packedJoints.x >> 16,
                                packedJoints.y & 0xFFFF, packedJoints.y >> 16);
-    const float4 weights = asfloat(loadWords(source + 40, 4));
+    const float4 weights = asfloat(loadWords(source + 68, 4));
 
     const float4x4 skin = weights.x * jointMatrices[joints.x] + weights.y * jointMatrices[joints.y] +
                           weights.z * jointMatrices[joints.z] + weights.w * jointMatrices[joints.w];
     const float3 skinned = mul(skin, float4(position, 1.0)).xyz;
+    // ponytail: la normale et la tangente tournent avec la matrice des os, sans la transposée de
+    // son inverse : juste tant que les os ne s'étirent pas d'un seul côté (glTF le permet).
+    const float3 skinnedNormal = normalize(mul((float3x3)skin, normal));
+    const float3 skinnedTangent = normalize(mul((float3x3)skin, tangent.xyz));
 
+    uint words[15];
+    const uint3 positionBits = asuint(skinned);
+    const uint3 normalBits = asuint(skinnedNormal);
+    const uint3 tangentBits = asuint(skinnedTangent);
+    words[0] = positionBits.x;
+    words[1] = positionBits.y;
+    words[2] = positionBits.z;
+    words[3] = normalBits.x;
+    words[4] = normalBits.y;
+    words[5] = normalBits.z;
+    words[6] = tangentBits.x;
+    words[7] = tangentBits.y;
+    words[8] = tangentBits.z;
+    words[9] = asuint(tangent.w); // le sens de v ne change pas avec la pose
+    words[10] = colorBits.x;
+    words[11] = colorBits.y;
+    words[12] = colorBits.z;
+    words[13] = uvBits.x;
+    words[14] = uvBits.y;
     const uint target = thread.x * SkinnedStride / 4;
-    const uint3 skinnedBits = asuint(skinned);
-    skinnedVertices[target] = skinnedBits.x;
-    skinnedVertices[target + 1] = skinnedBits.y;
-    skinnedVertices[target + 2] = skinnedBits.z;
-    skinnedVertices[target + 3] = colorBits.x;
-    skinnedVertices[target + 4] = colorBits.y;
-    skinnedVertices[target + 5] = colorBits.z;
-    skinnedVertices[target + 6] = uvBits.x;
-    skinnedVertices[target + 7] = uvBits.y;
+    for (uint word = 0; word < 15; ++word)
+    {
+        skinnedVertices[target + word] = words[word];
+    }
 }

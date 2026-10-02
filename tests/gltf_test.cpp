@@ -50,7 +50,8 @@ TEST_CASE("loadGltf lit les meshes et les nœuds, parent avant enfant")
     CHECK(triangle.vertices.size() == 3);
     CHECK(triangle.indices == std::vector<std::uint32_t>{0, 1, 2});
     CHECK(triangle.vertices[1].position.x == doctest::Approx(1.0f));
-    CHECK(triangle.vertices[0].normal.y == doctest::Approx(1.0f)); // absente du fichier
+    CHECK(triangle.vertices[0].normal.y == doctest::Approx(1.0f));            // absente du fichier
+    CHECK(triangle.vertices[0].tangent == glm::vec4{1.0f, 0.0f, 0.0f, 1.0f}); // absente aussi
 
     REQUIRE(model->nodes.size() == 2);
     CHECK(model->nodes[0].name == "parent");
@@ -176,4 +177,14 @@ TEST_CASE("un mesh skinné garde ses os et ses poids, et les os ne deviennent pa
     world.each([&](const levain::scene::Transform&) { ++transforms; });
     // La racine du modèle, le porteur et la peau ; ni « racine » ni « bout ».
     CHECK(transforms == 3);
+}
+
+TEST_CASE("loadGltf lit les tangentes, avec le sens de v")
+{
+    const auto model = loadTestModel(std::filesystem::path{LEVAIN_TEST_DATA_DIR} / "tangents.gltf");
+    INFO("message d'erreur : " << (model ? std::string{} : model.error().message));
+    REQUIRE(model.has_value());
+    const auto& vertices = model->meshes[0].primitives[0].vertices;
+    REQUIRE(vertices.size() == 3);
+    CHECK(vertices[2].tangent == glm::vec4{0.0f, 0.0f, -1.0f, -1.0f});
 }

@@ -9,14 +9,21 @@
 namespace levain::render
 {
 
-/// Un sommet : position, couleur et coordonnées de texture. Doit correspondre à `VertexInput` dans
-/// `shaders/mesh.slang`.
+/// Un sommet : position, normale, tangente, couleur et coordonnées de texture. Doit correspondre à
+/// `VertexInput` dans `shaders/mesh.slang`, et à `SkinnedStride` dans `shaders/skinning.slang`.
 struct MeshVertex
 {
     glm::vec3 position;
-    glm::vec3 color;
-    glm::vec2 uv; ///< (0, 0) en haut à gauche de la texture, comme sous Direct3D et Vulkan.
+    glm::vec3 normal{0.0f, 1.0f, 0.0f};
+    /// La direction où u croît, pour les normal maps ; w (±1) dit dans quel sens croît v.
+    glm::vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec3 color{1.0f};
+    glm::vec2 uv{0.0f}; ///< (0, 0) en haut à gauche de la texture, comme sous Direct3D et Vulkan.
 };
+
+/// La tangente d'un triangle plat : la direction où u croît, et le sens où croît v (w = ±1), tirés
+/// de ses positions et de ses coordonnées de texture. Ce que glTF appelle TANGENT.
+[[nodiscard]] glm::vec4 tangentOf(const MeshVertex& a, const MeshVertex& b, const MeshVertex& c);
 
 /// Un mesh indexé en mémoire GPU : chaque sommet n'est stocké qu'une fois, les triangles le
 /// désignent par son indice. Un cube : 24 sommets au lieu de 36.

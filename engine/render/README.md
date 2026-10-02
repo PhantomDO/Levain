@@ -54,7 +54,9 @@ frame**, 0,15 ms pour la frame entière hors attente de l'écran
 ## Ce qu'ajoute un mesh au triangle
 
 - **Des buffers de sommets et d'indices**, envoyés par `writeBuffer` : NVRHI passe par un buffer d'envoi interne et
-  place les barrières. Un *input layout* dit au pipeline comment lire chaque sommet (position, couleur).
+  place les barrières. Un *input layout* dit au pipeline comment lire chaque sommet (position, normale, tangente,
+  couleur, coordonnées de texture). La normale et la tangente servent à l'éclairage (M5.1) ; `tangentOf` calcule
+  la seconde pour les meshes générés.
 - **Des constantes par frame** dans un *volatile constant buffer*, lié par un binding set dans `space0`
   (ADR-0013) : NVRHI fournit une nouvelle version à chaque écriture, sans buffer par frame en vol à gérer.
 - **Un depth buffer**, recréé seulement quand la taille de l'image change, et l'élimination des faces arrière

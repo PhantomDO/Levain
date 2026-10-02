@@ -73,6 +73,8 @@ core::Result<MeshPrimitive> readPrimitive(const fastgltf::Asset& asset,
                                                   { result.vertices[i].position = value; });
     if (!readAttribute<glm::vec3>(asset, primitive, "NORMAL", result.vertices,
                                   &ModelVertex::normal) ||
+        !readAttribute<glm::vec4>(asset, primitive, "TANGENT", result.vertices,
+                                  &ModelVertex::tangent) ||
         !readAttribute<glm::vec2>(asset, primitive, "TEXCOORD_0", result.vertices,
                                   &ModelVertex::uv))
     {

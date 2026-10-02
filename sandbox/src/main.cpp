@@ -491,6 +491,8 @@ levain::core::Result<ModelGpu> uploadModel(nvrhi::IDevice& device, nvrhi::IComma
             for (const levain::assets::ModelVertex& vertex : primitive.vertices)
             {
                 vertices.push_back({.position = vertex.position,
+                                    .normal = vertex.normal,
+                                    .tangent = vertex.tangent,
                                     .color = baseColor.value_or(vertex.normal * 0.5f + 0.5f),
                                     .uv = vertex.uv});
             }
@@ -508,6 +510,8 @@ levain::core::Result<ModelGpu> uploadModel(nvrhi::IDevice& device, nvrhi::IComma
             for (std::size_t v = 0; v < vertices.size(); ++v)
             {
                 skinned.push_back({.position = vertices[v].position,
+                                   .normal = vertices[v].normal,
+                                   .tangent = vertices[v].tangent,
                                    .color = vertices[v].color,
                                    .uv = vertices[v].uv,
                                    .joints = primitive.joints[v],
