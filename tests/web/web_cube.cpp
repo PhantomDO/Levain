@@ -96,10 +96,13 @@ void createScene(nvrhi::DeviceHandle device)
     created.cube = levain::render::createCube(*device, *upload);
     const std::array<glm::vec3, 1> origin{glm::vec3{0.0f}};
     created.instances = levain::render::createInstances(*device, *upload, origin);
+    created.material = levain::render::createMaterialBindings(
+        *device, *upload, created.meshPass, {},
+        levain::render::withDefaults({.baseColor = created.texture},
+                                     levain::render::createMaterialDefaults(*device, *upload)),
+        *created.sampler);
     upload->close();
     device->executeCommandList(upload);
-    created.material = levain::render::createMaterialBindings(*device, created.meshPass,
-                                                              *created.texture, *created.sampler);
     std::ignore = levain::render::ensureDepthTexture(*device, created.depth, ImageSize, ImageSize);
     scene = std::move(created);
 }

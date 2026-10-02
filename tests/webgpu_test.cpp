@@ -132,7 +132,15 @@ TEST_CASE("les passes du moteur se créent sur le backend WebGPU")
                                   .setFormat(nvrhi::Format::SRGBA8_UNORM)
                                   .setDebugName("albedo"));
     const nvrhi::SamplerHandle sampler = device->createSampler(nvrhi::SamplerDesc());
-    CHECK(levain::render::createMaterialBindings(*device, *meshPass, *texture, *sampler));
+    const nvrhi::CommandListHandle commandList = device->createCommandList();
+    commandList->open();
+    CHECK(levain::render::createMaterialBindings(
+        *device, *commandList, *meshPass, {},
+        levain::render::withDefaults({.baseColor = texture},
+                                     levain::render::createMaterialDefaults(*device, *commandList)),
+        *sampler));
+    commandList->close();
+    device->executeCommandList(commandList);
 
     // Le skinning : un pipeline compute et ses storage buffers.
     auto skinning = levain::render::createSkinningPass(*device);

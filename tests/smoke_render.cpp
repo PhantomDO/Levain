@@ -160,8 +160,12 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
     const nvrhi::TextureHandle checker =
         levain::render::createTexture(device, commandList, levels, "rgbw");
     const nvrhi::SamplerHandle sampler = levain::render::createSampler(device, {});
-    const nvrhi::BindingSetHandle material =
-        levain::render::createMaterialBindings(device, *meshPass, *checker, *sampler);
+    // Des facteurs neutres : la couleur est celle de la texture, comme dans l'image de référence.
+    const levain::render::MaterialDefaults defaults =
+        levain::render::createMaterialDefaults(device, commandList);
+    const nvrhi::BindingSetHandle material = levain::render::createMaterialBindings(
+        device, commandList, *meshPass, {},
+        levain::render::withDefaults({.baseColor = checker}, defaults), *sampler);
 
     const levain::render::Mesh cube = levain::render::createCube(device, commandList);
     const std::array<glm::vec3, 1> origin{glm::vec3{0.0f}};
