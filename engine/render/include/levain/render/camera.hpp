@@ -16,6 +16,12 @@ struct Camera
     float farPlane = 100.0f;
 };
 
+/// La vue : ce qui passe un point du monde dans le repère de la caméra, qui regarde vers −Z.
+[[nodiscard]] glm::mat4 viewOf(const Camera& camera);
+
+/// La projection : ce qui passe un point du repère de la caméra dans l'espace de découpe.
+[[nodiscard]] glm::mat4 projectionOf(const Camera& camera, float aspectRatio);
+
 /// Projection × vue : ce qui passe un point du monde dans l'espace de découpe (clip space).
 [[nodiscard]] glm::mat4 viewProjectionOf(const Camera& camera, float aspectRatio);
 

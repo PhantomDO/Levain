@@ -27,12 +27,13 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | Fichier | Contenu |
 |---|---|
 | [`include/levain/render/triangle.hpp`](include/levain/render/triangle.hpp) | `createTrianglePass`, `drawTriangle` |
-| [`include/levain/render/camera.hpp`](include/levain/render/camera.hpp) | `Camera`, `viewProjectionOf` — profondeur de 0 à 1, comme Vulkan et Direct3D 12 |
+| [`include/levain/render/camera.hpp`](include/levain/render/camera.hpp) | `Camera`, `viewOf`, `projectionOf`, `viewProjectionOf` — profondeur de 0 à 1, comme Vulkan et Direct3D 12 |
 | [`include/levain/render/mesh.hpp`](include/levain/render/mesh.hpp) | `Mesh`, `createMesh`, `createCube`, `createPlane` — buffers de sommets et d'indices ; `Instances`, `createInstances`, `updateInstances` — un décalage par exemplaire, remplaçable à chaque frame |
 | [`include/levain/render/mesh_pass.hpp`](include/levain/render/mesh_pass.hpp) | `createMeshPass`, `reloadMeshPassShaders`, `ensureDepthTexture`, `createMaterialBindings`, `drawMesh` — la première passe avec constantes, profondeur et texture |
 | [`include/levain/render/texture.hpp`](include/levain/render/texture.hpp) | `TextureLevel`, `createTexture` — une texture sRGB et tous ses niveaux de mip ; `SamplerSettings`, `createSampler`, `clampAnisotropy` |
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
 | [`include/levain/render/skinning.hpp`](include/levain/render/skinning.hpp) | `SkinnedVertex`, `createSkinningPass`, `createSkinnedMesh`, `skinMesh` — le skinning en compute |
+| [`include/levain/render/light_clusters.hpp`](include/levain/render/light_clusters.hpp) | `PointLight`, `ClusterGrid`, `clusterBoxOf`, `lightsPerClusterOf` — le découpage en clusters du forward+, et la référence CPU du tri des lumières |
 
 ## Ce qu'il faut pour dessiner un triangle avec NVRHI
 
@@ -129,6 +130,19 @@ Ce qu'apporte le compute à ce qu'on savait déjà :
 
 Coût mesuré sur Fox (24 os, en Release) : 3 µs CPU (pose, matrices, enregistrement) et 5 µs GPU par image.
 
+## Les lumières en clusters (forward+)
+
+Le rendu est un forward+ en clusters ([ADR-0024](../../docs/adr/0024-forward-plus-en-clusters.md)) : avant de
+dessiner, un compute trie les lumières ponctuelles, pour que chaque pixel ne parcoure que celles qui peuvent
+l'atteindre. Le volume de la caméra est découpé en une grille 3D (`ClusterGrid`, 16 × 9 cases à l'écran,
+24 tranches en profondeur) ; les tranches s'épaississent avec la distance (`sliceDepthOf`), parce que la
+précision compte surtout près de la caméra.
+
+Un cluster est une boîte dans le repère de la caméra (`clusterBoxOf`) : les quatre coins de sa case à l'écran,
+prolongés jusqu'aux deux profondeurs de sa tranche. Une lumière le touche si sa sphère touche la boîte
+(`sphereTouchesBox`). `lightsPerClusterOf` fait le tri sur le CPU : c'est la référence à laquelle se comparera
+le compute.
+
 ## Mesurer le temps GPU
 
 Le CPU ne voit que le temps qu'il passe à enregistrer : le GPU exécute plus tard, en parallèle. Une **timer
@@ -143,6 +157,8 @@ que quand le GPU a fini la frame, d'où l'anneau de trois requêtes de `GpuTimer
 | **Unreal** | `Renderer` | Les passes (`FDeferredShadingSceneRenderer`) écrites au-dessus de la RHI, via le Render Dependency Graph (**documenté** : sources publiques). |
 | **Godot** | `servers/rendering/renderer_rd` | Les renderers Forward+ et Mobile, écrits au-dessus de `RenderingDevice` (**documenté** : dépôt public). |
 | **Unity** | SRP (URP, HDRP) | Les pipelines de rendu, écrits en C# au-dessus de la couche graphique interne (**documenté** : packages publics). |
+| **Godot** | `ClusterBuilderRD` | Le tri des lumières en clusters du renderer Forward+ (**documenté** : dépôt public). |
+| **Unity** | URP Forward+ | Les lumières triées par tuiles et en profondeur, au-delà de la limite de 8 lumières par objet du Forward (**documenté** : manuel de l'URP). |
 | **Unreal** | `FRHIRenderQuery`, `stat gpu` | Timer queries au-dessus de la RHI, affichées par passe (**documenté** : sources publiques). |
 | **Unreal** | `recompileshaders changed`, `ShaderCompileWorker` | Recompilation à chaud par des processus séparés (**documenté** : documentation d'Epic). |
 | **Unity** | GPU Instancing, Frame Timing Manager | Instancing activé par matériau ; temps GPU par frame (**documenté** : manuel). |

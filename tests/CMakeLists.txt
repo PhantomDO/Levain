@@ -22,6 +22,7 @@ set(nativeTests
     camera_control_test.cpp
     camera_test.cpp
     input_test.cpp
+    light_clusters_test.cpp
     process_test.cpp
     texture_test.cpp
     webgpu_test.cpp
