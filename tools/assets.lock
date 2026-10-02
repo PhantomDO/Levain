@@ -1,5 +1,6 @@
 # Assets de test tiers, jamais versionnés (ADR-0018) : tools/fetch-assets.sh les télécharge depuis
-# KhronosGroup/glTF-Sample-Assets, au commit ci-dessous, et vérifie chaque fichier par son SHA-256.
+# KhronosGroup/glTF-Sample-Assets, au commit ci-dessous, ou depuis l'adresse en troisième colonne, et
+# vérifie chaque fichier par son SHA-256.
 # CesiumMilkTruck : CC-BY 4.0 (Cesium).
 commit c6a6bd13ab2b3c685c7903d03561b8a9392f38b8
 28cb3b0da68a88aa8c5852e616a3feb4983f0a7e96c3f291a585d0698e34f2d4 Models/CesiumMilkTruck/glTF/CesiumMilkTruck.gltf
@@ -84,3 +85,5 @@ dc5bf5f3091b548f1dfe40410b1aa1e2e55d82e2d77ba57dbd1f92955a0d8ff8 Models/Sponza/g
 fdbdbfb6a76edeb6626f28a1401bc1536bb1c864131a64e90fbc3df2d2d191bd Models/Sponza/glTF/Sponza.bin
 646c10cbc8fab990ca29f363e90e2d65155f3a3569506852eb1434a9465b9501 Models/Sponza/glTF/Sponza.gltf
 e2ab2939dda535ad28779e41c20c98368f630f29c5824a0a5a430f47b3b6da12 Models/Sponza/glTF/white.png
+# Le ciel de Rando et de l'IBL (M5.4) : une HDRI de Poly Haven, en CC0, choisie par Donnovan le 03/10/2026.
+5244534e9cf5b606f2ff513aa00ddb161b0a4826ffd88a0d3bd03ac29247d198 HDRIs/kloofendal_48d_partly_cloudy_puresky_2k.hdr https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/kloofendal_48d_partly_cloudy_puresky_2k.hdr

@@ -29,6 +29,19 @@ struct Image
 [[nodiscard]] core::Result<Image> decodeImage(std::span<const std::byte> bytes,
                                               std::string_view name);
 
+/// Une image HDR (M5.4) : de la lumière, pas des couleurs d'écran. Quatre `float` par pixel (RGBA,
+/// alpha à 1), linéaires, sans limite à 1 : le soleil d'une HDRI vaut des milliers.
+struct HdrImage
+{
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::vector<float> rgba;
+};
+
+/// Charge une image Radiance `.hdr` (stb_image), en lumière linéaire. Un fichier absent ou
+/// illisible est un échec récupérable (ADR-0008).
+[[nodiscard]] core::Result<HdrImage> loadHdrImage(const std::filesystem::path& path);
+
 /// Écrit une image RGBA en PNG (stb_image_write). Sert aux captures d'écran du moteur, pour
 /// montrer un rendu à qui n'a pas l'écran sous les yeux.
 [[nodiscard]] core::Result<void> savePng(const std::filesystem::path& path, std::uint32_t width,

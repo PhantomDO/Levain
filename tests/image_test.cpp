@@ -130,3 +130,20 @@ TEST_CASE("buildMipChain fait la moyenne en lumière linéaire, pas sur les octe
     }
     CHECK(levels[1].rgba[3] == 255); // l'alpha est linéaire : il reste opaque
 }
+
+TEST_CASE("loadHdrImage lit la lumière d'une HDR, au-delà de 1, et refuse une image 8 bits")
+{
+    // Deux pixels écrits à la main en RGBE : (1 ; 0,5 ; 0,25) puis (4 ; 4 ; 4), exacts en RGBE.
+    const auto image = levain::assets::loadHdrImage(std::filesystem::path{LEVAIN_TEST_DATA_DIR} /
+                                                    "two-lights.hdr");
+    INFO("message d'erreur : " << (image ? std::string{} : image.error().message));
+    REQUIRE(image.has_value());
+    CHECK(image->width == 2);
+    CHECK(image->height == 1);
+    const std::vector<float> expected{1.0f, 0.5f, 0.25f, 1.0f, 4.0f, 4.0f, 4.0f, 1.0f};
+    CHECK(image->rgba == expected);
+
+    const auto notHdr =
+        levain::assets::loadHdrImage(std::filesystem::path{LEVAIN_TEST_DATA_DIR} / "rgbw-2x2.png");
+    CHECK_FALSE(notHdr.has_value());
+}
