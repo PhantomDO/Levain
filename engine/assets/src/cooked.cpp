@@ -26,7 +26,8 @@ static_assert(std::is_trivially_copyable_v<scene::Transform>);
 
 constexpr std::array<char, 4> Signature{'L', 'V', 'M', 'S'};
 /// 2 : le skinning des sommets, les nœuds os (M4.5). 3 : les tangentes des sommets (M5.1).
-constexpr std::uint32_t FormatVersion = 3;
+/// 4 : les matériaux metallic-roughness (M5.1).
+constexpr std::uint32_t FormatVersion = 4;
 
 /// Ce qu'on écrit, dans l'ordre : des valeurs simples, des chaînes et des tableaux, préfixés de
 /// leur taille.
@@ -199,7 +200,10 @@ bool readBody(Reader& reader, Model& model)
     {
         ModelMaterial& material = model.materials.emplace_back();
         if (!reader.value(material.baseColorFactor) ||
-            !readOptional(reader, material.baseColorTexture))
+            !readOptional(reader, material.baseColorTexture) ||
+            !reader.value(material.metallicFactor) || !reader.value(material.roughnessFactor) ||
+            !readOptional(reader, material.metallicRoughnessTexture) ||
+            !readOptional(reader, material.normalTexture) || !reader.value(material.normalScale))
         {
             return false;
         }
@@ -266,6 +270,11 @@ core::Result<void> writeCookedModel(const std::filesystem::path& path, const Mod
     {
         writer.value(material.baseColorFactor);
         writeOptional(writer, material.baseColorTexture);
+        writer.value(material.metallicFactor);
+        writer.value(material.roughnessFactor);
+        writeOptional(writer, material.metallicRoughnessTexture);
+        writeOptional(writer, material.normalTexture);
+        writer.value(material.normalScale);
     }
     writer.value(static_cast<std::uint64_t>(model.embeddedImages.size()));
     for (const auto& [index, image] : model.embeddedImages)

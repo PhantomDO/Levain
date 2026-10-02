@@ -67,6 +67,30 @@ TEST_CASE("un .lvmesh relu rend le même modèle")
     fs::remove_all(directory);
 }
 
+TEST_CASE("un .lvmesh garde les matériaux metallic-roughness et les tangentes")
+{
+    const fs::path directory = freshDirectory();
+    auto model = levain::assets::loadGltf(fs::path{LEVAIN_TEST_DATA_DIR} / "materials.gltf",
+                                          levain::assets::AssetId{.high = 1, .low = 2},
+                                          levain::assets::AssetRegistry{});
+    REQUIRE(model.has_value());
+    model->meshes[0].primitives[0].vertices[2].tangent = {0.0f, 0.0f, -1.0f, -1.0f};
+    REQUIRE(writeCookedModel(directory / "m.lvmesh", *model, SourceHash).has_value());
+
+    const auto read = readCookedModel(directory / "m.lvmesh", SourceHash);
+    INFO("message d'erreur : " << (read ? std::string{} : read.error().message));
+    REQUIRE(read.has_value());
+    const levain::assets::ModelMaterial& expected = model->materials[0];
+    const levain::assets::ModelMaterial& material = read->materials[0];
+    CHECK(material.metallicFactor == expected.metallicFactor);
+    CHECK(material.roughnessFactor == expected.roughnessFactor);
+    CHECK(material.metallicRoughnessTexture == expected.metallicRoughnessTexture);
+    CHECK(material.normalTexture == expected.normalTexture);
+    CHECK(material.normalScale == expected.normalScale);
+    CHECK(read->meshes[0].primitives[0].vertices[2].tangent == glm::vec4{0.0f, 0.0f, -1.0f, -1.0f});
+    fs::remove_all(directory);
+}
+
 TEST_CASE("un .lvmesh garde le skinning des sommets et les nœuds os")
 {
     const fs::path directory = freshDirectory();

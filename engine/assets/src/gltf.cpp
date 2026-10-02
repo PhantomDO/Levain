@@ -188,28 +188,55 @@ core::Result<AssetRef> imageRef(const fastgltf::Asset& asset, std::size_t index,
     return AssetRef{.asset = self, .sub = sub};
 }
 
-/// Les matériaux : leur couleur de base, et la référence de sa texture.
+/// La référence de l'image d'une texture glTF, ou rien si le matériau n'en a pas (ou une texture
+/// sans image, qu'une extension fournirait).
+/// `OptionalTextureInfo` : l'optionnel de fastgltf, sur `TextureInfo` ou `NormalTextureInfo`.
+template <typename OptionalTextureInfo>
+core::Result<std::optional<AssetRef>> textureRef(const fastgltf::Asset& asset,
+                                                 const OptionalTextureInfo& texture,
+                                                 const std::filesystem::path& path, AssetId self,
+                                                 const AssetRegistry& registry, Model& model)
+{
+    if (!texture || !asset.textures[texture->textureIndex].imageIndex)
+    {
+        return std::nullopt;
+    }
+    auto ref = imageRef(asset, *asset.textures[texture->textureIndex].imageIndex, path, self,
+                        registry, model);
+    if (!ref)
+    {
+        return std::unexpected(ref.error());
+    }
+    return *ref;
+}
+
+/// Les matériaux metallic-roughness : leurs facteurs, et les références de leurs textures.
 core::Result<void> readMaterials(const fastgltf::Asset& asset, const std::filesystem::path& path,
                                  AssetId self, const AssetRegistry& registry, Model& model)
 {
     for (const fastgltf::Material& material : asset.materials)
     {
-        const auto& factor = material.pbrData.baseColorFactor;
-        ModelMaterial& out = model.materials.emplace_back(
-            ModelMaterial{.baseColorFactor = {factor.x(), factor.y(), factor.z(), factor.w()},
-                          .baseColorTexture = std::nullopt});
-        const auto& texture = material.pbrData.baseColorTexture;
-        if (!texture || !asset.textures[texture->textureIndex].imageIndex)
+        const fastgltf::PBRData& pbr = material.pbrData;
+        auto baseColor = textureRef(asset, pbr.baseColorTexture, path, self, registry, model);
+        auto metallicRoughness =
+            textureRef(asset, pbr.metallicRoughnessTexture, path, self, registry, model);
+        auto normal = textureRef(asset, material.normalTexture, path, self, registry, model);
+        if (!baseColor || !metallicRoughness || !normal)
         {
-            continue;
+            return std::unexpected(!baseColor           ? baseColor.error()
+                                   : !metallicRoughness ? metallicRoughness.error()
+                                                        : normal.error());
         }
-        auto ref = imageRef(asset, *asset.textures[texture->textureIndex].imageIndex, path, self,
-                            registry, model);
-        if (!ref)
-        {
-            return std::unexpected(ref.error());
-        }
-        out.baseColorTexture = *ref;
+        const auto& factor = pbr.baseColorFactor;
+        model.materials.push_back(ModelMaterial{
+            .baseColorFactor = {factor.x(), factor.y(), factor.z(), factor.w()},
+            .baseColorTexture = *baseColor,
+            .metallicFactor = pbr.metallicFactor,
+            .roughnessFactor = pbr.roughnessFactor,
+            .metallicRoughnessTexture = *metallicRoughness,
+            .normalTexture = *normal,
+            .normalScale = material.normalTexture ? material.normalTexture->scale : 1.0f,
+        });
     }
     return {};
 }
