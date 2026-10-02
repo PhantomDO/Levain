@@ -2,6 +2,15 @@
 
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut.
 
+## `gh pr merge --delete-branch` supprime le worktree de la branche (2026-10-02)
+
+- **Symptôme** : après la fusion de la dernière PR d'une pile, le worktree `../Levain-pbr` où elle était sortie
+  a disparu, son dossier de build avec.
+- **Cause** : `gh pr merge --delete-branch` supprime la branche locale, et le worktree qui la porte avec elle.
+- **Parade** : rien de perdu si tout est poussé. Pour garder un worktree, y sortir une autre branche avant de
+  fusionner, ou fusionner sans `--delete-branch`. Une pile empilée se rebase depuis le worktree où sont ses
+  branches (git refuse de sortir une branche déjà sortie ailleurs).
+
 ## `git checkout <fichier>` efface le travail non indexé (2026-09-22)
 
 - **Symptôme** : après avoir retiré une ligne pour vérifier qu'un test échoue sans elle, `git checkout

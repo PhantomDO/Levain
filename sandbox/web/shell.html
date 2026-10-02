@@ -7,7 +7,7 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #8c5224; font: 13px system-ui, sans-serif; }
   canvas { display: block; touch-action: none; }
-  #status { position: fixed; inset: 0; z-index: 1; display: grid; place-items: center; color: #fff; pointer-events: none; }
+  #status { position: fixed; inset: 0; z-index: 1; display: grid; place-items: center; padding: 0 16px; text-align: center; color: #fff; text-shadow: 0 1px 2px #000; pointer-events: none; }
   #credits { position: fixed; z-index: 1; left: 8px; bottom: 6px; color: #fffc; text-shadow: 0 1px 2px #000; }
 </style>
 </head>
@@ -30,11 +30,18 @@ new MutationObserver(() => {
 // Les arguments du sandbox : ceux de ?args=…, sinon le renard qui court.
 const args = new URLSearchParams(location.search).get("args")
   ?? "--model /assets-cache/Models/Fox/glTF/Fox.gltf --model-scale 0.05 --locomotion Survey,Walk,Run";
+// Une erreur critique du moteur s'affiche sur la page : sans cela, un navigateur sans adaptateur
+// WebGPU montrerait un fond uni sans un mot (règle n°7).
+const showCritical = (text) => {
+  if (text.includes("[critical]")) {
+    status.textContent = "Levain s'est arrêté : " + text.replace(/^(\[[^\]]*\] ){3}/, "");
+  }
+};
 var Module = {
   canvas: document.getElementById("canvas"),
   arguments: args.split(" ").filter(Boolean),
-  print: (text) => console.log(text),
-  printErr: (text) => console.error(text),
+  print: (text) => { console.log(text); showCritical(text); },
+  printErr: (text) => { console.error(text); showCritical(text); },
   setStatus: (text) => { status.textContent = text; },
   onRuntimeInitialized: () => { status.textContent = ""; },
 };
