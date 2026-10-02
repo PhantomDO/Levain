@@ -266,7 +266,7 @@ Chromium, depuis GitHub Pages ; la CI compile et teste le backend.
 |---|---:|---:|---|
 | M5.1 PBR direct | 1,27 (réel, 1,75 estimées) | 3 | fini le 02/10/2026 |
 | M5.2 HDR et tonemapping | 0,73 (réel, 1,0 estimée) | 1 | fini le 02/10/2026 |
-| M5.3 Ombres en cascades | 1,75 | 2 | 03/01/2027 |
+| M5.3 Ombres en cascades | 1,0 (réel, 1,75 estimées) | 2 | fini le 02/10/2026 |
 | M5.4 Éclairage d'environnement (IBL) | 2,25 | 2 | 10/01/2027 |
 | M5.5 Culling et statistiques | 1,25 | 1 | 17/01/2027 |
 | M5.6 Terrain | 1,25 | 2 | 24/01/2027 |

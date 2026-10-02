@@ -26,9 +26,44 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 | 3 | 4,5 | **5,25** | **1,17** |
 | 4 | 8,25 | **6,0** | **0,73** |
 | 4 (M4.6) | 3,5 | **4,5** | **1,29** |
-| 5 (en cours : M5.1, M5.2) | 2,75 | **2,0** | **0,73** |
+| 5 (en cours : M5.1 à M5.3) | 4,5 | **3,0** | **0,67** |
 
 ---
+
+## 2026-10-02 — M5.3 — Clôture : les ombres du soleil en quatre cascades
+
+- **Temps Donnovan : 1,0 h** (estimé 1,75 h), déclaré en plus des 2 h de M5.1 et M5.2 : 3,0 h pour la journée.
+  Réparti au prorata des estimations : #128 0,57 h, #129 0,43 h. **Ratio 0,57, provisoire** : les PR #214 à
+  #218 ont été fusionnées sur son accord et seront relues plus tard.
+- Sessions Claude Code : 1
+- Fait :
+  - **les cascades** (#214) : quatre tranches de profondeur au partage « pratique » (Zhang et al.), chacune
+    enfermée dans une sphère, la projection du soleil calée sur les texels, pour des bords qui ne scintillent pas ;
+  - **le backend WebGPU lit une profondeur par un sampler de comparaison** (#215) : il déduit des ressources et
+    du WGSL ce que le layout de NVRHI ne dit pas ;
+  - **la passe d'ombres** (#216) : la profondeur vue du soleil, dans un atlas de 2 × 2 cascades (4096²) ;
+  - **la lecture des ombres** (#217), puis **le PCF** 3 × 3 et **le temps GPU de la passe** (#218).
+- Mesures :
+  - pas de trou entre cascades : 4 761 vérifications sur CPU, chaque point du volume de vue dans la shadow map de
+    sa cascade (`levain_tests -tc="*cascade*"`) ;
+  - l'ombre d'un cube sur un sol : 0 pixel différent de la référence, sur Vulkan et sur WebGPU
+    (`ctest -R smoke.shadow`) ; le cube, dans Firefox (`tools/web-smoke.sh`) ;
+  - **temps GPU de la passe d'ombres sur Sponza : 0,27 ms** (0,269 à 0,274 sur trois lancements de 10 s), pour
+    une image à 0,56 ms GPU ; 4 cascades, atlas 4096², 1920 × 1080, Release, RX 9070 XT (RADV)
+    (`SDL_VIDEO_DRIVER=offscreen levain_sandbox --seconds 10 --model Sponza.gltf`) ;
+  - tests : 143 en natif, 86 en WebAssembly (`ctest`).
+  - la scène `shadow` du test de fumée admet 16 pixels différents : le bord de l'ombre tombe d'un texel à côté
+    entre RADV et lavapipe (8 pixels en CI) ; le contrôle du temps GPU des ombres se fait en CI sur le renard,
+    Sponza n'y faisant que quelques images.
+- Décisions : un atlas plutôt qu'un tableau de textures (une seule texture 2D, la même sur Vulkan et WebGPU) ; les
+  deux faces dessinées dans les ombres (rideaux, feuillages).
+- Écarts et problèmes :
+  - deux pièges, consignés : NVRHI n'active le biais de profondeur sous Vulkan que si sa part constante est non
+    nulle (acné sur Vulkan seulement) ; une texture comparée doit être une `DepthTexture2D` pour le WGSL ;
+  - **ponytail** : une marge fixe de 50 m vers le soleil pour les objets qui projettent leur ombre dans une
+    tranche (`CasterMargin`) ;
+  - pas de temps GPU sur WebGPU (pas de `timestamp-query`).
+- Prochaine étape : M5.4, l'éclairage d'environnement (IBL), et la comparaison avec la visionneuse Khronos (#125).
 
 ## 2026-10-02 — M5.1 et M5.2 — Clôture : la scène en PBR, en forward+ en clusters, en HDR et en AgX
 
