@@ -3,6 +3,16 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un ordre de liens faux, masqué dans le dépôt, visible chez le jeu (2026-10-02)
+
+- **Symptôme** : *Rando*, qui ne relie que `levain::gpu`, échoue à l'édition de liens : « référence indéfinie vers
+  nvrhi::CommandListResourceStateTracker… » depuis `libnvrhi_vk.a`. Levain, lui, compile et passe ses tests.
+- **Cause** : `nvrhi` était déclaré avant `nvrhi_vk` dans `engine/gpu/CMakeLists.txt`. CMake ne garde que la
+  première mention d'une bibliothèque, et l'éditeur de liens ne revient pas en arrière. Dans le dépôt, `render`
+  relie `nvrhi` une seconde fois, après : l'erreur ne se voyait pas.
+- **Parade** : `nvrhi` déclaré après `nvrhi_vk` ; `tests/gpu_alone.cpp`, un programme qui ne relie que `gpu`, casse
+  le build si l'ordre redevient faux (vérifié : 20 références indéfinies sans le correctif).
+
 ## Aucun Chromium ne charge de page sur la machine de référence (2026-09-27)
 
 - **Symptôme** : Helium 0.18 (Chromium 154), en headless comme chez Donnovan en fenêtre : l'onglet reste sur
