@@ -31,9 +31,13 @@ struct FrameConstants
     std::uint32_t padding;
     glm::uvec3 clusterGrid;
     std::uint32_t padding2;
+    std::array<glm::mat4, CascadeCount> cascadeViewProjection;
+    glm::vec4 cascadeFarDepths;
+    glm::vec4 cascadeTexelSizes;
 };
 
-static_assert(sizeof(FrameConstants) == 144, "disposition lue par shaders/mesh.slang");
+static_assert(sizeof(FrameConstants) == 432, "disposition lue par shaders/mesh.slang");
+static_assert(CascadeCount == 4, "un float4 par cascade dans shaders/mesh.slang");
 
 /// Les images qu'une command list peut éclairer : une par vue (la caméra, plus tard les ombres).
 constexpr std::uint32_t MaxFramesPerCommandList = 4;
@@ -61,7 +65,7 @@ nvrhi::GraphicsPipelineHandle createPipeline(nvrhi::IDevice& device, const MeshP
 } // namespace
 
 core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::FramebufferInfo& target,
-                                      const LightClusterPass& lights)
+                                      const LightClusterPass& lights, const ShadowPass& shadows)
 {
     auto vertexShader = loadShader(device, "mesh.vertexMain", nvrhi::ShaderType::Vertex);
     auto pixelShader = loadShader(device, "mesh.fragmentMain", nvrhi::ShaderType::Pixel);
@@ -118,7 +122,9 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
                                 nvrhi::BindingLayoutItem::VolatileConstantBuffer(1),
                                 nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0),
                                 nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1),
-                                nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2)};
+                                nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2),
+                                nvrhi::BindingLayoutItem::Texture_SRV(3),
+                                nvrhi::BindingLayoutItem::Sampler(0)};
     nvrhi::BindingLayoutHandle frameLayout = device.createBindingLayout(frameLayoutDesc);
 
     // Celui du matériau occupe space2, descriptor set 2 ; space1, réservé aux ressources de passe,
@@ -157,7 +163,9 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
             .addItem(nvrhi::BindingSetItem::ConstantBuffer(1, frameConstants))
             .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, lights.lights))
             .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, lights.lightCounts))
-            .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, lights.lightIndices)),
+            .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, lights.lightIndices))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(3, shadows.atlas))
+            .addItem(nvrhi::BindingSetItem::Sampler(0, shadows.sampler)),
         frameLayout);
 
     MeshPass pass{.vertexShader = std::move(*vertexShader),
@@ -277,9 +285,10 @@ nvrhi::ITexture* ensureDepthTexture(nvrhi::IDevice& device, nvrhi::TextureHandle
 }
 
 void setFrameLighting(nvrhi::ICommandList& commandList, const MeshPass& pass,
-                      const LightClusterPass& lights, const FrameLighting& lighting)
+                      const LightClusterPass& lights, const ShadowPass& shadows,
+                      const FrameLighting& lighting)
 {
-    const FrameConstants constants{
+    FrameConstants constants{
         .view = lighting.view.view,
         .cameraPosition = lighting.cameraPosition,
         .sunIntensity = lighting.sun.intensity,
@@ -291,7 +300,20 @@ void setFrameLighting(nvrhi::ICommandList& commandList, const MeshPass& pass,
         .padding = 0,
         .clusterGrid = {lights.grid.x, lights.grid.y, lights.grid.z},
         .padding2 = 0,
+        .cascadeViewProjection = {},
+        .cascadeFarDepths = {},
+        .cascadeTexelSizes = {},
     };
+    for (std::uint32_t i = 0; i < CascadeCount; ++i)
+    {
+        const glm::mat4& viewProjection = lighting.cascades[i].viewProjection;
+        constants.cascadeViewProjection[i] = viewProjection;
+        constants.cascadeFarDepths[static_cast<glm::length_t>(i)] = lighting.cascades[i].farDepth;
+        // La projection orthographique couvre 2 / échelle unités du monde sur `resolution` texels.
+        constants.cascadeTexelSizes[static_cast<glm::length_t>(i)] =
+            2.0f /
+            (glm::length(glm::vec3{viewProjection[0]}) * static_cast<float>(shadows.resolution));
+    }
     commandList.writeBuffer(pass.frameConstants, &constants, sizeof(constants));
 }
 

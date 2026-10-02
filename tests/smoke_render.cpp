@@ -38,6 +38,7 @@
 #include "levain/render/mesh.hpp"
 #include "levain/render/mesh_pass.hpp"
 #include "levain/render/readback.hpp"
+#include "levain/render/shadows.hpp"
 #include "levain/render/texture.hpp"
 #include "levain/render/triangle.hpp"
 
@@ -142,8 +143,16 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
     {
         return std::unexpected(clusters.error());
     }
-    auto meshPass =
-        levain::render::createMeshPass(device, framebuffer.getFramebufferInfo(), *clusters);
+    // « cube » : une passe d'ombres effacée, où rien n'est dessiné. « shadow » : le cube au-dessus
+    // d'un sol, sous un soleil presque vertical, son ombre dessous (M5.3).
+    const bool withGround = scene == "shadow";
+    auto shadows = levain::render::createShadowPass(device, 256);
+    if (!shadows)
+    {
+        return std::unexpected(shadows.error());
+    }
+    auto meshPass = levain::render::createMeshPass(device, framebuffer.getFramebufferInfo(),
+                                                   *clusters, *shadows);
     if (!meshPass)
     {
         return std::unexpected(meshPass.error());
@@ -182,27 +191,55 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
     const std::array<glm::vec3, 1> origin{glm::vec3{0.0f}};
     const levain::render::Instances instances =
         levain::render::createInstances(device, commandList, origin);
+    const glm::mat4 cubeModel =
+        withGround ? glm::scale(glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 0.6f, 0.0f}),
+                                glm::vec3{0.4f})
+                   : glm::rotate(glm::mat4{1.0f}, glm::radians(35.0f), glm::vec3{1.0f, 1.0f, 0.0f});
     const levain::render::SceneConstants constants{
         .viewProjection = levain::render::viewProjectionOf(levain::render::Camera{}, 1.0f),
-        .model = glm::rotate(glm::mat4{1.0f}, glm::radians(35.0f), glm::vec3{1.0f, 1.0f, 0.0f}),
+        .model = cubeModel,
     };
+    const glm::vec3 sunDirection =
+        withGround ? glm::vec3{0.3f, 1.0f, 0.2f} : glm::vec3{0.4f, 1.0f, 0.6f};
     // Un soleil de biais, sans lumière ponctuelle : le cube montre trois faces inégalement
     // éclairées, et le tri vide ses clusters.
     const levain::render::Camera camera;
     const levain::render::FrameLighting lighting{
         .view = levain::render::clusterViewOf(camera, 1.0f),
         .cameraPosition = camera.position,
-        .sun = {.direction = {0.4f, 1.0f, 0.6f}, .color = glm::vec3{1.0f}, .intensity = 3.0f},
-        .ambient = glm::vec3{0.1f}};
+        .sun = {.direction = sunDirection, .color = glm::vec3{1.0f}, .intensity = 3.0f},
+        .ambient = glm::vec3{0.1f},
+        .cascades = levain::render::cascadesOf(camera, 1.0f, sunDirection, {.resolution = 256})};
+    levain::render::clearShadows(commandList, *shadows);
+    const levain::render::Mesh ground =
+        levain::render::createPlane(device, commandList, 3.0f, 1.0f);
+    if (withGround)
+    {
+        for (std::uint32_t cascade = 0; cascade < levain::render::CascadeCount; ++cascade)
+        {
+            levain::render::drawShadowCaster(commandList, *shadows, cascade,
+                                             lighting.cascades[cascade], cube, instances,
+                                             cubeModel);
+            levain::render::drawShadowCaster(commandList, *shadows, cascade,
+                                             lighting.cascades[cascade], ground, instances,
+                                             glm::mat4{1.0f});
+        }
+    }
     if (auto assigned =
             levain::render::assignLightsToClusters(commandList, *clusters, {}, lighting.view);
         !assigned)
     {
         return std::unexpected(assigned.error());
     }
-    levain::render::setFrameLighting(commandList, *meshPass, *clusters, lighting);
+    levain::render::setFrameLighting(commandList, *meshPass, *clusters, *shadows, lighting);
     levain::render::drawMesh(commandList, *meshPass, framebuffer, cube, instances, *material,
                              constants);
+    if (withGround)
+    {
+        levain::render::drawMesh(
+            commandList, *meshPass, framebuffer, ground, instances, *material,
+            {.viewProjection = constants.viewProjection, .model = glm::mat4{1.0f}});
+    }
     return {};
 }
 
@@ -222,7 +259,7 @@ levain::core::Result<Image> renderScene(nvrhi::IDevice& device, std::string_view
 
     nvrhi::FramebufferDesc framebufferDesc = nvrhi::FramebufferDesc().addColorAttachment(target);
     nvrhi::TextureHandle depth;
-    if (scene == "cube")
+    if (scene == "cube" || scene == "shadow")
     {
         framebufferDesc.setDepthAttachment(
             levain::render::ensureDepthTexture(device, depth, ImageSize, ImageSize));
@@ -337,10 +374,12 @@ int main(int argc, char** argv)
         const std::string_view backend = arguments.size() == 3 ? arguments[2] : "vulkan";
         if (arguments.size() < 2 || arguments.size() > 3 ||
             (std::string_view{arguments[1]} != "triangle" &&
-             std::string_view{arguments[1]} != "cube") ||
+             std::string_view{arguments[1]} != "cube" &&
+             std::string_view{arguments[1]} != "shadow") ||
             (backend != "vulkan" && backend != "webgpu"))
         {
-            std::println(stderr, "usage : levain_smoke_render triangle|cube [vulkan|webgpu]");
+            std::println(stderr,
+                         "usage : levain_smoke_render triangle|cube|shadow [vulkan|webgpu]");
             return 2;
         }
         return runSmokeTest(arguments[1], backend);

@@ -32,6 +32,7 @@ struct Scene
     nvrhi::DeviceHandle device;
     levain::gpu::WebGpuCanvasHandle canvas;
     levain::render::LightClusterPass clusters;
+    levain::render::ShadowPass shadows;
     levain::render::MeshPass meshPass;
     nvrhi::TextureHandle texture;
     nvrhi::SamplerHandle sampler;
@@ -69,7 +70,13 @@ void createScene(nvrhi::DeviceHandle device)
         fail(clusters.error().message);
         return;
     }
-    auto meshPass = levain::render::createMeshPass(*device, target, *clusters);
+    auto shadows = levain::render::createShadowPass(*device, 256);
+    if (!shadows)
+    {
+        fail(shadows.error().message);
+        return;
+    }
+    auto meshPass = levain::render::createMeshPass(*device, target, *clusters, *shadows);
     auto image = levain::assets::loadImage("/data/rgbw-2x2.png");
     if (!meshPass || !image)
     {
@@ -89,6 +96,7 @@ void createScene(nvrhi::DeviceHandle device)
     Scene created{.device = device,
                   .canvas = std::move(*canvas),
                   .clusters = std::move(*clusters),
+                  .shadows = std::move(*shadows),
                   .meshPass = std::move(*meshPass),
                   .texture = {},
                   .sampler = levain::render::createSampler(*device, {}),
@@ -149,10 +157,13 @@ void frame()
         .view = levain::render::clusterViewOf(camera, 1.0f),
         .cameraPosition = camera.position,
         .sun = {.direction = {0.4f, 1.0f, 0.6f}, .color = glm::vec3{1.0f}, .intensity = 3.0f},
-        .ambient = glm::vec3{0.1f}};
+        .ambient = glm::vec3{0.1f},
+        .cascades = levain::render::cascadesOf(camera, 1.0f, {0.4f, 1.0f, 0.6f}, {})};
+    levain::render::clearShadows(commandList, scene->shadows);
     std::ignore =
         levain::render::assignLightsToClusters(commandList, scene->clusters, {}, lighting.view);
-    levain::render::setFrameLighting(commandList, scene->meshPass, scene->clusters, lighting);
+    levain::render::setFrameLighting(commandList, scene->meshPass, scene->clusters, scene->shadows,
+                                     lighting);
     levain::render::drawMesh(commandList, scene->meshPass, *framebuffer, scene->cube,
                              scene->instances, *scene->material, constants);
     commandList.close();

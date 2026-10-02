@@ -191,6 +191,14 @@ texels seraient trop gros devant la caméra. Le volume de vue est donc découpé
 `tests/shadows_test.cpp` vérifie que chaque point du volume de vue tombe dans la shadow map de sa cascade (pas de
 trou entre cascades), et la stabilité.
 
+La **passe d'ombres** (`createShadowPass`, `drawShadowCaster`) dessine chaque objet, vu du soleil, dans chaque
+cascade : un pipeline sans fragment shader, qui n'écrit que la profondeur, dans un **atlas** de 2 × 2 cascades (une
+seule texture 2D, la même sur Vulkan et sur WebGPU). Le shader d'éclairage choisit la cascade du pixel par sa
+profondeur, s'y projette et **compare** sa profondeur à celle de l'atlas (`sunVisibilityOf`) : un sampler de
+comparaison rend 0 ou 1, filtré par le GPU sur les 2 × 2 texels voisins. Contre l'« acné » (une surface qui
+s'ombre elle-même par l'arrondi de sa profondeur) : un biais de profondeur à l'écriture, et le point décalé le
+long de sa normale à la lecture. La scène `shadow` du test de fumée vérifie l'ombre d'un cube sur un sol.
+
 ## L'image HDR et le tonemapping
 
 La scène ne se dessine plus dans la swapchain mais dans une **image HDR** (`HdrFormat`, 16 bits flottants par

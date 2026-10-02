@@ -856,16 +856,17 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(clusters.error());
     }
-    auto meshPass = levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *clusters);
-    if (!meshPass)
-    {
-        return std::unexpected(meshPass.error());
-    }
     const levain::render::CascadeSettings cascadeSettings;
     auto shadows = levain::render::createShadowPass(*gpu.nvrhi, cascadeSettings.resolution);
     if (!shadows)
     {
         return std::unexpected(shadows.error());
+    }
+    auto meshPass =
+        levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *clusters, *shadows);
+    if (!meshPass)
+    {
+        return std::unexpected(meshPass.error());
     }
     auto tonemap = levain::render::createTonemapPass(
         *gpu.nvrhi, nvrhi::FramebufferInfo().addColorFormat(levain::gpu::swapchainFormat(gpu)));
@@ -1021,7 +1022,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
 
 /// Le soleil de la démo : haut, de biais, légèrement chaud.
 constexpr levain::render::Sun DemoSun{
-    .direction = {0.4f, 1.0f, 0.6f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
+    .direction = {-0.7f, 0.45f, 0.5f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
 
 /// Huit lumières de couleur qui tournent autour du modèle (`modelPlacement`), un tour en 12 s :
 /// de quoi voir le forward+ éclairer le modèle et le sol.
@@ -1187,7 +1188,9 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
             .view = levain::render::clusterViewOf(scene.camera, aspect),
             .cameraPosition = scene.camera.position,
             .sun = DemoSun,
-            .ambient = glm::vec3{0.1f}};
+            .ambient = glm::vec3{0.1f},
+            .cascades = levain::render::cascadesOf(scene.camera, aspect, DemoSun.direction,
+                                                   scene.cascadeSettings)};
 
         // La couleur de fond : une croûte de levain. Locale et non globale : le constructeur de
         // nvrhi::Color n'est pas noexcept, et une exception levée à l'initialisation d'une
@@ -1209,14 +1212,14 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
             levain::core::log("sandbox", levain::core::LogLevel::Error, "{}",
                               assigned.error().message);
         }
-        levain::render::setFrameLighting(commandList, scene.meshPass, scene.clusters, lighting);
+        levain::render::setFrameLighting(commandList, scene.meshPass, scene.clusters, scene.shadows,
+                                         lighting);
         // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
         gatherCubePositions(scene.cubes, scene.cubePositions);
         levain::render::updateInstances(commandList, scene.grid, scene.cubePositions);
         // Les ombres : chaque objet, vu du soleil, dans chacune des cascades (M5.3).
-        const std::array<levain::render::Cascade, levain::render::CascadeCount> cascades =
-            levain::render::cascadesOf(scene.camera, aspect, DemoSun.direction,
-                                       scene.cascadeSettings);
+        const std::array<levain::render::Cascade, levain::render::CascadeCount>& cascades =
+            lighting.cascades;
         levain::render::clearShadows(commandList, scene.shadows);
         for (std::uint32_t cascade = 0; cascade < levain::render::CascadeCount; ++cascade)
         {

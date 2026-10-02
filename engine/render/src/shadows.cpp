@@ -202,6 +202,9 @@ core::Result<ShadowPass> createShadowPass(nvrhi::IDevice& device, std::uint32_t 
     // (l'« acné » des ombres).
     pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
     pipelineDesc.renderState.rasterState.slopeScaledDepthBias = 2.0f;
+    // Non nul, même petit : sous Vulkan, NVRHI n'active le biais que si sa part constante l'est
+    // (vulkan-graphics.cpp, setDepthBiasEnable), et la pente seule serait ignorée.
+    pipelineDesc.renderState.rasterState.depthBias = 1;
     pass.pipeline =
         device.createGraphicsPipeline(pipelineDesc, pass.framebuffer->getFramebufferInfo());
     if (!pass.inputLayout || !pass.layout || !pass.constants || !pass.atlas || !pass.framebuffer ||
