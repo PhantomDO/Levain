@@ -85,9 +85,9 @@ nvrhi::BindingLayoutHandle Device::createBindingLayout(const nvrhi::BindingLayou
         switch (item.type)
         {
         case nvrhi::ResourceType::Texture_SRV:
-            // ponytail: toujours une texture 2D filtrable ; le layout de NVRHI ne dit ni la
-            // dimension ni le type d'échantillon. Les lire dans le binding set quand viendront les
-            // cubes (IBL, M5.4) et les textures de profondeur (ombres, M5.3).
+            // Une texture 2D filtrable, sauf texture de profondeur (`layoutFor`).
+            // ponytail: toujours 2D ; le layout de NVRHI ne dit pas la dimension. La déduire comme
+            // la profondeur quand viendront les cubes (IBL, M5.4).
             entry.texture.sampleType = wgpu::TextureSampleType::Float;
             entry.texture.viewDimension = wgpu::TextureViewDimension::e2D;
             break;
@@ -129,7 +129,42 @@ nvrhi::BindingLayoutHandle Device::createBindingLayout(const nvrhi::BindingLayou
         error("binding layout refusé par WebGPU");
         return nullptr;
     }
-    return nvrhi::BindingLayoutHandle::Create(new BindingLayout{desc, std::move(layout)});
+    return nvrhi::BindingLayoutHandle::Create(
+        new BindingLayout{desc, std::move(layout), std::move(entries)});
+}
+
+wgpu::BindGroupLayout BindingLayout::layoutFor(const wgpu::Device& device,
+                                               const DepthBindings& depth) const
+{
+    if (depth.empty())
+    {
+        return layout;
+    }
+    if (auto found = variants.find(depth); found != variants.end())
+    {
+        return found->second;
+    }
+    std::vector<wgpu::BindGroupLayoutEntry> changed = entries;
+    for (wgpu::BindGroupLayoutEntry& entry : changed)
+    {
+        const auto match = std::ranges::find(depth, entry.binding, &DepthBinding::binding);
+        if (match == depth.end())
+        {
+            continue;
+        }
+        if (match->comparisonSampler)
+        {
+            entry.sampler.type = wgpu::SamplerBindingType::Comparison;
+        }
+        else
+        {
+            entry.texture.sampleType = wgpu::TextureSampleType::Depth;
+        }
+    }
+    wgpu::BindGroupLayoutDescriptor layoutDesc{};
+    layoutDesc.entryCount = changed.size();
+    layoutDesc.entries = changed.data();
+    return variants.emplace(depth, device.CreateBindGroupLayout(&layoutDesc)).first->second;
 }
 
 nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& desc,
@@ -138,6 +173,8 @@ nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& de
     const auto* bindingLayout = static_cast<const BindingLayout*>(layout);
     std::vector<wgpu::BindGroupEntry> entries;
     std::vector<std::pair<std::uint32_t, nvrhi::BufferHandle>> volatileBuffers;
+    // Les textures de profondeur et samplers de comparaison liés : leur layout le dira à WebGPU.
+    DepthBindings depth;
     for (const nvrhi::BindingSetItem& item : desc.bindings)
     {
         wgpu::BindGroupEntry entry{};
@@ -156,11 +193,22 @@ nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& de
             viewDesc.baseArrayLayer = subresources.baseArraySlice;
             viewDesc.arrayLayerCount = subresources.numArraySlices;
             entry.textureView = texture->texture.CreateView(&viewDesc);
+            if (nvrhi::getFormatInfo(texture->desc.format).hasDepth)
+            {
+                depth.push_back({.binding = entry.binding, .comparisonSampler = false});
+            }
             break;
         }
         case nvrhi::ResourceType::Sampler:
-            entry.sampler = static_cast<Sampler*>(item.resourceHandle)->sampler;
+        {
+            const auto* sampler = static_cast<Sampler*>(item.resourceHandle);
+            entry.sampler = sampler->sampler;
+            if (sampler->desc.reductionType == nvrhi::SamplerReductionType::Comparison)
+            {
+                depth.push_back({.binding = entry.binding, .comparisonSampler = true});
+            }
             break;
+        }
         case nvrhi::ResourceType::VolatileConstantBuffer:
         {
             // Une version seulement : l'offset dynamique la choisit dans le buffer.
@@ -184,7 +232,8 @@ nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& de
         entries.push_back(entry);
     }
     wgpu::BindGroupDescriptor groupDesc{};
-    groupDesc.layout = bindingLayout->layout;
+    std::ranges::sort(depth);
+    groupDesc.layout = bindingLayout->layoutFor(device, depth);
     groupDesc.entryCount = entries.size();
     groupDesc.entries = entries.data();
     wgpu::BindGroup group = device.CreateBindGroup(&groupDesc);

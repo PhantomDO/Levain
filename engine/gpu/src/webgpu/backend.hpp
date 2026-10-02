@@ -8,6 +8,8 @@
 // servir, et choisit une autre technique.
 
 #include <cstdint>
+#include <map>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -139,13 +141,33 @@ public:
 
 /// Un binding layout devient un bind group layout. `dynamicBindings` : les numéros de binding des
 /// constantes volatiles, dans l'ordre croissant où WebGPU attend leurs offsets dynamiques.
+/// Ce que le layout de NVRHI ne dit pas et que WebGPU veut savoir : à tel binding, une texture de
+/// profondeur, ou un sampler de comparaison (les ombres, M5.3). Vulkan s'en passe.
+struct DepthBinding
+{
+    std::uint32_t binding = 0;
+    bool comparisonSampler = false; ///< Faux : une texture de profondeur.
+
+    auto operator<=>(const DepthBinding&) const = default;
+};
+
+/// Les bindings de profondeur d'un groupe, triés : deux layouts aux mêmes entrées sont
+/// interchangeables en WebGPU, que l'un vienne des ressources liées et l'autre du shader.
+using DepthBindings = std::vector<DepthBinding>;
+
 class BindingLayout final : public nvrhi::RefCounter<nvrhi::IBindingLayout>
 {
 public:
-    BindingLayout(const nvrhi::BindingLayoutDesc& desc, wgpu::BindGroupLayout layout)
-        : desc{desc}, layout{std::move(layout)}
+    BindingLayout(const nvrhi::BindingLayoutDesc& desc, wgpu::BindGroupLayout layout,
+                  std::vector<wgpu::BindGroupLayoutEntry> entries)
+        : desc{desc}, layout{std::move(layout)}, entries{std::move(entries)}
     {
     }
+
+    /// Le layout de WebGPU où les bindings de `depth` sont de profondeur : `layout` si aucun, sinon
+    /// une variante, créée une fois.
+    [[nodiscard]] wgpu::BindGroupLayout layoutFor(const wgpu::Device& device,
+                                                  const DepthBindings& depth) const;
 
     [[nodiscard]] const nvrhi::BindingLayoutDesc* getDesc() const override { return &desc; }
 
@@ -156,6 +178,8 @@ public:
 
     nvrhi::BindingLayoutDesc desc;
     wgpu::BindGroupLayout layout;
+    std::vector<wgpu::BindGroupLayoutEntry> entries;
+    mutable std::map<DepthBindings, wgpu::BindGroupLayout> variants;
 };
 
 /// Un binding set devient un bind group. `volatileBuffers` : ses buffers de constantes volatils,
@@ -455,9 +479,11 @@ public:
 
     /// Les groupes d'un pipeline qui utilise `layouts` (pipelines.cpp).
     [[nodiscard]] PipelineGroups groupsOf(const nvrhi::BindingLayoutVector& layouts) const;
-    /// Son pipeline layout WebGPU : les bind group layouts, et le groupe vide dans les trous.
-    [[nodiscard]] wgpu::PipelineLayout pipelineLayoutOf(const nvrhi::BindingLayoutVector& layouts,
-                                                        const PipelineGroups& groups) const;
+    /// Son pipeline layout WebGPU : les bind group layouts, et le groupe vide dans les trous. Les
+    /// textures de profondeur et samplers de comparaison viennent des déclarations de `shaders`.
+    [[nodiscard]] wgpu::PipelineLayout
+    pipelineLayoutOf(const nvrhi::BindingLayoutVector& layouts, const PipelineGroups& groups,
+                     std::span<const Shader* const> shaders) const;
 
     /// Signale une erreur à NVRHI comme le font ses backends : par le callback de messages.
     void error(const std::string& message) const;
