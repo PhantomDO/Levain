@@ -23,6 +23,7 @@ set(nativeTests
     camera_test.cpp
     input_test.cpp
     light_clusters_test.cpp
+    shadows_test.cpp
     tangent_test.cpp
     process_test.cpp
     texture_test.cpp
