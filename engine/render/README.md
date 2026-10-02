@@ -179,9 +179,16 @@ canal, M5.2) : la lumière y garde sa vraie valeur, au-delà de 1 (un reflet du 
 passe plein écran, `tonemap`, la ramène ensuite dans la swapchain : un seul triangle, deux fois plus grand que
 l'écran, et un shader qui lit l'image HDR pixel par pixel.
 
-Cette passe applique l'**exposition** (`--exposure` dans le sandbox : 2 éclaire d'un diaphragme), puis ramène la
-lumière dans ce que l'écran sait afficher. Pour l'instant elle la coupe à 1 ; AgX ou ACES la ramèneront en
-douceur (#127).
+Cette passe applique l'**exposition** (`--exposure` dans le sandbox : 2 éclaire d'un diaphragme), puis une
+**courbe de tonemapping** ramène la lumière, de 0 à l'infini, dans ce que l'écran affiche, de 0 à 1 :
+
+- **AgX** (Troy Sobotka), par défaut, choisi sur captures comparatives (`tools/tonemap-captures.sh`) : la lumière
+  passe en logarithme, puis une courbe en S la ramène ; les couleurs très vives virent au blanc au lieu de
+  saturer d'un seul canal. C'est la courbe par défaut de Blender depuis la 4.0 ;
+- **ACES** (approximation de Stephen Hill) : plus contrastée, le look « cinéma » ;
+- **la coupe nette** : ce que faisait le moteur avant M5.2, les blancs saturent.
+
+`--tonemap clip|aces|agx` choisit dans le sandbox.
 
 ## Mesurer le temps GPU
 
@@ -199,6 +206,8 @@ que quand le GPU a fini la frame, d'où l'anneau de trois requêtes de `GpuTimer
 | **Unity** | SRP (URP, HDRP) | Les pipelines de rendu, écrits en C# au-dessus de la couche graphique interne (**documenté** : packages publics). |
 | **Godot** | `ClusterBuilderRD` | Le tri des lumières en clusters du renderer Forward+ (**documenté** : dépôt public). |
 | **Unity** | URP Forward+ | Les lumières triées par tuiles et en profondeur, au-delà de la limite de 8 lumières par objet du Forward (**documenté** : manuel de l'URP). |
+| **Unreal** | Post Process Volume, *Film* | Exposition automatique ou manuelle, courbe « Filmic » inspirée d'ACES (**documenté** : documentation d'Epic). |
+| **Godot** | `Environment.tonemap_mode` | Linear, Reinhard, Filmic, ACES, et AgX depuis Godot 4.4 (**documenté** : documentation de Godot). |
 | **Unreal** | `FRHIRenderQuery`, `stat gpu` | Timer queries au-dessus de la RHI, affichées par passe (**documenté** : sources publiques). |
 | **Unreal** | `recompileshaders changed`, `ShaderCompileWorker` | Recompilation à chaud par des processus séparés (**documenté** : documentation d'Epic). |
 | **Unity** | GPU Instancing, Frame Timing Manager | Instancing activé par matériau ; temps GPU par frame (**documenté** : manuel). |
