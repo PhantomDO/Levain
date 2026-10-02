@@ -43,14 +43,24 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
         return std::unexpected(vertexShader ? pixelShader.error() : vertexShader.error());
     }
 
-    // Les noms sont les sémantiques de VertexInput dans shaders/mesh.slang. Les trois premiers
-    // viennent du buffer des sommets (slot 0), le dernier du buffer des instances (slot 1), lu une
-    // fois par instance.
-    const std::array<nvrhi::VertexAttributeDesc, 4> attributes{
+    // Les noms sont les sémantiques de VertexInput dans shaders/mesh.slang, dans le même ordre (le
+    // backend WebGPU numérote les attributs dans cet ordre). Les cinq premiers viennent du buffer
+    // des sommets (slot 0), le dernier du buffer des instances (slot 1), lu une fois par instance.
+    const std::array<nvrhi::VertexAttributeDesc, 6> attributes{
         nvrhi::VertexAttributeDesc()
             .setName("POSITION")
             .setFormat(nvrhi::Format::RGB32_FLOAT)
             .setOffset(offsetof(MeshVertex, position))
+            .setElementStride(sizeof(MeshVertex)),
+        nvrhi::VertexAttributeDesc()
+            .setName("NORMAL")
+            .setFormat(nvrhi::Format::RGB32_FLOAT)
+            .setOffset(offsetof(MeshVertex, normal))
+            .setElementStride(sizeof(MeshVertex)),
+        nvrhi::VertexAttributeDesc()
+            .setName("TANGENT")
+            .setFormat(nvrhi::Format::RGBA32_FLOAT)
+            .setOffset(offsetof(MeshVertex, tangent))
             .setElementStride(sizeof(MeshVertex)),
         nvrhi::VertexAttributeDesc()
             .setName("COLOR")

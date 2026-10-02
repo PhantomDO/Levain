@@ -17,14 +17,16 @@ namespace levain::render
 struct SkinnedVertex
 {
     glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec4 tangent;
     glm::vec3 color;
     glm::vec2 uv;
     glm::u16vec4 joints;
     glm::vec4 weights;
 };
 
-static_assert(sizeof(SkinnedVertex) == 56, "disposition lue mot par mot par skinning.slang");
-static_assert(sizeof(MeshVertex) == 32, "disposition écrite mot par mot par skinning.slang");
+static_assert(sizeof(SkinnedVertex) == 84, "disposition lue mot par mot par skinning.slang");
+static_assert(sizeof(MeshVertex) == 60, "disposition écrite mot par mot par skinning.slang");
 
 /// Le skinning en compute (ADR-0022) : un seul pipeline, pour tous les meshes skinnés.
 struct SkinningPass

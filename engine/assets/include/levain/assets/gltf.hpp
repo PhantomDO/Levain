@@ -20,12 +20,14 @@
 namespace levain::assets
 {
 
-/// Un sommet tel que glTF le décrit. Les normales et les coordonnées de texture sont facultatives
-/// dans un glTF : absentes, elles valent (0, 1, 0) et (0, 0).
+/// Un sommet tel que glTF le décrit. Les normales, les tangentes et les coordonnées de texture sont
+/// facultatives dans un glTF : absentes, elles valent (0, 1, 0), (1, 0, 0, 1) et (0, 0).
 struct ModelVertex
 {
     glm::vec3 position{0.0f};
     glm::vec3 normal{0.0f, 1.0f, 0.0f};
+    /// La direction où u croît, pour les normal maps (M5.1) ; w (±1) dit dans quel sens croît v.
+    glm::vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};
     glm::vec2 uv{0.0f}; ///< (0, 0) en haut à gauche, comme chez nous : aucune inversion.
 };
 

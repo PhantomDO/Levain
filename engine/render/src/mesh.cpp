@@ -72,6 +72,23 @@ void updateInstances(nvrhi::ICommandList& commandList, Instances& instances,
 constexpr std::array<glm::vec2, 4> FaceUvs{
     {{0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f}, {0.0f, 0.0f}}};
 
+glm::vec4 tangentOf(const MeshVertex& a, const MeshVertex& b, const MeshVertex& c)
+{
+    // Les deux arêtes du triangle s'écrivent dans la base (tangente, bitangente) avec leurs écarts
+    // de coordonnées de texture : on inverse ce système 2 × 2.
+    const glm::vec3 edge1 = b.position - a.position;
+    const glm::vec3 edge2 = c.position - a.position;
+    const glm::vec2 duv1 = b.uv - a.uv;
+    const glm::vec2 duv2 = c.uv - a.uv;
+    const float determinant = (duv1.x * duv2.y) - (duv2.x * duv1.y);
+    const glm::vec3 tangent =
+        glm::normalize((edge1 * duv2.y) - (edge2 * duv1.y)) * glm::sign(determinant);
+    const glm::vec3 bitangent = ((edge2 * duv1.x) - (edge1 * duv2.x)) * glm::sign(determinant);
+    const float handedness =
+        glm::dot(glm::cross(a.normal, tangent), bitangent) < 0.0f ? -1.0f : 1.0f;
+    return {tangent, handedness};
+}
+
 Mesh createCube(nvrhi::IDevice& device, nvrhi::ICommandList& commandList)
 {
     // Les huit coins, nommés par le signe de x, y et z (n : −0,5 ; p : +0,5).
@@ -93,20 +110,40 @@ Mesh createCube(nvrhi::IDevice& device, nvrhi::ICommandList& commandList)
 
     // Une face par ligne, ses quatre coins dans le sens trigonométrique vu de l'extérieur : c'est
     // ce sens qui fait d'une face une face avant (MeshPass élimine les faces arrière).
-    std::array<MeshVertex, 24> vertices{{
-        {pnp, red, {}},     {pnn, red, {}},     {ppn, red, {}},     {ppp, red, {}},     // +x
-        {nnn, cyan, {}},    {nnp, cyan, {}},    {npp, cyan, {}},    {npn, cyan, {}},    // −x
-        {npp, green, {}},   {ppp, green, {}},   {ppn, green, {}},   {npn, green, {}},   // +y
-        {nnn, magenta, {}}, {pnn, magenta, {}}, {pnp, magenta, {}}, {nnp, magenta, {}}, // −y
-        {nnp, blue, {}},    {pnp, blue, {}},    {ppp, blue, {}},    {npp, blue, {}},    // +z
-        {pnn, yellow, {}},  {nnn, yellow, {}},  {npn, yellow, {}},  {ppn, yellow, {}},  // −z
+    struct Face
+    {
+        std::array<glm::vec3, 4> corners;
+        glm::vec3 normal;
+        glm::vec3 color;
+    };
+
+    const std::array<Face, 6> faces{{
+        {{pnp, pnn, ppn, ppp}, {1.0f, 0.0f, 0.0f}, red},
+        {{nnn, nnp, npp, npn}, {-1.0f, 0.0f, 0.0f}, cyan},
+        {{npp, ppp, ppn, npn}, {0.0f, 1.0f, 0.0f}, green},
+        {{nnn, pnn, pnp, nnp}, {0.0f, -1.0f, 0.0f}, magenta},
+        {{nnp, pnp, ppp, npp}, {0.0f, 0.0f, 1.0f}, blue},
+        {{pnn, nnn, npn, ppn}, {0.0f, 0.0f, -1.0f}, yellow},
     }};
 
     // Chaque face commence par ses deux coins du bas (ou, pour ±y, par un bord), dans le même
     // sens : les quatre coins de chaque face reçoivent les mêmes coordonnées de texture.
-    for (std::size_t i = 0; i < vertices.size(); ++i)
+    std::array<MeshVertex, 24> vertices{};
+    for (std::size_t face = 0; face < faces.size(); ++face)
     {
-        vertices[i].uv = FaceUvs[i % FaceUvs.size()];
+        for (std::size_t corner = 0; corner < 4; ++corner)
+        {
+            vertices[(face * 4) + corner] = {.position = faces[face].corners[corner],
+                                             .normal = faces[face].normal,
+                                             .color = faces[face].color,
+                                             .uv = FaceUvs[corner]};
+        }
+        const glm::vec4 tangent =
+            tangentOf(vertices[face * 4], vertices[(face * 4) + 1], vertices[(face * 4) + 2]);
+        for (std::size_t corner = 0; corner < 4; ++corner)
+        {
+            vertices[(face * 4) + corner].tangent = tangent;
+        }
     }
 
     // Deux triangles par face : (0, 1, 2) et (0, 2, 3) sur ses quatre coins.
@@ -127,16 +164,21 @@ Mesh createPlane(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, float
     const float h = size / 2.0f;
     const glm::vec3 white{1.0f};
     // Les coins dans le sens trigonométrique vu d'en haut, comme la face +y du cube.
-    std::array<MeshVertex, 4> vertices{{
-        {{-h, 0.0f, h}, white, {}},
-        {{h, 0.0f, h}, white, {}},
-        {{h, 0.0f, -h}, white, {}},
-        {{-h, 0.0f, -h}, white, {}},
-    }};
-    // Au-delà de 1, le sampler en Wrap répète la texture : textureRepeat fois sur chaque côté.
+    const std::array<glm::vec3, 4> corners{
+        {{-h, 0.0f, h}, {h, 0.0f, h}, {h, 0.0f, -h}, {-h, 0.0f, -h}}};
+    std::array<MeshVertex, 4> vertices{};
     for (std::size_t i = 0; i < vertices.size(); ++i)
     {
-        vertices[i].uv = FaceUvs[i] * textureRepeat;
+        // Au-delà de 1, le sampler en Wrap répète la texture : textureRepeat fois sur chaque côté.
+        vertices[i] = {.position = corners[i],
+                       .normal = {0.0f, 1.0f, 0.0f},
+                       .color = white,
+                       .uv = FaceUvs[i] * textureRepeat};
+    }
+    const glm::vec4 tangent = tangentOf(vertices[0], vertices[1], vertices[2]);
+    for (MeshVertex& vertex : vertices)
+    {
+        vertex.tangent = tangent;
     }
     const std::array<std::uint32_t, 6> indices{0, 1, 2, 0, 2, 3};
     return createMesh(device, commandList, vertices, indices);
