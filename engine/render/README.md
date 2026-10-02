@@ -197,7 +197,9 @@ seule texture 2D, la même sur Vulkan et sur WebGPU). Le shader d'éclairage cho
 profondeur, s'y projette et **compare** sa profondeur à celle de l'atlas (`sunVisibilityOf`) : un sampler de
 comparaison rend 0 ou 1, filtré par le GPU sur les 2 × 2 texels voisins. Contre l'« acné » (une surface qui
 s'ombre elle-même par l'arrondi de sa profondeur) : un biais de profondeur à l'écriture, et le point décalé le
-long de sa normale à la lecture. La scène `shadow` du test de fumée vérifie l'ombre d'un cube sur un sol.
+long de sa normale à la lecture. Le bord de l'ombre est adouci par un **PCF** (*percentage-closer filtering*) :
+3 × 3 comparaisons voisines, chacune déjà filtrée sur 2 × 2 texels, gardées dans le quart de leur cascade. Le
+sandbox mesure le temps GPU de la passe d'ombres et le donne à la fin (« ombres : … ms GPU »). La scène `shadow` du test de fumée vérifie l'ombre d'un cube sur un sol.
 
 ## L'image HDR et le tonemapping
 

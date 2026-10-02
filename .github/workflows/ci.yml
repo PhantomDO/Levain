@@ -235,6 +235,11 @@ jobs:
           [ -n "$fastest" ] || { echo "::error::le skinning du renard n'a pas tourné"; exit 1; }
           [ "$fastest" -le 1000 ] \
             || { echo "::error::un os a bougé à $fastest unités/s : saut de pose"; exit 1; }
+          # Le temps GPU de la passe d'ombres se mesure (M5.3). Ici sur le renard : sous lavapipe, en
+          # Debug, Sponza ne fait que quelques images en 2 s, moins que les trois qu'un timer GPU met à
+          # rendre sa mesure. Le chiffre de Sponza vient de la machine de référence (journal).
+          grep -Eq "ombres : [0-9.]+ ms GPU en moyenne sur [1-9][0-9]* mesures" fox.log \
+            || { echo "::error::le temps GPU de la passe d'ombres n'a pas été mesuré"; exit 1; }
           # Le même renard sur le backend WebGPU (Dawn, hors écran, ADR-0023), validation active :
           # le skinning compute passe par le backend, et doit tourner.
           timeout --foreground --preserve-status -k 10 60 \

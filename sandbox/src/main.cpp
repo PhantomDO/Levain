@@ -261,6 +261,8 @@ struct DemoScene
     levain::render::GpuTimer gpuTimer;
     levain::render::GpuTimer skinningTimer; ///< Le seul skinning : le critère de coût de #117.
     SkinningCost skinningCost;
+    levain::render::GpuTimer shadowTimer; ///< La seule passe d'ombres : le critère de M5.3 (#129).
+    GpuTimeAverage shadowGpu;
     nvrhi::TextureHandle depth; ///< Créé à la première frame, à la taille de l'image.
 };
 
@@ -1017,6 +1019,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .gpuTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningCost = {},
+                     .shadowTimer = levain::render::createGpuTimer(*gpu.nvrhi),
+                     .shadowGpu = {},
                      .depth = {}};
 }
 
@@ -1220,6 +1224,13 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         // Les ombres : chaque objet, vu du soleil, dans chacune des cascades (M5.3).
         const std::array<levain::render::Cascade, levain::render::CascadeCount>& cascades =
             lighting.cascades;
+        // Son temps GPU : celui d'une image précédente, lisible maintenant (gpu_timer.hpp).
+        if (const auto shadowMs =
+                levain::render::beginGpuTimer(*gpu.nvrhi, commandList, scene.shadowTimer))
+        {
+            scene.shadowGpu.totalMs += *shadowMs;
+            ++scene.shadowGpu.samples;
+        }
         levain::render::clearShadows(commandList, scene.shadows);
         for (std::uint32_t cascade = 0; cascade < levain::render::CascadeCount; ++cascade)
         {
@@ -1232,6 +1243,7 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
                                                      cascades[cascade], mesh, instances, model);
                 });
         }
+        levain::render::endGpuTimer(commandList, scene.shadowTimer);
         forEachDraw(scene, seconds,
                     [&](const levain::render::Mesh& mesh,
                         const levain::render::Instances& instances, nvrhi::IBindingSet& material,
@@ -1759,6 +1771,10 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
         "boucle arrêtée après {:.1f} s et {} frames ; GPU : {:.3f} ms en moyenne sur {} mesures",
         secondsBetween(loop.loopStart, Clock::now()), loop.frameCount, averageOf(loop.totalGpu),
         loop.totalGpu.samples);
+    // Le critère de M5.3 : le temps GPU de la passe d'ombres, quatre cascades.
+    levain::core::log("sandbox", levain::core::LogLevel::Info,
+                      "ombres : {:.3f} ms GPU en moyenne sur {} mesures",
+                      averageOf(loop.scene.shadowGpu), loop.scene.shadowGpu.samples);
     const SkinningCost& skinning = loop.scene.skinningCost;
     if (skinning.frames > 0)
     {

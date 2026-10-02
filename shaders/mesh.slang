@@ -162,8 +162,8 @@ float attenuationOf(float distance, float range)
 
 /// La part du soleil qui atteint le point : 1 en pleine lumière, 0 dans l'ombre. Le point se projette
 /// dans la shadow map de la cascade de sa profondeur (un quart de l'atlas, shadows.hpp), décalé le
-/// long de sa normale d'un texel et demi, contre l'« acné » ; le sampler compare et filtre les 2 × 2
-/// texels voisins.
+/// long de sa normale d'un texel et demi, contre l'« acné ». Le bord de l'ombre est adouci par un
+/// PCF : 3 × 3 comparaisons voisines, chacune déjà filtrée par le GPU sur 2 × 2 texels.
 float sunVisibilityOf(float3 worldPosition, float3 normal, float viewDepth)
 {
     if (viewDepth >= frame.cascadeFarDepths[3])
@@ -179,7 +179,26 @@ float sunVisibilityOf(float3 worldPosition, float3 normal, float viewDepth)
     const float4 clip = mul(frame.cascadeViewProjection[cascade], float4(biased, 1.0));
     const float2 uv = float2(clip.x * 0.5 + 0.5, 0.5 - clip.y * 0.5);
     const float2 cell = float2(cascade % 2, cascade / 2);
-    return shadowAtlas.SampleCmpLevelZero(shadowSampler, (cell + saturate(uv)) * 0.5, clip.z);
+
+    uint width;
+    uint height;
+    shadowAtlas.GetDimensions(width, height);
+    const float2 texel = 1.0 / float2(width, height);
+    // Les échantillons restent dans le quart de leur cascade : un texel et demi de marge au bord, que
+    // le filtre 2 × 2 ne déborde pas sur la cascade voisine.
+    const float2 cellMin = cell * 0.5 + 1.5 * texel;
+    const float2 cellMax = (cell + 1.0) * 0.5 - 1.5 * texel;
+    const float2 center = (cell + saturate(uv)) * 0.5;
+    float lit = 0.0;
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            const float2 tap = clamp(center + float2(x, y) * texel, cellMin, cellMax);
+            lit += shadowAtlas.SampleCmpLevelZero(shadowSampler, tap, clip.z);
+        }
+    }
+    return lit / 9.0;
 }
 
 /// L'indice du cluster du pixel, par sa position à l'écran et sa profondeur : le calcul inverse de
