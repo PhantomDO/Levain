@@ -53,6 +53,7 @@
 #include "levain/render/mesh.hpp"
 #include "levain/render/mesh_pass.hpp"
 #include "levain/render/readback.hpp"
+#include "levain/render/shadows.hpp"
 #include "levain/render/skinning.hpp"
 #include "levain/render/texture.hpp"
 #include "levain/render/tonemap.hpp"
@@ -236,6 +237,8 @@ struct DemoScene
     levain::render::LightClusterPass clusters; ///< Le tri des lumières ponctuelles (ADR-0024).
     levain::render::MeshPass meshPass;
     levain::render::SkinningPass skinning;
+    levain::render::ShadowPass shadows; ///< Les ombres du soleil, en cascades (M5.3).
+    levain::render::CascadeSettings cascadeSettings;
     levain::render::TonemapPass tonemap; ///< De l'image HDR à la swapchain (M5.2).
     levain::render::TonemapSettings tonemapSettings;
     levain::render::HdrTarget hdr; ///< Créée à la première frame, à la taille de l'image.
@@ -858,6 +861,12 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(meshPass.error());
     }
+    const levain::render::CascadeSettings cascadeSettings;
+    auto shadows = levain::render::createShadowPass(*gpu.nvrhi, cascadeSettings.resolution);
+    if (!shadows)
+    {
+        return std::unexpected(shadows.error());
+    }
     auto tonemap = levain::render::createTonemapPass(
         *gpu.nvrhi, nvrhi::FramebufferInfo().addColorFormat(levain::gpu::swapchainFormat(gpu)));
     if (!tonemap)
@@ -985,6 +994,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .clusters = std::move(*clusters),
                      .meshPass = std::move(*meshPass),
                      .skinning = std::move(*skinning),
+                     .shadows = std::move(*shadows),
+                     .cascadeSettings = cascadeSettings,
                      .tonemap = std::move(*tonemap),
                      .tonemapSettings = {},
                      .hdr = {},
@@ -1110,6 +1121,26 @@ void animateModels(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, Dem
     }
 }
 
+/// Ce que l'image dessine : les cubes, le sol, et le modèle glTF nœud par nœud, chaque primitive
+/// avec son matériau et sa matrice monde. `draw(mesh, instances, matériau, modèle)` est appelé pour
+/// chacun : par la passe d'ombres, puis par la passe des meshes.
+template <typename Draw> void forEachDraw(DemoScene& scene, double seconds, Draw&& draw)
+{
+    draw(scene.cube, scene.grid, *scene.material, cubeRotation(seconds));
+    draw(scene.ground, scene.groundInstance, *scene.material, glm::mat4{1.0f});
+    scene.modelParts.each(
+        [&](const levain::assets::MeshRef& part, const levain::scene::WorldTransform& world)
+        {
+            const ModelGpu& model = scene.models.at(part.mesh.asset);
+            for (const ModelPrimitiveGpu& primitive : model.meshes[part.mesh.sub])
+            {
+                draw(primitive.mesh, scene.modelInstance,
+                     primitive.material ? *model.materials[*primitive.material] : *scene.material,
+                     world.matrix);
+            }
+        });
+}
+
 /// Efface l'image de la swapchain et son depth buffer, y dessine la grille, et la présente. Rend le
 /// temps GPU d'une frame précédente, dès qu'il est lisible. Avec `capture`, l'image est aussi
 /// copiée pour être relue (`render::readBack`).
@@ -1182,28 +1213,31 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
         gatherCubePositions(scene.cubes, scene.cubePositions);
         levain::render::updateInstances(commandList, scene.grid, scene.cubePositions);
-        levain::render::drawMesh(commandList, scene.meshPass, *framebuffer, scene.cube, scene.grid,
-                                 *scene.material, constants);
-        levain::render::drawMesh(
-            commandList, scene.meshPass, *framebuffer, scene.ground, scene.groundInstance,
-            *scene.material,
-            {.viewProjection = constants.viewProjection, .model = glm::mat4{1.0f}});
-        // Le modèle glTF, nœud par nœud : chaque primitive, placée par la matrice monde du nœud.
-        scene.modelParts.each(
-            [&](const levain::assets::MeshRef& part, const levain::scene::WorldTransform& world)
-            {
-                const ModelGpu& model = scene.models.at(part.mesh.asset);
-                for (const ModelPrimitiveGpu& primitive : model.meshes[part.mesh.sub])
+        // Les ombres : chaque objet, vu du soleil, dans chacune des cascades (M5.3).
+        const std::array<levain::render::Cascade, levain::render::CascadeCount> cascades =
+            levain::render::cascadesOf(scene.camera, aspect, DemoSun.direction,
+                                       scene.cascadeSettings);
+        levain::render::clearShadows(commandList, scene.shadows);
+        for (std::uint32_t cascade = 0; cascade < levain::render::CascadeCount; ++cascade)
+        {
+            forEachDraw(
+                scene, seconds,
+                [&](const levain::render::Mesh& mesh, const levain::render::Instances& instances,
+                    nvrhi::IBindingSet&, const glm::mat4& model)
                 {
-                    nvrhi::IBindingSet& material = primitive.material
-                                                       ? *model.materials[*primitive.material]
-                                                       : *scene.material;
-                    levain::render::drawMesh(
-                        commandList, scene.meshPass, *framebuffer, primitive.mesh,
-                        scene.modelInstance, material,
-                        {.viewProjection = constants.viewProjection, .model = world.matrix});
-                }
-            });
+                    levain::render::drawShadowCaster(commandList, scene.shadows, cascade,
+                                                     cascades[cascade], mesh, instances, model);
+                });
+        }
+        forEachDraw(scene, seconds,
+                    [&](const levain::render::Mesh& mesh,
+                        const levain::render::Instances& instances, nvrhi::IBindingSet& material,
+                        const glm::mat4& model)
+                    {
+                        levain::render::drawMesh(
+                            commandList, scene.meshPass, *framebuffer, mesh, instances, material,
+                            {.viewProjection = constants.viewProjection, .model = model});
+                    });
         levain::render::tonemap(commandList, scene.tonemap, scene.hdr, *output,
                                 scene.tonemapSettings);
         if (capture != nullptr)
