@@ -1,6 +1,10 @@
 # Roadmap v1
 
-> Version 0.8 — 27/09/2026 — statut : **validé par Donnovan** (cible web, ADR-0023)
+> Version 0.9 — 02/10/2026 — statut : **validé par Donnovan** (forward+ en clusters, ADR-0024)
+>
+> v0.9 : **un rendu forward+ en clusters dès M5.1** ([ADR-0024](adr/0024-forward-plus-en-clusters.md)), par
+> décision de Donnovan : une PR de plus (la grille de clusters et le tri des lumières), M5.1 passe de 1,75 à
+> **2,25 h**. Total : **61,4 h → 61,9 h** ; échéances inchangées.
 >
 > v0.8 : **la cible web** ([ADR-0023](adr/0023-cible-web-webgpu.md)) : un backend WebGPU pour NVRHI, le moteur
 > compilé en WebAssembly, et des fonctionnalités de rendu activées selon la plateforme. M4.6 est ajouté avant la
@@ -52,16 +56,16 @@
 | 2 | 3D de base | 4,25 (réel, 3,75 estimées) | 4 | fini le 22/09/2026 |
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
 | 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
-| 5 | Rendu PBR et monde | 10,5 | 12 | 31/01/2027 |
+| 5 | Rendu PBR et monde | 11,0 | 13 | 31/01/2027 |
 | 6 | Physique et traversée | 7,15 | 6 | 28/02/2027 |
 | 7 | Éditeur | 7,5 | 8 | 04/04/2027 |
 | 8 | Audio et le jeu | 8,25 | 8 | 16/05/2027 |
-| **Total** | | **61,4** | **64** | |
+| **Total** | | **61,9** | **65** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante après la phase 4 et M4.6 (36,9 h) selon le rythme : **2 h/sem. → 19 semaines** (début février
-2027) · **1,5 h/sem. → 25 semaines** (mi-mars 2027) · **1 h/sem. → 37 semaines** (juin 2027).
+Durée restante après M4.6 (33,9 h) selon le rythme : **2 h/sem. → 17 semaines** (fin janvier 2027) ·
+**1,5 h/sem. → 23 semaines** (mi-mars 2027) · **1 h/sem. → 34 semaines** (fin mai 2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 09/05/2027.
@@ -258,7 +262,7 @@ Chromium, depuis GitHub Pages ; la CI compile et teste le backend.
 
 | Milestone | Heures D. | Sessions | Échéance |
 |---|---:|---:|---|
-| M5.1 PBR direct | 1,75 | 2 | 20/12/2026 |
+| M5.1 PBR direct | 2,25 | 3 | 20/12/2026 |
 | M5.2 HDR et tonemapping | 1,0 | 1 | 27/12/2026 |
 | M5.3 Ombres en cascades | 1,75 | 2 | 03/01/2027 |
 | M5.4 Éclairage d'environnement (IBL) | 1,75 | 2 | 10/01/2027 |
@@ -266,8 +270,9 @@ Chromium, depuis GitHub Pages ; la CI compile et teste le backend.
 | M5.6 Terrain | 1,25 | 2 | 24/01/2027 |
 | M5.7 Eau et herbe | 1,75 | 2 | 31/01/2027 |
 
-**M5.1 — PBR direct.** Modèle metallic-roughness (Cook-Torrance), lumières directionnelle et ponctuelles ;
-choix forward ou forward+ (**ADR à écrire**). Les passes de Donut servent de référence.
+**M5.1 — PBR direct.** Modèle metallic-roughness (Cook-Torrance), lumières directionnelle et ponctuelles,
+en forward+ en clusters ([ADR-0024](adr/0024-forward-plus-en-clusters.md)) : un compute range les lumières
+ponctuelles dans une grille 3D du volume de la caméra. Les passes de Donut servent de référence.
 *Critère* : les modèles de test Khronos (par exemple MetalRoughSpheres) correspondent visuellement à la
 visionneuse de référence.
 
@@ -406,7 +411,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0009 | Stratégie de binding (binding sets ou bindless) | M2.1 |
 | 0010 | Boucle à pas fixe et interpolation | M3.3 |
 | 0011 | Identifiants d'assets et format `.meta` | M4.2 |
-| 0012 | Forward ou forward+ | M5.1 |
+| 0024 | Forward ou forward+ (forward+ en clusters) | M5.1 |
 | 0013 | Réflexion des composants (addon meta de flecs) | M7.2 |
 
 ## Numérotation des ADR
