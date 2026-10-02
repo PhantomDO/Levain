@@ -54,6 +54,14 @@ constexpr std::size_t BytesPerTexel = 4;
 /// unité d'un pilote à l'autre. Un triangle absent ou déplacé change des centaines de pixels.
 constexpr int ChannelTolerance = 2;
 
+/// Les pixels qui peuvent différer, par scène. Le bord d'une ombre est là où la profondeur comparée
+/// hésite d'un texel : 8 pixels sur 4 096 diffèrent entre RADV et lavapipe (la CI), sur Vulkan
+/// comme sur WebGPU. Une ombre absente ou décalée en change des centaines.
+int allowedDifferentPixels(std::string_view scene)
+{
+    return scene == "shadow" ? 16 : 0;
+}
+
 struct Image
 {
     int width = 0;
@@ -351,9 +359,9 @@ int runSmokeTest(std::string_view scene, std::string_view backend)
     }
 
     const int different = countDifferentPixels(*actual, *reference);
-    std::println("{} pixels sur {} différents de la référence (tolérance ±{})", different,
-                 ImageSize * ImageSize, ChannelTolerance);
-    if (different == 0)
+    std::println("{} pixels sur {} différents de la référence (tolérance ±{}, {} admis)", different,
+                 ImageSize * ImageSize, ChannelTolerance, allowedDifferentPixels(scene));
+    if (different <= allowedDifferentPixels(scene))
     {
         return 0;
     }
