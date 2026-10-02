@@ -37,9 +37,12 @@ au lieu de 128.
 6. **Un nœud glTF devient une entité**, sous une racine qui déplace tout le modèle, avec son `Transform` et sa
    hiérarchie (`flecs::Parent`, ADR-0015). Un nœud qui porte un mesh reçoit un `MeshRef` : le GUID du modèle et
    l'indice du mesh (ADR-0019).
-7. **Seules les images de couleur de base sont décodées** : les autres (normal maps, rugosité…) attendront le
-   PBR (M5.1). Sponza n'en décode ainsi que 25 sur 69. Une image peut venir d'un fichier, d'octets embarqués
-   en base64 ou d'un buffer (`.glb`) : `decodeImage` lit la mémoire, `loadImage` un fichier.
+7. **Les matériaux sont ceux de glTF, metallic-roughness** (M5.1) : couleur de base, métal et rugosité, normal
+   map, chacun avec son facteur. Leurs textures se désignent par référence ; une image embarquée est décodée à
+   l'import, une image dans son fichier se charge quand le rendu en a besoin. La couleur de base est en sRGB ;
+   rugosité-métal et normal map sont des données linéaires, ce que le rendu choisit à l'envoi. Une image peut
+   venir d'un fichier, d'octets embarqués en base64 ou d'un buffer (`.glb`) : `decodeImage` lit la mémoire,
+   `loadImage` un fichier.
 8. **Les chemins ne vivent que dans le registre** (`AssetRegistry`). Tout le reste du moteur désigne un asset
    par son `AssetId` (ADR-0019).
 9. **Le hash du registre suit le fichier** (ADR-0021) : `takeChangedAssets` le recalcule quand la date change,
