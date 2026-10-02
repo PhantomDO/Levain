@@ -129,14 +129,34 @@ PipelineGroups Device::groupsOf(const nvrhi::BindingLayoutVector& layouts) const
     return groups;
 }
 
-/// Les textures de profondeur et samplers de comparaison que déclarent les shaders, par groupe :
-/// `@binding(b) @group(g) var nom : texture_depth_2d` (ou `sampler_comparison`), la forme qu'écrit
-/// Slang en WGSL.
-std::map<std::uint32_t, DepthBindings> depthBindingsOf(std::span<const Shader* const> shaders)
+/// Le format WGSL d'une storage texture, tel que l'écrit Slang (`[format("rgba16f")]`).
+wgpu::TextureFormat storageFormatOf(const std::string& name)
+{
+    if (name == "rgba16float")
+    {
+        return wgpu::TextureFormat::RGBA16Float;
+    }
+    if (name == "rgba32float")
+    {
+        return wgpu::TextureFormat::RGBA32Float;
+    }
+    if (name == "rgba8unorm")
+    {
+        return wgpu::TextureFormat::RGBA8Unorm;
+    }
+    return wgpu::TextureFormat::Undefined;
+}
+
+/// Ce que déclarent les shaders et que le layout de NVRHI ne dit pas, par groupe :
+/// `@binding(b) @group(g) var nom : type`, la forme qu'écrit Slang en WGSL, pour les types
+/// `texture_depth_2d`, `sampler_comparison`, `texture_cube<f32>` et
+/// `texture_storage_2d[_array]<format, write>`.
+std::map<std::uint32_t, BindingHints> bindingHintsOf(std::span<const Shader* const> shaders)
 {
     static const std::regex declaration{
-        R"(@binding\((\d+)\)\s*@group\((\d+)\)\s*var\s+\w+\s*:\s*(texture_depth_2d|sampler_comparison)\b)"};
-    std::map<std::uint32_t, DepthBindings> groups;
+        R"(@binding\((\d+)\)\s*@group\((\d+)\)\s*var\s+\w+\s*:\s*)"
+        R"((texture_depth_2d|sampler_comparison|texture_cube<f32>|texture_storage_2d(_array)?<(\w+),\s*write>))"};
+    std::map<std::uint32_t, BindingHints> groups;
     for (const Shader* shader : shaders)
     {
         if (shader == nullptr)
@@ -147,20 +167,36 @@ std::map<std::uint32_t, DepthBindings> depthBindingsOf(std::span<const Shader* c
                  std::sregex_iterator{shader->wgsl.begin(), shader->wgsl.end(), declaration};
              match != std::sregex_iterator{}; ++match)
         {
-            const DepthBinding binding{
-                .binding = static_cast<std::uint32_t>(std::stoul((*match)[1].str())),
-                .comparisonSampler = (*match)[3].str() == "sampler_comparison"};
-            DepthBindings& group =
-                groups[static_cast<std::uint32_t>(std::stoul((*match)[2].str()))];
-            if (std::ranges::find(group, binding) == group.end())
+            const std::string type = (*match)[3].str();
+            BindingHint hint{.binding = static_cast<std::uint32_t>(std::stoul((*match)[1].str()))};
+            if (type == "texture_depth_2d")
             {
-                group.push_back(binding);
+                hint.kind = BindingHint::Kind::DepthTexture;
+            }
+            else if (type == "sampler_comparison")
+            {
+                hint.kind = BindingHint::Kind::ComparisonSampler;
+            }
+            else if (type == "texture_cube<f32>")
+            {
+                hint.kind = BindingHint::Kind::CubeTexture;
+            }
+            else
+            {
+                hint.kind = (*match)[4].matched ? BindingHint::Kind::StorageTexture2DArray
+                                                : BindingHint::Kind::StorageTexture2D;
+                hint.format = storageFormatOf((*match)[5].str());
+            }
+            BindingHints& group = groups[static_cast<std::uint32_t>(std::stoul((*match)[2].str()))];
+            if (std::ranges::find(group, hint) == group.end())
+            {
+                group.push_back(hint);
             }
         }
     }
-    for (auto& [group, bindings] : groups)
+    for (auto& [group, hints] : groups)
     {
-        std::ranges::sort(bindings);
+        std::ranges::sort(hints);
     }
     return groups;
 }
@@ -169,15 +205,15 @@ wgpu::PipelineLayout Device::pipelineLayoutOf(const nvrhi::BindingLayoutVector& 
                                               const PipelineGroups& groups,
                                               std::span<const Shader* const> shaders) const
 {
-    const std::map<std::uint32_t, DepthBindings> depth = depthBindingsOf(shaders);
+    const std::map<std::uint32_t, BindingHints> hints = bindingHintsOf(shaders);
     std::vector<wgpu::BindGroupLayout> bindGroupLayouts(groups.groupCount, emptyLayout);
     for (std::size_t i = 0; i < layouts.size(); ++i)
     {
         const std::uint32_t group = groups.groupOf[i];
-        const auto found = depth.find(group);
+        const auto found = hints.find(group);
         bindGroupLayouts[group] =
             static_cast<BindingLayout*>(layouts[i].Get())
-                ->layoutFor(device, found != depth.end() ? found->second : DepthBindings{});
+                ->layoutFor(device, found != hints.end() ? found->second : BindingHints{});
     }
     wgpu::PipelineLayoutDescriptor layoutDesc{};
     layoutDesc.bindGroupLayoutCount = bindGroupLayouts.size();
