@@ -55,6 +55,7 @@
 #include "levain/render/readback.hpp"
 #include "levain/render/shadows.hpp"
 #include "levain/render/skinning.hpp"
+#include "levain/render/sky.hpp"
 #include "levain/render/texture.hpp"
 #include "levain/render/tonemap.hpp"
 #include "levain/scene/camera_control.hpp"
@@ -240,7 +241,9 @@ struct DemoScene
     levain::render::ShadowPass shadows; ///< Les ombres du soleil, en cascades (M5.3).
     levain::render::CascadeSettings cascadeSettings;
     levain::render::Environment environment; ///< Le ciel qui éclaire la scène (IBL, M5.4).
-    levain::render::TonemapPass tonemap;     ///< De l'image HDR à la swapchain (M5.2).
+    /// Le ciel en fond, avec `--sky` seulement : sans HDRI, le fond reste la croûte de levain.
+    std::optional<levain::render::SkyPass> sky;
+    levain::render::TonemapPass tonemap; ///< De l'image HDR à la swapchain (M5.2).
     levain::render::TonemapSettings tonemapSettings;
     levain::render::HdrTarget hdr; ///< Créée à la première frame, à la taille de l'image.
     levain::render::Mesh cube;
@@ -899,6 +902,16 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     }
     auto meshPass = levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *clusters,
                                                    *shadows, *environment);
+    std::optional<levain::render::SkyPass> sky;
+    if (skyPath)
+    {
+        auto pass = levain::render::createSkyPass(*gpu.nvrhi, sceneTargetOf(gpu), *environment);
+        if (!pass)
+        {
+            return std::unexpected(pass.error());
+        }
+        sky = std::move(*pass);
+    }
     if (!meshPass)
     {
         return std::unexpected(meshPass.error());
@@ -1033,6 +1046,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .shadows = std::move(*shadows),
                      .cascadeSettings = cascadeSettings,
                      .environment = std::move(*environment),
+                     .sky = std::move(sky),
                      .tonemap = std::move(*tonemap),
                      .tonemapSettings = {},
                      .hdr = {},
@@ -1287,6 +1301,11 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
                             commandList, scene.meshPass, *framebuffer, mesh, instances, material,
                             {.viewProjection = constants.viewProjection, .model = model});
                     });
+        if (scene.sky)
+        {
+            levain::render::drawSky(commandList, *scene.sky, *framebuffer, scene.camera, aspect,
+                                    lighting.environmentIntensity);
+        }
         levain::render::tonemap(commandList, scene.tonemap, scene.hdr, *output,
                                 scene.tonemapSettings);
         if (capture != nullptr)
