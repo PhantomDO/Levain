@@ -60,6 +60,11 @@ struct Environment
                                                           const EnvironmentImage& image,
                                                           std::uint32_t cubeSize = 512);
 
+/// Un ciel uniforme de luminance `radiance` dans toutes les directions : l'ambiance d'avant l'IBL,
+/// pour une scène sans HDRI (les tests de fumée, le navigateur).
+[[nodiscard]] core::Result<Environment> createUniformEnvironment(nvrhi::IDevice& device,
+                                                                 glm::vec3 radiance);
+
 /// La direction qui passe par le point `uv` (de −1 à 1) de la face `face` : l'ordre et
 /// l'orientation des cubemaps de Vulkan, Direct3D et WebGPU (+X, −X, +Y, −Y, +Z, −Z). La même
 /// formule que shaders/environment.slang, pour les tests.

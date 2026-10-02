@@ -6,6 +6,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include "levain/core/error.hpp"
+#include "levain/render/environment.hpp"
 #include "levain/render/light_clusters.hpp"
 #include "levain/render/mesh.hpp"
 #include "levain/render/shadows.hpp"
@@ -40,13 +41,14 @@ struct Sun
 };
 
 /// L'éclairage d'une image : la caméra (pour les reflets, et pour retrouver le cluster d'un pixel),
-/// le soleil, et une lumière ambiante uniforme en attendant l'IBL (M5.4).
+/// le soleil, et le ciel (l'environnement de `createMeshPass`), multiplié par
+/// `environmentIntensity`.
 struct FrameLighting
 {
     ClusterView view;
     glm::vec3 cameraPosition{0.0f};
     Sun sun;
-    glm::vec3 ambient{0.1f};
+    float environmentIntensity = 1.0f;
     /// Les cascades des ombres du soleil (`cascadesOf`), que la passe d'ombres a dessinées.
     std::array<Cascade, CascadeCount> cascades{};
 };
@@ -105,12 +107,13 @@ struct MeshPass
 };
 
 /// Crée la passe pour des framebuffers de ce format, couleur et profondeur (`DepthFormat`). Ses
-/// shaders lisent les lumières ponctuelles triées par `lights` (ADR-0024) et l'atlas des ombres de
-/// `shadows` (M5.3).
+/// shaders lisent les lumières ponctuelles triées par `lights` (ADR-0024), l'atlas des ombres de
+/// `shadows` (M5.3) et l'éclairage par l'image de `environment` (M5.4).
 [[nodiscard]] core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device,
                                                     const nvrhi::FramebufferInfo& target,
                                                     const LightClusterPass& lights,
-                                                    const ShadowPass& shadows);
+                                                    const ShadowPass& shadows,
+                                                    const Environment& environment);
 
 /// Enregistre l'éclairage de l'image, une fois par command list, avant les dessins : après
 /// `assignLightsToClusters`, dont il reprend la grille.

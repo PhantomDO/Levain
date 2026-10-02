@@ -132,7 +132,11 @@ TEST_CASE("les passes du moteur se créent sur le backend WebGPU")
     auto shadows = levain::render::createShadowPass(*device, 256);
     INFO("erreur : " << (shadows ? std::string{} : shadows.error().message));
     REQUIRE(shadows.has_value());
-    auto meshPass = levain::render::createMeshPass(*device, target, *clusters, *shadows);
+    auto environment = levain::render::createUniformEnvironment(*device, glm::vec3{0.1f});
+    INFO("erreur : " << (environment ? std::string{} : environment.error().message));
+    REQUIRE(environment.has_value());
+    auto meshPass =
+        levain::render::createMeshPass(*device, target, *clusters, *shadows, *environment);
     INFO("erreur : " << (meshPass ? std::string{} : meshPass.error().message));
     REQUIRE(meshPass.has_value());
     const nvrhi::TextureHandle texture =

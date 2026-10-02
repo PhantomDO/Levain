@@ -169,7 +169,9 @@ le diffus de Lambert pour la lumière qui entre dans la matière. Les lumières 
 - **le soleil** (`Sun`) touche tout l'écran ;
 - **les lumières ponctuelles** ne sont lues que dans le cluster du pixel (`clusterOf`, le calcul inverse du
   tri) ; leur atténuation est l'inverse du carré de la distance, ramené à zéro à leur portée ;
-- **une lumière ambiante** uniforme remplace l'éclairage d'environnement en attendant l'IBL (M5.4).
+- **le ciel** éclaire tout le reste (l'IBL, voir plus bas) : l'irradiance pour le diffus, le reflet préfiltré à la
+  rugosité du matériau pour le spéculaire, multiplié par la table de la BRDF (`environmentLightOf`). Sans HDRI
+  (`--sky` dans le sandbox), un ciel uniforme et sombre (`createUniformEnvironment`) tient lieu de lumière ambiante.
 
 `setFrameLighting` écrit ces constantes une fois par command list, après le tri (`assignLightsToClusters`). Le
 résultat est de la lumière linéaire : au-delà de 1, la cible 8 bits la coupe, jusqu'au HDR de M5.2.

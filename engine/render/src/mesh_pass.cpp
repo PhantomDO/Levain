@@ -27,10 +27,12 @@ struct FrameConstants
     float nearPlane;
     glm::vec3 sunColor;
     float farPlane;
-    glm::vec3 ambient;
-    std::uint32_t padding;
+    float environmentIntensity;
+    float padding0;
+    float padding1;
+    float padding2;
     glm::uvec3 clusterGrid;
-    std::uint32_t padding2;
+    std::uint32_t padding3;
     std::array<glm::mat4, CascadeCount> cascadeViewProjection;
     glm::vec4 cascadeFarDepths;
     glm::vec4 cascadeTexelSizes;
@@ -65,7 +67,8 @@ nvrhi::GraphicsPipelineHandle createPipeline(nvrhi::IDevice& device, const MeshP
 } // namespace
 
 core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::FramebufferInfo& target,
-                                      const LightClusterPass& lights, const ShadowPass& shadows)
+                                      const LightClusterPass& lights, const ShadowPass& shadows,
+                                      const Environment& environment)
 {
     auto vertexShader = loadShader(device, "mesh.vertexMain", nvrhi::ShaderType::Vertex);
     auto pixelShader = loadShader(device, "mesh.fragmentMain", nvrhi::ShaderType::Pixel);
@@ -124,7 +127,11 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
                                 nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1),
                                 nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2),
                                 nvrhi::BindingLayoutItem::Texture_SRV(3),
-                                nvrhi::BindingLayoutItem::Sampler(0)};
+                                nvrhi::BindingLayoutItem::Sampler(0),
+                                nvrhi::BindingLayoutItem::Texture_SRV(4),
+                                nvrhi::BindingLayoutItem::Texture_SRV(5),
+                                nvrhi::BindingLayoutItem::Texture_SRV(6),
+                                nvrhi::BindingLayoutItem::Sampler(1)};
     nvrhi::BindingLayoutHandle frameLayout = device.createBindingLayout(frameLayoutDesc);
 
     // Celui du matériau occupe space2, descriptor set 2 ; space1, réservé aux ressources de passe,
@@ -156,7 +163,13 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
                                 .setIsVolatile(true)
                                 .setMaxVersions(MaxFramesPerCommandList)
                                 .setDebugName("constantes d'éclairage"));
-    // Les lumières et leurs listes par cluster, telles que le tri les a écrites.
+    // Trilinéaire, étiré au bord : la table de la BRDF ne doit pas reboucler de la vue rasante à la
+    // vue de face. Le binding set garde le sampler en vie.
+    const nvrhi::SamplerHandle environmentSampler =
+        device.createSampler(nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(
+            nvrhi::SamplerAddressMode::Clamp));
+    // Les lumières et leurs listes par cluster, telles que le tri les a écrites, les ombres et le
+    // ciel.
     nvrhi::BindingSetHandle frameBindings = device.createBindingSet(
         nvrhi::BindingSetDesc()
             .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, sceneConstants))
@@ -165,7 +178,11 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
             .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, lights.lightCounts))
             .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, lights.lightIndices))
             .addItem(nvrhi::BindingSetItem::Texture_SRV(3, shadows.atlas))
-            .addItem(nvrhi::BindingSetItem::Sampler(0, shadows.sampler)),
+            .addItem(nvrhi::BindingSetItem::Sampler(0, shadows.sampler))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(4, environment.irradiance))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(5, environment.specular))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(6, environment.brdfLut))
+            .addItem(nvrhi::BindingSetItem::Sampler(1, environmentSampler)),
         frameLayout);
 
     MeshPass pass{.vertexShader = std::move(*vertexShader),
@@ -296,10 +313,12 @@ void setFrameLighting(nvrhi::ICommandList& commandList, const MeshPass& pass,
         .nearPlane = lighting.view.nearPlane,
         .sunColor = lighting.sun.color,
         .farPlane = lighting.view.farPlane,
-        .ambient = lighting.ambient,
-        .padding = 0,
+        .environmentIntensity = lighting.environmentIntensity,
+        .padding0 = 0.0f,
+        .padding1 = 0.0f,
+        .padding2 = 0.0f,
         .clusterGrid = {lights.grid.x, lights.grid.y, lights.grid.z},
-        .padding2 = 0,
+        .padding3 = 0,
         .cascadeViewProjection = {},
         .cascadeFarDepths = {},
         .cascadeTexelSizes = {},
