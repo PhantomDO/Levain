@@ -4,7 +4,9 @@
 >
 > v0.9 : **un rendu forward+ en clusters dès M5.1** ([ADR-0024](adr/0024-forward-plus-en-clusters.md)), par
 > décision de Donnovan : une PR de plus (la grille de clusters et le tri des lumières), M5.1 passe de 1,75 à
-> **2,25 h**. Total : **61,4 h → 61,9 h** ; échéances inchangées.
+> **2,25 h**. Total : **61,4 h → 61,9 h** ; échéances inchangées. Puis la comparaison avec la visionneuse
+> Khronos (#125, 0,5 h) passe de M5.1 à M5.4, après l'IBL, à la demande de Donnovan : M5.1 revient à 1,75 h,
+> M5.4 passe à 2,25 h.
 >
 > v0.8 : **la cible web** ([ADR-0023](adr/0023-cible-web-webgpu.md)) : un backend WebGPU pour NVRHI, le moteur
 > compilé en WebAssembly, et des fonctionnalités de rendu activées selon la plateforme. M4.6 est ajouté avant la
@@ -262,10 +264,10 @@ Chromium, depuis GitHub Pages ; la CI compile et teste le backend.
 
 | Milestone | Heures D. | Sessions | Échéance |
 |---|---:|---:|---|
-| M5.1 PBR direct | 2,25 | 3 | 20/12/2026 |
+| M5.1 PBR direct | 1,75 | 3 | 20/12/2026 |
 | M5.2 HDR et tonemapping | 1,0 | 1 | 27/12/2026 |
 | M5.3 Ombres en cascades | 1,75 | 2 | 03/01/2027 |
-| M5.4 Éclairage d'environnement (IBL) | 1,75 | 2 | 10/01/2027 |
+| M5.4 Éclairage d'environnement (IBL) | 2,25 | 2 | 10/01/2027 |
 | M5.5 Culling et statistiques | 1,25 | 1 | 17/01/2027 |
 | M5.6 Terrain | 1,25 | 2 | 24/01/2027 |
 | M5.7 Eau et herbe | 1,75 | 2 | 31/01/2027 |
@@ -273,8 +275,9 @@ Chromium, depuis GitHub Pages ; la CI compile et teste le backend.
 **M5.1 — PBR direct.** Modèle metallic-roughness (Cook-Torrance), lumières directionnelle et ponctuelles,
 en forward+ en clusters ([ADR-0024](adr/0024-forward-plus-en-clusters.md)) : un compute range les lumières
 ponctuelles dans une grille 3D du volume de la caméra. Les passes de Donut servent de référence.
-*Critère* : les modèles de test Khronos (par exemple MetalRoughSpheres) correspondent visuellement à la
-visionneuse de référence.
+*Critère* : les matériaux glTF de Sponza s'affichent en PBR, normal maps comprises, sans erreur de validation,
+et le même rendu sur Vulkan et sur WebGPU. La comparaison avec la visionneuse Khronos passe en M5.4 : la
+visionneuse éclaire par IBL.
 
 **M5.2 — HDR et tonemapping.** Cible de rendu RGBA16F, exposition, tonemapping (AgX ou ACES).
 *Critère* : captures comparatives avant et après.
@@ -283,7 +286,8 @@ visionneuse de référence.
 *Critère* : temps GPU de la passe d'ombres mesuré sur Sponza.
 
 **M5.4 — IBL.** Irradiance, spéculaire préfiltré, table BRDF, calculés en compute shaders.
-*Critère* : comparaison visuelle avec la visionneuse de référence.
+*Critère* : MetalRoughSpheres (Khronos glTF Sample Assets) comparé à la visionneuse de référence, l'écart mesuré
+par une commande versionnée (#125, reporté de M5.1 le 02/10/2026, +0,5 h).
 
 **M5.5 — Culling et statistiques.** Frustum culling CPU, temps GPU par passe, compteurs de draw calls et de
 triangles.
