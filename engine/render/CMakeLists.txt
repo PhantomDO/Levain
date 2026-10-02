@@ -9,6 +9,7 @@ add_library(levain_render STATIC
     src/mesh_pass.cpp
     src/readback.cpp
     src/shader.cpp
+    src/shadows.cpp
     src/skinning.cpp
     src/texture.cpp
     src/tonemap.cpp

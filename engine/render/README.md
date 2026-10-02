@@ -32,6 +32,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/mesh_pass.hpp`](include/levain/render/mesh_pass.hpp) | `createMeshPass`, `reloadMeshPassShaders`, `ensureDepthTexture`, `createMaterialBindings`, `drawMesh` — la première passe avec constantes, profondeur et texture |
 | [`include/levain/render/texture.hpp`](include/levain/render/texture.hpp) | `TextureLevel`, `createTexture` — une texture sRGB et tous ses niveaux de mip ; `SamplerSettings`, `createSampler`, `clampAnisotropy` |
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
+| [`include/levain/render/shadows.hpp`](include/levain/render/shadows.hpp) | `CascadeSettings`, `cascadeSplitsOf`, `cascadesOf` — les tranches de profondeur et les projections du soleil des ombres en cascades |
 | [`include/levain/render/tonemap.hpp`](include/levain/render/tonemap.hpp) | `HdrFormat`, `createTonemapPass`, `ensureHdrTarget`, `tonemap` — l'image HDR et sa passe vers la swapchain |
 | [`include/levain/render/skinning.hpp`](include/levain/render/skinning.hpp) | `SkinnedVertex`, `createSkinningPass`, `createSkinnedMesh`, `skinMesh` — le skinning en compute |
 | [`include/levain/render/light_clusters.hpp`](include/levain/render/light_clusters.hpp) | `PointLight`, `ClusterGrid`, `createLightClusterPass`, `assignLightsToClusters` — le tri des lumières ponctuelles en clusters (forward+) ; `lightsPerClusterOf`, sa référence CPU |
@@ -171,6 +172,24 @@ le diffus de Lambert pour la lumière qui entre dans la matière. Les lumières 
 
 `setFrameLighting` écrit ces constantes une fois par command list, après le tri (`assignLightsToClusters`). Le
 résultat est de la lumière linéaire : au-delà de 1, la cible 8 bits la coupe, jusqu'au HDR de M5.2.
+
+## Les ombres en cascades
+
+Le soleil ombre la scène par des **shadow maps** : une image de profondeur vue depuis le soleil, où le shader
+d'éclairage vérifie si un pixel est caché. Une seule ne suffit pas pour un monde vu de près comme de loin : ses
+texels seraient trop gros devant la caméra. Le volume de vue est donc découpé en **quatre tranches de profondeur**
+(`cascadeSplitsOf`), chacune avec sa shadow map, une **cascade** (M5.3) :
+
+- les tranches mélangent un partage égal et un partage au même rapport (le schéma « pratique » de Zhang et al.) :
+  fines près de la caméra, épaisses au loin ;
+- chaque tranche est enfermée dans une **sphère**, dont la taille ne change pas quand la caméra tourne ; et la
+  projection du soleil **avance par texels entiers**. Sans ces deux précautions, les bords des ombres
+  scintillent à chaque mouvement de caméra ;
+- le soleil regarde la tranche depuis un peu plus loin (`CasterMargin`), pour qu'un objet hors de la tranche, entre
+  elle et le soleil, y jette quand même son ombre.
+
+`tests/shadows_test.cpp` vérifie que chaque point du volume de vue tombe dans la shadow map de sa cascade (pas de
+trou entre cascades), et la stabilité.
 
 ## L'image HDR et le tonemapping
 
