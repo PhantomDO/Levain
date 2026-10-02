@@ -2,8 +2,12 @@
 // l'input layout (les sommets) et dans le framebuffer (les formats) : on les y recopie.
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <format>
+#include <map>
+#include <regex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -125,13 +129,55 @@ PipelineGroups Device::groupsOf(const nvrhi::BindingLayoutVector& layouts) const
     return groups;
 }
 
-wgpu::PipelineLayout Device::pipelineLayoutOf(const nvrhi::BindingLayoutVector& layouts,
-                                              const PipelineGroups& groups) const
+/// Les textures de profondeur et samplers de comparaison que déclarent les shaders, par groupe :
+/// `@binding(b) @group(g) var nom : texture_depth_2d` (ou `sampler_comparison`), la forme qu'écrit
+/// Slang en WGSL.
+std::map<std::uint32_t, DepthBindings> depthBindingsOf(std::span<const Shader* const> shaders)
 {
+    static const std::regex declaration{
+        R"(@binding\((\d+)\)\s*@group\((\d+)\)\s*var\s+\w+\s*:\s*(texture_depth_2d|sampler_comparison)\b)"};
+    std::map<std::uint32_t, DepthBindings> groups;
+    for (const Shader* shader : shaders)
+    {
+        if (shader == nullptr)
+        {
+            continue;
+        }
+        for (auto match =
+                 std::sregex_iterator{shader->wgsl.begin(), shader->wgsl.end(), declaration};
+             match != std::sregex_iterator{}; ++match)
+        {
+            const DepthBinding binding{
+                .binding = static_cast<std::uint32_t>(std::stoul((*match)[1].str())),
+                .comparisonSampler = (*match)[3].str() == "sampler_comparison"};
+            DepthBindings& group =
+                groups[static_cast<std::uint32_t>(std::stoul((*match)[2].str()))];
+            if (std::ranges::find(group, binding) == group.end())
+            {
+                group.push_back(binding);
+            }
+        }
+    }
+    for (auto& [group, bindings] : groups)
+    {
+        std::ranges::sort(bindings);
+    }
+    return groups;
+}
+
+wgpu::PipelineLayout Device::pipelineLayoutOf(const nvrhi::BindingLayoutVector& layouts,
+                                              const PipelineGroups& groups,
+                                              std::span<const Shader* const> shaders) const
+{
+    const std::map<std::uint32_t, DepthBindings> depth = depthBindingsOf(shaders);
     std::vector<wgpu::BindGroupLayout> bindGroupLayouts(groups.groupCount, emptyLayout);
     for (std::size_t i = 0; i < layouts.size(); ++i)
     {
-        bindGroupLayouts[groups.groupOf[i]] = static_cast<BindingLayout*>(layouts[i].Get())->layout;
+        const std::uint32_t group = groups.groupOf[i];
+        const auto found = depth.find(group);
+        bindGroupLayouts[group] =
+            static_cast<BindingLayout*>(layouts[i].Get())
+                ->layoutFor(device, found != depth.end() ? found->second : DepthBindings{});
     }
     wgpu::PipelineLayoutDescriptor layoutDesc{};
     layoutDesc.bindGroupLayoutCount = bindGroupLayouts.size();
@@ -252,7 +298,8 @@ Device::createGraphicsPipeline(const nvrhi::GraphicsPipelineDesc& desc,
 
     const PipelineGroups groups = groupsOf(desc.bindingLayouts);
     wgpu::RenderPipelineDescriptor pipelineDesc{};
-    pipelineDesc.layout = pipelineLayoutOf(desc.bindingLayouts, groups);
+    const std::array<const Shader*, 2> shaders{vertexShader, pixelShader};
+    pipelineDesc.layout = pipelineLayoutOf(desc.bindingLayouts, groups, shaders);
     pipelineDesc.vertex.module = vertexShader->module;
     pipelineDesc.vertex.entryPoint = viewOf(vertexEntry);
     pipelineDesc.vertex.bufferCount = vertexBuffers.size();
@@ -288,7 +335,8 @@ nvrhi::ComputePipelineHandle Device::createComputePipeline(const nvrhi::ComputeP
     const std::string entry{shader->desc.entryName};
     const PipelineGroups groups = groupsOf(desc.bindingLayouts);
     wgpu::ComputePipelineDescriptor pipelineDesc{};
-    pipelineDesc.layout = pipelineLayoutOf(desc.bindingLayouts, groups);
+    const std::array<const Shader*, 1> shaders{shader};
+    pipelineDesc.layout = pipelineLayoutOf(desc.bindingLayouts, groups, shaders);
     pipelineDesc.compute.module = shader->module;
     pipelineDesc.compute.entryPoint = viewOf(entry);
     wgpu::ComputePipeline pipeline = device.CreateComputePipeline(&pipelineDesc);
