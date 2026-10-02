@@ -26,8 +26,54 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 | 3 | 4,5 | **5,25** | **1,17** |
 | 4 | 8,25 | **6,0** | **0,73** |
 | 4 (M4.6) | 3,5 | **4,5** | **1,29** |
+| 5 (en cours : M5.1, M5.2) | 2,75 | **2,0** | **0,73** |
 
 ---
+
+## 2026-10-02 — M5.1 et M5.2 — Clôture : la scène en PBR, en forward+ en clusters, en HDR et en AgX
+
+- **Temps Donnovan : 2,0 h** en tout pour la journée (estimé 2,75 h) : l'ADR-0024 et son sondage, le choix
+  d'AgX sur captures, le report de #125, les relectures du jour. Réparti au prorata des estimations : #123
+  0,18 h, #124 0,73 h, #202 0,36 h, #126 0,36 h, #127 0,37 h. **Ratio 0,73, provisoire** : les PR #204 à #212
+  ont été fusionnées sur son accord (« merge et continue ») et seront relues plus tard. Ce temps s'ajoutera.
+- Sessions Claude Code : 1
+- Fait :
+  - **ADR-0024** (#203) : un rendu forward+ en clusters dès M5.1, par décision de Donnovan ; les clusters
+    plutôt que les tuiles, pour que l'eau transparente s'éclaire par la même grille ;
+  - **le tri des lumières en clusters** (#204, #205) : une grille de 16 × 9 × 24 cases, un compute qui y
+    range les lumières ponctuelles, vérifié contre une référence CPU sur Vulkan et sur WebGPU ;
+  - **les sommets** portent une normale et une tangente, jusque dans le skinning (#206) ; **les matériaux
+    glTF** sont lus en entier, rugosité-métal et normal maps comprises (#207), et arrivent au GPU (#208) ;
+  - **l'éclairage PBR** (#209) : Cook-Torrance (GGX, Smith, Schlick), un soleil, les lumières du cluster du
+    pixel, une lumière ambiante en attendant l'IBL ;
+  - **l'image HDR** (#210) et **le tonemapping** (#211) : AgX par défaut, ACES et la coupe nette à la demande ;
+  - **la page web** dit ses erreurs critiques au lieu de rester muette (#212) ;
+  - **hors milestone** : l'ordre des liens de `gpu` corrigé (#201), et *Rando* aligné sur le moteur (Rando#4).
+- Mesures :
+  - tri des lumières : 0 cluster différent du CPU sur 3 456, dont 160 au-delà de la limite de 32, sur Vulkan
+    et sur WebGPU (`ctest -R light-clusters`) ;
+  - Sponza en PBR, normal maps comprises : 69 textures, 0 erreur de validation en Debug, sur Vulkan et sur
+    WebGPU (`levain_sandbox --gpu webgpu --model Sponza.gltf`) ;
+  - le cube du test de fumée éclairé : 0 pixel différent de la référence, en natif sur les deux backends et
+    dans Firefox (`ctest -R smoke`, `tools/web-smoke.sh`) ;
+  - renard, camion, Sponza : mêmes images sur Vulkan et WebGPU (captures `--time 2` comparées) ;
+  - tonemapping : 6 captures par modèle, 3 courbes × 2 expositions (`tools/tonemap-captures.sh`) ;
+  - la page publiée tourne à 61 images/s dans Firefox (`node tools/web-smoke.mjs
+    https://phantomdo.github.io/Levain/ - …`) ;
+  - tests : 133 en natif, 86 en WebAssembly (`ctest`).
+- Décisions : l'[ADR-0024](adr/0024-forward-plus-en-clusters.md) ; AgX plutôt qu'ACES, sur captures ; #125 (la
+  comparaison avec la visionneuse Khronos) reportée en M5.4, après l'IBL, la visionneuse éclairant par une
+  carte d'environnement.
+- Écarts et problèmes :
+  - trois bugs trouvés en chemin : `nvrhi` déclaré avant `nvrhi_vk` (masqué dans le dépôt, visible chez
+    *Rando*) ; les binding sets WebGPU ne gardaient pas leurs ressources (le buffer d'un matériau disparaissait
+    à sa création) ; un `float3` après un scalaire dans un constant buffer, aligné autrement en WGSL ;
+  - une PR au-delà des 400 lignes, bloc GPU signalé : #205 (510) ;
+  - **ponytail** : les textures de données sont cuites comme les couleurs (mips moyennés en sRGB, normal maps
+    non renormalisées) ; la normale tourne sans la transposée de l'inverse (juste sans échelle non uniforme) ;
+  - le navigateur intégré de l'application Claude n'a pas d'adaptateur WebGPU : les tests web passent par
+    Firefox et par le téléphone de Donnovan.
+- Prochaine étape : M5.3, les ombres en cascades.
 
 ## 2026-09-27 — M4.6 — Clôture : le renard court dans le navigateur, sur le backend WebGPU de NVRHI
 
