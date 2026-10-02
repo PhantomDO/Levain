@@ -558,38 +558,58 @@ nvrhi::StagingTextureHandle Device::createStagingTexture(const nvrhi::TextureDes
         new StagingTexture{desc, std::move(buffer), bytesPerRow});
 }
 
-void* Device::mapStagingTexture(nvrhi::IStagingTexture* texture, const nvrhi::TextureSlice&,
-                                nvrhi::CpuAccessMode, size_t* rowPitch)
+void* Device::mapForRead(wgpu::Buffer& buffer)
 {
-    auto* staging = static_cast<StagingTexture*>(texture);
 #ifdef __EMSCRIPTEN__
     // Le navigateur ne rend un buffer lisible que plus tard, par callback : la relecture
     // synchrone de NVRHI n'y existe pas. --capture reste un outil natif (ADR-0023, point 4).
-    (void)staging;
-    (void)rowPitch;
+    (void)buffer;
     error("relecture synchrone impossible dans le navigateur");
     return nullptr;
 #else
     bool mapped = false;
-    instance.WaitAny(
-        staging->buffer.MapAsync(wgpu::MapMode::Read, 0, staging->buffer.GetSize(),
-                                 wgpu::CallbackMode::WaitAnyOnly,
-                                 [&mapped](wgpu::MapAsyncStatus status, wgpu::StringView)
-                                 { mapped = status == wgpu::MapAsyncStatus::Success; }),
-        UINT64_MAX);
+    instance.WaitAny(buffer.MapAsync(wgpu::MapMode::Read, 0, buffer.GetSize(),
+                                     wgpu::CallbackMode::WaitAnyOnly,
+                                     [&mapped](wgpu::MapAsyncStatus status, wgpu::StringView)
+                                     { mapped = status == wgpu::MapAsyncStatus::Success; }),
+                     UINT64_MAX);
     if (!mapped)
     {
         error("relecture : le buffer ne s'est pas ouvert au CPU");
         return nullptr;
     }
-    *rowPitch = staging->bytesPerRow;
-    return const_cast<void*>(staging->buffer.GetConstMappedRange());
+    return const_cast<void*>(buffer.GetConstMappedRange());
 #endif
+}
+
+void* Device::mapStagingTexture(nvrhi::IStagingTexture* texture, const nvrhi::TextureSlice&,
+                                nvrhi::CpuAccessMode, size_t* rowPitch)
+{
+    auto* staging = static_cast<StagingTexture*>(texture);
+    *rowPitch = staging->bytesPerRow;
+    return mapForRead(staging->buffer);
 }
 
 void Device::unmapStagingTexture(nvrhi::IStagingTexture* texture)
 {
     static_cast<StagingTexture*>(texture)->buffer.Unmap();
+}
+
+void* Device::mapBuffer(nvrhi::IBuffer* buffer, nvrhi::CpuAccessMode access)
+{
+    // En WebGPU, un buffer que le CPU écrit se remplit par writeBuffer : seule la relecture
+    // passe par ici (un buffer créé avec cpuAccess = Read, bufferUsageOf).
+    if (access != nvrhi::CpuAccessMode::Read)
+    {
+        error("mapBuffer : seule la lecture est possible sur WebGPU (writeBuffer pour écrire)");
+        return nullptr;
+    }
+    return mapForRead(static_cast<Buffer*>(buffer)->buffer);
+}
+
+void Device::unmapBuffer(nvrhi::IBuffer* buffer)
+{
+    static_cast<Buffer*>(buffer)->buffer.Unmap();
 }
 
 nvrhi::EventQueryHandle Device::createEventQuery()

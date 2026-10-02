@@ -72,5 +72,6 @@ levain_add_shader(triangle fragmentMain fragment)
 levain_add_shader(mesh vertexMain vertex)
 levain_add_shader(mesh fragmentMain fragment)
 levain_add_shader(skinning computeMain compute)
+levain_add_shader(light_clusters computeMain compute)
 
 add_custom_target(levain_shaders ALL DEPENDS ${shaderOutputs})

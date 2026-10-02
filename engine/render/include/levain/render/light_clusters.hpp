@@ -4,14 +4,17 @@
 // chaque case (un cluster), la liste des lumières ponctuelles qui la touchent. Un compute la
 // remplit à chaque image ; le shader d'éclairage n'y lit que les lumières de son cluster.
 //
-// Ce fichier donne le découpage et la référence CPU du tri ; la passe compute, qui fera le même
-// calcul sur le GPU, viendra ensuite et sera comparée à cette référence.
+// Les fonctions CPU de ce fichier font le même calcul que shaders/light_clusters.slang : elles
+// servent de référence aux tests (tests/light_clusters_test.cpp, tests/light_clusters_gpu.cpp).
 
 #include <cstdint>
 #include <span>
 #include <vector>
 
 #include <glm/glm.hpp>
+#include <nvrhi/nvrhi.h>
+
+#include "levain/core/error.hpp"
 
 namespace levain::render
 {
@@ -25,7 +28,7 @@ struct PointLight
     float intensity = 1.0f;
 };
 
-static_assert(sizeof(PointLight) == 32, "disposition que liront les shaders");
+static_assert(sizeof(PointLight) == 32, "disposition lue par shaders/light_clusters.slang");
 
 /// La grille : `x` × `y` cases à l'écran, `z` tranches en profondeur, de plus en plus épaisses avec
 /// la distance (réparties de façon logarithmique entre le plan proche et le plan lointain).
@@ -35,6 +38,13 @@ struct ClusterGrid
     std::uint32_t y = 9;
     std::uint32_t z = 24;
 };
+
+/// Au-delà, `assignLightsToClusters` refuse la scène : une limite bruyante plutôt qu'une lumière
+/// qui disparaîtrait en silence (ADR-0024).
+inline constexpr std::uint32_t MaxPointLights = 256;
+/// Les lumières qu'un cluster retient. Le compte, lui, reste exact : un cluster plus chargé se voit
+/// dans `lightCounts`.
+inline constexpr std::uint32_t MaxLightsPerCluster = 32;
 
 /// Ce que le découpage doit savoir de la caméra.
 struct ClusterView
@@ -75,5 +85,32 @@ struct ClusterBox
 [[nodiscard]] std::vector<std::vector<std::uint32_t>>
 lightsPerClusterOf(const ClusterGrid& grid, const ClusterView& view,
                    std::span<const PointLight> lights);
+
+/// La passe de tri et ses buffers. `lightCounts` : un compte par cluster ; `lightIndices` :
+/// `MaxLightsPerCluster` places par cluster, dont les `min(compte, MaxLightsPerCluster)` premières
+/// sont remplies.
+struct LightClusterPass
+{
+    ClusterGrid grid;
+    nvrhi::ShaderHandle shader;
+    nvrhi::BindingLayoutHandle layout;
+    nvrhi::ComputePipelineHandle pipeline;
+    nvrhi::BufferHandle constants;
+    nvrhi::BufferHandle lights;
+    nvrhi::BufferHandle lightCounts;
+    nvrhi::BufferHandle lightIndices;
+    nvrhi::BindingSetHandle bindings;
+};
+
+[[nodiscard]] core::Result<LightClusterPass> createLightClusterPass(nvrhi::IDevice& device,
+                                                                    const ClusterGrid& grid = {});
+
+/// Enregistre l'envoi des lumières et le tri, dans `commandList`, avant les dessins qui les lisent
+/// : NVRHI place la barrière entre l'écriture du compute et la lecture des shaders. Échoue au-delà
+/// de `MaxPointLights` lumières.
+[[nodiscard]] core::Result<void> assignLightsToClusters(nvrhi::ICommandList& commandList,
+                                                        const LightClusterPass& pass,
+                                                        std::span<const PointLight> lights,
+                                                        const ClusterView& view);
 
 } // namespace levain::render
