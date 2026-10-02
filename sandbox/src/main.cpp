@@ -49,6 +49,7 @@
 #include "levain/platform/window.hpp"
 #include "levain/render/camera.hpp"
 #include "levain/render/gpu_timer.hpp"
+#include "levain/render/light_clusters.hpp"
 #include "levain/render/mesh.hpp"
 #include "levain/render/mesh_pass.hpp"
 #include "levain/render/readback.hpp"
@@ -231,6 +232,7 @@ struct DemoScene
     flecs::query<const levain::scene::WorldTransform> cubes;
     std::vector<glm::vec3>
         cubePositions; ///< Relevées à chaque frame, gardées pour ne pas réallouer.
+    levain::render::LightClusterPass clusters; ///< Le tri des lumières ponctuelles (ADR-0024).
     levain::render::MeshPass meshPass;
     levain::render::SkinningPass skinning;
     levain::render::Mesh cube;
@@ -842,7 +844,12 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(skinning.error());
     }
-    auto meshPass = levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu));
+    auto clusters = levain::render::createLightClusterPass(*gpu.nvrhi);
+    if (!clusters)
+    {
+        return std::unexpected(clusters.error());
+    }
+    auto meshPass = levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *clusters);
     if (!meshPass)
     {
         return std::unexpected(meshPass.error());
@@ -965,6 +972,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .fixedStep = fixedStep,
                      .cubes = std::move(cubes),
                      .cubePositions = std::move(cubePositions),
+                     .clusters = std::move(*clusters),
                      .meshPass = std::move(*meshPass),
                      .skinning = std::move(*skinning),
                      .cube = std::move(cube),
@@ -985,6 +993,32 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .skinningTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningCost = {},
                      .depth = {}};
+}
+
+/// Le soleil de la démo : haut, de biais, légèrement chaud.
+constexpr levain::render::Sun DemoSun{
+    .direction = {0.4f, 1.0f, 0.6f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
+
+/// Huit lumières de couleur qui tournent autour du modèle (`modelPlacement`), un tour en 12 s :
+/// de quoi voir le forward+ éclairer le modèle et le sol.
+std::vector<levain::render::PointLight> demoLightsAt(double seconds)
+{
+    constexpr std::array<glm::vec3, 4> Colors{
+        {{1.0f, 0.3f, 0.2f}, {0.2f, 1.0f, 0.4f}, {0.3f, 0.5f, 1.0f}, {1.0f, 0.8f, 0.2f}}};
+    const glm::vec3 center = modelPlacement(1.0f).position;
+    std::vector<levain::render::PointLight> lights;
+    lights.reserve(8);
+    for (std::size_t i = 0; i < 8; ++i)
+    {
+        const float angle = (static_cast<float>(seconds) * glm::two_pi<float>() / 12.0f) +
+                            (static_cast<float>(i) * glm::two_pi<float>() / 8.0f);
+        lights.push_back(
+            {.position = center + glm::vec3{5.0f * std::cos(angle), 1.5f, 5.0f * std::sin(angle)},
+             .range = 8.0f,
+             .color = Colors[i % Colors.size()],
+             .intensity = 12.0f});
+    }
+    return lights;
 }
 
 /// Un tour toutes les 6 secondes, autour d'un axe incliné pour montrer trois faces à la fois.
@@ -1094,11 +1128,16 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         const nvrhi::FramebufferHandle framebuffer = gpu.nvrhi->createFramebuffer(
             nvrhi::FramebufferDesc().addColorAttachment(backBuffer).setDepthAttachment(depth));
 
+        const float aspect = static_cast<float>(target.width) / static_cast<float>(target.height);
         const levain::render::SceneConstants constants{
-            .viewProjection = levain::render::viewProjectionOf(
-                scene.camera, static_cast<float>(target.width) / static_cast<float>(target.height)),
+            .viewProjection = levain::render::viewProjectionOf(scene.camera, aspect),
             .model = cubeRotation(seconds),
         };
+        const levain::render::FrameLighting lighting{
+            .view = levain::render::clusterViewOf(scene.camera, aspect),
+            .cameraPosition = scene.camera.position,
+            .sun = DemoSun,
+            .ambient = glm::vec3{0.1f}};
 
         // La couleur de fond : une croûte de levain. Locale et non globale : le constructeur de
         // nvrhi::Color n'est pas noexcept, et une exception levée à l'initialisation d'une
@@ -1111,6 +1150,16 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         // 1 : la profondeur la plus lointaine, que tout ce qu'on dessine vient remplacer.
         commandList.clearDepthStencilTexture(depth, nvrhi::AllSubresources, true, 1.0f, false, 0);
         animateModels(*gpu.nvrhi, commandList, scene, seconds);
+        // Les lumières ponctuelles triées par cluster, puis l'éclairage de l'image, avant les
+        // dessins qui les lisent (ADR-0024).
+        if (auto assigned = levain::render::assignLightsToClusters(
+                commandList, scene.clusters, demoLightsAt(seconds), lighting.view);
+            !assigned)
+        {
+            levain::core::log("sandbox", levain::core::LogLevel::Error, "{}",
+                              assigned.error().message);
+        }
+        levain::render::setFrameLighting(commandList, scene.meshPass, scene.clusters, lighting);
         // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
         gatherCubePositions(scene.cubes, scene.cubePositions);
         levain::render::updateInstances(commandList, scene.grid, scene.cubePositions);

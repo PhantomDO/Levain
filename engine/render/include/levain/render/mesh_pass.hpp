@@ -6,6 +6,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include "levain/core/error.hpp"
+#include "levain/render/light_clusters.hpp"
 #include "levain/render/mesh.hpp"
 
 namespace levain::render
@@ -27,6 +28,24 @@ struct SceneConstants
 {
     glm::mat4 viewProjection;
     glm::mat4 model;
+};
+
+/// Le soleil : une lumière directionnelle, qui touche tout l'écran (hors des clusters, ADR-0024).
+struct Sun
+{
+    glm::vec3 direction{0.0f, 1.0f, 0.0f}; ///< Vers le soleil.
+    glm::vec3 color{1.0f};
+    float intensity = 3.0f;
+};
+
+/// L'éclairage d'une image : la caméra (pour les reflets, et pour retrouver le cluster d'un pixel),
+/// le soleil, et une lumière ambiante uniforme en attendant l'IBL (M5.4).
+struct FrameLighting
+{
+    ClusterView view;
+    glm::vec3 cameraPosition{0.0f};
+    Sun sun;
+    glm::vec3 ambient{0.1f};
 };
 
 /// Les facteurs d'un matériau metallic-roughness, avec les défauts de glTF. Doit correspondre à
@@ -77,13 +96,21 @@ struct MeshPass
     nvrhi::BindingLayoutHandle frameLayout;
     nvrhi::BindingLayoutHandle materialLayout;
     nvrhi::BufferHandle sceneConstants;
+    nvrhi::BufferHandle frameConstants;
     nvrhi::BindingSetHandle frameBindings;
     nvrhi::GraphicsPipelineHandle pipeline;
 };
 
-/// Crée la passe pour des framebuffers de ce format, couleur et profondeur (`DepthFormat`).
+/// Crée la passe pour des framebuffers de ce format, couleur et profondeur (`DepthFormat`). Ses
+/// shaders lisent les lumières ponctuelles triées par `lights` (ADR-0024).
 [[nodiscard]] core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device,
-                                                    const nvrhi::FramebufferInfo& target);
+                                                    const nvrhi::FramebufferInfo& target,
+                                                    const LightClusterPass& lights);
+
+/// Enregistre l'éclairage de l'image, une fois par command list, avant les dessins : après
+/// `assignLightsToClusters`, dont il reprend la grille.
+void setFrameLighting(nvrhi::ICommandList& commandList, const MeshPass& pass,
+                      const LightClusterPass& lights, const FrameLighting& lighting);
 
 /// Le nom des sources de la passe dans `shaders/`, sans extension : le hot-reload recrée la passe
 /// quand ce fichier change (ADR-0014).

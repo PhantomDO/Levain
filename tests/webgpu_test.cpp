@@ -121,8 +121,12 @@ TEST_CASE("les passes du moteur se créent sur le backend WebGPU")
                                               .addColorFormat(nvrhi::Format::RGBA8_UNORM)
                                               .setDepthFormat(levain::render::DepthFormat);
 
-    // La passe des meshes : constantes volatiles (groupe 0), groupe 1 vide, matériau (groupe 2).
-    auto meshPass = levain::render::createMeshPass(*device, target);
+    // La passe des meshes : constantes volatiles, lumières et clusters (groupe 0), groupe 1 vide,
+    // matériau (groupe 2).
+    auto clusters = levain::render::createLightClusterPass(*device);
+    INFO("erreur : " << (clusters ? std::string{} : clusters.error().message));
+    REQUIRE(clusters.has_value());
+    auto meshPass = levain::render::createMeshPass(*device, target, *clusters);
     INFO("erreur : " << (meshPass ? std::string{} : meshPass.error().message));
     REQUIRE(meshPass.has_value());
     const nvrhi::TextureHandle texture =

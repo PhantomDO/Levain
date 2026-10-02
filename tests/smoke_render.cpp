@@ -137,7 +137,13 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
     // niveau de mip choisi, que Vulkan laisse chaque pilote approcher : 152 pixels différents entre
     // RADV et lavapipe. Quatre couleurs distinctes montrent en plus une texture retournée, que la
     // symétrie du damier cachait.
-    auto meshPass = levain::render::createMeshPass(device, framebuffer.getFramebufferInfo());
+    auto clusters = levain::render::createLightClusterPass(device);
+    if (!clusters)
+    {
+        return std::unexpected(clusters.error());
+    }
+    auto meshPass =
+        levain::render::createMeshPass(device, framebuffer.getFramebufferInfo(), *clusters);
     if (!meshPass)
     {
         return std::unexpected(meshPass.error());
@@ -160,11 +166,16 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
     const nvrhi::TextureHandle checker =
         levain::render::createTexture(device, commandList, levels, "rgbw");
     const nvrhi::SamplerHandle sampler = levain::render::createSampler(device, {});
-    // Des facteurs neutres : la couleur est celle de la texture, comme dans l'image de référence.
+    // Non métallique et assez rugueux, comme le damier du sandbox : un diffus qui montre les faces.
     const levain::render::MaterialDefaults defaults =
         levain::render::createMaterialDefaults(device, commandList);
     const nvrhi::BindingSetHandle material = levain::render::createMaterialBindings(
-        device, commandList, *meshPass, {},
+        device, commandList, *meshPass,
+        {.baseColorFactor = glm::vec4{1.0f},
+         .metallicFactor = 0.0f,
+         .roughnessFactor = 0.8f,
+         .normalScale = 1.0f,
+         .padding = 0.0f},
         levain::render::withDefaults({.baseColor = checker}, defaults), *sampler);
 
     const levain::render::Mesh cube = levain::render::createCube(device, commandList);
@@ -175,6 +186,21 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
         .viewProjection = levain::render::viewProjectionOf(levain::render::Camera{}, 1.0f),
         .model = glm::rotate(glm::mat4{1.0f}, glm::radians(35.0f), glm::vec3{1.0f, 1.0f, 0.0f}),
     };
+    // Un soleil de biais, sans lumière ponctuelle : le cube montre trois faces inégalement
+    // éclairées, et le tri vide ses clusters.
+    const levain::render::Camera camera;
+    const levain::render::FrameLighting lighting{
+        .view = levain::render::clusterViewOf(camera, 1.0f),
+        .cameraPosition = camera.position,
+        .sun = {.direction = {0.4f, 1.0f, 0.6f}, .color = glm::vec3{1.0f}, .intensity = 3.0f},
+        .ambient = glm::vec3{0.1f}};
+    if (auto assigned =
+            levain::render::assignLightsToClusters(commandList, *clusters, {}, lighting.view);
+        !assigned)
+    {
+        return std::unexpected(assigned.error());
+    }
+    levain::render::setFrameLighting(commandList, *meshPass, *clusters, lighting);
     levain::render::drawMesh(commandList, *meshPass, framebuffer, cube, instances, *material,
                              constants);
     return {};

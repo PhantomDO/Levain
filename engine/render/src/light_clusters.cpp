@@ -47,6 +47,14 @@ glm::vec3 rayOf(glm::vec2 ndc, const glm::mat4& inverseProjection)
 
 } // namespace
 
+ClusterView clusterViewOf(const Camera& camera, float aspectRatio)
+{
+    return ClusterView{.view = viewOf(camera),
+                       .projection = projectionOf(camera, aspectRatio),
+                       .nearPlane = camera.nearPlane,
+                       .farPlane = camera.farPlane};
+}
+
 std::uint32_t clusterCountOf(const ClusterGrid& grid)
 {
     return grid.x * grid.y * grid.z;
