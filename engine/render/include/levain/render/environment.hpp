@@ -30,14 +30,32 @@ struct EnvironmentImage
 /// WebGPU l'acceptent, et le GPU sait le filtrer partout (le 32 bits demande une extension).
 inline constexpr nvrhi::Format EnvironmentFormat = nvrhi::Format::RGBA16_FLOAT;
 
+/// Les tailles des textures de l'IBL. Petites : l'irradiance varie lentement avec la direction,
+/// et les mips spéculaires les plus rugueux sont flous. `SpecularSize` et `SpecularMips` doivent
+/// valoir leurs homonymes de shaders/environment.slang.
+inline constexpr std::uint32_t IrradianceSize = 32;
+inline constexpr std::uint32_t SpecularSize = 128;
+inline constexpr std::uint32_t SpecularMips = 6;
+inline constexpr std::uint32_t BrdfLutSize = 128;
+
+/// L'éclairage par l'image, en trois parties : ce qu'un matériau mat reçoit (`irradiance`), ce
+/// qu'un matériau brillant reflète (`specular`), et la part que la BRDF en renvoie (`brdfLut`).
+/// Le mesh shader assemble les trois (la « split sum » de Karis).
 struct Environment
 {
-    /// La cubemap, `std::bit_width(taille)` niveaux de mip, jusqu'à 1 × 1 texel par face.
+    /// Le ciel, `std::bit_width(taille)` niveaux de mip, jusqu'à 1 × 1 texel par face.
     nvrhi::TextureHandle cube;
+    /// L'irradiance divisée par π, par direction de la normale.
+    nvrhi::TextureHandle irradiance;
+    /// Le reflet du ciel par direction, flouté par la rugosité : 0 au premier mip, 1 au dernier.
+    nvrhi::TextureHandle specular;
+    /// En x le cosinus de vue, en y la rugosité ; en rouge et vert, l'échelle et le biais de F0.
+    nvrhi::TextureHandle brdfLut;
 };
 
-/// Convertit `image` en une cubemap de `cubeSize` texels de côté (une puissance de deux), et
-/// calcule ses mips, sur le GPU : la fonction exécute sa propre command list.
+/// Convertit `image` en une cubemap de `cubeSize` texels de côté (une puissance de deux), calcule
+/// ses mips, puis les convolutions de l'IBL, sur le GPU : la fonction exécute sa propre command
+/// list.
 [[nodiscard]] core::Result<Environment> createEnvironment(nvrhi::IDevice& device,
                                                           const EnvironmentImage& image,
                                                           std::uint32_t cubeSize = 512);

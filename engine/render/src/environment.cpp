@@ -21,7 +21,7 @@ namespace levain::render
 namespace
 {
 
-/// `numthreads` des deux passes de shaders/environment.slang.
+/// `numthreads` des passes de shaders/environment.slang.
 constexpr std::uint32_t TexelsPerGroupSide = 8;
 
 /// Le plus grand flottant 16 bits. Au-delà, la conversion donnerait l'infini, qui empoisonnerait
@@ -40,17 +40,16 @@ std::vector<std::uint16_t> halfPixelsOf(std::span<const float> rgba)
     return pixels;
 }
 
-/// Une passe de calcul : un shader, et un layout qui lit une texture (`sourceSlot`) et écrit une
-/// face de cubemap.
-struct CubePass
+/// Une passe de calcul : un shader, son layout et son pipeline.
+struct ComputePass
 {
     nvrhi::ShaderHandle shader;
     nvrhi::BindingLayoutHandle layout;
     nvrhi::ComputePipelineHandle pipeline;
 };
 
-core::Result<CubePass> createCubePass(nvrhi::IDevice& device, const char* entry,
-                                      std::uint32_t sourceSlot)
+core::Result<ComputePass> createComputePass(nvrhi::IDevice& device, const char* entry,
+                                            std::vector<nvrhi::BindingLayoutItem> items)
 {
     auto shader = loadShader(device, entry, nvrhi::ShaderType::Compute);
     if (!shader)
@@ -59,12 +58,10 @@ core::Result<CubePass> createCubePass(nvrhi::IDevice& device, const char* entry,
     }
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::Compute;
-    layoutDesc.bindings = {nvrhi::BindingLayoutItem::Texture_SRV(sourceSlot),
-                           nvrhi::BindingLayoutItem::Sampler(0),
-                           nvrhi::BindingLayoutItem::Texture_UAV(0)};
-    CubePass pass{.shader = std::move(*shader),
-                  .layout = device.createBindingLayout(layoutDesc),
-                  .pipeline = nullptr};
+    layoutDesc.bindings = std::move(items);
+    ComputePass pass{.shader = std::move(*shader),
+                     .layout = device.createBindingLayout(layoutDesc),
+                     .pipeline = nullptr};
     pass.pipeline = device.createComputePipeline(
         nvrhi::ComputePipelineDesc().setComputeShader(pass.shader).addBindingLayout(pass.layout));
     if (!pass.layout || !pass.pipeline)
@@ -75,10 +72,37 @@ core::Result<CubePass> createCubePass(nvrhi::IDevice& device, const char* entry,
     return pass;
 }
 
+/// Une passe qui lit une texture à la place `sourceSlot` et écrit une face de cubemap.
+core::Result<ComputePass> createCubePass(nvrhi::IDevice& device, const char* entry,
+                                         std::uint32_t sourceSlot)
+{
+    return createComputePass(device, entry,
+                             {nvrhi::BindingLayoutItem::Texture_SRV(sourceSlot),
+                              nvrhi::BindingLayoutItem::Sampler(0),
+                              nvrhi::BindingLayoutItem::Texture_UAV(0)});
+}
+
+/// Une cubemap que les passes écrivent, puis que les shaders lisent.
+nvrhi::TextureHandle createCube(nvrhi::IDevice& device, std::uint32_t size, std::uint32_t mips,
+                                const char* name)
+{
+    return device.createTexture(nvrhi::TextureDesc()
+                                    .setDimension(nvrhi::TextureDimension::TextureCube)
+                                    .setWidth(size)
+                                    .setHeight(size)
+                                    .setArraySize(6)
+                                    .setMipLevels(mips)
+                                    .setFormat(EnvironmentFormat)
+                                    .setIsUAV(true)
+                                    .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                    .setKeepInitialState(true)
+                                    .setDebugName(name));
+}
+
 /// Écrit le niveau `mip` de `cube`, en lisant `source` à la place `sourceSlot` du layout.
 void dispatchCubePass(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
-                      const CubePass& pass, nvrhi::BindingSetItem source, nvrhi::ISampler& sampler,
-                      nvrhi::ITexture& cube, std::uint32_t mip)
+                      const ComputePass& pass, nvrhi::BindingSetItem source,
+                      nvrhi::ISampler& sampler, nvrhi::ITexture& cube, std::uint32_t mip)
 {
     // Une vue 2D en tableau de la cubemap, et non une vue cube : un shader n'écrit dans une
     // storage texture que par faces (NVRHI, BindingSetItem::Texture_UAV, paramètre dimension).
@@ -120,36 +144,44 @@ core::Result<Environment> createEnvironment(nvrhi::IDevice& device, const Enviro
     }
     auto fromEquirect = createCubePass(device, "environment.cubeFromEquirect", 0);
     auto downsample = createCubePass(device, "environment.downsample", 1);
-    if (!fromEquirect || !downsample)
+    auto irradiance = createCubePass(device, "environment.irradiance", 2);
+    auto prefilter = createCubePass(device, "environment.prefilterSpecular", 2);
+    auto brdf = createComputePass(device, "environment.integrateBrdf",
+                                  {nvrhi::BindingLayoutItem::Texture_UAV(1)});
+    for (const auto* pass : {&fromEquirect, &downsample, &irradiance, &prefilter, &brdf})
     {
-        return std::unexpected(!fromEquirect ? fromEquirect.error() : downsample.error());
+        if (!*pass)
+        {
+            return std::unexpected(pass->error());
+        }
     }
 
-    Environment environment;
-    environment.cube =
-        device.createTexture(nvrhi::TextureDesc()
-                                 .setDimension(nvrhi::TextureDimension::TextureCube)
-                                 .setWidth(cubeSize)
-                                 .setHeight(cubeSize)
-                                 .setArraySize(6)
-                                 .setMipLevels(std::bit_width(cubeSize))
-                                 .setFormat(EnvironmentFormat)
-                                 .setIsUAV(true)
-                                 .setInitialState(nvrhi::ResourceStates::ShaderResource)
-                                 .setKeepInitialState(true)
-                                 .setDebugName("environnement"));
+    Environment environment{
+        .cube = createCube(device, cubeSize, std::bit_width(cubeSize), "environnement"),
+        .irradiance = createCube(device, IrradianceSize, 1, "environnement : irradiance"),
+        .specular = createCube(device, SpecularSize, SpecularMips, "environnement : spéculaire"),
+        .brdfLut = device.createTexture(nvrhi::TextureDesc()
+                                            .setWidth(BrdfLutSize)
+                                            .setHeight(BrdfLutSize)
+                                            .setFormat(EnvironmentFormat)
+                                            .setIsUAV(true)
+                                            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                            .setKeepInitialState(true)
+                                            .setDebugName("environnement : BRDF")),
+    };
     // Répété en largeur (la longitude fait le tour), étiré en hauteur : le haut et le bas de
-    // l'image sont les deux pôles, qui ne se touchent pas.
+    // l'image sont les deux pôles, qui ne se touchent pas. Une cubemap ignore ces modes.
     const nvrhi::SamplerHandle sampler =
         device.createSampler(nvrhi::SamplerDesc()
                                  .setAllFilters(true)
                                  .setAddressU(nvrhi::SamplerAddressMode::Wrap)
                                  .setAddressV(nvrhi::SamplerAddressMode::Clamp)
                                  .setAddressW(nvrhi::SamplerAddressMode::Clamp));
-    if (!environment.cube || !sampler)
+    if (!environment.cube || !environment.irradiance || !environment.specular ||
+        !environment.brdfLut || !sampler)
     {
         return core::makeError(core::ErrorCode::InvalidData,
-                               "environnement : cubemap refusée par NVRHI");
+                               "environnement : textures refusées par NVRHI");
     }
 
     const std::vector<std::uint16_t> pixels = halfPixelsOf(image.rgba);
@@ -172,6 +204,24 @@ core::Result<Environment> createEnvironment(nvrhi::IDevice& device, const Enviro
                                                nvrhi::TextureSubresourceSet(mip - 1, 1, 0, 6)),
             *sampler, *environment.cube, mip);
     }
+    const nvrhi::BindingSetItem wholeCube = nvrhi::BindingSetItem::Texture_SRV(2, environment.cube);
+    dispatchCubePass(device, *commandList, *irradiance, wholeCube, *sampler,
+                     *environment.irradiance, 0);
+    for (std::uint32_t mip = 0; mip < SpecularMips; ++mip)
+    {
+        dispatchCubePass(device, *commandList, *prefilter, wholeCube, *sampler,
+                         *environment.specular, mip);
+    }
+    // Le handle tient le binding set en vie : ComputeState n'en garde qu'un pointeur.
+    const nvrhi::BindingSetHandle brdfBindings = device.createBindingSet(
+        nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::Texture_UAV(1, environment.brdfLut)),
+        brdf->layout);
+    nvrhi::ComputeState brdfState;
+    brdfState.pipeline = brdf->pipeline;
+    brdfState.addBindingSet(brdfBindings);
+    commandList->setComputeState(brdfState);
+    const std::uint32_t brdfGroups = (BrdfLutSize + TexelsPerGroupSide - 1) / TexelsPerGroupSide;
+    commandList->dispatch(brdfGroups, brdfGroups);
     commandList->close();
     // Les textures et les passes locales peuvent disparaître après l'envoi : NVRHI et Dawn gardent
     // ce qu'une command list utilise jusqu'à la fin de son exécution.

@@ -4,12 +4,15 @@
 // fausse (cubeFromEquirect), une moyenne prise au mauvais endroit (downsample) s'y voient.
 //   levain_environment [vulkan|webgpu]
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <format>
+#include <functional>
 #include <numbers>
 #include <print>
 #include <span>
@@ -28,9 +31,14 @@ namespace
 
 constexpr std::uint32_t CubeSize = 16;
 
-/// L'image équirectangulaire dont chaque pixel vaut la direction de son centre.
-std::vector<float> directionImage(std::uint32_t width, std::uint32_t height)
+constexpr std::uint32_t ImageWidth = 128;
+constexpr std::uint32_t ImageHeight = 64;
+
+/// L'image équirectangulaire dont chaque pixel vaut `colorOf` de la direction de son centre.
+std::vector<float> imageOf(const std::function<glm::vec3(glm::vec3)>& colorOf)
 {
+    const std::uint32_t width = ImageWidth;
+    const std::uint32_t height = ImageHeight;
     std::vector<float> rgba;
     rgba.reserve(std::size_t{width} * height * 4);
     for (std::uint32_t y = 0; y < height; ++y)
@@ -39,18 +47,18 @@ std::vector<float> directionImage(std::uint32_t width, std::uint32_t height)
         {
             const glm::vec2 uv{(static_cast<float>(x) + 0.5f) / static_cast<float>(width),
                                (static_cast<float>(y) + 0.5f) / static_cast<float>(height)};
-            const glm::vec3 direction = levain::render::equirectDirectionOf(uv);
-            rgba.insert(rgba.end(), {direction.x, direction.y, direction.z, 1.0f});
+            const glm::vec3 color = colorOf(levain::render::equirectDirectionOf(uv));
+            rgba.insert(rgba.end(), {color.x, color.y, color.z, 1.0f});
         }
     }
     return rgba;
 }
 
 /// Le niveau `mip` de la face `face`, relu en flottants.
-std::vector<glm::vec3> readFace(nvrhi::IDevice& device, nvrhi::ITexture& cube, std::uint32_t face,
+std::vector<glm::vec4> readFace(nvrhi::IDevice& device, nvrhi::ITexture& cube, std::uint32_t face,
                                 std::uint32_t mip)
 {
-    const std::uint32_t size = CubeSize >> mip;
+    const std::uint32_t size = std::max(cube.getDesc().width >> mip, 1u);
     const nvrhi::StagingTextureHandle staging =
         device.createStagingTexture(nvrhi::TextureDesc()
                                         .setWidth(size)
@@ -69,7 +77,7 @@ std::vector<glm::vec3> readFace(nvrhi::IDevice& device, nvrhi::ITexture& cube, s
     std::size_t rowPitch = 0;
     const auto* mapped = static_cast<const std::byte*>(device.mapStagingTexture(
         staging, nvrhi::TextureSlice{}, nvrhi::CpuAccessMode::Read, &rowPitch));
-    std::vector<glm::vec3> texels;
+    std::vector<glm::vec4> texels;
     if (mapped == nullptr)
     {
         return texels;
@@ -89,9 +97,9 @@ std::vector<glm::vec3> readFace(nvrhi::IDevice& device, nvrhi::ITexture& cube, s
 /// Le nombre de texels dont la valeur s'écarte de leur direction.
 int compareWithDirections(nvrhi::IDevice& device)
 {
-    const std::vector<float> rgba = directionImage(128, 64);
+    const std::vector<float> rgba = imageOf([](glm::vec3 direction) { return direction; });
     auto environment = levain::render::createEnvironment(
-        device, {.width = 128, .height = 64, .rgba = rgba}, CubeSize);
+        device, {.width = ImageWidth, .height = ImageHeight, .rgba = rgba}, CubeSize);
     if (!environment)
     {
         std::println(stderr, "{}", environment.error().message);
@@ -109,7 +117,7 @@ int compareWithDirections(nvrhi::IDevice& device)
             std::cos(0.1f * std::numbers::pi_v<float> / 2.0f / static_cast<float>(size));
         for (std::uint32_t face = 0; face < 6; ++face)
         {
-            const std::vector<glm::vec3> texels = readFace(device, *environment->cube, face, mip);
+            const std::vector<glm::vec4> texels = readFace(device, *environment->cube, face, mip);
             for (std::uint32_t i = 0; i < texels.size(); ++i)
             {
                 const glm::vec2 uv =
@@ -117,7 +125,7 @@ int compareWithDirections(nvrhi::IDevice& device)
                 const glm::vec3 expected = levain::render::cubeDirectionOf(face, uv);
                 // Une moyenne de directions est plus courte qu'elles : seule son orientation
                 // compte.
-                const float cosine = glm::dot(glm::normalize(texels[i]), expected);
+                const float cosine = glm::dot(glm::normalize(glm::vec3{texels[i]}), expected);
                 wrong += cosine < minimumCosine ? 1 : 0;
                 ++checked;
             }
@@ -127,6 +135,81 @@ int compareWithDirections(nvrhi::IDevice& device)
                  std::bit_width(CubeSize), wrong);
     // Sans un seul texel relu, rien ne serait vérifié : le test le dit (règle n°7).
     return checked == 0 ? -1 : wrong;
+}
+
+/// La moyenne des 2 × 2 texels du centre de la face : sa valeur dans la direction de l'axe.
+float centerOf(nvrhi::IDevice& device, nvrhi::ITexture& cube, std::uint32_t face, std::uint32_t mip)
+{
+    const std::uint32_t size = std::max(cube.getDesc().width >> mip, 1u);
+    const std::vector<glm::vec4> texels = readFace(device, cube, face, mip);
+    const std::uint32_t half = size / 2;
+    const std::uint32_t low = half - (size > 1 ? 1 : 0);
+    return (texels[(low * size) + low].x + texels[(low * size) + half].x +
+            texels[(half * size) + low].x + texels[(half * size) + half].x) /
+           4.0f;
+}
+
+/// Le nombre de valeurs hors de leur tolérance.
+int checkConvolutions(nvrhi::IDevice& device)
+{
+    using levain::render::SpecularMips;
+    int failures = 0;
+    const auto expect =
+        [&failures](std::string_view what, float value, float expected, float tolerance)
+    {
+        const bool near = std::abs(value - expected) <= tolerance;
+        std::println("{} : {:.3f}, attendu {} ± {}{}", what, value, expected, tolerance,
+                     near ? "" : " : ÉCHEC");
+        failures += near ? 0 : 1;
+    };
+
+    const std::vector<float> uniform = imageOf([](glm::vec3) { return glm::vec3{2.0f}; });
+    auto grey = levain::render::createEnvironment(
+        device, {.width = ImageWidth, .height = ImageHeight, .rgba = uniform}, 64);
+    const std::vector<float> upper =
+        imageOf([](glm::vec3 direction) { return glm::vec3{direction.y > 0.0f ? 1.0f : 0.0f}; });
+    auto sky = levain::render::createEnvironment(
+        device, {.width = ImageWidth, .height = ImageHeight, .rgba = upper}, 64);
+    if (!grey || !sky)
+    {
+        std::println(stderr, "{}", !grey ? grey.error().message : sky.error().message);
+        return -1;
+    }
+    expect("ciel uniforme, irradiance", centerOf(device, *grey->irradiance, 4, 0), 2.0f, 0.01f);
+    for (std::uint32_t mip = 0; mip < SpecularMips; ++mip)
+    {
+        expect(std::format("ciel uniforme, reflet au mip {}", mip),
+               centerOf(device, *grey->specular, 1, mip), 2.0f, 0.01f);
+    }
+    // Faces 2 et 3 : +Y et −Y ; face 0 : +X, à l'horizon.
+    expect("demi-ciel, irradiance vers le zénith", centerOf(device, *sky->irradiance, 2, 0), 1.0f,
+           0.03f);
+    expect("demi-ciel, irradiance vers le nadir", centerOf(device, *sky->irradiance, 3, 0), 0.0f,
+           0.03f);
+    expect("demi-ciel, irradiance à l'horizon", centerOf(device, *sky->irradiance, 0, 0), 0.5f,
+           0.05f);
+    expect("demi-ciel, reflet lisse vers le nadir", centerOf(device, *sky->specular, 3, 0), 0.0f,
+           0.01f);
+    // Le lobe GGX est symétrique autour de la normale : l'horizon le coupe en deux moitiés.
+    expect("demi-ciel, reflet rugueux à l'horizon",
+           centerOf(device, *sky->specular, 0, SpecularMips - 1), 0.5f, 0.05f);
+
+    // En x le cosinus de vue, en y la rugosité. La somme des deux canaux : la part de la lumière
+    // renvoyée quand F0 vaut 1.
+    using levain::render::BrdfLutSize;
+    const std::vector<glm::vec4> lut = readFace(device, *sky->brdfLut, 0, 0);
+    const auto albedoOf = [&lut](std::uint32_t x, std::uint32_t y)
+    { return lut[(y * BrdfLutSize) + x].x + lut[(y * BrdfLutSize) + x].y; };
+    expect("BRDF lisse, vue de face", albedoOf(BrdfLutSize - 1, 0), 1.0f, 0.02f);
+    float previous = albedoOf(BrdfLutSize - 1, 0);
+    for (std::uint32_t y = 16; y < BrdfLutSize; y += 16)
+    {
+        const float albedo = albedoOf(BrdfLutSize - 1, y);
+        failures += albedo < previous ? 0 : 1;
+        previous = albedo;
+    }
+    std::println("BRDF rugueuse, vue de face : {:.3f}, moins à chaque pas de rugosité", previous);
+    return failures;
 }
 
 int run(std::string_view backend)
@@ -139,7 +222,7 @@ int run(std::string_view backend)
             std::println(stderr, "{}", device.error().message);
             return 1;
         }
-        return compareWithDirections(**device) == 0 ? 0 : 1;
+        return compareWithDirections(**device) == 0 && checkConvolutions(**device) == 0 ? 0 : 1;
     }
     auto window = levain::platform::createWindow("Levain - environnement", 64, 64);
     if (!window)
@@ -153,7 +236,7 @@ int run(std::string_view backend)
         std::println(stderr, "{}", gpu.error().message);
         return 1;
     }
-    return compareWithDirections(*gpu->nvrhi) == 0 ? 0 : 1;
+    return compareWithDirections(*gpu->nvrhi) == 0 && checkConvolutions(*gpu->nvrhi) == 0 ? 0 : 1;
 }
 
 } // namespace
