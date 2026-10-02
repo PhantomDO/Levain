@@ -1351,6 +1351,8 @@ struct SandboxOptions
     float maxAnisotropy = 16.0f;
     /// L'exposition du tonemapping (M5.2) : 2 éclaire d'un diaphragme.
     float exposure = 1.0f;
+    /// La courbe du tonemapping : `--tonemap clip|aces|agx`.
+    levain::render::Tonemapper tonemapper = levain::render::Tonemapper::Agx;
     /// Un glTF à afficher devant la caméra (M4.1).
     std::optional<std::filesystem::path> modelPath;
     /// Le clip que joue un modèle skinné, par son nom ; le premier par défaut.
@@ -1402,6 +1404,18 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
             (name == "--clip" ? options.clipName : options.locomotion) =
                 std::string{arguments[i + 1]};
             continue;
+        }
+        if (name == "--tonemap")
+        {
+            const std::string_view tonemapper{arguments[i + 1]};
+            if (tonemapper == "clip" || tonemapper == "aces" || tonemapper == "agx")
+            {
+                options.tonemapper = tonemapper == "aces"  ? levain::render::Tonemapper::Aces
+                                     : tonemapper == "agx" ? levain::render::Tonemapper::Agx
+                                                           : levain::render::Tonemapper::Clip;
+                continue;
+            }
+            return std::nullopt;
         }
         if (name == "--gpu")
         {
@@ -1503,7 +1517,7 @@ levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
     {
         return std::unexpected{std::move(scene.error())};
     }
-    scene->tonemapSettings.exposure = options.exposure;
+    scene->tonemapSettings = {.exposure = options.exposure, .tonemapper = options.tonemapper};
 
     // Les liaisons d'entrée : changer une touche dans data/input.cfg ne demande aucune
     // recompilation (ADR-0017). Un nom inconnu échoue ici, avec son numéro de ligne.
@@ -1791,12 +1805,11 @@ int main(int argc, char** argv)
             parseOptions(std::span{argv, static_cast<std::size_t>(argc)});
         if (!options)
         {
-            std::println(
-                stderr,
-                "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
-                "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
-                "repos,marche,course] "
-                "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] [--exposure N]");
+            std::println(stderr, "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
+                                 "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
+                                 "repos,marche,course] "
+                                 "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
+                                 "[--exposure N] [--tonemap clip|aces|agx]");
             return 2;
         }
 

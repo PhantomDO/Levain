@@ -1,5 +1,6 @@
 #include "levain/render/tonemap.hpp"
 
+#include <cstdint>
 #include <utility>
 
 #include "shader.hpp"
@@ -14,7 +15,7 @@ namespace
 struct TonemapConstants
 {
     float exposure;
-    float padding0;
+    std::uint32_t tonemapper; ///< Un `Tonemapper`, en mot de 32 bits comme le lit le shader.
     float padding1;
     float padding2;
 };
@@ -103,8 +104,10 @@ nvrhi::ITexture* ensureHdrTarget(nvrhi::IDevice& device, const TonemapPass& pass
 void tonemap(nvrhi::ICommandList& commandList, const TonemapPass& pass, const HdrTarget& target,
              nvrhi::IFramebuffer& output, const TonemapSettings& settings)
 {
-    const TonemapConstants constants{
-        .exposure = settings.exposure, .padding0 = 0.0f, .padding1 = 0.0f, .padding2 = 0.0f};
+    const TonemapConstants constants{.exposure = settings.exposure,
+                                     .tonemapper = static_cast<std::uint32_t>(settings.tonemapper),
+                                     .padding1 = 0.0f,
+                                     .padding2 = 0.0f};
     commandList.writeBuffer(pass.constants, &constants, sizeof(constants));
     nvrhi::GraphicsState state;
     state.pipeline = pass.pipeline;

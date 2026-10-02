@@ -15,11 +15,21 @@ namespace levain::render
 /// Le format de l'image HDR : 16 bits flottants par canal, de quoi tenir le soleil comme l'ombre.
 inline constexpr nvrhi::Format HdrFormat = nvrhi::Format::RGBA16_FLOAT;
 
+/// La courbe qui ramène la lumière (de 0 à l'infini) dans ce que l'écran affiche (de 0 à 1).
+enum class Tonemapper : std::uint8_t
+{
+    Clip, ///< Coupe net à 1 : ce que faisait le moteur avant M5.2. Les blancs saturent.
+    Aces, ///< ACES (approximation de Stephen Hill) : contrasté, le standard du cinéma.
+    Agx,  ///< AgX (Troy Sobotka) : plus doux, les couleurs vives virent au blanc sans saturer.
+};
+
 /// Comment ramener la lumière de la scène dans l'image affichée.
 struct TonemapSettings
 {
     /// Multiplie la lumière avant tout : 2 éclaire d'un diaphragme, 0,5 assombrit d'un diaphragme.
     float exposure = 1.0f;
+    /// AgX par défaut : le choix de Donnovan sur captures comparatives (#127).
+    Tonemapper tonemapper = Tonemapper::Agx;
 };
 
 /// La passe plein écran : un triangle qui couvre l'image, et un shader qui lit l'image HDR.
