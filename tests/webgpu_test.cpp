@@ -11,6 +11,7 @@
 #include "levain/gpu/webgpu.hpp"
 #include "levain/render/mesh_pass.hpp"
 #include "levain/render/skinning.hpp"
+#include "levain/render/tonemap.hpp"
 
 namespace
 {
@@ -145,6 +146,12 @@ TEST_CASE("les passes du moteur se créent sur le backend WebGPU")
         *sampler));
     commandList->close();
     device->executeCommandList(commandList);
+
+    // Le tonemapping : un triangle plein écran qui lit l'image HDR (M5.2).
+    auto tonemap = levain::render::createTonemapPass(
+        *device, nvrhi::FramebufferInfo().addColorFormat(nvrhi::Format::RGBA8_UNORM));
+    INFO("erreur : " << (tonemap ? std::string{} : tonemap.error().message));
+    CHECK(tonemap.has_value());
 
     // Le skinning : un pipeline compute et ses storage buffers.
     auto skinning = levain::render::createSkinningPass(*device);

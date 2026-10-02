@@ -55,6 +55,7 @@
 #include "levain/render/readback.hpp"
 #include "levain/render/skinning.hpp"
 #include "levain/render/texture.hpp"
+#include "levain/render/tonemap.hpp"
 #include "levain/scene/camera_control.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/fixed_step.hpp"
@@ -235,6 +236,9 @@ struct DemoScene
     levain::render::LightClusterPass clusters; ///< Le tri des lumières ponctuelles (ADR-0024).
     levain::render::MeshPass meshPass;
     levain::render::SkinningPass skinning;
+    levain::render::TonemapPass tonemap; ///< De l'image HDR à la swapchain (M5.2).
+    levain::render::TonemapSettings tonemapSettings;
+    levain::render::HdrTarget hdr; ///< Créée à la première frame, à la taille de l'image.
     levain::render::Mesh cube;
     levain::render::Instances grid;
     levain::render::Mesh ground;
@@ -429,11 +433,11 @@ nvrhi::Format nvrhiFormatOf(levain::assets::TextureFormat format, bool linear)
     return linear ? nvrhi::Format::RGBA8_UNORM : nvrhi::Format::SRGBA8_UNORM;
 }
 
-/// Le format des images où dessine la passe des meshes : la swapchain et le depth buffer.
-nvrhi::FramebufferInfo sceneTargetOf(levain::gpu::GpuDevice& gpu)
+/// Le format des images où dessine la passe des meshes : l'image HDR et le depth buffer (M5.2).
+nvrhi::FramebufferInfo sceneTargetOf(levain::gpu::GpuDevice&)
 {
     return nvrhi::FramebufferInfo()
-        .addColorFormat(levain::gpu::swapchainFormat(gpu))
+        .addColorFormat(levain::render::HdrFormat)
         .setDepthFormat(levain::render::DepthFormat);
 }
 
@@ -854,6 +858,12 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(meshPass.error());
     }
+    auto tonemap = levain::render::createTonemapPass(
+        *gpu.nvrhi, nvrhi::FramebufferInfo().addColorFormat(levain::gpu::swapchainFormat(gpu)));
+    if (!tonemap)
+    {
+        return std::unexpected(tonemap.error());
+    }
 
     flecs::world world;
     world.import<levain::scene::SceneModule>();
@@ -975,6 +985,9 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .clusters = std::move(*clusters),
                      .meshPass = std::move(*meshPass),
                      .skinning = std::move(*skinning),
+                     .tonemap = std::move(*tonemap),
+                     .tonemapSettings = {},
+                     .hdr = {},
                      .cube = std::move(cube),
                      .grid = std::move(grid),
                      .ground = std::move(ground),
@@ -1121,12 +1134,18 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         const nvrhi::TextureDesc& target = backBuffer->getDesc();
         nvrhi::ITexture* depth = levain::render::ensureDepthTexture(*gpu.nvrhi, scene.depth,
                                                                     target.width, target.height);
+        // La scène se dessine dans l'image HDR, où la lumière n'est pas coupée à 1 ; le tonemapping
+        // la ramène ensuite dans la swapchain (M5.2).
+        nvrhi::ITexture* hdr = levain::render::ensureHdrTarget(*gpu.nvrhi, scene.tonemap, scene.hdr,
+                                                               target.width, target.height);
 
-        // ponytail: framebuffer recréé à chaque frame. C'est léger avec le rendu dynamique de
+        // ponytail: framebuffers recréés à chaque frame. C'est léger avec le rendu dynamique de
         // Vulkan 1.3 (NVRHI ne crée pas de VkFramebuffer) ; un cache par image si un profil le
         // montre.
         const nvrhi::FramebufferHandle framebuffer = gpu.nvrhi->createFramebuffer(
-            nvrhi::FramebufferDesc().addColorAttachment(backBuffer).setDepthAttachment(depth));
+            nvrhi::FramebufferDesc().addColorAttachment(hdr).setDepthAttachment(depth));
+        const nvrhi::FramebufferHandle output =
+            gpu.nvrhi->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(backBuffer));
 
         const float aspect = static_cast<float>(target.width) / static_cast<float>(target.height);
         const levain::render::SceneConstants constants{
@@ -1146,7 +1165,7 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
 
         commandList.open();
         gpuMs = levain::render::beginGpuTimer(*gpu.nvrhi, commandList, scene.gpuTimer);
-        commandList.clearTextureFloat(backBuffer, nvrhi::AllSubresources, clearColor);
+        commandList.clearTextureFloat(hdr, nvrhi::AllSubresources, clearColor);
         // 1 : la profondeur la plus lointaine, que tout ce qu'on dessine vient remplacer.
         commandList.clearDepthStencilTexture(depth, nvrhi::AllSubresources, true, 1.0f, false, 0);
         animateModels(*gpu.nvrhi, commandList, scene, seconds);
@@ -1185,6 +1204,8 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
                         {.viewProjection = constants.viewProjection, .model = world.matrix});
                 }
             });
+        levain::render::tonemap(commandList, scene.tonemap, scene.hdr, *output,
+                                scene.tonemapSettings);
         if (capture != nullptr)
         {
             *capture = levain::render::copyForReadback(*gpu.nvrhi, commandList, *backBuffer);
@@ -1328,6 +1349,8 @@ struct SandboxOptions
     double loopSeconds = std::numeric_limits<double>::infinity();
     /// Le filtrage anisotrope du damier ; 1 le désactive (trilinéaire seul).
     float maxAnisotropy = 16.0f;
+    /// L'exposition du tonemapping (M5.2) : 2 éclaire d'un diaphragme.
+    float exposure = 1.0f;
     /// Un glTF à afficher devant la caméra (M4.1).
     std::optional<std::filesystem::path> modelPath;
     /// Le clip que joue un modèle skinné, par son nom ; le premier par défaut.
@@ -1405,6 +1428,10 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         {
             options.loopSeconds = *value;
         }
+        else if (name == "--exposure")
+        {
+            options.exposure = static_cast<float>(*value);
+        }
         else if (name == "--anisotropy")
         {
             options.maxAnisotropy = static_cast<float>(*value);
@@ -1476,6 +1503,7 @@ levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
     {
         return std::unexpected{std::move(scene.error())};
     }
+    scene->tonemapSettings.exposure = options.exposure;
 
     // Les liaisons d'entrée : changer une touche dans data/input.cfg ne demande aucune
     // recompilation (ADR-0017). Un nom inconnu échoue ici, avec son numéro de ligne.
@@ -1763,10 +1791,12 @@ int main(int argc, char** argv)
             parseOptions(std::span{argv, static_cast<std::size_t>(argc)});
         if (!options)
         {
-            std::println(stderr, "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
-                                 "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
-                                 "repos,marche,course] "
-                                 "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu]");
+            std::println(
+                stderr,
+                "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
+                "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
+                "repos,marche,course] "
+                "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] [--exposure N]");
             return 2;
         }
 
