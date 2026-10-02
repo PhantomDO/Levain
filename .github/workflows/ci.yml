@@ -260,6 +260,10 @@ jobs:
             --model assets-cache/Models/Sponza/glTF/Sponza.gltf | tee sponza.log
           grep -Eq "boucle arrêtée après ([1-9]|[0-9]{2,})\.[0-9] s" sponza.log \
             || { echo "::error::la boucle avec Sponza a tourné moins d'une seconde"; exit 1; }
+          # Le critère de M5.3 : le temps GPU de la passe d'ombres, mesuré (lavapipe ici, la machine
+          # de référence dans le journal).
+          grep -Eq "ombres : [0-9.]+ ms GPU en moyenne sur [1-9][0-9]* mesures" sponza.log \
+            || { echo "::error::le temps GPU de la passe d'ombres n'a pas été mesuré"; exit 1; }
           # Sponza sur le backend WebGPU, validation active (#185).
           timeout --foreground --preserve-status -k 10 120 \
             ./build/${{ matrix.preset }}/sandbox/levain_sandbox --gpu webgpu --seconds 2 \
