@@ -3,15 +3,18 @@
 // Les ombres du soleil en cascades (M5.3). Une seule shadow map couvrirait mal un monde vu de près
 // comme de loin : ses texels seraient trop gros devant la caméra. On découpe donc le volume de vue
 // en tranches de profondeur, et chaque tranche a sa propre shadow map (une cascade), d'autant plus
-// grande que la tranche est loin. Ce fichier calcule les tranches et les projections du soleil ;
-// la passe qui dessine les ombres viendra ensuite.
+// grande que la tranche est loin. Ce fichier calcule les tranches et les projections du soleil, et
+// dessine la profondeur vue du soleil dans un atlas : les quatre cascades en 2 × 2.
 
 #include <array>
 #include <cstdint>
 
 #include <glm/glm.hpp>
+#include <nvrhi/nvrhi.h>
 
+#include "levain/core/error.hpp"
 #include "levain/render/camera.hpp"
+#include "levain/render/mesh.hpp"
 
 namespace levain::render
 {
@@ -57,5 +60,41 @@ frustumSliceCornersOf(const Camera& camera, float aspectRatio, float nearDepth, 
 [[nodiscard]] std::array<Cascade, CascadeCount> cascadesOf(const Camera& camera, float aspectRatio,
                                                            glm::vec3 sunDirection,
                                                            const CascadeSettings& settings);
+
+/// Le format de l'atlas des ombres : la profondeur seule, 32 bits flottants.
+inline constexpr nvrhi::Format ShadowFormat = nvrhi::Format::D32;
+
+/// La passe d'ombres : son pipeline, sans fragment shader, et l'atlas où elle dessine, une cascade
+/// par quart (`atlasCellOf`). Un atlas plutôt qu'un tableau de textures : une seule texture 2D, la
+/// même sur Vulkan et sur WebGPU.
+struct ShadowPass
+{
+    std::uint32_t resolution = 0; ///< Les texels d'une cascade sur chaque côté.
+    nvrhi::ShaderHandle vertexShader;
+    nvrhi::InputLayoutHandle inputLayout;
+    nvrhi::BindingLayoutHandle layout;
+    nvrhi::GraphicsPipelineHandle pipeline;
+    nvrhi::BufferHandle constants;
+    nvrhi::BindingSetHandle bindings;
+    nvrhi::TextureHandle atlas;
+    nvrhi::FramebufferHandle framebuffer;
+    /// Pour lire l'atlas : il compare la profondeur au lieu de la rendre, et le GPU filtre le
+    /// résultat sur les 2 × 2 texels voisins.
+    nvrhi::SamplerHandle sampler;
+};
+
+[[nodiscard]] core::Result<ShadowPass> createShadowPass(nvrhi::IDevice& device,
+                                                        std::uint32_t resolution);
+
+/// Le coin de la cascade `cascade` dans l'atlas, en cascades : (0, 0), (1, 0), (0, 1), (1, 1).
+[[nodiscard]] glm::uvec2 atlasCellOf(std::uint32_t cascade);
+
+/// Efface l'atlas, au plus loin : à enregistrer avant les dessins de l'image.
+void clearShadows(nvrhi::ICommandList& commandList, const ShadowPass& pass);
+
+/// Dessine les `instances` de `mesh`, placées par `model`, dans la cascade `cascade`.
+void drawShadowCaster(nvrhi::ICommandList& commandList, const ShadowPass& pass,
+                      std::uint32_t cascade, const Cascade& view, const Mesh& mesh,
+                      const Instances& instances, const glm::mat4& model);
 
 } // namespace levain::render

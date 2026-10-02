@@ -283,6 +283,12 @@ Device::createGraphicsPipeline(const nvrhi::GraphicsPipelineDesc& desc,
             depth.depthWriteEnable ? wgpu::OptionalBool::True : wgpu::OptionalBool::False;
         depthStencil.depthCompare = depth.depthTestEnable ? compareFunctionOf(depth.depthFunc)
                                                           : wgpu::CompareFunction::Always;
+        // Le biais de profondeur (les ombres, contre leur « acné ») : en WebGPU, il est dans l'état
+        // de profondeur, sous NVRHI dans le raster state.
+        const nvrhi::RasterState& raster = desc.renderState.rasterState;
+        depthStencil.depthBias = raster.depthBias;
+        depthStencil.depthBiasSlopeScale = raster.slopeScaledDepthBias;
+        depthStencil.depthBiasClamp = raster.depthBiasClamp;
     }
 
     const std::string vertexEntry{vertexShader->desc.entryName};

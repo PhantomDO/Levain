@@ -2,8 +2,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <utility>
 
 #include <glm/gtc/matrix_transform.hpp>
+
+#include "shader.hpp"
+
+#include "levain/render/mesh_pass.hpp"
 
 namespace levain::render
 {
@@ -16,6 +22,13 @@ namespace
 // ponytail: une marge fixe de 50 m ; l'ajuster à la scène (ses objets vus du soleil) quand un
 // relief plus haut que ça perdra son ombre.
 constexpr float CasterMargin = 50.0f;
+
+/// Les constantes d'un dessin dans une cascade, telles que les lit `shaders/shadow.slang`.
+struct ShadowConstants
+{
+    glm::mat4 viewProjection;
+    glm::mat4 model;
+};
 
 /// Le rayon arrondi au 1/16 supérieur : le flottant du calcul varie d'une image à l'autre, et un
 /// rayon qui bouge d'un rien changerait la taille des texels.
@@ -119,6 +132,129 @@ std::array<Cascade, CascadeCount> cascadesOf(const Camera& camera, float aspectR
                       splits[i + 1], sunDirection, settings.resolution);
     }
     return cascades;
+}
+
+core::Result<ShadowPass> createShadowPass(nvrhi::IDevice& device, std::uint32_t resolution)
+{
+    auto vertexShader = loadShader(device, "shadow.vertexMain", nvrhi::ShaderType::Vertex);
+    if (!vertexShader)
+    {
+        return std::unexpected(vertexShader.error());
+    }
+    // Les sommets de la passe des meshes : seule la position sert, puis le décalage de l'instance.
+    const std::array<nvrhi::VertexAttributeDesc, 2> attributes{
+        nvrhi::VertexAttributeDesc()
+            .setName("POSITION")
+            .setFormat(nvrhi::Format::RGB32_FLOAT)
+            .setOffset(offsetof(MeshVertex, position))
+            .setElementStride(sizeof(MeshVertex)),
+        nvrhi::VertexAttributeDesc()
+            .setName("INSTANCE_OFFSET")
+            .setFormat(nvrhi::Format::RGB32_FLOAT)
+            .setBufferIndex(1)
+            .setElementStride(sizeof(glm::vec3))
+            .setIsInstanced(true),
+    };
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Vertex;
+    layoutDesc.bindings = {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0)};
+
+    ShadowPass pass;
+    pass.resolution = resolution;
+    pass.vertexShader = std::move(*vertexShader);
+    pass.inputLayout =
+        device.createInputLayout(attributes.data(), attributes.size(), pass.vertexShader);
+    pass.layout = device.createBindingLayout(layoutDesc);
+    // Un dessin par objet et par cascade : autant de versions que la passe des meshes en permet.
+    pass.constants = device.createBuffer(nvrhi::BufferDesc()
+                                             .setByteSize(sizeof(ShadowConstants))
+                                             .setIsConstantBuffer(true)
+                                             .setIsVolatile(true)
+                                             .setMaxVersions(MaxMeshDrawsPerCommandList)
+                                             .setDebugName("constantes des ombres"));
+    // Dessiné par la passe, lu par l'éclairage : NVRHI place la transition (suivi des états).
+    pass.atlas = device.createTexture(nvrhi::TextureDesc()
+                                          .setWidth(2 * resolution)
+                                          .setHeight(2 * resolution)
+                                          .setFormat(ShadowFormat)
+                                          .setIsRenderTarget(true)
+                                          .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                          .setKeepInitialState(true)
+                                          .setDebugName("atlas des ombres"));
+    pass.framebuffer =
+        device.createFramebuffer(nvrhi::FramebufferDesc().setDepthAttachment(pass.atlas));
+    pass.sampler =
+        device.createSampler(nvrhi::SamplerDesc()
+                                 .setAllFilters(true)
+                                 .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp)
+                                 .setReductionType(nvrhi::SamplerReductionType::Comparison));
+
+    nvrhi::GraphicsPipelineDesc pipelineDesc;
+    pipelineDesc.primType = nvrhi::PrimitiveType::TriangleList;
+    pipelineDesc.inputLayout = pass.inputLayout;
+    pipelineDesc.VS = pass.vertexShader;
+    pipelineDesc.addBindingLayout(pass.layout);
+    pipelineDesc.renderState.depthStencilState.depthTestEnable = true;
+    pipelineDesc.renderState.depthStencilState.depthWriteEnable = true;
+    pipelineDesc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::Less;
+    // Les deux faces : un rideau ou un feuillage n'a qu'une face, mais une ombre. Le biais, selon
+    // la pente vue du soleil, évite qu'une surface s'ombre elle-même par l'arrondi de sa profondeur
+    // (l'« acné » des ombres).
+    pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+    pipelineDesc.renderState.rasterState.slopeScaledDepthBias = 2.0f;
+    pass.pipeline =
+        device.createGraphicsPipeline(pipelineDesc, pass.framebuffer->getFramebufferInfo());
+    if (!pass.inputLayout || !pass.layout || !pass.constants || !pass.atlas || !pass.framebuffer ||
+        !pass.sampler || !pass.pipeline)
+    {
+        return core::makeError(core::ErrorCode::InvalidData, "passe d'ombres refusée par NVRHI");
+    }
+    pass.bindings = device.createBindingSet(
+        nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::ConstantBuffer(0, pass.constants)),
+        pass.layout);
+    return pass;
+}
+
+glm::uvec2 atlasCellOf(std::uint32_t cascade)
+{
+    return {cascade % 2, cascade / 2};
+}
+
+void clearShadows(nvrhi::ICommandList& commandList, const ShadowPass& pass)
+{
+    commandList.clearDepthStencilTexture(pass.atlas, nvrhi::AllSubresources, true, 1.0f, false, 0);
+}
+
+void drawShadowCaster(nvrhi::ICommandList& commandList, const ShadowPass& pass,
+                      std::uint32_t cascade, const Cascade& view, const Mesh& mesh,
+                      const Instances& instances, const glm::mat4& model)
+{
+    const ShadowConstants constants{.viewProjection = view.viewProjection, .model = model};
+    commandList.writeBuffer(pass.constants, &constants, sizeof(constants));
+
+    // Le quart de l'atlas de la cascade.
+    const glm::uvec2 cell = atlasCellOf(cascade) * pass.resolution;
+    const auto size = static_cast<float>(pass.resolution);
+    nvrhi::GraphicsState state;
+    state.pipeline = pass.pipeline;
+    state.framebuffer = pass.framebuffer;
+    state.viewport.addViewportAndScissorRect(
+        nvrhi::Viewport(static_cast<float>(cell.x), static_cast<float>(cell.x) + size,
+                        static_cast<float>(cell.y), static_cast<float>(cell.y) + size, 0.0f, 1.0f));
+    state.addBindingSet(pass.bindings);
+    state.addVertexBuffer(
+        nvrhi::VertexBufferBinding().setBuffer(mesh.vertexBuffer).setSlot(0).setOffset(0));
+    state.addVertexBuffer(
+        nvrhi::VertexBufferBinding().setBuffer(instances.offsets).setSlot(1).setOffset(0));
+    state.setIndexBuffer(nvrhi::IndexBufferBinding()
+                             .setBuffer(mesh.indexBuffer)
+                             .setFormat(nvrhi::Format::R32_UINT)
+                             .setOffset(0));
+    commandList.setGraphicsState(state);
+    nvrhi::DrawArguments arguments;
+    arguments.vertexCount = mesh.indexCount;
+    arguments.instanceCount = instances.count;
+    commandList.drawIndexed(arguments);
 }
 
 } // namespace levain::render
