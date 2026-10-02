@@ -3,6 +3,16 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un `float3` après un scalaire, dans un constant buffer : 16 octets de trop en WGSL (2026-10-02)
+
+- **Symptôme** : sur WebGPU seulement, « bound with size 16 … requires a buffer binding which is at least 32
+  bytes » au premier dessin. Vulkan ne dit rien.
+- **Cause** : `struct { float exposure; float3 padding; }`. En SPIR-V (std140 de Slang), le `float3` suit le
+  `float` dans les mêmes 16 octets ; en WGSL, un `vec3<f32>` s'aligne sur 16 : il commence à l'octet 16 et la
+  structure fait 32.
+- **Parade** : un `float3` toujours en tête d'un bloc de 16 octets, suivi d'un scalaire (`FrameConstants`), ou du
+  bourrage en scalaires. La validation de WebGPU le signale au premier dessin : passer `--gpu webgpu`.
+
 ## Un ordre de liens faux, masqué dans le dépôt, visible chez le jeu (2026-10-02)
 
 - **Symptôme** : *Rando*, qui ne relie que `levain::gpu`, échoue à l'édition de liens : « référence indéfinie vers

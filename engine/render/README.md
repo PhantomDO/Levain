@@ -32,6 +32,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/mesh_pass.hpp`](include/levain/render/mesh_pass.hpp) | `createMeshPass`, `reloadMeshPassShaders`, `ensureDepthTexture`, `createMaterialBindings`, `drawMesh` — la première passe avec constantes, profondeur et texture |
 | [`include/levain/render/texture.hpp`](include/levain/render/texture.hpp) | `TextureLevel`, `createTexture` — une texture sRGB et tous ses niveaux de mip ; `SamplerSettings`, `createSampler`, `clampAnisotropy` |
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
+| [`include/levain/render/tonemap.hpp`](include/levain/render/tonemap.hpp) | `HdrFormat`, `createTonemapPass`, `ensureHdrTarget`, `tonemap` — l'image HDR et sa passe vers la swapchain |
 | [`include/levain/render/skinning.hpp`](include/levain/render/skinning.hpp) | `SkinnedVertex`, `createSkinningPass`, `createSkinnedMesh`, `skinMesh` — le skinning en compute |
 | [`include/levain/render/light_clusters.hpp`](include/levain/render/light_clusters.hpp) | `PointLight`, `ClusterGrid`, `createLightClusterPass`, `assignLightsToClusters` — le tri des lumières ponctuelles en clusters (forward+) ; `lightsPerClusterOf`, sa référence CPU |
 
@@ -170,6 +171,17 @@ le diffus de Lambert pour la lumière qui entre dans la matière. Les lumières 
 
 `setFrameLighting` écrit ces constantes une fois par command list, après le tri (`assignLightsToClusters`). Le
 résultat est de la lumière linéaire : au-delà de 1, la cible 8 bits la coupe, jusqu'au HDR de M5.2.
+
+## L'image HDR et le tonemapping
+
+La scène ne se dessine plus dans la swapchain mais dans une **image HDR** (`HdrFormat`, 16 bits flottants par
+canal, M5.2) : la lumière y garde sa vraie valeur, au-delà de 1 (un reflet du soleil, une lampe proche). Une
+passe plein écran, `tonemap`, la ramène ensuite dans la swapchain : un seul triangle, deux fois plus grand que
+l'écran, et un shader qui lit l'image HDR pixel par pixel.
+
+Cette passe applique l'**exposition** (`--exposure` dans le sandbox : 2 éclaire d'un diaphragme), puis ramène la
+lumière dans ce que l'écran sait afficher. Pour l'instant elle la coupe à 1 ; AgX ou ACES la ramèneront en
+douceur (#127).
 
 ## Mesurer le temps GPU
 

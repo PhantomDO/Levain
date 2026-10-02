@@ -11,6 +11,7 @@ add_library(levain_render STATIC
     src/shader.cpp
     src/skinning.cpp
     src/texture.cpp
+    src/tonemap.cpp
     src/triangle.cpp)
 add_library(levain::render ALIAS levain_render)
 
