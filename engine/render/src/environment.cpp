@@ -187,8 +187,8 @@ core::Result<Environment> createEnvironment(nvrhi::IDevice& device, const Enviro
     const std::vector<std::uint16_t> pixels = halfPixelsOf(image.rgba);
     // Sans exécution immédiate : l'appelant peut avoir sa propre command list ouverte, et NVRHI
     // n'en admet qu'une immédiate ouverte à la fois (nvrhi.h, CommandListParameters).
-    const nvrhi::CommandListHandle commandList = device.createCommandList(
-        nvrhi::CommandListParameters().setEnableImmediateExecution(false));
+    const nvrhi::CommandListHandle commandList =
+        device.createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
     commandList->open();
     const std::array levels{TextureLevel{
         .width = image.width, .height = image.height, .bytes = std::as_bytes(std::span{pixels})}};
