@@ -153,6 +153,46 @@ core::Result<Image> loadImage(const std::filesystem::path& path)
     return decodeImage(*bytes, path.string());
 }
 
+core::Result<HdrImage> loadHdrImage(const std::filesystem::path& path)
+{
+    auto bytes = core::readFile(path);
+    if (!bytes)
+    {
+        return std::unexpected(bytes.error());
+    }
+    if (bytes->size() > INT_MAX)
+    {
+        return core::makeError(
+            core::ErrorCode::Unsupported,
+            std::format("{} : plus de 2 Go, trop gros pour stb_image", path.string()));
+    }
+    const auto* data = reinterpret_cast<const stbi_uc*>(bytes->data());
+    const int size = static_cast<int>(bytes->size());
+    // Une image en 8 bits passerait par stbi_loadf convertie depuis le sRGB : on la refuse, une
+    // HDRI doit garder sa vraie lumière.
+    if (stbi_is_hdr_from_memory(data, size) == 0)
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               std::format("{} : pas une image HDR", path.string()));
+    }
+    int width = 0;
+    int height = 0;
+    int channelsInFile = 0;
+    const std::unique_ptr<float, decltype(&stbi_image_free)> pixels{
+        stbi_loadf_from_memory(data, size, &width, &height, &channelsInFile, STBI_rgb_alpha),
+        &stbi_image_free};
+    if (!pixels)
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               std::format("{} : {}", path.string(), stbi_failure_reason()));
+    }
+    HdrImage image{.width = static_cast<std::uint32_t>(width),
+                   .height = static_cast<std::uint32_t>(height),
+                   .rgba = {}};
+    image.rgba.assign(pixels.get(), pixels.get() + rgbaSize(image.width, image.height));
+    return image;
+}
+
 core::Result<void> savePng(const std::filesystem::path& path, std::uint32_t width,
                            std::uint32_t height, std::span<const std::uint8_t> rgba)
 {

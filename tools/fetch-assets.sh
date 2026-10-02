@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Télécharge les assets de test tiers listés dans tools/assets.lock vers assets-cache/, ignoré par
 # git (ADR-0018 : les assets tiers ne sont jamais versionnés). Chaque fichier est vérifié par son
-# SHA-256 ; un fichier déjà présent et intact n'est pas retéléchargé.
+# SHA-256 ; un fichier déjà présent et intact n'est pas retéléchargé. Une ligne est « hash chemin »
+# pour un fichier de glTF-Sample-Assets, au commit du lock, ou « hash chemin adresse » pour un
+# fichier pris ailleurs (une HDRI de Poly Haven).
 #
 #   ./tools/fetch-assets.sh
 #
@@ -16,7 +18,7 @@ commit=$(awk '$1 == "commit" { print $2 }' "$lock")
 [[ -n "$commit" ]] || { echo "aucun commit dans $lock" >&2; exit 1; }
 
 count=0
-while read -r hash path; do
+while read -r hash path url; do
     [[ -z "$hash" || "$hash" == \#* || "$hash" == commit ]] && continue
     file="$dest/$path"
     count=$((count + 1))
@@ -25,7 +27,7 @@ while read -r hash path; do
     fi
     mkdir -p "$(dirname "$file")"
     curl --fail --silent --show-error --location \
-        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/$commit/$path" \
+        "${url:-https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/$commit/$path}" \
         --output "$file.part"
     if ! echo "$hash  $file.part" | sha256sum --check --status; then
         rm -f "$file.part"
