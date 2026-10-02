@@ -239,7 +239,8 @@ struct DemoScene
     levain::render::SkinningPass skinning;
     levain::render::ShadowPass shadows; ///< Les ombres du soleil, en cascades (M5.3).
     levain::render::CascadeSettings cascadeSettings;
-    levain::render::TonemapPass tonemap; ///< De l'image HDR à la swapchain (M5.2).
+    levain::render::Environment environment; ///< Le ciel qui éclaire la scène (IBL, M5.4).
+    levain::render::TonemapPass tonemap;     ///< De l'image HDR à la swapchain (M5.2).
     levain::render::TonemapSettings tonemapSettings;
     levain::render::HdrTarget hdr; ///< Créée à la première frame, à la taille de l'image.
     levain::render::Mesh cube;
@@ -734,13 +735,40 @@ void logScanReport(const levain::assets::ScanReport& report)
     }
 }
 
-/// Crée la passe des meshes et envoie au GPU le cube, la grille, le sol, la texture du damier, et
-/// le modèle de `--model`.
+/// Le ciel de `--sky`, ou sans HDRI un ciel uniforme et sombre, l'ambiance d'avant l'IBL. Le temps
+/// de calcul est donné : il se paie à chaque chargement.
+levain::core::Result<levain::render::Environment>
+loadEnvironment(nvrhi::IDevice& device, const std::optional<std::filesystem::path>& skyPath)
+{
+    if (!skyPath)
+    {
+        return levain::render::createUniformEnvironment(device, glm::vec3{0.1f});
+    }
+    auto image = levain::assets::loadHdrImage(*skyPath);
+    if (!image)
+    {
+        return std::unexpected(image.error());
+    }
+    const auto start = std::chrono::steady_clock::now();
+    auto environment = levain::render::createEnvironment(
+        device, {.width = image->width, .height = image->height, .rgba = image->rgba});
+    device.waitForIdle();
+    const std::chrono::duration<double, std::milli> elapsed =
+        std::chrono::steady_clock::now() - start;
+    levain::core::log("sandbox", levain::core::LogLevel::Info,
+                      "ciel : {} ({} × {}), environnement calculé en {:.1f} ms",
+                      skyPath->filename().string(), image->width, image->height, elapsed.count());
+    return environment;
+}
+
+/// Crée la passe des meshes et envoie au GPU le cube, la grille, le sol, la texture du damier, le
+/// modèle de `--model` et le ciel de `--sky`.
 levain::core::Result<DemoScene>
 createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettings& sampler,
                 const std::optional<std::filesystem::path>& modelPath,
                 const std::optional<std::string>& clipName,
-                const std::optional<std::string>& locomotion, float modelScale)
+                const std::optional<std::string>& locomotion, float modelScale,
+                const std::optional<std::filesystem::path>& skyPath)
 {
     // Le modèle de `--model`, par son GUID : le dossier qui le contient est scanné (ADR-0019), ce
     // qui lui donne un .meta s'il n'en avait pas.
@@ -864,8 +892,13 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(shadows.error());
     }
-    auto meshPass =
-        levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *clusters, *shadows);
+    auto environment = loadEnvironment(*gpu.nvrhi, skyPath);
+    if (!environment)
+    {
+        return std::unexpected(environment.error());
+    }
+    auto meshPass = levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *clusters,
+                                                   *shadows, *environment);
     if (!meshPass)
     {
         return std::unexpected(meshPass.error());
@@ -999,6 +1032,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .skinning = std::move(*skinning),
                      .shadows = std::move(*shadows),
                      .cascadeSettings = cascadeSettings,
+                     .environment = std::move(*environment),
                      .tonemap = std::move(*tonemap),
                      .tonemapSettings = {},
                      .hdr = {},
@@ -1192,7 +1226,7 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
             .view = levain::render::clusterViewOf(scene.camera, aspect),
             .cameraPosition = scene.camera.position,
             .sun = DemoSun,
-            .ambient = glm::vec3{0.1f},
+            .environmentIntensity = 1.0f,
             .cascades = levain::render::cascadesOf(scene.camera, aspect, DemoSun.direction,
                                                    scene.cascadeSettings)};
 
@@ -1417,9 +1451,10 @@ struct SandboxOptions
     std::optional<double> frozenSeconds;
     /// Où écrire une capture de la dernière image, en PNG. Avec `--seconds`, c'est ce qui montre un
     /// rendu à distance, sans écran ni capture du bureau.
-    std::optional<std::filesystem::path>
-        capturePath; /// `--gpu webgpu` : le backend WebGPU sur Dawn, hors écran, pour le vérifier
-                     /// sans navigateur
+    std::optional<std::filesystem::path> capturePath;
+    /// L'HDRI qui éclaire la scène (M5.4) ; sans, un ciel uniforme.
+    std::optional<std::filesystem::path> skyPath;
+    /// `--gpu webgpu` : le backend WebGPU sur Dawn, hors écran, pour le vérifier sans navigateur
     /// (ADR-0023).
     nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
 };
@@ -1476,10 +1511,11 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
             options.api = api == "webgpu" ? nvrhi::GraphicsAPI::WEBGPU : nvrhi::GraphicsAPI::VULKAN;
             continue;
         }
-        if (name == "--capture" || name == "--model")
+        if (name == "--capture" || name == "--model" || name == "--sky")
         {
-            (name == "--capture" ? options.capturePath : options.modelPath) =
-                std::filesystem::path{arguments[i + 1]};
+            (name == "--capture" ? options.capturePath
+             : name == "--model" ? options.modelPath
+                                 : options.skyPath) = std::filesystem::path{arguments[i + 1]};
             continue;
         }
         const std::optional<double> value = parsePositive(arguments[i + 1]);
@@ -1561,7 +1597,7 @@ levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
     levain::core::log("sandbox", levain::core::LogLevel::Info, "filtrage anisotrope : {}",
                       levain::render::clampAnisotropy(sampler.maxAnisotropy));
     auto scene = createDemoScene(gpu, sampler, options.modelPath, options.clipName,
-                                 options.locomotion, options.modelScale);
+                                 options.locomotion, options.modelScale, options.skyPath);
     if (!scene)
     {
         return std::unexpected{std::move(scene.error())};
@@ -1862,7 +1898,7 @@ int main(int argc, char** argv)
                                  "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
                                  "repos,marche,course] "
                                  "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
-                                 "[--exposure N] [--tonemap clip|aces|agx]");
+                                 "[--exposure N] [--tonemap clip|aces|agx] [--sky fichier.hdr]");
             return 2;
         }
 

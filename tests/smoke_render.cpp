@@ -159,8 +159,14 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
     {
         return std::unexpected(shadows.error());
     }
+    // Un ciel uniforme et sombre : l'ambiance d'avant l'IBL, qui montre les faces à l'ombre.
+    auto environment = levain::render::createUniformEnvironment(device, glm::vec3{0.1f});
+    if (!environment)
+    {
+        return std::unexpected(environment.error());
+    }
     auto meshPass = levain::render::createMeshPass(device, framebuffer.getFramebufferInfo(),
-                                                   *clusters, *shadows);
+                                                   *clusters, *shadows, *environment);
     if (!meshPass)
     {
         return std::unexpected(meshPass.error());
@@ -216,7 +222,7 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
         .view = levain::render::clusterViewOf(camera, 1.0f),
         .cameraPosition = camera.position,
         .sun = {.direction = sunDirection, .color = glm::vec3{1.0f}, .intensity = 3.0f},
-        .ambient = glm::vec3{0.1f},
+        .environmentIntensity = 1.0f,
         .cascades = levain::render::cascadesOf(camera, 1.0f, sunDirection, {.resolution = 256})};
     levain::render::clearShadows(commandList, *shadows);
     const levain::render::Mesh ground =

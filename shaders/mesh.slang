@@ -1,5 +1,5 @@
 // Un mesh indexé, éclairé en PBR (M5.1) : matériau glTF metallic-roughness, BRDF de Cook-Torrance,
-// un soleil et les lumières ponctuelles de son cluster (forward+, ADR-0024). Les ressources suivent
+// un soleil, les lumières ponctuelles de son cluster (forward+, ADR-0024) et le ciel (l'IBL, M5.4). Les ressources suivent
 // l'ADR-0013 : space0 pour ce qui change une fois par frame, space2 pour ce qui change à chaque
 // matériau.
 
@@ -7,6 +7,8 @@ static const float Pi = 3.14159265;
 
 /// Doit valoir MaxLightsPerCluster (light_clusters.hpp).
 static const uint MaxLightsPerCluster = 32;
+/// Doit valoir SpecularMips (environment.hpp).
+static const uint SpecularMips = 6;
 
 struct SceneConstants
 {
@@ -24,10 +26,14 @@ struct FrameConstants
     float nearPlane;
     float3 sunColor;
     float farPlane;
-    float3 ambient; ///< En attendant l'IBL (M5.4).
-    uint padding;
+    /// Des scalaires et non un float3 de remplissage : en WGSL, un float3 après un scalaire ne
+    /// tombe pas au même endroit (build/GOTCHA.md).
+    float environmentIntensity;
+    float padding0;
+    float padding1;
+    float padding2;
     uint3 clusterGrid;
-    uint padding2;
+    uint padding3;
     /// Les ombres du soleil (M5.3) : la projection de chaque cascade, la profondeur où elle finit,
     /// et la taille d'un de ses texels, dans le monde.
     float4x4 cascadeViewProjection[4];
@@ -52,6 +58,12 @@ StructuredBuffer<uint> clusterLightIndices : register(t2, space0);
 /// (build/GOTCHA.md).
 DepthTexture2D shadowAtlas : register(t3, space0);
 SamplerComparisonState shadowSampler : register(s0, space0);
+/// L'éclairage par l'image (environment.hpp) : l'irradiance, le reflet du ciel par rugosité et la
+/// table de la BRDF.
+TextureCube irradianceMap : register(t4, space0);
+TextureCube specularMap : register(t5, space0);
+Texture2D brdfLut : register(t6, space0);
+SamplerState environmentSampler : register(s1, space0);
 
 /// Les facteurs du matériau (glTF metallic-roughness) : ils multiplient leur texture.
 struct MaterialConstants
@@ -201,6 +213,26 @@ float sunVisibilityOf(float3 worldPosition, float3 normal, float viewDepth)
     return lit / 9.0;
 }
 
+/// Ce que le ciel renvoie vers l'œil, en « split sum » (Karis) : le reflet préfiltré à la rugosité
+/// du matériau, multiplié par la part que la BRDF en renvoie (la table), plus l'irradiance pour ce
+/// que la surface diffuse. Le diffus ne reçoit que ce que le reflet laisse.
+float3 environmentLightOf(float3 normal, float3 toEye, float3 albedo, float metallic,
+                          float roughness)
+{
+    const float cosView = saturate(dot(normal, toEye));
+    const float3 f0 = lerp(float3(0.04), albedo, metallic);
+    const float2 scaleBias =
+        brdfLut.SampleLevel(environmentSampler, float2(cosView, roughness), 0.0).rg;
+    const float3 reflectance = f0 * scaleBias.x + scaleBias.y;
+    const float3 reflected = reflect(-toEye, normal);
+    const float3 specular =
+        specularMap.SampleLevel(environmentSampler, reflected, roughness * float(SpecularMips - 1))
+            .rgb;
+    const float3 irradiance = irradianceMap.SampleLevel(environmentSampler, normal, 0.0).rgb;
+    const float3 diffuse = (1.0 - reflectance) * (1.0 - metallic) * albedo * irradiance;
+    return (diffuse + specular * reflectance) * frame.environmentIntensity;
+}
+
 /// L'indice du cluster du pixel, par sa position à l'écran et sa profondeur : le calcul inverse de
 /// celui du tri (shaders/light_clusters.slang).
 uint clusterOf(float4 clipPosition, float3 worldPosition)
@@ -228,7 +260,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target
     const float3 normal = shadingNormalOf(input);
     const float3 toEye = normalize(frame.cameraPosition - input.worldPosition);
 
-    float3 color = frame.ambient * albedo;
+    float3 color = environmentLightOf(normal, toEye, albedo, metallic, roughness);
     const float viewDepth = -mul(frame.view, float4(input.worldPosition, 1.0)).z;
     const float sunVisibility =
         sunVisibilityOf(input.worldPosition, normalize(input.normal), viewDepth);
@@ -246,7 +278,5 @@ float4 fragmentMain(VertexOutput input) : SV_Target
         const float3 radiance = light.color * light.intensity * attenuationOf(distance, light.range);
         color += brdf(normal, toEye, offset / distance, albedo, metallic, roughness, radiance);
     }
-    // ponytail: la lumière au-delà de 1 est coupée par la cible 8 bits ; le HDR et le tonemapping
-    // viennent en M5.2.
     return float4(color, 1.0);
 }

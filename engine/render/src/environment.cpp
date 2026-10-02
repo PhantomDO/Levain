@@ -185,7 +185,10 @@ core::Result<Environment> createEnvironment(nvrhi::IDevice& device, const Enviro
     }
 
     const std::vector<std::uint16_t> pixels = halfPixelsOf(image.rgba);
-    const nvrhi::CommandListHandle commandList = device.createCommandList();
+    // Sans exécution immédiate : l'appelant peut avoir sa propre command list ouverte, et NVRHI
+    // n'en admet qu'une immédiate ouverte à la fois (nvrhi.h, CommandListParameters).
+    const nvrhi::CommandListHandle commandList = device.createCommandList(
+        nvrhi::CommandListParameters().setEnableImmediateExecution(false));
     commandList->open();
     const std::array levels{TextureLevel{
         .width = image.width, .height = image.height, .bytes = std::as_bytes(std::span{pixels})}};
@@ -227,6 +230,12 @@ core::Result<Environment> createEnvironment(nvrhi::IDevice& device, const Enviro
     // ce qu'une command list utilise jusqu'à la fin de son exécution.
     device.executeCommandList(commandList);
     return environment;
+}
+
+core::Result<Environment> createUniformEnvironment(nvrhi::IDevice& device, glm::vec3 radiance)
+{
+    const std::array pixel{radiance.r, radiance.g, radiance.b, 1.0f};
+    return createEnvironment(device, {.width = 1, .height = 1, .rgba = pixel}, 1);
 }
 
 glm::vec3 cubeDirectionOf(std::uint32_t face, glm::vec2 uv)

@@ -76,7 +76,15 @@ void createScene(nvrhi::DeviceHandle device)
         fail(shadows.error().message);
         return;
     }
-    auto meshPass = levain::render::createMeshPass(*device, target, *clusters, *shadows);
+    // L'ambiance du test de fumée : un ciel uniforme (pas d'HDRI dans le navigateur).
+    auto environment = levain::render::createUniformEnvironment(*device, glm::vec3{0.1f});
+    if (!environment)
+    {
+        fail(environment.error().message);
+        return;
+    }
+    auto meshPass =
+        levain::render::createMeshPass(*device, target, *clusters, *shadows, *environment);
     auto image = levain::assets::loadImage("/data/rgbw-2x2.png");
     if (!meshPass || !image)
     {
@@ -157,7 +165,7 @@ void frame()
         .view = levain::render::clusterViewOf(camera, 1.0f),
         .cameraPosition = camera.position,
         .sun = {.direction = {0.4f, 1.0f, 0.6f}, .color = glm::vec3{1.0f}, .intensity = 3.0f},
-        .ambient = glm::vec3{0.1f},
+        .environmentIntensity = 1.0f,
         .cascades = levain::render::cascadesOf(camera, 1.0f, {0.4f, 1.0f, 0.6f}, {})};
     levain::render::clearShadows(commandList, scene->shadows);
     std::ignore =
