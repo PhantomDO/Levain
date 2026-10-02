@@ -4,6 +4,7 @@ find_package(nvrhi CONFIG REQUIRED)
 add_library(levain_render STATIC
     src/camera.cpp
     src/gpu_timer.cpp
+    src/light_clusters.cpp
     src/mesh.cpp
     src/mesh_pass.cpp
     src/readback.cpp
