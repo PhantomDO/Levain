@@ -33,7 +33,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/texture.hpp`](include/levain/render/texture.hpp) | `TextureLevel`, `createTexture` — une texture sRGB et tous ses niveaux de mip ; `SamplerSettings`, `createSampler`, `clampAnisotropy` |
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
 | [`include/levain/render/shadows.hpp`](include/levain/render/shadows.hpp) | `CascadeSettings`, `cascadeSplitsOf`, `cascadesOf` — les tranches de profondeur et les projections du soleil des ombres en cascades |
-| [`include/levain/render/environment.hpp`](include/levain/render/environment.hpp) | `createEnvironment` — l'HDRI du ciel converti en cubemap, mips comprises, pour l'éclairage par l'image |
+| [`include/levain/render/environment.hpp`](include/levain/render/environment.hpp) | `createEnvironment` — l'HDRI du ciel converti en cubemap, mips comprises, puis l'irradiance, le spéculaire préfiltré et la table de la BRDF de l'éclairage par l'image |
 | [`include/levain/render/tonemap.hpp`](include/levain/render/tonemap.hpp) | `HdrFormat`, `createTonemapPass`, `ensureHdrTarget`, `tonemap` — l'image HDR et sa passe vers la swapchain |
 | [`include/levain/render/skinning.hpp`](include/levain/render/skinning.hpp) | `SkinnedVertex`, `createSkinningPass`, `createSkinnedMesh`, `skinMesh` — le skinning en compute |
 | [`include/levain/render/light_clusters.hpp`](include/levain/render/light_clusters.hpp) | `PointLight`, `ClusterGrid`, `createLightClusterPass`, `assignLightsToClusters` — le tri des lumières ponctuelles en clusters (forward+) ; `lightsPerClusterOf`, sa référence CPU |
@@ -211,9 +211,28 @@ que le GPU lit sans la déformation des pôles, puis calcule ses **niveaux de mi
 précédent, d'une seule lecture bilinéaire au coin des quatre texels. Les deux passes sont des computes
 (`shaders/environment.slang`) qui écrivent la cubemap face par face, comme un tableau de six textures 2D.
 
-`levain_environment` (tests `gpu.environment.*`) la vérifie sur Vulkan et sur WebGPU : une image dont chaque pixel
-vaut sa propre direction doit donner une cubemap dont chaque texel vaut la sienne, à tous les niveaux. Une face mal
-orientée par rapport au GPU s'y voit dès le premier mip, que le GPU calcule en lisant la cubemap comme un cube.
+Puis trois **convolutions** préparent l'éclairage, d'après Karis (« Real Shading in Unreal Engine 4 ») :
+
+- l'**irradiance** (32² par face) : ce qu'une surface mate reçoit du ciel par direction de sa normale, la moyenne
+  du ciel pondérée par le cosinus ;
+- le **spéculaire préfiltré** (128², six mips) : le reflet du ciel flouté par le lobe GGX, un mip par rugosité, de
+  0 au premier à 1 au dernier, en supposant la surface vue de face ;
+- la **table de la BRDF** (128², `brdfLut`) : pour un angle de vue et une rugosité, l'échelle et le biais de la
+  couleur spéculaire F0. Elle ne dépend pas du ciel. Le shader de mesh multiplie le reflet par cette table : la
+  *split sum*, deux intégrales précalculées séparément au lieu d'une par pixel.
+
+Chaque échantillon des convolutions lit le ciel au mip dont un texel couvre son angle solide (l'échantillonnage
+*filtré* de Colbert et Křivánek) : 256 échantillons suffisent, sans les points brillants d'un soleil tiré au
+hasard.
+
+`levain_environment` (tests `gpu.environment.*`) vérifie tout sur Vulkan et sur WebGPU :
+
+- une image dont chaque pixel vaut sa propre direction doit donner une cubemap dont chaque texel vaut la sienne,
+  à tous les niveaux. Une face mal orientée par rapport au GPU s'y voit dès le premier mip, que le GPU calcule en
+  lisant la cubemap comme un cube ;
+- un ciel uniforme reste lui-même après chaque convolution, et un ciel blanc au-dessus de l'horizon donne une
+  irradiance de 1 vers le zénith, 0 vers le nadir, ½ à l'horizon ;
+- la table renvoie toute la lumière quand la surface est lisse, de moins en moins quand elle devient rugueuse.
 
 ## L'image HDR et le tonemapping
 
