@@ -11,8 +11,10 @@ add_library(levain::gpu ALIAS levain_gpu)
 target_include_directories(levain_gpu PUBLIC include)
 
 # Dawn (webgpu.h) est PRIVATE comme Vulkan : le backend WebGPU ne sort du module que par des
-# interfaces NVRHI.
-target_link_libraries(levain_gpu PRIVATE levain::core dawn::webgpu_dawn PUBLIC nvrhi)
+# interfaces NVRHI. nvrhi, PUBLIC, se déclare plus bas, après le backend Vulkan de NVRHI qui
+# l'appelle : CMake ne garde que la première mention d'une bibliothèque, et l'éditeur de liens ne
+# parcourt les bibliothèques statiques qu'une fois, dans l'ordre (tests/gpu_alone.cpp le vérifie).
+target_link_libraries(levain_gpu PRIVATE levain::core dawn::webgpu_dawn)
 
 # platform est PUBLIC : il fait partie de l'API (device.hpp, la fenêtre). SDL reste PRIVATE.
 find_package(SDL3 CONFIG REQUIRED)
@@ -21,6 +23,7 @@ target_link_libraries(levain_gpu PRIVATE SDL3::SDL3 PUBLIC levain::platform)
 if(EMSCRIPTEN)
     # Le GpuDevice du navigateur, sur le canvas HTML de la fenêtre.
     target_sources(levain_gpu PRIVATE src/device_web.cpp src/webgpu/canvas.cpp)
+    target_link_libraries(levain_gpu PUBLIC nvrhi)
     return()
 endif()
 

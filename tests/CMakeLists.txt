@@ -107,6 +107,11 @@ add_test(NAME assets.metas-committed
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/check_asset_metas.cmake)
 
+# Un programme qui ne relie que levain::gpu (gpu_alone.cpp) : une dépendance manquante ou mal ordonnée
+# casse le build, comme elle casserait celui d'un jeu.
+add_executable(levain_gpu_alone gpu_alone.cpp)
+target_link_libraries(levain_gpu_alone PRIVATE levain::gpu)
+
 # Tests de fumée du rendu (#16, M2.1) : dessinent une scène hors écran et comparent l'image à une
 # référence. SDL_VIDEO_DRIVER=offscreen : pas d'écran en CI, la surface est « headless » (lavapipe).
 add_executable(levain_smoke_render smoke_render.cpp)
