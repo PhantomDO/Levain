@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "backend.hpp"
+#include "conversions.hpp"
 
 namespace levain::gpu::webgpu
 {
@@ -85,14 +86,19 @@ nvrhi::BindingLayoutHandle Device::createBindingLayout(const nvrhi::BindingLayou
         switch (item.type)
         {
         case nvrhi::ResourceType::Texture_SRV:
-            // Une texture 2D filtrable, sauf texture de profondeur (`layoutFor`).
-            // ponytail: toujours 2D ; le layout de NVRHI ne dit pas la dimension. La déduire comme
-            // la profondeur quand viendront les cubes (IBL, M5.4).
+            // Une texture 2D filtrable, sauf indication contraire (`layoutFor`) : profondeur, cube.
             entry.texture.sampleType = wgpu::TextureSampleType::Float;
             entry.texture.viewDimension = wgpu::TextureViewDimension::e2D;
             break;
         case nvrhi::ResourceType::Sampler:
             entry.sampler.type = wgpu::SamplerBindingType::Filtering;
+            break;
+        case nvrhi::ResourceType::Texture_UAV:
+            // Écrite par un compute. Son format et sa dimension viennent des indications
+            // (`layoutFor`) ; ce format de remplacement garde valide le layout sans elles.
+            entry.storageTexture.access = wgpu::StorageTextureAccess::WriteOnly;
+            entry.storageTexture.format = wgpu::TextureFormat::RGBA8Unorm;
+            entry.storageTexture.viewDimension = wgpu::TextureViewDimension::e2D;
             break;
         case nvrhi::ResourceType::ConstantBuffer:
             entry.buffer.type = wgpu::BufferBindingType::Uniform;
@@ -134,37 +140,48 @@ nvrhi::BindingLayoutHandle Device::createBindingLayout(const nvrhi::BindingLayou
 }
 
 wgpu::BindGroupLayout BindingLayout::layoutFor(const wgpu::Device& device,
-                                               const DepthBindings& depth) const
+                                               const BindingHints& hints) const
 {
-    if (depth.empty())
+    if (hints.empty())
     {
         return layout;
     }
-    if (auto found = variants.find(depth); found != variants.end())
+    if (auto found = variants.find(hints); found != variants.end())
     {
         return found->second;
     }
     std::vector<wgpu::BindGroupLayoutEntry> changed = entries;
     for (wgpu::BindGroupLayoutEntry& entry : changed)
     {
-        const auto match = std::ranges::find(depth, entry.binding, &DepthBinding::binding);
-        if (match == depth.end())
+        const auto hint = std::ranges::find(hints, entry.binding, &BindingHint::binding);
+        if (hint == hints.end())
         {
             continue;
         }
-        if (match->comparisonSampler)
+        switch (hint->kind)
         {
-            entry.sampler.type = wgpu::SamplerBindingType::Comparison;
-        }
-        else
-        {
+        case BindingHint::Kind::DepthTexture:
             entry.texture.sampleType = wgpu::TextureSampleType::Depth;
+            break;
+        case BindingHint::Kind::ComparisonSampler:
+            entry.sampler.type = wgpu::SamplerBindingType::Comparison;
+            break;
+        case BindingHint::Kind::CubeTexture:
+            entry.texture.viewDimension = wgpu::TextureViewDimension::Cube;
+            break;
+        case BindingHint::Kind::StorageTexture2D:
+        case BindingHint::Kind::StorageTexture2DArray:
+            entry.storageTexture.format = hint->format;
+            entry.storageTexture.viewDimension = hint->kind == BindingHint::Kind::StorageTexture2D
+                                                     ? wgpu::TextureViewDimension::e2D
+                                                     : wgpu::TextureViewDimension::e2DArray;
+            break;
         }
     }
     wgpu::BindGroupLayoutDescriptor layoutDesc{};
     layoutDesc.entryCount = changed.size();
     layoutDesc.entries = changed.data();
-    return variants.emplace(depth, device.CreateBindGroupLayout(&layoutDesc)).first->second;
+    return variants.emplace(hints, device.CreateBindGroupLayout(&layoutDesc)).first->second;
 }
 
 nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& desc,
@@ -173,8 +190,9 @@ nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& de
     const auto* bindingLayout = static_cast<const BindingLayout*>(layout);
     std::vector<wgpu::BindGroupEntry> entries;
     std::vector<std::pair<std::uint32_t, nvrhi::BufferHandle>> volatileBuffers;
-    // Les textures de profondeur et samplers de comparaison liés : leur layout le dira à WebGPU.
-    DepthBindings depth;
+    // Ce que les ressources liées disent de leur binding (profondeur, cube, storage texture) : leur
+    // layout le dira à WebGPU.
+    BindingHints hints;
     for (const nvrhi::BindingSetItem& item : desc.bindings)
     {
         wgpu::BindGroupEntry entry{};
@@ -186,8 +204,10 @@ nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& de
             auto* texture = static_cast<Texture*>(item.resourceHandle);
             const nvrhi::TextureSubresourceSet subresources =
                 item.subresources.resolve(texture->desc, false);
+            const bool cube = texture->desc.dimension == nvrhi::TextureDimension::TextureCube;
             wgpu::TextureViewDescriptor viewDesc{};
-            viewDesc.dimension = wgpu::TextureViewDimension::e2D;
+            viewDesc.dimension =
+                cube ? wgpu::TextureViewDimension::Cube : wgpu::TextureViewDimension::e2D;
             viewDesc.baseMipLevel = subresources.baseMipLevel;
             viewDesc.mipLevelCount = subresources.numMipLevels;
             viewDesc.baseArrayLayer = subresources.baseArraySlice;
@@ -195,8 +215,43 @@ nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& de
             entry.textureView = texture->texture.CreateView(&viewDesc);
             if (nvrhi::getFormatInfo(texture->desc.format).hasDepth)
             {
-                depth.push_back({.binding = entry.binding, .comparisonSampler = false});
+                hints.push_back(
+                    {.binding = entry.binding, .kind = BindingHint::Kind::DepthTexture});
             }
+            if (cube)
+            {
+                hints.push_back({.binding = entry.binding, .kind = BindingHint::Kind::CubeTexture});
+            }
+            break;
+        }
+        case nvrhi::ResourceType::Texture_UAV:
+        {
+            // Un seul niveau de mip ; une cubemap ou un tableau, toutes ses couches en 2D.
+            auto* texture = static_cast<Texture*>(item.resourceHandle);
+            const nvrhi::TextureSubresourceSet subresources =
+                item.subresources.resolve(texture->desc, true);
+            const bool layered = texture->desc.arraySize > 1;
+            const nvrhi::Format format =
+                item.format != nvrhi::Format::UNKNOWN ? item.format : texture->desc.format;
+            const auto wgpuFormat = textureFormatOf(format);
+            if (!wgpuFormat)
+            {
+                error("binding set : format de storage texture sans équivalent WebGPU");
+                return nullptr;
+            }
+            wgpu::TextureViewDescriptor viewDesc{};
+            viewDesc.dimension =
+                layered ? wgpu::TextureViewDimension::e2DArray : wgpu::TextureViewDimension::e2D;
+            viewDesc.format = *wgpuFormat;
+            viewDesc.baseMipLevel = subresources.baseMipLevel;
+            viewDesc.mipLevelCount = 1;
+            viewDesc.baseArrayLayer = subresources.baseArraySlice;
+            viewDesc.arrayLayerCount = subresources.numArraySlices;
+            entry.textureView = texture->texture.CreateView(&viewDesc);
+            hints.push_back({.binding = entry.binding,
+                             .kind = layered ? BindingHint::Kind::StorageTexture2DArray
+                                             : BindingHint::Kind::StorageTexture2D,
+                             .format = *wgpuFormat});
             break;
         }
         case nvrhi::ResourceType::Sampler:
@@ -205,7 +260,8 @@ nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& de
             entry.sampler = sampler->sampler;
             if (sampler->desc.reductionType == nvrhi::SamplerReductionType::Comparison)
             {
-                depth.push_back({.binding = entry.binding, .comparisonSampler = true});
+                hints.push_back(
+                    {.binding = entry.binding, .kind = BindingHint::Kind::ComparisonSampler});
             }
             break;
         }
@@ -232,8 +288,8 @@ nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& de
         entries.push_back(entry);
     }
     wgpu::BindGroupDescriptor groupDesc{};
-    std::ranges::sort(depth);
-    groupDesc.layout = bindingLayout->layoutFor(device, depth);
+    std::ranges::sort(hints);
+    groupDesc.layout = bindingLayout->layoutFor(device, hints);
     groupDesc.entryCount = entries.size();
     groupDesc.entries = entries.data();
     wgpu::BindGroup group = device.CreateBindGroup(&groupDesc);

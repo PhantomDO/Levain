@@ -1,6 +1,7 @@
 // Le backend WebGPU de NVRHI (ADR-0023, #184), en natif sur Dawn. Sans GPU, en CI, Dawn tourne sur
 // lavapipe, son adaptateur de repli.
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -166,7 +167,7 @@ TEST_CASE("les passes du moteur se créent sur le backend WebGPU")
 TEST_CASE("une texture de profondeur se compare dans un shader, sur le backend WebGPU")
 {
     // Le layout de NVRHI ne dit pas qu'une texture est de profondeur ni qu'un sampler compare : le
-    // backend le lit dans les ressources liées et dans le shader (backend.hpp, DepthBinding).
+    // backend le lit dans les ressources liées et dans le shader (backend.hpp, BindingHint).
     const nvrhi::DeviceHandle device = webGpuDevice();
     const std::string wgsl = R"(
 @binding(0) @group(0) var shadowMap : texture_depth_2d;
@@ -257,5 +258,134 @@ TEST_CASE("une texture de profondeur se compare dans un shader, sur le backend W
         REQUIRE(image.has_value());
         CAPTURE(stored);
         CHECK(static_cast<int>(image->rgba[0]) == expected);
+    }
+}
+
+TEST_CASE("un compute écrit une cubemap face par face, qu'un shader relit, sur le backend WebGPU")
+{
+    // Le layout de NVRHI ne dit ni qu'une texture est un cube ni le format d'une storage texture :
+    // le backend le déduit des ressources et du WGSL (backend.hpp, BindingHint).
+    const nvrhi::DeviceHandle device = webGpuDevice();
+    const std::string writeWgsl = R"(
+@binding(384) @group(0) var faces : texture_storage_2d_array<rgba16float, write>;
+
+@compute @workgroup_size(1) fn computeMain(@builtin(global_invocation_id) id : vec3<u32>) {
+    let face = f32(id.z) / 5.0;
+    textureStore(faces, id.xy, i32(id.z), vec4<f32>(face, 1.0 - face, 0.5, 1.0));
+}
+)";
+    const std::string readWgsl = R"(
+@binding(0) @group(0) var cube : texture_cube<f32>;
+@binding(128) @group(0) var cubeSampler : sampler;
+
+@vertex fn vertexMain(@builtin(vertex_index) index : u32) -> @builtin(position) vec4<f32> {
+    let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+
+@fragment fn fragmentMain(@builtin(position) position : vec4<f32>) -> @location(0) vec4<f32> {
+    // Les six faces dans l'ordre de leurs couches : +x, -x, +y, -y, +z, -z.
+    var directions = array<vec3<f32>, 6>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(-1.0, 0.0, 0.0),
+                                         vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, -1.0, 0.0),
+                                         vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, -1.0));
+    return textureSampleLevel(cube, cubeSampler, directions[u32(position.x)], 0.0);
+}
+)";
+    const nvrhi::ShaderHandle writeShader = device->createShader(
+        nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Compute).setEntryName("computeMain"),
+        writeWgsl.data(), writeWgsl.size());
+    const nvrhi::ShaderHandle vertexShader = device->createShader(
+        nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex).setEntryName("vertexMain"),
+        readWgsl.data(), readWgsl.size());
+    const nvrhi::ShaderHandle pixelShader = device->createShader(
+        nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel).setEntryName("fragmentMain"),
+        readWgsl.data(), readWgsl.size());
+    REQUIRE(writeShader);
+    REQUIRE(vertexShader);
+    REQUIRE(pixelShader);
+
+    const nvrhi::TextureHandle cube =
+        device->createTexture(nvrhi::TextureDesc()
+                                  .setDimension(nvrhi::TextureDimension::TextureCube)
+                                  .setWidth(4)
+                                  .setHeight(4)
+                                  .setArraySize(6)
+                                  .setFormat(nvrhi::Format::RGBA16_FLOAT)
+                                  .setIsUAV(true)
+                                  .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                  .setKeepInitialState(true)
+                                  .setDebugName("cube"));
+    nvrhi::BindingLayoutDesc writeLayoutDesc;
+    writeLayoutDesc.visibility = nvrhi::ShaderType::Compute;
+    writeLayoutDesc.bindings = {nvrhi::BindingLayoutItem::Texture_UAV(0)};
+    const nvrhi::BindingLayoutHandle writeLayout = device->createBindingLayout(writeLayoutDesc);
+    const nvrhi::BindingSetHandle writeBindings = device->createBindingSet(
+        nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::Texture_UAV(0, cube)), writeLayout);
+    const nvrhi::ComputePipelineHandle writePipeline = device->createComputePipeline(
+        nvrhi::ComputePipelineDesc().setComputeShader(writeShader).addBindingLayout(writeLayout));
+    REQUIRE(writeBindings);
+    REQUIRE(writePipeline);
+
+    nvrhi::BindingLayoutDesc readLayoutDesc;
+    readLayoutDesc.visibility = nvrhi::ShaderType::Pixel;
+    readLayoutDesc.bindings = {nvrhi::BindingLayoutItem::Texture_SRV(0),
+                               nvrhi::BindingLayoutItem::Sampler(0)};
+    const nvrhi::BindingLayoutHandle readLayout = device->createBindingLayout(readLayoutDesc);
+    const nvrhi::SamplerHandle sampler = device->createSampler(nvrhi::SamplerDesc());
+    const nvrhi::BindingSetHandle readBindings =
+        device->createBindingSet(nvrhi::BindingSetDesc()
+                                     .addItem(nvrhi::BindingSetItem::Texture_SRV(0, cube))
+                                     .addItem(nvrhi::BindingSetItem::Sampler(0, sampler)),
+                                 readLayout);
+    const nvrhi::TextureHandle target =
+        device->createTexture(nvrhi::TextureDesc()
+                                  .setWidth(6)
+                                  .setHeight(1)
+                                  .setFormat(nvrhi::Format::RGBA8_UNORM)
+                                  .setIsRenderTarget(true)
+                                  .setInitialState(nvrhi::ResourceStates::RenderTarget)
+                                  .setKeepInitialState(true)
+                                  .setDebugName("faces lues"));
+    const nvrhi::FramebufferHandle framebuffer =
+        device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(target));
+    nvrhi::GraphicsPipelineDesc readPipelineDesc;
+    readPipelineDesc.VS = vertexShader;
+    readPipelineDesc.PS = pixelShader;
+    readPipelineDesc.addBindingLayout(readLayout);
+    readPipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+    readPipelineDesc.renderState.depthStencilState.depthTestEnable = false;
+    const nvrhi::GraphicsPipelineHandle readPipeline =
+        device->createGraphicsPipeline(readPipelineDesc, framebuffer->getFramebufferInfo());
+    REQUIRE(readBindings);
+    REQUIRE(readPipeline);
+
+    const nvrhi::CommandListHandle commandList = device->createCommandList();
+    commandList->open();
+    nvrhi::ComputeState compute;
+    compute.pipeline = writePipeline;
+    compute.addBindingSet(writeBindings);
+    commandList->setComputeState(compute);
+    commandList->dispatch(4, 4, 6);
+    nvrhi::GraphicsState graphics;
+    graphics.pipeline = readPipeline;
+    graphics.framebuffer = framebuffer;
+    graphics.viewport.addViewportAndScissorRect(framebuffer->getFramebufferInfo().getViewport());
+    graphics.addBindingSet(readBindings);
+    commandList->setGraphicsState(graphics);
+    commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+    const nvrhi::StagingTextureHandle staging =
+        levain::render::copyForReadback(*device, *commandList, *target);
+    commandList->close();
+    device->executeCommandList(commandList);
+    const auto image = levain::render::readBack(*device, *staging);
+    REQUIRE(image.has_value());
+    for (int face = 0; face < 6; ++face)
+    {
+        CAPTURE(face);
+        const float expected = static_cast<float>(face) / 5.0f;
+        CHECK(std::abs(static_cast<float>(image->rgba[(face * 4) + 0]) - (expected * 255.0f)) <=
+              2.0f);
+        CHECK(std::abs(static_cast<float>(image->rgba[(face * 4) + 1]) -
+                       ((1.0f - expected) * 255.0f)) <= 2.0f);
     }
 }
