@@ -33,6 +33,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/texture.hpp`](include/levain/render/texture.hpp) | `TextureLevel`, `createTexture` — une texture sRGB et tous ses niveaux de mip ; `SamplerSettings`, `createSampler`, `clampAnisotropy` |
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
 | [`include/levain/render/shadows.hpp`](include/levain/render/shadows.hpp) | `CascadeSettings`, `cascadeSplitsOf`, `cascadesOf` — les tranches de profondeur et les projections du soleil des ombres en cascades |
+| [`include/levain/render/environment.hpp`](include/levain/render/environment.hpp) | `createEnvironment` — l'HDRI du ciel converti en cubemap, mips comprises, pour l'éclairage par l'image |
 | [`include/levain/render/tonemap.hpp`](include/levain/render/tonemap.hpp) | `HdrFormat`, `createTonemapPass`, `ensureHdrTarget`, `tonemap` — l'image HDR et sa passe vers la swapchain |
 | [`include/levain/render/skinning.hpp`](include/levain/render/skinning.hpp) | `SkinnedVertex`, `createSkinningPass`, `createSkinnedMesh`, `skinMesh` — le skinning en compute |
 | [`include/levain/render/light_clusters.hpp`](include/levain/render/light_clusters.hpp) | `PointLight`, `ClusterGrid`, `createLightClusterPass`, `assignLightsToClusters` — le tri des lumières ponctuelles en clusters (forward+) ; `lightsPerClusterOf`, sa référence CPU |
@@ -201,6 +202,19 @@ long de sa normale à la lecture. Le bord de l'ombre est adouci par un **PCF** (
 3 × 3 comparaisons voisines, chacune déjà filtrée sur 2 × 2 texels, gardées dans le quart de leur cascade. Le
 sandbox mesure le temps GPU de la passe d'ombres et le donne à la fin (« ombres : … ms GPU »). La scène `shadow` du test de fumée vérifie l'ombre d'un cube sur un sol.
 
+## L'environnement de l'éclairage par l'image
+
+L'**éclairage par l'image** (IBL, M5.4) éclaire la scène par le ciel tout entier, et non plus par une ambiance
+uniforme. Le ciel est une **HDRI** : une photo à 360° en équirectangulaire (la longitude en largeur, la latitude en
+hauteur), en lumière linéaire. `createEnvironment` la convertit au chargement en **cubemap**, six faces carrées
+que le GPU lit sans la déformation des pôles, puis calcule ses **niveaux de mip** : chacun est la moyenne 2 × 2 du
+précédent, d'une seule lecture bilinéaire au coin des quatre texels. Les deux passes sont des computes
+(`shaders/environment.slang`) qui écrivent la cubemap face par face, comme un tableau de six textures 2D.
+
+`levain_environment` (tests `gpu.environment.*`) la vérifie sur Vulkan et sur WebGPU : une image dont chaque pixel
+vaut sa propre direction doit donner une cubemap dont chaque texel vaut la sienne, à tous les niveaux. Une face mal
+orientée par rapport au GPU s'y voit dès le premier mip, que le GPU calcule en lisant la cubemap comme un cube.
+
 ## L'image HDR et le tonemapping
 
 La scène ne se dessine plus dans la swapchain mais dans une **image HDR** (`HdrFormat`, 16 bits flottants par
@@ -243,3 +257,6 @@ que quand le GPU a fini la frame, d'où l'anneau de trois requêtes de `GpuTimer
 | **Unreal** | `TextureGroup`, `r.MaxAnisotropy` | L'anisotropie se règle par groupe de textures, plafonnée par un réglage global (**documenté** : sources publiques). |
 | **Unity** | Texture Importer, *Aniso Level* ; `QualitySettings.anisotropicFiltering` | Un niveau par texture, que les réglages de qualité peuvent forcer (**documenté** : manuel). |
 | **Godot** | `MultiMeshInstance3D` | Un mesh dessiné en N exemplaires par un seul draw (**documenté** : docs officielles). |
+| **Unity** | Texture Importer, *Texture Shape : Cube*, *Mapping : Latitude-Longitude Layout* | L'HDRI équirectangulaire convertie en cubemap à l'import (**documenté** : manuel). |
+| **Godot** | `PanoramaSkyMaterial`, `Sky.radiance_size` | L'HDRI gardée en panorama, d'où Godot calcule une carte de radiance par niveaux de rugosité (**documenté** : docs officielles). |
+| **Unreal** | `SkyLight`, *Source Type : SLS Specified Cubemap* | Une cubemap, importée depuis une HDRI, éclaire la scène (**documenté** : documentation d'Epic). |
