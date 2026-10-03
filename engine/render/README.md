@@ -33,6 +33,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/texture.hpp`](include/levain/render/texture.hpp) | `TextureLevel`, `createTexture` — une texture sRGB et tous ses niveaux de mip ; `SamplerSettings`, `createSampler`, `clampAnisotropy` |
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
 | [`include/levain/render/shadows.hpp`](include/levain/render/shadows.hpp) | `CascadeSettings`, `cascadeSplitsOf`, `cascadesOf` — les tranches de profondeur et les projections du soleil des ombres en cascades |
+| [`include/levain/render/culling.hpp`](include/levain/render/culling.hpp) | `frustumOf`, `isOutside`, `transformed` — le frustum culling : ne pas soumettre ce que la caméra ne verra pas |
 | [`include/levain/render/environment.hpp`](include/levain/render/environment.hpp) | `createEnvironment` — l'HDRI du ciel converti en cubemap, mips comprises, puis l'irradiance, le spéculaire préfiltré et la table de la BRDF de l'éclairage par l'image |
 | [`include/levain/render/sky.hpp`](include/levain/render/sky.hpp) | `createSkyPass`, `drawSky` — le ciel de l'environnement en fond, là où aucun mesh n'est dessiné |
 | [`include/levain/render/tonemap.hpp`](include/levain/render/tonemap.hpp) | `HdrFormat`, `createTonemapPass`, `ensureHdrTarget`, `tonemap` — l'image HDR et sa passe vers la swapchain |
@@ -275,6 +276,16 @@ Cette passe applique l'**exposition** (`--exposure` dans le sandbox : 2 éclaire
 
 `--tonemap clip|aces|agx|neutral` choisit dans le sandbox.
 
+## Le frustum culling
+
+Chaque mesh connaît la boîte de ses sommets (`Mesh::bounds`, calculée par `createMesh`), et ses instances la
+plage de leurs positions (`Instances::offsetBounds`). `worldBoundsOf` en tire la boîte du dessin dans le monde (la
+méthode d'Arvo, `transformed`), et `isOutside` la teste contre les six plans du volume de vue, que `frustumOf` lit
+directement dans la matrice vue-projection (Gribb et Hartmann). Une boîte qui touche le volume est dessinée : le
+test peut garder un objet invisible, jamais écarter un objet visible. Le sandbox écarte ainsi les dessins hors
+champ, pour la caméra comme pour chaque cascade d'ombres, et compte ce qu'il a épargné (« culling, par image »).
+Un mesh skinné n'a pas de boîte, l'animation la déformerait : il est toujours dessiné.
+
 ## Se comparer au glTF Sample Viewer
 
 `tools/khronos-compare.sh <dossier> [ibl|direct]` mesure l'écart avec la référence de Khronos, sous le ciel
@@ -315,6 +326,9 @@ que quand le GPU a fini la frame, d'où l'anneau de trois requêtes de `GpuTimer
 | **Unity** | GPU Instancing, Frame Timing Manager | Instancing activé par matériau ; temps GPU par frame (**documenté** : manuel). |
 | **Unreal** | `TextureGroup`, `r.MaxAnisotropy` | L'anisotropie se règle par groupe de textures, plafonnée par un réglage global (**documenté** : sources publiques). |
 | **Unity** | Texture Importer, *Aniso Level* ; `QualitySettings.anisotropicFiltering` | Un niveau par texture, que les réglages de qualité peuvent forcer (**documenté** : manuel). |
+| **Unreal** | `FSceneRenderer::ComputeViewVisibility` | Frustum culling sur les boîtes des primitives, puis occlusion (**documenté** : sources publiques). |
+| **Unity** | `CullingResults` (SRP) | La caméra rend la liste de ce qui touche son volume, avant tout dessin (**documenté** : manuel du SRP). |
+| **Godot** | `RendererSceneCull` | Culling par instance, avec ses boîtes, dans une structure spatiale (**documenté** : dépôt public). |
 | **Godot** | `MultiMeshInstance3D` | Un mesh dessiné en N exemplaires par un seul draw (**documenté** : docs officielles). |
 | **Unity** | Texture Importer, *Texture Shape : Cube*, *Mapping : Latitude-Longitude Layout* | L'HDRI équirectangulaire convertie en cubemap à l'import (**documenté** : manuel). |
 | **Godot** | `PanoramaSkyMaterial`, `Sky.radiance_size` | L'HDRI gardée en panorama, d'où Godot calcule une carte de radiance par niveaux de rugosité (**documenté** : docs officielles). |

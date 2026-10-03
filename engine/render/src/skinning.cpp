@@ -80,6 +80,8 @@ SkinnedMesh createSkinnedMesh(nvrhi::IDevice& device, nvrhi::ICommandList& comma
                                                .setKeepInitialState(true)
                                                .setDebugName("skinning : indices")),
         .indexCount = static_cast<std::uint32_t>(indices.size()),
+        // Sans boîte : l'animation la déformerait, et le culling écarterait un bras levé.
+        .bounds = std::nullopt,
     };
     mesh.bindings = device.createBindingSet(
         nvrhi::BindingSetDesc()

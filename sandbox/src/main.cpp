@@ -48,6 +48,7 @@
 #include "levain/input/state.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/camera.hpp"
+#include "levain/render/culling.hpp"
 #include "levain/render/gpu_timer.hpp"
 #include "levain/render/light_clusters.hpp"
 #include "levain/render/mesh.hpp"
@@ -124,6 +125,13 @@ struct GpuTimeAverage
 {
     double totalMs = 0.0;
     int samples = 0;
+};
+
+/// Ce que le frustum culling (#132) a laissé passer et écarté, depuis le début de la boucle.
+struct CullingCount
+{
+    std::uint64_t drawn = 0;
+    std::uint64_t culled = 0;
 };
 
 double averageOf(const GpuTimeAverage& average)
@@ -270,6 +278,8 @@ struct DemoScene
     SkinningCost skinningCost;
     levain::render::GpuTimer shadowTimer; ///< La seule passe d'ombres : le critère de M5.3 (#129).
     GpuTimeAverage shadowGpu;
+    CullingCount cameraCulling;
+    CullingCount shadowCulling; ///< Les quatre cascades ensemble.
     nvrhi::TextureHandle depth; ///< Créé à la première frame, à la taille de l'image.
 };
 
@@ -1165,6 +1175,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .skinningCost = {},
                      .shadowTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .shadowGpu = {},
+                     .cameraCulling = {},
+                     .shadowCulling = {},
                      .depth = {}};
 }
 
@@ -1268,13 +1280,29 @@ void animateModels(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, Dem
 
 /// Ce que l'image dessine : les cubes, le sol, et le modèle glTF nœud par nœud, chaque primitive
 /// avec son matériau et sa matrice monde. `draw(mesh, instances, matériau, modèle)` est appelé pour
-/// chacun : par la passe d'ombres, puis par la passe des meshes.
-template <typename Draw> void forEachDraw(DemoScene& scene, double seconds, Draw&& draw)
+/// chacun de ceux qui touchent `frustum` : par la passe d'ombres, puis par la passe des meshes. Les
+/// autres sont comptés dans `count`, sans être soumis au GPU.
+template <typename Draw>
+void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum& frustum,
+                 CullingCount& count, Draw&& draw)
 {
+    const auto drawIfVisible = [&](const levain::render::Mesh& mesh,
+                                   const levain::render::Instances& instances,
+                                   nvrhi::IBindingSet& material, const glm::mat4& model)
+    {
+        if (const auto box = levain::render::worldBoundsOf(mesh, instances, model);
+            box && levain::render::isOutside(frustum, *box))
+        {
+            ++count.culled;
+            return;
+        }
+        ++count.drawn;
+        draw(mesh, instances, material, model);
+    };
     if (scene.demoProps)
     {
-        draw(scene.cube, scene.grid, *scene.material, cubeRotation(seconds));
-        draw(scene.ground, scene.groundInstance, *scene.material, glm::mat4{1.0f});
+        drawIfVisible(scene.cube, scene.grid, *scene.material, cubeRotation(seconds));
+        drawIfVisible(scene.ground, scene.groundInstance, *scene.material, glm::mat4{1.0f});
     }
     scene.modelParts.each(
         [&](const levain::assets::MeshRef& part, const levain::scene::WorldTransform& world)
@@ -1282,9 +1310,10 @@ template <typename Draw> void forEachDraw(DemoScene& scene, double seconds, Draw
             const ModelGpu& model = scene.models.at(part.mesh.asset);
             for (const ModelPrimitiveGpu& primitive : model.meshes[part.mesh.sub])
             {
-                draw(primitive.mesh, scene.modelInstance,
-                     primitive.material ? *model.materials[*primitive.material] : *scene.material,
-                     world.matrix);
+                drawIfVisible(primitive.mesh, scene.modelInstance,
+                              primitive.material ? *model.materials[*primitive.material]
+                                                 : *scene.material,
+                              world.matrix);
             }
         });
 }
@@ -1380,7 +1409,8 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         for (std::uint32_t cascade = 0; cascade < levain::render::CascadeCount; ++cascade)
         {
             forEachDraw(
-                scene, seconds,
+                scene, seconds, levain::render::frustumOf(cascades[cascade].viewProjection),
+                scene.shadowCulling,
                 [&](const levain::render::Mesh& mesh, const levain::render::Instances& instances,
                     nvrhi::IBindingSet&, const glm::mat4& model)
                 {
@@ -1389,7 +1419,8 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
                 });
         }
         levain::render::endGpuTimer(commandList, scene.shadowTimer);
-        forEachDraw(scene, seconds,
+        forEachDraw(scene, seconds, levain::render::frustumOf(constants.viewProjection),
+                    scene.cameraCulling,
                     [&](const levain::render::Mesh& mesh,
                         const levain::render::Instances& instances, nvrhi::IBindingSet& material,
                         const glm::mat4& model)
@@ -2000,6 +2031,17 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
     levain::core::log("sandbox", levain::core::LogLevel::Info,
                       "ombres : {:.3f} ms GPU en moyenne sur {} mesures",
                       averageOf(loop.scene.shadowGpu), loop.scene.shadowGpu.samples);
+    // Le critère de #132 : ce que le frustum culling épargne au GPU, par image.
+    const auto perFrame = [&loop](std::uint64_t count)
+    { return static_cast<double>(count) / std::max(loop.frameCount, 1); };
+    const CullingCount& camera = loop.scene.cameraCulling;
+    const CullingCount& shadows = loop.scene.shadowCulling;
+    levain::core::log(
+        "sandbox", levain::core::LogLevel::Info,
+        "culling, par image : caméra {:.1f} dessins écartés sur {:.1f}, ombres {:.1f} "
+        "sur {:.1f} (4 cascades)",
+        perFrame(camera.culled), perFrame(camera.culled + camera.drawn), perFrame(shadows.culled),
+        perFrame(shadows.culled + shadows.drawn));
     const SkinningCost& skinning = loop.scene.skinningCost;
     if (skinning.frames > 0)
     {

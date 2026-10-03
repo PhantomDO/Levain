@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace levain::render
 {
@@ -28,7 +29,12 @@ Mesh createMesh(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
                                                .setKeepInitialState(true)
                                                .setDebugName("mesh : indices")),
         .indexCount = static_cast<std::uint32_t>(indices.size()),
+        .bounds = {},
     };
+    std::vector<glm::vec3> positions(vertices.size());
+    std::ranges::transform(vertices, positions.begin(),
+                           [](const MeshVertex& vertex) { return vertex.position; });
+    mesh.bounds = boundsOf(positions);
 
     // writeBuffer passe par un buffer d'envoi interne à NVRHI, qui place aussi les barrières (E1,
     // §4).
@@ -49,6 +55,7 @@ Instances createInstances(nvrhi::IDevice& device, nvrhi::ICommandList& commandLi
                                            .setDebugName("instances : positions")),
         .count = static_cast<std::uint32_t>(offsets.size()),
         .capacity = static_cast<std::uint32_t>(offsets.size()),
+        .offsetBounds = boundsOf(offsets),
     };
     commandList.writeBuffer(instances.offsets, offsets.data(), offsets.size_bytes());
     return instances;
@@ -65,6 +72,19 @@ void updateInstances(nvrhi::ICommandList& commandList, Instances& instances,
     // la barrière entre les deux, et le GPU n'écrase pas ce qu'une frame précédente lit encore.
     commandList.writeBuffer(instances.offsets, drawn.data(), drawn.size_bytes());
     instances.count = static_cast<std::uint32_t>(drawn.size());
+    instances.offsetBounds = boundsOf(drawn);
+}
+
+std::optional<Box> worldBoundsOf(const Mesh& mesh, const Instances& instances,
+                                 const glm::mat4& model)
+{
+    if (!mesh.bounds)
+    {
+        return std::nullopt;
+    }
+    const Box placed = transformed(*mesh.bounds, model);
+    return Box{.min = placed.min + instances.offsetBounds.min,
+               .max = placed.max + instances.offsetBounds.max};
 }
 
 /// Les coordonnées de texture des quatre coins d'une face carrée, dans l'ordre où createCube et

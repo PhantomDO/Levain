@@ -1,10 +1,13 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
+
+#include "levain/render/culling.hpp"
 
 namespace levain::render
 {
@@ -32,6 +35,9 @@ struct Mesh
     nvrhi::BufferHandle vertexBuffer;
     nvrhi::BufferHandle indexBuffer;
     std::uint32_t indexCount = 0;
+    /// La boîte de ses sommets, pour le culling. Absente pour un mesh skinné, que l'animation
+    /// déforme : il n'est jamais écarté.
+    std::optional<Box> bounds;
 };
 
 /// Les copies d'un mesh dessinées en un seul appel (instancing) : une position par instance, lue
@@ -45,6 +51,7 @@ struct Instances
     nvrhi::BufferHandle offsets;
     std::uint32_t count = 0;    ///< Instances dessinées.
     std::uint32_t capacity = 0; ///< Positions que le buffer peut contenir.
+    Box offsetBounds;           ///< La boîte des positions dessinées.
 };
 
 /// Crée le buffer des positions, à la taille de `offsets`, et enregistre son envoi dans
@@ -56,6 +63,12 @@ struct Instances
 /// de la capacité du buffer, les positions en trop ne sont pas dessinées.
 void updateInstances(nvrhi::ICommandList& commandList, Instances& instances,
                      std::span<const glm::vec3> offsets);
+
+/// La boîte, dans le monde, de toutes les instances de `mesh` placées par `model` : la boîte du
+/// mesh transformée, puis étirée de l'écart entre les positions des instances, que le shader ajoute
+/// après la matrice. Absente si le mesh n'a pas de boîte.
+[[nodiscard]] std::optional<Box> worldBoundsOf(const Mesh& mesh, const Instances& instances,
+                                               const glm::mat4& model);
 
 /// Crée les buffers et enregistre l'envoi des données dans `commandList`, que l'appelant a ouverte
 /// et exécutera avant le premier dessin.
