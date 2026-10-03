@@ -3,6 +3,23 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Hors écran, rien ne freine la boucle : la fermeture attend tout (2026-10-03)
+
+- **Symptôme** : en CI Debug, `levain_sandbox --gpu webgpu --model …/Sponza.gltf` affiche « fenêtre fermée »,
+  puis ne sort plus, jusqu'au SIGKILL de `timeout` (code 137), deux minutes plus tard. En local, rien.
+- **Cause** : le WebGPU natif rend hors écran, sans swapchain. `presentFrame` rendait la main tout de suite, et
+  le CPU empilait des images bien plus vite que lavapipe ne les rendait (une image de Sponza en Debug prend des
+  secondes). À la fermeture, Dawn attend que tout ce qui a été soumis soit fini.
+- **Parade** : `presentFrame` attend le GPU quand il n'y a pas de swapchain (`waitForIdle`) : une image en vol.
+  Un temps de sortie qui croît avec la durée de la boucle trahit le même défaut.
+
+## Un itérateur de libc++ n'est pas un pointeur (2026-10-03)
+
+- **Symptôme** : `const auto* found = std::ranges::find(tableau, …)` compile avec libstdc++, pas dans le build
+  web (Emscripten, libc++) : « incompatible initializer of type `__wrap_iter<…>` ».
+- **Cause** : l'itérateur d'un `std::array` est un pointeur chez libstdc++, une classe chez libc++.
+- **Parade** : `const auto found`, et lancer le build web avant de pousser une modification du sandbox.
+
 ## Une texture comparée doit être une `DepthTexture2D` pour le WGSL (2026-10-02)
 
 - **Symptôme** : `Texture2D shadowAtlas` lu par `SampleCmpLevelZero` compile en SPIR-V, mais Slang écrit en WGSL
@@ -10,7 +27,7 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   compare.
 - **Cause** : en HLSL, rien ne distingue une texture de profondeur ; Slang ne le devine pas.
 - **Parade** : `DepthTexture2D` (type de Slang) : `texture_depth_2d` en WGSL, et le même SPIR-V. Le backend WebGPU
-  déduit ensuite le layout de cette déclaration (`DepthBinding`).
+  déduit ensuite le layout de cette déclaration (`BindingHint`).
 
 ## Un `float3` après un scalaire, dans un constant buffer : 16 octets de trop en WGSL (2026-10-02)
 
