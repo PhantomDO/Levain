@@ -33,6 +33,7 @@ struct Scene
     levain::gpu::WebGpuCanvasHandle canvas;
     levain::render::LightClusterPass clusters;
     levain::render::ShadowPass shadows;
+    levain::render::FrameBindings frame;
     levain::render::MeshPass meshPass;
     nvrhi::TextureHandle texture;
     nvrhi::SamplerHandle sampler;
@@ -83,8 +84,13 @@ void createScene(nvrhi::DeviceHandle device)
         fail(environment.error().message);
         return;
     }
-    auto meshPass =
-        levain::render::createMeshPass(*device, target, *clusters, *shadows, *environment);
+    auto frame = levain::render::createFrameBindings(*device, *clusters, *shadows, *environment);
+    if (!frame)
+    {
+        fail(frame.error().message);
+        return;
+    }
+    auto meshPass = levain::render::createMeshPass(*device, target, *frame);
     auto image = levain::assets::loadImage("/data/rgbw-2x2.png");
     if (!meshPass || !image)
     {
@@ -105,6 +111,7 @@ void createScene(nvrhi::DeviceHandle device)
                   .canvas = std::move(*canvas),
                   .clusters = std::move(*clusters),
                   .shadows = std::move(*shadows),
+                  .frame = std::move(*frame),
                   .meshPass = std::move(*meshPass),
                   .texture = {},
                   .sampler = levain::render::createSampler(*device, {}),
@@ -170,9 +177,9 @@ void frame()
     levain::render::clearShadows(commandList, scene->shadows);
     std::ignore =
         levain::render::assignLightsToClusters(commandList, scene->clusters, {}, lighting.view);
-    levain::render::setFrameLighting(commandList, scene->meshPass, scene->clusters, scene->shadows,
+    levain::render::setFrameLighting(commandList, scene->frame, scene->clusters, scene->shadows,
                                      lighting);
-    levain::render::drawMesh(commandList, scene->meshPass, *framebuffer, scene->cube,
+    levain::render::drawMesh(commandList, scene->meshPass, scene->frame, *framebuffer, scene->cube,
                              scene->instances, *scene->material, constants);
     commandList.close();
     scene->device->executeCommandList(&commandList);

@@ -34,6 +34,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
 | [`include/levain/render/shadows.hpp`](include/levain/render/shadows.hpp) | `CascadeSettings`, `cascadeSplitsOf`, `cascadesOf` — les tranches de profondeur et les projections du soleil des ombres en cascades |
 | [`include/levain/render/culling.hpp`](include/levain/render/culling.hpp) | `frustumOf`, `isOutside`, `transformed` — le frustum culling : ne pas soumettre ce que la caméra ne verra pas |
+| [`include/levain/render/frame.hpp`](include/levain/render/frame.hpp) | `FrameBindings`, `createFrameBindings`, `setFrameLighting` — les ressources de l'image (space0), partagées par les meshes et les passes des plugins (ADR-0025) |
 | [`include/levain/render/environment.hpp`](include/levain/render/environment.hpp) | `createEnvironment` — l'HDRI du ciel converti en cubemap, mips comprises, puis l'irradiance, le spéculaire préfiltré et la table de la BRDF de l'éclairage par l'image |
 | [`include/levain/render/sky.hpp`](include/levain/render/sky.hpp) | `createSkyPass`, `drawSky` — le ciel de l'environnement en fond, là où aucun mesh n'est dessiné |
 | [`include/levain/render/tonemap.hpp`](include/levain/render/tonemap.hpp) | `HdrFormat`, `createTonemapPass`, `ensureHdrTarget`, `tonemap` — l'image HDR et sa passe vers la swapchain |
@@ -167,7 +168,9 @@ de glTF, *metallic-roughness* :
 La BRDF est celle de Cook-Torrance, la même que dans Unreal, Unity et Godot : une distribution des micro-facettes
 (GGX), leur ombrage mutuel (Smith « height-correlated ») et la part réfléchie selon l'angle (Fresnel, approximation
 de Schlick), plus le diffus de Lambert pour la lumière qui entre dans la matière. Ces termes vivent dans
-`shaders/brdf.slang`, partagé par l'éclairage direct et le précalcul de l'IBL. Comme le veut l'annexe B de la
+`shaders/brdf.slang`, partagé par l'éclairage direct et le précalcul de l'IBL. Tout l'éclairage d'une surface
+(`shadeSurface`) vit dans `shaders/lighting.slang`, avec les ressources de space0 qu'il lit (`FrameBindings`) :
+les meshes l'incluent, comme le feront les passes des plugins (ADR-0025). Comme le veut l'annexe B de la
 spécification glTF, `metallic` mélange deux BRDF entières, celle d'un diélectrique (F0 de 0,04) et celle d'un métal
 (F0 = sa couleur), et non leurs F0 : avec un F0 mélangé, une surface à moitié métallique perdait deux fois sa part
 diffuse (#125). Les lumières :
