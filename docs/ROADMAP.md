@@ -416,6 +416,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0010 | Boucle à pas fixe et interpolation | M3.3 |
 | 0011 | Identifiants d'assets et format `.meta` | M4.2 |
 | 0024 | Forward ou forward+ (forward+ en clusters) | M5.1 |
+| 0025 | Des passes de rendu venues d'un plugin (registre par étape, éclairage partagé) | M5.6 |
 | 0013 | Réflexion des composants (addon meta de flecs) | M7.2 |
 
 ## Numérotation des ADR
