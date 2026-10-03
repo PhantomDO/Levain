@@ -2022,10 +2022,11 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
         const levain::terrain::TerrainStats& camera = loop.scene.terrainCamera;
         const levain::terrain::TerrainStats& shadows = loop.scene.terrainShadows;
         levain::core::log("sandbox", levain::core::LogLevel::Info,
-                          "terrain, par image : {:.1f} parcelles dessinées sur {:.1f}, ombres "
-                          "{:.1f} sur {:.1f} (4 cascades)",
+                          "terrain, par image : {:.1f} parcelles dessinées sur {:.1f} et {:.0f} "
+                          "triangles, ombres {:.1f} sur {:.1f} (4 cascades) et {:.0f} triangles",
                           perFrame(camera.drawn), perFrame(camera.drawn + camera.culled),
-                          perFrame(shadows.drawn), perFrame(shadows.drawn + shadows.culled));
+                          perFrame(camera.triangles), perFrame(shadows.drawn),
+                          perFrame(shadows.drawn + shadows.culled), perFrame(shadows.triangles));
     }
     const SkinningCost& skinning = loop.scene.skinningCost;
     if (skinning.frames > 0)

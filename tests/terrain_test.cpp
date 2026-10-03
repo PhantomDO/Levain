@@ -123,3 +123,35 @@ TEST_CASE("les poids des couches font 1 : l'herbe au fond et à plat, la roche d
     CHECK(cliff.z == doctest::Approx(1.0f)); // roche
     CHECK(ridge.y == doctest::Approx(1.0f)); // sol rocailleux
 }
+
+TEST_CASE("la grille d'une parcelle et sa jupe : chaque bord doublé en dessous, la grille tournée "
+          "vers le haut")
+{
+    constexpr std::uint32_t Quads = 4;
+    const levain::terrain::PatchGeometry geometry = levain::terrain::patchGeometryOf(Quads);
+    // 5 × 5 sommets de grille, et un sommet de jupe sous chacun des 16 sommets du tour.
+    CHECK(geometry.vertices.size() == (std::size_t{5} * 5) + 16);
+    // 2 triangles par carré, et 2 par segment du tour.
+    CHECK(geometry.indices.size() == ((std::size_t{4} * 4 * 2) + (std::size_t{16} * 2)) * 3);
+    std::size_t skirts = 0;
+    for (const levain::terrain::GridVertex& vertex : geometry.vertices)
+    {
+        if (vertex.skirt == 1.0f)
+        {
+            ++skirts;
+            // Une jupe est sous un bord : x ou z vaut 0 ou 1.
+            const bool onEdge = vertex.local.x == 0.0f || vertex.local.x == 1.0f ||
+                                vertex.local.y == 0.0f || vertex.local.y == 1.0f;
+            CHECK(onEdge);
+        }
+    }
+    CHECK(skirts == 16);
+    // Le premier triangle de la grille, vu d'en haut, a pour normale +Y.
+    const auto at = [&](std::size_t i)
+    {
+        const glm::vec2 local = geometry.vertices[geometry.indices[i]].local;
+        return glm::vec3{local.x, 0.0f, local.y};
+    };
+    const glm::vec3 normal = glm::cross(at(1) - at(0), at(2) - at(0));
+    CHECK(normal.y > 0.0f);
+}

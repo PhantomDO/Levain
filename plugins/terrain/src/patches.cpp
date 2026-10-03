@@ -46,6 +46,67 @@ std::vector<Patch> patchesFor(const Heightmap& heightmap, glm::vec3 camera, floa
     return patches;
 }
 
+PatchGeometry patchGeometryOf(std::uint32_t quads)
+{
+    const std::uint32_t side = quads + 1;
+    PatchGeometry geometry;
+    geometry.vertices.reserve((std::size_t{side} * side) + (std::size_t{4} * quads));
+    geometry.indices.reserve((std::size_t{quads} * quads * 6) + (std::size_t{4} * quads * 6));
+    for (std::uint32_t z = 0; z < side; ++z)
+    {
+        for (std::uint32_t x = 0; x < side; ++x)
+        {
+            geometry.vertices.push_back(
+                {.local = glm::vec2{x, z} / static_cast<float>(quads), .skirt = 0.0f});
+        }
+    }
+    for (std::uint32_t z = 0; z < quads; ++z)
+    {
+        for (std::uint32_t x = 0; x < quads; ++x)
+        {
+            const std::uint32_t corner = (z * side) + x;
+            geometry.indices.insert(
+                geometry.indices.end(),
+                {corner, corner + side, corner + 1, corner + 1, corner + side, corner + side + 1});
+        }
+    }
+    // Le tour de la parcelle, sommet par sommet : le bord z = 0, puis x = 1, z = 1 et x = 0.
+    std::vector<std::uint32_t> perimeter;
+    perimeter.reserve(std::size_t{4} * quads);
+    for (std::uint32_t i = 0; i < quads; ++i)
+    {
+        perimeter.push_back(i);
+    }
+    for (std::uint32_t i = 0; i < quads; ++i)
+    {
+        perimeter.push_back((i * side) + quads);
+    }
+    for (std::uint32_t i = 0; i < quads; ++i)
+    {
+        perimeter.push_back((quads * side) + quads - i);
+    }
+    for (std::uint32_t i = 0; i < quads; ++i)
+    {
+        perimeter.push_back((quads - i) * side);
+    }
+    // Sous chaque sommet du tour, son double de jupe ; entre deux voisins, deux triangles.
+    const auto firstSkirt = static_cast<std::uint32_t>(geometry.vertices.size());
+    for (const std::uint32_t vertex : perimeter)
+    {
+        geometry.vertices.push_back({.local = geometry.vertices[vertex].local, .skirt = 1.0f});
+    }
+    const auto count = static_cast<std::uint32_t>(perimeter.size());
+    for (std::uint32_t i = 0; i < count; ++i)
+    {
+        const std::uint32_t a = perimeter[i];
+        const std::uint32_t b = perimeter[(i + 1) % count];
+        const std::uint32_t lowA = firstSkirt + i;
+        const std::uint32_t lowB = firstSkirt + ((i + 1) % count);
+        geometry.indices.insert(geometry.indices.end(), {a, b, lowB, a, lowB, lowA});
+    }
+    return geometry;
+}
+
 render::Box patchBoundsOf(const Heightmap& heightmap, glm::uvec2 cell)
 {
     float low = std::numeric_limits<float>::max();

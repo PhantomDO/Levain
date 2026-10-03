@@ -39,6 +39,26 @@ struct Patch
 [[nodiscard]] std::vector<Patch> patchesFor(const Heightmap& heightmap, glm::vec3 camera,
                                             float lod0Distance);
 
+/// Un sommet de la grille d'une parcelle : sa place, de 0 à 1 sur ses deux côtés, et 1 pour un
+/// sommet de jupe, que le shader descend sous le terrain.
+struct GridVertex
+{
+    glm::vec2 local{0.0f};
+    float skirt = 0.0f;
+};
+
+struct PatchGeometry
+{
+    std::vector<GridVertex> vertices;
+    std::vector<std::uint32_t> indices;
+};
+
+/// La grille d'une parcelle à `quads` intervalles par côté, et sa jupe : sur chaque bord, une bande
+/// verticale qui descend sous le terrain. Entre deux parcelles de niveaux différents, les bords ne
+/// tombent pas aux mêmes hauteurs, et la jupe cache la fente. Les triangles de la grille tournent
+/// dans le sens trigonométrique vu d'en haut.
+[[nodiscard]] PatchGeometry patchGeometryOf(std::uint32_t quads);
+
 /// La boîte d'une parcelle, entre la plus basse et la plus haute de ses hauteurs.
 [[nodiscard]] render::Box patchBoundsOf(const Heightmap& heightmap, glm::uvec2 cell);
 

@@ -65,6 +65,7 @@ struct TerrainStats
 {
     std::uint64_t drawn = 0;
     std::uint64_t culled = 0;
+    std::uint64_t triangles = 0; ///< Ceux des parcelles dessinées, jupes comprises.
 };
 
 /// Dessine les parcelles qui touchent le frustum de l'étape, éclairées : l'étape `Opaque`.
