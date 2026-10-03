@@ -207,4 +207,10 @@ TEST_CASE("loadGltf lit les matériaux metallic-roughness et leurs textures de d
           levain::assets::AssetRef{.asset = TestModelId, .sub = 0});
     CHECK(material.normalTexture == levain::assets::AssetRef{.asset = TestModelId, .sub = 1});
     CHECK(model->embeddedImages.size() == 2);
+    // Les deux sont des données, pour le cuiseur : leurs mips se moyennent sur les octets.
+    using levain::assets::ImageEncoding;
+    const std::vector<std::pair<levain::assets::AssetRef, ImageEncoding>> uses{
+        {{.asset = TestModelId, .sub = 0}, ImageEncoding::Linear},
+        {{.asset = TestModelId, .sub = 1}, ImageEncoding::Linear}};
+    CHECK(levain::assets::textureUsesOf(*model) == uses);
 }

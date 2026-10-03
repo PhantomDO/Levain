@@ -99,6 +99,26 @@ Résultat sur Sponza (Release) : **19 ms au lieu de 442** (×23 ; ×7,9 en compt
 de mémoire vidéo au lieu de 128**. L'image rendue s'écarte de celle des sources de 0,64 niveau sur 255 en moyenne
 (PSNR de 48 dB, imperceptible).
 
+## Amendement du 03/10/2026 : couleur ou données
+
+Les mips se moyennaient toujours en lumière linéaire, les octets lus comme du sRGB (M2.2). C'est juste pour une
+couleur, et faux pour une **donnée** : une normal map ou une rugosité-métal. Deux normales penchées en sens
+contraires (64 et 192) donnaient un mip penché (≈ 150) au lieu d'une normale droite (128) : les normales des
+surfaces lointaines penchaient toutes du même côté.
+
+Le cuiseur ne savait pas à quoi sert une image : un PNG de Sponza n'est qu'un fichier pour lui. Sondage du
+03/10 : **il l'apprend des matériaux glTF**, plutôt que d'un réglage à poser dans le `.meta` de chaque normal map.
+
+- Le cuiseur lit d'abord les modèles. `textureUsesOf` donne chaque texture de leurs matériaux avec son
+  encodage : la couleur de base en sRGB, la normal map et la rugosité-métal en données (`ImageEncoding::Linear`).
+- Une image lue comme des données est cuite sous `<guid>.linear.ktx2` et `<guid>.linear.bc7.ktx2`, ses mips
+  moyennées sur les octets. Une image qui sert aux deux usages est cuite deux fois, et une image qu'aucun matériau
+  ne désigne reste une couleur.
+- Au chargement, `loadTextureData` reçoit l'encodage du matériau. Le repli sur la source calcule les mêmes mips.
+
+Unity et Godot font de même à l'import : une texture marquée *Normal map* se filtre et se compresse comme des
+données, et Godot la détecte quand un matériau l'utilise comme telle.
+
 ## Ce que font les autres moteurs
 
 - **Unreal** (documenté, [E2](../etudes/E2-ressources-gpu.md)) : les données dérivées vont dans le *Derived Data

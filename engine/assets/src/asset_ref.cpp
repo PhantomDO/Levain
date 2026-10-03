@@ -149,7 +149,7 @@ core::Result<Image> loadTexture(const AssetRegistry& registry, const ModelCache&
 }
 
 std::optional<std::filesystem::path> cookedTextureStem(const AssetRegistry& registry,
-                                                       AssetRef texture)
+                                                       AssetRef texture, ImageEncoding encoding)
 {
     const auto entry = registry.entries.find(texture.asset);
     if (entry == registry.entries.end())
@@ -158,15 +158,20 @@ std::optional<std::filesystem::path> cookedTextureStem(const AssetRegistry& regi
     }
     const std::filesystem::path extension = entry->second.file.extension();
     const bool embedded = extension == ".gltf" || extension == ".glb";
-    const std::string name = embedded ? std::format("{}.{}", toString(texture.asset), texture.sub)
-                                      : toString(texture.asset);
+    std::string name = embedded ? std::format("{}.{}", toString(texture.asset), texture.sub)
+                                : toString(texture.asset);
+    if (encoding == ImageEncoding::Linear)
+    {
+        name += ".linear";
+    }
     return entry->second.root / ".cooked" / name;
 }
 
 core::Result<TextureData> loadTextureData(const AssetRegistry& registry, const ModelCache& models,
-                                          AssetRef texture, TextureFormat target)
+                                          AssetRef texture, TextureFormat target,
+                                          ImageEncoding encoding)
 {
-    const auto stem = cookedTextureStem(registry, texture);
+    const auto stem = cookedTextureStem(registry, texture, encoding);
     if (!stem)
     {
         return core::makeError(
@@ -207,7 +212,7 @@ core::Result<TextureData> loadTextureData(const AssetRegistry& registry, const M
     {
         return std::unexpected(image.error());
     }
-    return textureDataOf(buildMipChain(std::move(*image)));
+    return textureDataOf(buildMipChain(std::move(*image), encoding));
 }
 
 } // namespace levain::assets

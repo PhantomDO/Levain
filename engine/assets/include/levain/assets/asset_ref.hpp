@@ -67,16 +67,19 @@ struct ModelCache
                                               const ModelCache& models, AssetRef texture);
 
 /// Le nom de base des fichiers cuits d'une texture, dans `.cooked/` (ADR-0020) : `<guid>` pour un
-/// fichier image, `<guid>.<indice>` pour une image embarquée dans un modèle. Vide si l'asset est
-/// inconnu.
-[[nodiscard]] std::optional<std::filesystem::path> cookedTextureStem(const AssetRegistry& registry,
-                                                                     AssetRef texture);
+/// fichier image, `<guid>.<indice>` pour une image embarquée dans un modèle, suivi de `.linear`
+/// pour ses données (une normal map) : ses mips ne sont pas celles de sa version en couleur. Vide
+/// si l'asset est inconnu.
+[[nodiscard]] std::optional<std::filesystem::path>
+cookedTextureStem(const AssetRegistry& registry, AssetRef texture,
+                  ImageEncoding encoding = ImageEncoding::Srgb);
 
 /// Une texture prête pour le GPU, au format `target`, par le chemin le plus rapide qui soit à jour
 /// (ADR-0020) : le cache de la plateforme (`.bc7.ktx2`, rien à faire), sinon le maître UASTC
 /// (`.ktx2`, transcodé), sinon la source (décodée, mips calculées), avec un avertissement.
-[[nodiscard]] core::Result<TextureData> loadTextureData(const AssetRegistry& registry,
-                                                        const ModelCache& models, AssetRef texture,
-                                                        TextureFormat target);
+/// `encoding` dit ce que portent ses octets : une couleur, ou des données (`textureUsesOf`).
+[[nodiscard]] core::Result<TextureData>
+loadTextureData(const AssetRegistry& registry, const ModelCache& models, AssetRef texture,
+                TextureFormat target, ImageEncoding encoding = ImageEncoding::Srgb);
 
 } // namespace levain::assets

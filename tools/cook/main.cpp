@@ -4,15 +4,20 @@
 //   levain_cook data assets-cache
 //
 // Chaque glTF devient <racine>/.cooked/<guid>.lvmesh ; chaque image, et chaque image embarquée
-// dans un glTF, un maître UASTC (<guid>.ktx2) et le cache BC7 du PC (<guid>.bc7.ktx2). Un fichier
-// déjà à jour (même hash de source, même version du cuiseur) n'est pas refait.
+// dans un glTF, un maître UASTC (<guid>.ktx2) et le cache BC7 du PC (<guid>.bc7.ktx2). Une image
+// qu'un matériau lit comme des données (normal map, rugosité-métal) est cuite en <guid>.linear.*,
+// ses mips moyennées sur les octets. Un fichier déjà à jour (même hash de source, même version du
+// cuiseur) n'est pas refait.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <span>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/cooked.hpp"
@@ -41,19 +46,34 @@ fs::path withSuffix(fs::path stem, std::string_view suffix)
     return stem;
 }
 
-/// Cuit une texture (ADR-0020, et son amendement du 24/09) : le maître UASTC, puis le cache BC7 du
-/// PC transcodé depuis lui. Rien n'est refait si le cache est à jour. Rend faux en cas d'échec.
-bool cookTexture(const fs::path& stem, const levain::assets::Image& image, std::uint64_t hash)
+using TextureUses = std::vector<std::pair<levain::assets::AssetRef, levain::assets::ImageEncoding>>;
+
+/// Le cache BC7 de `stem` est-il à jour pour une source de hash `hash` ?
+bool isTextureCooked(const fs::path& stem, std::uint64_t hash)
 {
-    const fs::path master = withSuffix(stem, ".ktx2");
-    const fs::path platform = withSuffix(stem, ".bc7.ktx2");
-    if (levain::assets::readCookedTexture(platform, hash, levain::assets::TextureFormat::Bc7Srgb))
+    return levain::assets::readCookedTexture(withSuffix(stem, ".bc7.ktx2"), hash,
+                                             levain::assets::TextureFormat::Bc7Srgb)
+        .has_value();
+}
+
+/// Cuit une texture (ADR-0020, et son amendement du 24/09) : le maître UASTC, puis le cache BC7 du
+/// PC transcodé depuis lui. Ses mips se moyennent selon `encoding` : une couleur en lumière
+/// linéaire, une donnée (une normal map) sur ses octets. Rien n'est refait si le cache est à jour.
+/// Rend faux en cas d'échec.
+bool cookTexture(const fs::path& stem, const levain::assets::Image& image, std::uint64_t hash,
+                 levain::assets::ImageEncoding encoding)
+{
+    if (isTextureCooked(stem, hash))
     {
         return true;
     }
+    const fs::path master = withSuffix(stem, ".ktx2");
+    const fs::path platform = withSuffix(stem, ".bc7.ktx2");
     const auto start = std::chrono::steady_clock::now();
-    auto written =
-        levain::assets::writeCookedTexture(master, levain::assets::buildMipChain(image), hash);
+    // ponytail: le KTX2 se dit sRGB même pour des données ; personne ne lit cette étiquette, c'est
+    // l'usage (le matériau) qui choisit le format du GPU à l'envoi.
+    auto written = levain::assets::writeCookedTexture(
+        master, levain::assets::buildMipChain(image, encoding), hash);
     if (written)
     {
         written = levain::assets::writePlatformTexture(master, platform,
@@ -70,35 +90,86 @@ bool cookTexture(const fs::path& stem, const levain::assets::Image& image, std::
     return true;
 }
 
-/// Cuit un modèle, s'il n'est pas déjà à jour. Rend faux en cas d'échec.
+/// Les encodages sous lesquels cuire l'image `texture` : ceux de ses usages dans les matériaux, ou
+/// la couleur si aucun matériau ne la désigne.
+std::vector<levain::assets::ImageEncoding> encodingsOf(const TextureUses& uses,
+                                                       levain::assets::AssetRef texture)
+{
+    std::vector<levain::assets::ImageEncoding> encodings;
+    for (const auto& [ref, encoding] : uses)
+    {
+        if (ref == texture && std::ranges::find(encodings, encoding) == encodings.end())
+        {
+            encodings.push_back(encoding);
+        }
+    }
+    if (encodings.empty())
+    {
+        encodings.push_back(levain::assets::ImageEncoding::Srgb);
+    }
+    return encodings;
+}
+
+/// Cuit une image dans chacun des encodages où elle sert. Rend faux en cas d'échec.
+bool cookImage(const levain::assets::AssetRegistry& registry, levain::assets::AssetRef texture,
+               const levain::assets::Image& image, std::uint64_t hash, const TextureUses& uses)
+{
+    for (const levain::assets::ImageEncoding encoding : encodingsOf(uses, texture))
+    {
+        const auto stem = levain::assets::cookedTextureStem(registry, texture, encoding);
+        if (!stem || !cookTexture(*stem, image, hash, encoding))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Cuit un modèle et ses images embarquées, s'ils ne sont pas déjà à jour, et ajoute à `uses` les
+/// usages des textures de ses matériaux. Rend faux en cas d'échec.
 bool cookModel(const levain::assets::AssetRegistry& registry, levain::assets::AssetId id,
-               const levain::assets::AssetEntry& entry)
+               const levain::assets::AssetEntry& entry, TextureUses& uses)
 {
     const fs::path cooked =
         levain::assets::cookedPathOf(registry, id, ".lvmesh").value_or(fs::path{});
-    if (levain::assets::readCookedModel(cooked, entry.hash))
+    if (auto cached = levain::assets::readCookedModel(cooked, entry.hash))
     {
-        log("cook", LogLevel::Info, "à jour : {}", entry.file.string());
-        return true;
+        const TextureUses own = levain::assets::textureUsesOf(*cached);
+        uses.insert(uses.end(), own.begin(), own.end());
+        // Ses images embarquées aussi, dans chacun de leurs usages : une normal map cuite avant
+        // qu'on distingue les données n'a pas encore sa version `.linear`.
+        const bool embeddedCooked = std::ranges::all_of(
+            own,
+            [&](const auto& use)
+            {
+                const auto stem =
+                    levain::assets::cookedTextureStem(registry, use.first, use.second);
+                return use.first.asset != id || (stem && isTextureCooked(*stem, entry.hash));
+            });
+        if (embeddedCooked)
+        {
+            log("cook", LogLevel::Info, "à jour : {}", entry.file.string());
+            return true;
+        }
     }
     const auto start = std::chrono::steady_clock::now();
     auto model = levain::assets::loadGltf(entry.file, id, registry);
-    // Ses images embarquées sont des textures comme les autres, désignées par {GUID, indice}.
-    if (model)
+    if (!model)
     {
-        for (const auto& [index, image] : model->embeddedImages)
+        log("cook", LogLevel::Error, "{}", model.error().message);
+        return false;
+    }
+    const TextureUses own = levain::assets::textureUsesOf(*model);
+    uses.insert(uses.end(), own.begin(), own.end());
+    // Ses images embarquées sont des textures comme les autres, désignées par {GUID, indice}.
+    for (const auto& [index, image] : model->embeddedImages)
+    {
+        if (!cookImage(registry, {.asset = id, .sub = index}, image, entry.hash, own))
         {
-            const auto stem =
-                levain::assets::cookedTextureStem(registry, {.asset = id, .sub = index});
-            if (!stem || !cookTexture(*stem, image, entry.hash))
-            {
-                return false;
-            }
+            return false;
         }
     }
-    auto written = model ? levain::assets::writeCookedModel(cooked, *model, entry.hash)
-                         : std::unexpected(model.error());
-    if (!written)
+    if (auto written = levain::assets::writeCookedModel(cooked, *model, entry.hash); !written)
     {
         log("cook", LogLevel::Error, "{}", written.error().message);
         return false;
@@ -133,26 +204,35 @@ int main(int argc, char** argv)
             }
         }
 
+        // Les modèles d'abord : leurs matériaux disent sous quel encodage cuire chaque image,
+        // couleur ou données (ADR-0020, amendement du 03/10).
         int failures = 0;
         int models = 0;
         int textures = 0;
+        TextureUses uses;
         for (const auto& [id, entry] : registry.entries)
         {
             if (isModel(entry.file))
             {
                 ++models;
-                failures += cookModel(registry, id, entry) ? 0 : 1;
+                failures += cookModel(registry, id, entry, uses) ? 0 : 1;
+            }
+        }
+        for (const auto& [id, entry] : registry.entries)
+        {
+            if (isModel(entry.file))
+            {
                 continue;
             }
             ++textures;
             auto image = levain::assets::loadImage(entry.file);
-            const auto stem = levain::assets::cookedTextureStem(registry, {.asset = id, .sub = 0});
-            const bool cooked = image && stem && cookTexture(*stem, *image, entry.hash);
             if (!image)
             {
                 log("cook", LogLevel::Error, "{}", image.error().message);
             }
-            failures += cooked ? 0 : 1;
+            failures +=
+                image && cookImage(registry, {.asset = id, .sub = 0}, *image, entry.hash, uses) ? 0
+                                                                                                : 1;
         }
         // Rien à cuire est suspect (règle n°7) : une racine mal orthographiée ne doit pas passer
         // pour un succès.

@@ -475,7 +475,9 @@ levain::core::Result<UploadedTexture> uploadTexture(nvrhi::IDevice& device,
                                                     levain::assets::TextureFormat target)
 {
     const auto [ref, linear] = key;
-    auto data = levain::assets::loadTextureData(registry, models, ref, target);
+    auto data = levain::assets::loadTextureData(registry, models, ref, target,
+                                                linear ? levain::assets::ImageEncoding::Linear
+                                                       : levain::assets::ImageEncoding::Srgb);
     if (!data)
     {
         return std::unexpected(data.error());

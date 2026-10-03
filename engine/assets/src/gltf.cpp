@@ -362,4 +362,23 @@ flecs::entity instantiateModel(flecs::world& world, const Model& model, AssetId 
     return root;
 }
 
+std::vector<std::pair<AssetRef, ImageEncoding>> textureUsesOf(const Model& model)
+{
+    std::vector<std::pair<AssetRef, ImageEncoding>> uses;
+    for (const ModelMaterial& material : model.materials)
+    {
+        for (const auto& [texture, encoding] :
+             {std::pair{material.baseColorTexture, ImageEncoding::Srgb},
+              std::pair{material.metallicRoughnessTexture, ImageEncoding::Linear},
+              std::pair{material.normalTexture, ImageEncoding::Linear}})
+        {
+            if (texture)
+            {
+                uses.emplace_back(*texture, encoding);
+            }
+        }
+    }
+    return uses;
+}
+
 } // namespace levain::assets
