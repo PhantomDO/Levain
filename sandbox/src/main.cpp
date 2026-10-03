@@ -67,6 +67,7 @@
 #include "levain/scene/transform.hpp"
 #include "levain/terrain/heightmap.hpp"
 #include "levain/terrain/terrain_pass.hpp"
+#include "levain/water/water_pass.hpp"
 
 namespace
 {
@@ -267,6 +268,7 @@ struct DemoScene
     /// La vallée de `--view terrain` (M5.6), et ce que ses dessins ont soumis et écarté.
     std::optional<levain::terrain::Heightmap> heightmap;
     std::optional<levain::terrain::TerrainPass> terrain;
+    std::optional<levain::water::WaterPass> water; ///< Le lac de la vallée (M5.7).
     levain::terrain::TerrainStats terrainCamera;
     levain::terrain::TerrainStats terrainShadows;
     levain::render::GpuTimer gpuTimer;
@@ -1088,9 +1090,11 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     }
     std::optional<levain::terrain::Heightmap> heightmap;
     std::optional<levain::terrain::TerrainPass> terrain;
+    std::optional<levain::water::WaterPass> water;
     if (view == SandboxView::Terrain)
     {
-        heightmap = levain::terrain::valleyOf({});
+        const levain::terrain::ValleySettings valley;
+        heightmap = levain::terrain::valleyOf(valley);
         auto pass = levain::terrain::createTerrainPass(
             *gpu.nvrhi, *upload, *heightmap, renderer->frame, renderer->shadows,
             std::filesystem::path{LEVAIN_TEST_ASSETS_DIR} / "Textures");
@@ -1099,6 +1103,16 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
             return std::unexpected(pass.error());
         }
         terrain = std::move(*pass);
+        // L'eau à 1,5 m sous le fond de la vallée : elle ne remplit que le creux du lac.
+        const levain::water::Lake lake{
+            .center = valley.lakeCenter, .radius = valley.lakeRadius, .level = -1.5f};
+        auto lakePass = levain::water::createWaterPass(*gpu.nvrhi, *upload, lake, *terrain,
+                                                       *heightmap, renderer->frame);
+        if (!lakePass)
+        {
+            return std::unexpected(lakePass.error());
+        }
+        water = std::move(*lakePass);
     }
     upload->close();
     gpu.nvrhi->executeCommandList(upload);
@@ -1155,6 +1169,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .demoProps = view == SandboxView::Demo,
                      .heightmap = std::move(heightmap),
                      .terrain = std::move(terrain),
+                     .water = std::move(water),
                      .terrainCamera = {},
                      .terrainShadows = {},
                      .gpuTimer = levain::render::createGpuTimer(*gpu.nvrhi),
@@ -1343,6 +1358,10 @@ void addDemoStages(DemoScene& scene)
     {
         levain::terrain::addTerrainPasses(scene.renderer.stages, *scene.terrain, *scene.heightmap,
                                           scene.terrainCamera, scene.terrainShadows);
+    }
+    if (scene.water)
+    {
+        levain::water::addWaterPasses(scene.renderer.stages, *scene.water);
     }
     levain::core::log("sandbox", levain::core::LogLevel::Info, "étapes du rendu : {}",
                       levain::render::describeStages(scene.renderer.stages));

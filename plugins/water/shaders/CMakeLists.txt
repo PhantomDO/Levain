@@ -1,0 +1,5 @@
+set(shaderOutputs)
+levain_add_shader(water vertexMain vertex)
+levain_add_shader(water fragmentMain fragment)
+add_custom_target(water_shaders ALL DEPENDS ${shaderOutputs})
+add_dependencies(water water_shaders)
