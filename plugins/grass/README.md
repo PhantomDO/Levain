@@ -12,18 +12,33 @@ densité. Elle dépend du plugin `terrain`, déclaré : ses brins se posent sur 
   de brins par pixel d'écran, à peu près. Plus aucun au-delà de 64 m, où la couleur du sol suffit.
 - **La forme d'un brin** (`bladeGeometryOf`) : des trapèzes qui s'affinent de la base à la pointe. Une seule
   forme pour tous les brins, que le shader étire, tourne et courbe.
+- **Le rendu** (`grass_pass.hpp`, `shaders/grass.slang`) : un dessin instancié par parcelle proche de la caméra
+  et dans son frustum. Le shader tire tout du numéro d'instance :
+  - la place du brin, un point de la **suite R2** de Roberts, à faible discrépance : ses premiers points couvrent
+    la parcelle régulièrement, quel qu'en soit le nombre, et une parcelle lointaine en dessine moins sans trou ;
+  - le reste par un hachage : l'orientation, la taille (de 30 à 70 cm), la teinte, et s'il pousse là, selon la
+    carte de densité. Un brin qui ne pousse pas est réduit à un point hors de l'écran : le GPU l'écarte ;
+  - le vent, une onde de rafales qui avance dans sa direction, et un frémissement propre à chaque brin ; la
+    courbure croît comme le carré de la hauteur, et la base ne bouge pas.
+
+  Les brins rapetissent sur le dernier quart de la portée : l'herbe s'efface au lieu de s'arrêter net. Ils sont
+  éclairés par `lighting.slang`, avec une normale arrondie en travers du brin, et reçoivent l'ombre du soleil.
+  Le sandbox les montre : `levain_sandbox --view terrain`.
 
 ## Invariants
 
 - Aucun buffer d'instances : la place d'un brin se tire de son numéro d'instance, dans sa parcelle. Le CPU ne
   choisit que le nombre de brins de chaque parcelle.
-- Le plugin ne dépend que du plugin `terrain` (`levain_add_plugin`, ADR-0018).
+- Le plugin dépend de `render` et du plugin `terrain`, déclaré (`levain_add_plugin`, ADR-0018).
+- L'herbe ne projette pas d'ombre : 240 000 brins dans quatre cascades coûteraient plus que ce qu'ils montrent.
 
 ## Points d'entrée
 
 | Fichier | Contenu |
 |---|---|
 | [`include/levain/grass/grass.hpp`](include/levain/grass/grass.hpp) | `GrassSettings`, `densityMapOf`, `bladeCountOf`, `bladeGeometryOf` |
+| [`include/levain/grass/grass_pass.hpp`](include/levain/grass/grass_pass.hpp) | `createGrassPass`, `addGrassPasses`, `drawGrass` |
+| [`shaders/grass.slang`](shaders/grass.slang) | la place, la forme et le vent de chaque brin |
 
 Les tests : `tests/grass_test.cpp`.
 
