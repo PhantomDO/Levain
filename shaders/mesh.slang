@@ -3,7 +3,7 @@
 // l'ADR-0013 : space0 pour ce qui change une fois par frame, space2 pour ce qui change à chaque
 // matériau.
 
-static const float Pi = 3.14159265;
+#include "brdf.slang"
 
 /// Doit valoir MaxLightsPerCluster (light_clusters.hpp).
 static const uint MaxLightsPerCluster = 32;
@@ -136,9 +136,12 @@ float3 shadingNormalOf(VertexOutput input)
     return normalize(tangent * mapped.x + bitangent * mapped.y + normal * mapped.z);
 }
 
-/// La lumière réfléchie vers l'œil pour une lumière venue de `toLight`, d'éclairement `radiance` :
-/// Cook-Torrance (distribution GGX, ombrage de Smith, Fresnel de Schlick), plus le diffus de
-/// Lambert pour ce qui n'est pas réfléchi.
+/// La lumière réfléchie vers l'œil pour une lumière venue de `toLight`, d'éclairement `radiance`,
+/// selon l'annexe B de la spécification glTF : un diélectrique (F0 de 0,04) mêle le diffus de Lambert
+/// et le reflet de Cook-Torrance selon son Fresnel, un métal ne fait que refléter, teinté par sa
+/// couleur, et `metallic` passe de l'un à l'autre. Mélanger les deux BRDF, et non leurs F0 : avec un
+/// F0 mélangé, le diffus perdait deux fois la part du métal, (1 − métal) et (1 − F), et une surface à
+/// moitié métallique sortait trop sombre (#125).
 float3 brdf(float3 normal, float3 toEye, float3 toLight, float3 albedo, float metallic,
             float roughness, float3 radiance)
 {
@@ -149,18 +152,14 @@ float3 brdf(float3 normal, float3 toEye, float3 toLight, float3 albedo, float me
     const float hDotV = saturate(dot(halfway, toEye));
 
     const float alpha = roughness * roughness;
-    const float alpha2 = alpha * alpha;
-    const float denominator = nDotH * nDotH * (alpha2 - 1.0) + 1.0;
-    const float distribution = alpha2 / (Pi * denominator * denominator);
-    const float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
-    const float geometry = (nDotV / (nDotV * (1.0 - k) + k)) * (nDotL / (nDotL * (1.0 - k) + k));
-    // Un diélectrique réfléchit 4 % de face ; un métal, sa couleur.
-    const float3 f0 = lerp(float3(0.04), albedo, metallic);
-    const float3 fresnel = f0 + (1.0 - f0) * pow(1.0 - hDotV, 5.0);
-
-    const float3 specular = distribution * geometry * fresnel / (4.0 * nDotV * max(nDotL, 1e-4));
-    const float3 diffuse = (1.0 - fresnel) * (1.0 - metallic) * albedo / Pi;
-    return (diffuse + specular) * radiance * nDotL;
+    const float specular =
+        ggxDistributionOf(nDotH, alpha) * smithVisibilityOf(nDotV, max(nDotL, 1e-4), alpha);
+    const float schlick = pow(1.0 - hDotV, 5.0);
+    const float dielectricFresnel = 0.04 + 0.96 * schlick;
+    const float3 metalFresnel = albedo + (1.0 - albedo) * schlick;
+    const float3 dielectric = lerp(albedo / Pi, float3(specular), dielectricFresnel);
+    const float3 metal = metalFresnel * specular;
+    return lerp(dielectric, metal, metallic) * radiance * nDotL;
 }
 
 /// L'atténuation d'une lumière ponctuelle : l'inverse du carré de la distance, ramené à zéro en

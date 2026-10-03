@@ -5,7 +5,7 @@
 //
 // Les mêmes formules, côté CPU, servent de référence aux tests (engine/render/src/environment.cpp).
 
-static const float Pi = 3.14159265358979;
+#include "brdf.slang"
 
 /// Le format « rgba16f » de Slang : en WGSL, une storage texture en écriture seule
 /// (`texture_storage_2d_array<rgba16float, write>`). RWTexture2DArray donnerait read_write, que
@@ -169,13 +169,6 @@ float3 ggxHalfVectorOf(float2 point, float alpha)
     return float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
 }
 
-float ggxDistributionOf(float cosTheta, float alpha)
-{
-    const float alpha2 = alpha * alpha;
-    const float denominator = cosTheta * cosTheta * (alpha2 - 1.0) + 1.0;
-    return alpha2 / (Pi * denominator * denominator);
-}
-
 /// La rugosité que représente un niveau de mip de la cubemap spéculaire : 0 au premier, 1 au
 /// dernier.
 float roughnessOfMip(uint size)
@@ -223,18 +216,6 @@ void prefilterSpecular(uint3 texel: SV_DispatchThreadID)
         weight += light.z;
     }
     faces.Store(texel, float4(sum / max(weight, 1e-6), 1.0));
-}
-
-/// La visibilité de Smith « height-correlated » (Heitz 2014) : G / (4 n·l n·v), où l'ombrage des
-/// micro-facettes vu de l'œil et vu de la lumière dépendent l'un de l'autre. Celle de la spécification
-/// glTF (annexe B) et du glTF Sample Viewer, plus juste que le produit séparé de Karis aux angles
-/// rasants.
-float smithVisibilityOf(float cosView, float cosLight, float alpha)
-{
-    const float alpha2 = alpha * alpha;
-    const float fromView = cosLight * sqrt(cosView * cosView * (1.0 - alpha2) + alpha2);
-    const float fromLight = cosView * sqrt(cosLight * cosLight * (1.0 - alpha2) + alpha2);
-    return 0.5 / (fromView + fromLight);
 }
 
 [format("rgba16f")]

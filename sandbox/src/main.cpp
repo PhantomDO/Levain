@@ -745,6 +745,9 @@ void logScanReport(const levain::assets::ScanReport& report)
 constexpr levain::render::Sun DemoSun{
     .direction = {-0.7f, 0.45f, 0.5f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
 
+/// `--sky none` : ni HDRI, ni ambiance.
+constexpr std::string_view NoSky = "none";
+
 /// Le ciel qui éclaire la scène, et son soleil.
 struct Sky
 {
@@ -775,9 +778,11 @@ levain::core::Result<Sky> loadSky(nvrhi::IDevice& device,
                                   const std::optional<std::filesystem::path>& skyPath,
                                   bool khronosView)
 {
-    if (!skyPath)
+    if (!skyPath || skyPath->native() == NoSky)
     {
-        auto uniform = levain::render::createUniformEnvironment(device, glm::vec3{0.1f});
+        // `--sky none` : aucune lumière du ciel, pas même l'ambiance (#125, le viewer sans IBL).
+        auto uniform =
+            levain::render::createUniformEnvironment(device, glm::vec3{skyPath ? 0.0f : 0.1f});
         if (!uniform)
         {
             return std::unexpected(uniform.error());
@@ -850,7 +855,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                 const std::optional<std::string>& clipName,
                 const std::optional<std::string>& locomotion, float modelScale,
                 const std::optional<std::filesystem::path>& skyPath, bool khronosView,
-                std::optional<glm::vec3> cameraPosition)
+                std::optional<glm::vec3> cameraPosition, std::optional<glm::vec3> sunDirection)
 {
     // Le modèle de `--model`, par son GUID : le dossier qui le contient est scanné (ADR-0019), ce
     // qui lui donne un .meta s'il n'en avait pas.
@@ -982,7 +987,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     auto meshPass = levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *clusters,
                                                    *shadows, sky->environment);
     std::optional<levain::render::SkyPass> skyPass;
-    if (skyPath)
+    if (skyPath && skyPath->native() != NoSky)
     {
         auto pass = levain::render::createSkyPass(*gpu.nvrhi, sceneTargetOf(gpu), sky->environment);
         if (!pass)
@@ -1132,7 +1137,10 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .shadows = std::move(*shadows),
                      .cascadeSettings = cascadeSettings,
                      .environment = std::move(sky->environment),
-                     .sun = sky->sun,
+                     .sun = sunDirection ? levain::render::Sun{.direction = *sunDirection,
+                                                               .color = glm::vec3{1.0f},
+                                                               .intensity = 1.0f}
+                                         : sky->sun,
                      .sky = std::move(skyPass),
                      .tonemap = std::move(*tonemap),
                      .tonemapSettings = {},
@@ -1567,6 +1575,9 @@ struct SandboxOptions
     /// `--camera x,y,z` : la caméra à cette position, face à −Z. Celle du glTF Sample Viewer, que
     /// tools/khronos-compare.sh relit dans sa page.
     std::optional<glm::vec3> cameraPosition;
+    /// `--sun x,y,z` : un soleil blanc d'intensité 1, venant de cette direction. La lumière
+    /// principale du glTF Sample Viewer sans IBL (#125).
+    std::optional<glm::vec3> sunDirection;
     /// L'HDRI qui éclaire la scène (M5.4) ; sans, `LEVAIN_DEFAULT_SKY` s'il a été téléchargé.
     std::optional<std::filesystem::path> skyPath;
     /// `--gpu webgpu` : le backend WebGPU sur Dawn, hors écran, pour le vérifier sans navigateur
@@ -1641,10 +1652,12 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
             options.tonemapper = found->second;
             continue;
         }
-        if (name == "--camera")
+        if (name == "--camera" || name == "--sun")
         {
-            options.cameraPosition = parseVector(arguments[i + 1]);
-            if (!options.cameraPosition)
+            std::optional<glm::vec3>& vector =
+                name == "--camera" ? options.cameraPosition : options.sunDirection;
+            vector = parseVector(arguments[i + 1]);
+            if (!vector)
             {
                 return std::nullopt;
             }
@@ -1773,7 +1786,7 @@ levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
     auto scene =
         createDemoScene(gpu, sampler, options.modelPath, options.clipName, options.locomotion,
                         options.modelScale, options.skyPath ? options.skyPath : defaultSky(),
-                        options.khronosView, options.cameraPosition);
+                        options.khronosView, options.cameraPosition, options.sunDirection);
     if (!scene)
     {
         return std::unexpected{std::move(scene.error())};
@@ -2070,12 +2083,13 @@ int main(int argc, char** argv)
             parseOptions(std::span{argv, static_cast<std::size_t>(argc)});
         if (!options)
         {
-            std::println(stderr, "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
-                                 "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
-                                 "repos,marche,course] "
-                                 "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
-                                 "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
-                                 "fichier.hdr] [--view demo|khronos] [--camera x,y,z]");
+            std::println(stderr,
+                         "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
+                         "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
+                         "repos,marche,course] "
+                         "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
+                         "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
+                         "fichier.hdr|none] [--view demo|khronos] [--camera x,y,z] [--sun x,y,z]");
             return 2;
         }
 

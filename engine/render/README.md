@@ -164,8 +164,12 @@ de glTF, *metallic-roughness* :
 - **la normale**, inclinée par la normal map dans le repère (tangente, bitangente, normale) du sommet.
 
 La BRDF est celle de Cook-Torrance, la même que dans Unreal, Unity et Godot : une distribution des micro-facettes
-(GGX), leur ombrage mutuel (Smith) et la part réfléchie selon l'angle (Fresnel, approximation de Schlick), plus
-le diffus de Lambert pour la lumière qui entre dans la matière. Les lumières :
+(GGX), leur ombrage mutuel (Smith « height-correlated ») et la part réfléchie selon l'angle (Fresnel, approximation
+de Schlick), plus le diffus de Lambert pour la lumière qui entre dans la matière. Ces termes vivent dans
+`shaders/brdf.slang`, partagé par l'éclairage direct et le précalcul de l'IBL. Comme le veut l'annexe B de la
+spécification glTF, `metallic` mélange deux BRDF entières, celle d'un diélectrique (F0 de 0,04) et celle d'un métal
+(F0 = sa couleur), et non leurs F0 : avec un F0 mélangé, une surface à moitié métallique perdait deux fois sa part
+diffuse (#125). Les lumières :
 
 - **le soleil** (`Sun`) touche tout l'écran ;
 - **les lumières ponctuelles** ne sont lues que dans le cluster du pixel (`clusterOf`, le calcul inverse du
@@ -273,13 +277,17 @@ Cette passe applique l'**exposition** (`--exposure` dans le sandbox : 2 éclaire
 
 ## Se comparer au glTF Sample Viewer
 
-`tools/khronos-compare.sh <dossier>` mesure l'écart avec la référence de Khronos (#125, #131) :
+`tools/khronos-compare.sh <dossier> [ibl|direct]` mesure l'écart avec la référence de Khronos, sous le ciel
+(`ibl`, #131) ou sous la seule lumière directe (`direct`, #125) :
 
 1. le glTF Sample Viewer hébergé ouvre MetalRoughSpheres dans un Firefox headless. Le viewer ne publie pas sa
    caméra : un script injecté avant la page la relit dans ses appels WebGL (`u_Camera`) ;
 2. le sandbox rend la même vue (`--view khronos --camera x,y,z`) : le modèle seul, à l'origine, son champ de 45°,
    son ciel `Cannon_Exterior` tourné de 90° comme le sien, sans soleil tiré du ciel ni lumière de la démo, et sa
    courbe, Khronos PBR Neutral ;
+   En `direct`, le script coupe l'IBL dans l'interface du viewer, et relit la direction de sa lumière principale,
+   reprise comme soleil (`--sky none --sun x,y,z`). Sa lumière d'appoint, venue de l'opposé, n'éclaire pas la face
+   des sphères tournée vers l'œil ;
 3. l'écart se mesure sphère par sphère, en ΔE76 (CIELAB), sur un disque de 6 pixels au centre de chacune des 7 × 7
    sphères blanches : là, la normale fait face à l'œil, et les bords crénelés (le viewer lisse les siens) ne
    comptent pas.
