@@ -26,9 +26,54 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 | 3 | 4,5 | **5,25** | **1,17** |
 | 4 | 8,25 | **6,0** | **0,73** |
 | 4 (M4.6) | 3,5 | **4,5** | **1,29** |
-| 5 (en cours : M5.1 à M5.3) | 4,5 | **3,0** | **0,67** |
+| 5 (en cours : M5.1 à M5.4) | 6,75 | **5,0** | **0,74** |
 
 ---
+
+## 2026-10-03 — M5.4 — Clôture : l'éclairage par le ciel, mesuré contre le glTF Sample Viewer
+
+- **Temps Donnovan : 2,0 h** (estimé 2,25 h). Réparti au prorata des estimations : #130 1,12 h, #131 0,44 h,
+  #125 0,44 h. Ratio 0,89.
+- Sessions Claude Code : 1
+- Fait, en 12 PR (#220 à #231) :
+  - **l'HDRI du ciel** (#220) : Kloofendal (Poly Haven, CC0), en lumière linéaire ;
+  - **le backend WebGPU** lit des cubemaps et écrit des storage textures (#221) ;
+  - **l'environnement** (#222, #223) : la cubemap et ses mips, puis l'irradiance, le spéculaire préfiltré et la
+    table BRDF, en compute, à l'échantillonnage filtré ;
+  - **les meshes éclairés par le ciel** (#224), **le ciel en fond** (#225), **le soleil tiré de l'HDRI** (#226),
+    **Kloofendal par défaut**, 2k en natif et 1k sur la page web (#227) ;
+  - **la comparaison avec Khronos** :
+    - le tonemapper PBR Neutral (#228) ;
+    - `tools/khronos-compare.sh` (#229) : le viewer hébergé dans Firefox, sa caméra relue dans ses appels WebGL,
+      et l'écart sphère par sphère ;
+    - deux corrections qu'elle a trouvées : la compensation des rebonds multiples pour l'IBL (#230), et une BRDF
+      directe qui mélange un diélectrique et un métal, comme l'annexe B de la spécification glTF (#231).
+- Mesures :
+  - environnement calculé au chargement en **20 ms sur Vulkan, 32 ms sur WebGPU** (Kloofendal 2k, Release, RX 9070
+    XT, trois lancements), de 0,2 à 2,1 s sur lavapipe en CI (`levain_sandbox`, ligne « environnement calculé ») ;
+  - les convolutions vérifiées sur Vulkan et WebGPU, aux mêmes valeurs (`gpu.environment.*`) : un ciel uniforme
+    reste lui-même, un demi-ciel blanc donne une irradiance de 0,983 vers le zénith et 0,499 à l'horizon ;
+  - **écart avec le glTF Sample Viewer**, ΔE76 moyen sur les 49 sphères de MetalRoughSpheres
+    (`tools/khronos-compare.sh <dossier> ibl|direct`) :
+    - sous le ciel : **3,75 → 0,77** (pire 13,6 → 1,6) ;
+    - en lumière directe : **4,42 → 1,64** (pire 8,3 → 3,3) ;
+  - le soleil de Kloofendal culmine à 72 559, au-delà du plus grand flottant 16 bits ; retiré du ciel, il devient
+    une lumière d'intensité 4,30 à 48° d'élévation ;
+  - tests : 149 en natif, 87 en WebAssembly (`ctest`).
+- Décisions de Donnovan, par sondage : l'HDRI Kloofendal, des cubemaps, le soleil tiré de l'HDRI, Kloofendal par
+  défaut (1k sur la page web), la mesure par le viewer hébergé dans Firefox, la compensation comme le viewer, et
+  #125 mesuré l'IBL coupée.
+- Écarts et problèmes :
+  - **un défaut d'avant M5.4, trouvé par la mesure** : la BRDF directe retirait deux fois la part du métal au
+    diffus ; une surface à moitié métallique sortait jusqu'à trois fois trop sombre ;
+  - le viewer ne place pas sa caméra où le dit sa propre formule de cadrage : la relire dans la page évite de le
+    deviner ;
+  - deux pièges consignés (`build/GOTCHA.md`) : hors écran, rien ne freinait la boucle WebGPU, et la fermeture
+    attendait toutes les images empilées (plus de 2 min sur lavapipe) ; un itérateur de libc++ n'est pas un
+    pointeur ;
+  - le temps affiché dans le navigateur ne compte que l'enregistrement des passes : `waitForIdle` n'y attend pas le
+    GPU.
+- Prochaine étape : M5.5, le culling et les statistiques.
 
 ## 2026-10-02 — M5.3 — Clôture : les ombres du soleil en quatre cascades
 
