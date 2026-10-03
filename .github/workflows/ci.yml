@@ -329,7 +329,7 @@ jobs:
       - name: Format
         if: matrix.preset == 'linux-debug'
         run: |
-          find engine sandbox tests tools -name '*.cpp' -o -name '*.hpp' \
+          find engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' \
             | xargs clang-format --dry-run --Werror
 
       - name: Analyse statique
@@ -338,7 +338,7 @@ jobs:
           # Les fichiers que ce build compile, et eux seuls : ceux du navigateur (Emscripten) n'y sont
           # pas, et clang-tidy les analyserait sans leurs options, donc à tort.
           jq -r '.[].file' build/${{ matrix.preset }}/compile_commands.json \
-            | grep -E "^$PWD/(engine|sandbox|tests|tools)/" | sort -u \
+            | grep -E "^$PWD/(engine|plugins|sandbox|tests|tools)/" | sort -u \
             | xargs clang-tidy -p build/${{ matrix.preset }} --warnings-as-errors='*'
 
   # Le code CPU compilé en WebAssembly, ses tests lancés par Node (ADR-0023, #182). Un job à part :

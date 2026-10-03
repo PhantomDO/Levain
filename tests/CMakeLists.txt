@@ -31,6 +31,7 @@ set(nativeTests
     tangent_test.cpp
     process_test.cpp
     texture_test.cpp
+    water_test.cpp
     webgpu_test.cpp
     window_test.cpp)
 if(EMSCRIPTEN)
@@ -59,7 +60,7 @@ else()
     add_executable(levain_tests doctest_main.cpp ${cpuTests} ${nativeTests})
     target_link_libraries(levain_tests PRIVATE
         levain::animation levain::assets levain::core levain::gpu levain::input levain::platform
-        levain::render levain::scene plugin::terrain doctest::doctest)
+        levain::render levain::scene plugin::terrain plugin::water doctest::doctest)
     # Le WGSL produit par le build, que webgpu_test.cpp fait compiler au backend WebGPU.
     target_compile_definitions(levain_tests PRIVATE LEVAIN_SHADER_DIR="${LEVAIN_SHADER_DIR}")
     add_dependencies(levain_tests levain_shaders)

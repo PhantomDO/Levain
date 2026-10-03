@@ -42,6 +42,21 @@ TEST_CASE("la vallée : 512 m de côté, un fond plus bas que les crêtes, la m�
     CHECK(levain::terrain::valleyOf({.seed = 7}).heights != valley.heights);
 }
 
+TEST_CASE(
+    "le lac creuse le fond de sa profondeur au centre, et le laisse intact au-delà de son rayon")
+{
+    const levain::terrain::ValleySettings settings;
+    const Heightmap valley = levain::terrain::valleyOf(settings);
+    const Heightmap withoutLake = levain::terrain::valleyOf({.lakeDepth = 0.0f});
+    CHECK(levain::terrain::heightAt(valley, settings.lakeCenter) ==
+          doctest::Approx(levain::terrain::heightAt(withoutLake, settings.lakeCenter) -
+                          settings.lakeDepth)
+              .epsilon(0.01));
+    const glm::vec2 beyond = settings.lakeCenter - glm::vec2{settings.lakeRadius + 1.0f, 0.0f};
+    CHECK(levain::terrain::heightAt(valley, beyond) ==
+          doctest::Approx(levain::terrain::heightAt(withoutLake, beyond)));
+}
+
 TEST_CASE("la hauteur se lit entre les échantillons, et la normale suit la pente")
 {
     const Heightmap ramp = rampOf(33);

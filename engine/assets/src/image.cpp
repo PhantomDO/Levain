@@ -70,12 +70,12 @@ std::size_t texelOffset(const Image& image, std::uint32_t x, std::uint32_t y)
 /// Le piège : les octets d'une image sRGB ne sont pas proportionnels à la lumière. En faire la
 /// moyenne directement assombrit chaque niveau (un damier noir et blanc donnerait 128 au lieu de
 /// 188). On convertit donc en linéaire, on fait la moyenne, puis on reconvertit. L'alpha, lui, est
-/// déjà linéaire.
+/// déjà linéaire. Une image de données (`ImageEncoding::Linear`) se moyenne telle quelle.
 ///
 /// ponytail: un côté impair perd sa dernière rangée (3 → 1) et les couleurs ne sont pas pondérées
 /// par l'alpha. Suffisant pour des textures opaques en puissances de deux ; un filtre à trois
 /// texels et la pondération par l'alpha le jour où une texture ne l'est pas.
-Image downsampleInLinearSpace(const Image& source)
+Image downsampleInLinearSpace(const Image& source, ImageEncoding encoding)
 {
     const std::uint32_t width = std::max(source.width / 2, 1U);
     const std::uint32_t height = std::max(source.height / 2, 1U);
@@ -92,6 +92,16 @@ Image downsampleInLinearSpace(const Image& source)
             const std::size_t out = (std::size_t{y} * width + x) * BytesPerPixel;
             for (std::size_t channel = 0; channel < 3; ++channel)
             {
+                if (encoding == ImageEncoding::Linear)
+                {
+                    unsigned sum = 0;
+                    for (const std::size_t texel : covered)
+                    {
+                        sum += source.rgba[texel + channel];
+                    }
+                    result.rgba[out + channel] = static_cast<std::uint8_t>((sum + 2) / 4);
+                    continue;
+                }
                 float light = 0.0f;
                 for (const std::size_t texel : covered)
                 {
@@ -213,7 +223,7 @@ std::uint32_t mipCountFor(std::uint32_t width, std::uint32_t height)
     return static_cast<std::uint32_t>(std::bit_width(std::max(width, height)));
 }
 
-std::vector<Image> buildMipChain(Image base)
+std::vector<Image> buildMipChain(Image base, ImageEncoding encoding)
 {
     std::vector<Image> levels;
     levels.reserve(mipCountFor(base.width, base.height));
@@ -221,7 +231,7 @@ std::vector<Image> buildMipChain(Image base)
     while (levels.back().width > 1 || levels.back().height > 1)
     {
         // Un côté déjà à 1 le reste : une texture 4 × 1 donne 2 × 1, puis 1 × 1.
-        Image next = downsampleInLinearSpace(levels.back());
+        Image next = downsampleInLinearSpace(levels.back(), encoding);
         levels.push_back(std::move(next));
     }
     return levels;

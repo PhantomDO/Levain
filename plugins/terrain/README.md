@@ -9,7 +9,8 @@ renderer (ADR-0025) ; le moteur ne le connaît pas.
 - **Le relief** (`heightmap.hpp`) : une grille de hauteurs régulière, un échantillon par mètre (`Heightmap`), et
   ce qu'on en lit en tout point, la hauteur (`heightAt`, interpolée entre quatre échantillons) et la normale
   (`normalAt`). La vallée de *Rando* (`valleyOf`) est générée par le code : une cuvette aux bords irréguliers,
-  avec un relief fractal par-dessus, la même pour la même graine. L'éditeur la sculptera (M7.6).
+  avec un relief fractal par-dessus, et le creux d'un lac contre son versant est (M5.7, le plugin `water`), la
+  même pour la même graine. L'éditeur la sculptera (M7.6).
 - **Les parcelles** (`patches.hpp`) : des carrés de 32 m (`PatchQuads`), 16 × 16 sur la vallée. Chacune a un
   niveau de détail selon sa distance à la caméra (`lodOf`) : un sommet tous les 1, 2, 4, 8 ou 16 m, un niveau de
   plus à chaque doublement de la distance. Et une boîte, de sa plus basse à sa plus haute hauteur

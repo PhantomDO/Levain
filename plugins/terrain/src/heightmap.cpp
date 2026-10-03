@@ -84,7 +84,13 @@ Heightmap valleyOf(const ValleySettings& settings)
             const float bowl = glm::smoothstep(0.3f, 0.8f, radius) * settings.rimHeight;
             const float relief = fractalNoiseAt(position / settings.featureSize, settings.seed) *
                                  settings.roughness * (0.3f + glm::smoothstep(0.2f, 0.9f, radius));
-            heightmap.heights[(std::size_t{z} * settings.size) + x] = bowl + relief;
+            // Le lac : un creux arrondi, le plus profond au centre, qui rejoint le fond en
+            // douceur à son rayon.
+            const float lake =
+                settings.lakeDepth *
+                (1.0f - glm::smoothstep(0.0f, settings.lakeRadius,
+                                        glm::distance(position, settings.lakeCenter)));
+            heightmap.heights[(std::size_t{z} * settings.size) + x] = bowl + relief - lake;
         }
     }
     return heightmap;

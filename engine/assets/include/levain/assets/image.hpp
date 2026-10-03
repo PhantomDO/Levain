@@ -51,8 +51,17 @@ struct HdrImage
 /// par deux : 9 pour 256 × 256, comme pour 256 × 64.
 [[nodiscard]] std::uint32_t mipCountFor(std::uint32_t width, std::uint32_t height);
 
+/// Ce que portent les octets d'une image : des couleurs en sRGB, ou des données linéaires (une
+/// normale, une rugosité), dont la moyenne se fait telle quelle.
+enum class ImageEncoding : std::uint8_t
+{
+    Srgb,
+    Linear,
+};
+
 /// La chaîne de mipmaps de `base` : le niveau 0 est `base`, le dernier fait 1 × 1. Calculée sur le
 /// CPU, parce qu'elle le sera un jour à la cuisson des assets, sans GPU.
-[[nodiscard]] std::vector<Image> buildMipChain(Image base);
+[[nodiscard]] std::vector<Image> buildMipChain(Image base,
+                                               ImageEncoding encoding = ImageEncoding::Srgb);
 
 } // namespace levain::assets
