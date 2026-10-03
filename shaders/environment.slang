@@ -225,12 +225,16 @@ void prefilterSpecular(uint3 texel: SV_DispatchThreadID)
     faces.Store(texel, float4(sum / max(weight, 1e-6), 1.0));
 }
 
-/// Le terme de Smith pour l'IBL : k = α / 2 (Karis), et non (r + 1)² / 8 comme pour une lumière
-/// ponctuelle.
-float smithGeometryOf(float cosView, float cosLight, float alpha)
+/// La visibilité de Smith « height-correlated » (Heitz 2014) : G / (4 n·l n·v), où l'ombrage des
+/// micro-facettes vu de l'œil et vu de la lumière dépendent l'un de l'autre. Celle de la spécification
+/// glTF (annexe B) et du glTF Sample Viewer, plus juste que le produit séparé de Karis aux angles
+/// rasants.
+float smithVisibilityOf(float cosView, float cosLight, float alpha)
 {
-    const float k = alpha / 2.0;
-    return cosView / (cosView * (1.0 - k) + k) * cosLight / (cosLight * (1.0 - k) + k);
+    const float alpha2 = alpha * alpha;
+    const float fromView = cosLight * sqrt(cosView * cosView * (1.0 - alpha2) + alpha2);
+    const float fromLight = cosView * sqrt(cosLight * cosLight * (1.0 - alpha2) + alpha2);
+    return 0.5 / (fromView + fromLight);
 }
 
 [format("rgba16f")]
@@ -265,9 +269,9 @@ void integrateBrdf(uint2 texel: SV_DispatchThreadID)
         {
             continue;
         }
-        // La BRDF divisée par la densité de l'échantillon : G v·h / (n·h n·v).
+        // La BRDF fois n·l, divisée par la densité de l'échantillon : 4 V n·l v·h / n·h.
         const float visibility =
-            smithGeometryOf(cosView, cosLight, alpha) * viewHalf / (cosHalf * cosView);
+            4.0 * smithVisibilityOf(cosView, cosLight, alpha) * cosLight * viewHalf / cosHalf;
         const float fresnel = pow(1.0 - viewHalf, 5.0);
         sum += float2((1.0 - fresnel) * visibility, fresnel * visibility);
     }

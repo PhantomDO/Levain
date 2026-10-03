@@ -171,7 +171,9 @@ le diffus de Lambert pour la lumière qui entre dans la matière. Les lumières 
 - **les lumières ponctuelles** ne sont lues que dans le cluster du pixel (`clusterOf`, le calcul inverse du
   tri) ; leur atténuation est l'inverse du carré de la distance, ramené à zéro à leur portée ;
 - **le ciel** éclaire tout le reste (l'IBL, voir plus bas) : l'irradiance pour le diffus, le reflet préfiltré à la
-  rugosité du matériau pour le spéculaire, multiplié par la table de la BRDF (`environmentLightOf`). Sans HDRI
+  rugosité du matériau pour le spéculaire, multiplié par la table de la BRDF (`environmentLightOf`), avec l'énergie
+  des rebonds multiples entre micro-facettes (`iblFresnelOf`, Fdez-Agüera 2019) : sans elle, un métal rugueux perd
+  jusqu'au tiers de sa lumière. Le calcul suit l'annexe B de la spécification glTF, comme le glTF Sample Viewer. Sans HDRI
   (`--sky` dans le sandbox), un ciel uniforme et sombre (`createUniformEnvironment`) tient lieu de lumière ambiante.
 
 `setFrameLighting` écrit ces constantes une fois par command list, après le tri (`assignLightsToClusters`). Le
@@ -221,7 +223,7 @@ Puis trois **convolutions** préparent l'éclairage, d'après Karis (« Real Sha
 - le **spéculaire préfiltré** (128², six mips) : le reflet du ciel flouté par le lobe GGX, un mip par rugosité, de
   0 au premier à 1 au dernier, en supposant la surface vue de face ;
 - la **table de la BRDF** (128², `brdfLut`) : pour un angle de vue et une rugosité, l'échelle et le biais de la
-  couleur spéculaire F0. Elle ne dépend pas du ciel. Le shader de mesh multiplie le reflet par cette table : la
+  couleur spéculaire F0, avec la visibilité de Smith « height-correlated » (Heitz 2014). Elle ne dépend pas du ciel. Le shader de mesh multiplie le reflet par cette table : la
   *split sum*, deux intégrales précalculées séparément au lieu d'une par pixel.
 
 Chaque échantillon des convolutions lit le ciel au mip dont un texel couvre son angle solide (l'échantillonnage
