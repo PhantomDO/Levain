@@ -149,13 +149,14 @@ wgpu::TextureFormat storageFormatOf(const std::string& name)
 
 /// Ce que déclarent les shaders et que le layout de NVRHI ne dit pas, par groupe :
 /// `@binding(b) @group(g) var nom : type`, la forme qu'écrit Slang en WGSL, pour les types
-/// `texture_depth_2d`, `sampler_comparison`, `texture_cube<f32>` et
+/// `texture_depth_2d`, `sampler_comparison`, `texture_cube<f32>`, `texture_2d_array<f32>` et
 /// `texture_storage_2d[_array]<format, write>`.
 std::map<std::uint32_t, BindingHints> bindingHintsOf(std::span<const Shader* const> shaders)
 {
     static const std::regex declaration{
         R"(@binding\((\d+)\)\s*@group\((\d+)\)\s*var\s+\w+\s*:\s*)"
-        R"((texture_depth_2d|sampler_comparison|texture_cube<f32>|texture_storage_2d(_array)?<(\w+),\s*write>))"};
+        R"((texture_depth_2d|sampler_comparison|texture_cube<f32>|texture_2d_array<f32>|)"
+        R"(texture_storage_2d(_array)?<(\w+),\s*write>))"};
     std::map<std::uint32_t, BindingHints> groups;
     for (const Shader* shader : shaders)
     {
@@ -180,6 +181,10 @@ std::map<std::uint32_t, BindingHints> bindingHintsOf(std::span<const Shader* con
             else if (type == "texture_cube<f32>")
             {
                 hint.kind = BindingHint::Kind::CubeTexture;
+            }
+            else if (type == "texture_2d_array<f32>")
+            {
+                hint.kind = BindingHint::Kind::ArrayTexture;
             }
             else
             {

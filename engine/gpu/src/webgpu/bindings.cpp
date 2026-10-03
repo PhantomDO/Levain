@@ -169,6 +169,9 @@ wgpu::BindGroupLayout BindingLayout::layoutFor(const wgpu::Device& device,
         case BindingHint::Kind::CubeTexture:
             entry.texture.viewDimension = wgpu::TextureViewDimension::Cube;
             break;
+        case BindingHint::Kind::ArrayTexture:
+            entry.texture.viewDimension = wgpu::TextureViewDimension::e2DArray;
+            break;
         case BindingHint::Kind::StorageTexture2D:
         case BindingHint::Kind::StorageTexture2DArray:
             entry.storageTexture.format = hint->format;
@@ -205,9 +208,11 @@ nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& de
             const nvrhi::TextureSubresourceSet subresources =
                 item.subresources.resolve(texture->desc, false);
             const bool cube = texture->desc.dimension == nvrhi::TextureDimension::TextureCube;
+            const bool array = texture->desc.dimension == nvrhi::TextureDimension::Texture2DArray;
             wgpu::TextureViewDescriptor viewDesc{};
-            viewDesc.dimension =
-                cube ? wgpu::TextureViewDimension::Cube : wgpu::TextureViewDimension::e2D;
+            viewDesc.dimension = cube    ? wgpu::TextureViewDimension::Cube
+                                 : array ? wgpu::TextureViewDimension::e2DArray
+                                         : wgpu::TextureViewDimension::e2D;
             viewDesc.baseMipLevel = subresources.baseMipLevel;
             viewDesc.mipLevelCount = subresources.numMipLevels;
             viewDesc.baseArrayLayer = subresources.baseArraySlice;
@@ -221,6 +226,11 @@ nvrhi::BindingSetHandle Device::createBindingSet(const nvrhi::BindingSetDesc& de
             if (cube)
             {
                 hints.push_back({.binding = entry.binding, .kind = BindingHint::Kind::CubeTexture});
+            }
+            if (array)
+            {
+                hints.push_back(
+                    {.binding = entry.binding, .kind = BindingHint::Kind::ArrayTexture});
             }
             break;
         }

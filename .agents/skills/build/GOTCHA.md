@@ -3,6 +3,22 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Une lecture de texture dans une branche : refusée en WGSL (2026-10-03)
+
+- **Symptôme** : le shader du terrain compile en SPIR-V et tourne sur Vulkan, mais Dawn le refuse :
+  « `textureSample` must only be called from uniform control flow ».
+- **Cause** : `Sample` calcule ses dérivées à partir des pixels voisins. WGSL l'interdit dans une branche qui
+  dépend des données (sauter une couche de poids nul), où les voisins peuvent ne pas l'exécuter.
+- **Parade** : les dérivées avant la branche (`ddx`, `ddy`), puis `SampleGrad` dedans, ou `SampleLevel`.
+
+## Un binding set partagé par deux pipelines : un seul layout en WebGPU (2026-10-03)
+
+- **Symptôme** : « Bind group layout … does not match layout … of bind group », en WebGPU seulement.
+- **Cause** : le backend déduit le type d'une texture (tableau, cube, profondeur) du WGSL de chaque pipeline.
+  Un pipeline dont le shader n'utilise pas un binding, comme l'ombre du terrain qui ignore ses couches, le voit
+  en texture 2D ordinaire, et ne correspond plus au binding set.
+- **Parade** : à chaque pipeline, un layout réduit à ce que son shader lit, et son binding set.
+
 ## Hors écran, rien ne freine la boucle : la fermeture attend tout (2026-10-03)
 
 - **Symptôme** : en CI Debug, `levain_sandbox --gpu webgpu --model …/Sponza.gltf` affiche « fenêtre fermée »,

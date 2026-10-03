@@ -103,7 +103,7 @@ nvrhi::GraphicsPipelineHandle createShadowPipeline(nvrhi::IDevice& device, const
     desc.primType = nvrhi::PrimitiveType::TriangleList;
     desc.inputLayout = pass.inputLayout;
     desc.VS = pass.shadowShader;
-    desc.addBindingLayout(pass.layout);
+    desc.addBindingLayout(pass.shadowLayout);
     desc.renderState.depthStencilState.depthTestEnable = true;
     desc.renderState.depthStencilState.depthWriteEnable = true;
     desc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::Less;
@@ -166,11 +166,10 @@ void setGrid(nvrhi::GraphicsState& state, const PatchGrid& grid)
 
 } // namespace
 
-core::Result<TerrainPass> createTerrainPass(nvrhi::IDevice& device,
-                                            nvrhi::ICommandList& commandList,
-                                            const Heightmap& heightmap,
-                                            const render::FrameBindings& frame,
-                                            const render::ShadowPass& shadows)
+core::Result<TerrainPass>
+createTerrainPass(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
+                  const Heightmap& heightmap, const render::FrameBindings& frame,
+                  const render::ShadowPass& shadows, const std::filesystem::path& layerDirectory)
 {
     auto vertexShader = render::loadShader(device, "terrain.vertexMain", nvrhi::ShaderType::Vertex);
     auto pixelShader = render::loadShader(device, "terrain.fragmentMain", nvrhi::ShaderType::Pixel);
@@ -204,6 +203,14 @@ core::Result<TerrainPass> createTerrainPass(nvrhi::IDevice& device,
                                          nvrhi::Format::RGBA8_UNORM);
     pass.sampler = device.createSampler(nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(
         nvrhi::SamplerAddressMode::Clamp));
+    auto layers = loadLayerTextures(device, commandList, layerDirectory);
+    if (!layers)
+    {
+        return std::unexpected(layers.error());
+    }
+    pass.layers = std::move(*layers);
+    pass.layerSampler = render::createSampler(
+        device, {.maxAnisotropy = 16.0f, .addressMode = nvrhi::SamplerAddressMode::Wrap});
     for (std::uint32_t lod = 0; lod <= MaxLod; ++lod)
     {
         pass.grids[lod] = createPatchGrid(device, commandList, PatchQuads >> lod);
@@ -229,7 +236,11 @@ core::Result<TerrainPass> createTerrainPass(nvrhi::IDevice& device,
     layoutDesc.bindings = {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
                            nvrhi::BindingLayoutItem::Texture_SRV(0),
                            nvrhi::BindingLayoutItem::Texture_SRV(1),
-                           nvrhi::BindingLayoutItem::Sampler(0)};
+                           nvrhi::BindingLayoutItem::Sampler(0),
+                           nvrhi::BindingLayoutItem::Texture_SRV(2),
+                           nvrhi::BindingLayoutItem::Texture_SRV(3),
+                           nvrhi::BindingLayoutItem::Texture_SRV(4),
+                           nvrhi::BindingLayoutItem::Sampler(1)};
     pass.layout = device.createBindingLayout(layoutDesc);
     // Une version par parcelle dessinée, dans l'image et dans chaque cascade.
     pass.constants = device.createBuffer(nvrhi::BufferDesc()
@@ -238,8 +249,8 @@ core::Result<TerrainPass> createTerrainPass(nvrhi::IDevice& device,
                                              .setIsVolatile(true)
                                              .setMaxVersions(render::MaxMeshDrawsPerCommandList)
                                              .setDebugName("terrain : constantes"));
-    if (!pass.heightmap || !pass.weights || !pass.sampler || !pass.inputLayout || !pass.layout ||
-        !pass.constants)
+    if (!pass.heightmap || !pass.weights || !pass.sampler || !pass.layerSampler ||
+        !pass.inputLayout || !pass.layout || !pass.constants)
     {
         return core::makeError(core::ErrorCode::InvalidData, "terrain refusé par NVRHI");
     }
@@ -248,11 +259,28 @@ core::Result<TerrainPass> createTerrainPass(nvrhi::IDevice& device,
             .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, pass.constants))
             .addItem(nvrhi::BindingSetItem::Texture_SRV(0, pass.heightmap))
             .addItem(nvrhi::BindingSetItem::Texture_SRV(1, pass.weights))
-            .addItem(nvrhi::BindingSetItem::Sampler(0, pass.sampler)),
+            .addItem(nvrhi::BindingSetItem::Sampler(0, pass.sampler))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(2, pass.layers.albedo))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(3, pass.layers.normal))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(4, pass.layers.roughness))
+            .addItem(nvrhi::BindingSetItem::Sampler(1, pass.layerSampler)),
         pass.layout);
+    nvrhi::BindingLayoutDesc shadowLayoutDesc;
+    shadowLayoutDesc.visibility = nvrhi::ShaderType::Vertex;
+    shadowLayoutDesc.setRegisterSpaceAndDescriptorSet(1);
+    shadowLayoutDesc.bindings = {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+                                 nvrhi::BindingLayoutItem::Texture_SRV(0),
+                                 nvrhi::BindingLayoutItem::Sampler(0)};
+    pass.shadowLayout = device.createBindingLayout(shadowLayoutDesc);
+    pass.shadowBindings = device.createBindingSet(
+        nvrhi::BindingSetDesc()
+            .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, pass.constants))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(0, pass.heightmap))
+            .addItem(nvrhi::BindingSetItem::Sampler(0, pass.sampler)),
+        pass.shadowLayout);
     pass.pipeline = createPipeline(device, pass, frame.layout, render::sceneTargetInfo());
     pass.shadowPipeline = createShadowPipeline(device, pass, shadows);
-    if (!pass.bindings || !pass.pipeline || !pass.shadowPipeline)
+    if (!pass.bindings || !pass.shadowBindings || !pass.pipeline || !pass.shadowPipeline)
     {
         return core::makeError(core::ErrorCode::InvalidData, "pipelines du terrain refusés");
     }
@@ -296,7 +324,7 @@ void drawTerrainShadow(const render::StageContext& context, const TerrainPass& p
                                 static_cast<float>(cell.x), static_cast<float>(cell.x) + size,
                                 static_cast<float>(cell.y), static_cast<float>(cell.y) + size, 0.0f,
                                 1.0f));
-                            state.addBindingSet(pass.bindings);
+                            state.addBindingSet(pass.shadowBindings);
                             setGrid(state, grid);
                             context.commandList.setGraphicsState(state);
                             nvrhi::DrawArguments arguments;
