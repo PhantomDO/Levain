@@ -87,3 +87,5 @@ fdbdbfb6a76edeb6626f28a1401bc1536bb1c864131a64e90fbc3df2d2d191bd Models/Sponza/g
 e2ab2939dda535ad28779e41c20c98368f630f29c5824a0a5a430f47b3b6da12 Models/Sponza/glTF/white.png
 # Le ciel de Rando et de l'IBL (M5.4) : une HDRI de Poly Haven, en CC0, choisie par Donnovan le 03/10/2026.
 5244534e9cf5b606f2ff513aa00ddb161b0a4826ffd88a0d3bd03ac29247d198 HDRIs/kloofendal_48d_partly_cloudy_puresky_2k.hdr https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/kloofendal_48d_partly_cloudy_puresky_2k.hdr
+# La même en 1k (1,4 Mo), embarquée par la page web (GitHub Pages) : le ciel par défaut dans le navigateur.
+fd94c84997b8a3c353b62c2125a9b44e19509956986a126e472684432a02d798 HDRIs/kloofendal_48d_partly_cloudy_puresky_1k.hdr https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloofendal_48d_partly_cloudy_puresky_1k.hdr
