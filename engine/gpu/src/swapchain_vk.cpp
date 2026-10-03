@@ -317,6 +317,11 @@ void presentFrame(GpuDevice& gpu)
 {
     if (!gpu.swapchain)
     {
+        // Hors écran, aucune swapchain ne freine la boucle : le CPU empilerait des images plus vite
+        // que le GPU ne les rend, et la fermeture attendrait qu'il les ait toutes finies. Sur
+        // lavapipe, avec Sponza, c'était plus de deux minutes. Une image en vol, comme une
+        // swapchain à deux images.
+        gpu.nvrhi->waitForIdle();
         return;
     }
     Swapchain& swapchain = *gpu.swapchain;

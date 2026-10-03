@@ -262,9 +262,12 @@ Cette passe applique l'**exposition** (`--exposure` dans le sandbox : 2 éclaire
   passe en logarithme, puis une courbe en S la ramène ; les couleurs très vives virent au blanc au lieu de
   saturer d'un seul canal. C'est la courbe par défaut de Blender depuis la 4.0 ;
 - **ACES** (approximation de Stephen Hill) : plus contrastée, le look « cinéma » ;
+- **Khronos PBR Neutral** : les couleurs passent telles quelles jusqu'à 0,76, puis le pic se comprime vers 1 ; un
+  albédo s'y lit à sa vraie couleur. C'est la courbe par défaut du glTF Sample Viewer, celle des comparaisons avec
+  lui (#125, #131) ;
 - **la coupe nette** : ce que faisait le moteur avant M5.2, les blancs saturent.
 
-`--tonemap clip|aces|agx` choisit dans le sandbox.
+`--tonemap clip|aces|agx|neutral` choisit dans le sandbox.
 
 ## Mesurer le temps GPU
 
