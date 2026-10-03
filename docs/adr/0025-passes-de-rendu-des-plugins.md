@@ -1,6 +1,6 @@
 # ADR-0025 — Des passes de rendu venues d'un plugin
 
-- **Statut** : proposé
+- **Statut** : proposé, options choisies par Donnovan le 2026-10-03, à valider dans sa forme finale
 - **Date** : 2026-10-03
 - **Milestone** : M5.6
 
@@ -39,35 +39,54 @@ Aujourd'hui, `render` est une bibliothèque de passes (`createMeshPass`, `drawMe
 
 ## Décision
 
-Proposée par Claude, à valider par Donnovan :
+Choisie par Donnovan au sondage du 03/10/2026 : **un registre par étape** (option B), et **l'éclairage partagé**.
 
-- **A : des passes explicites.** Le plugin publie ses passes en fonctions libres, comme `render` ; l'application
-  les appelle dans `renderFrame`. `render` documente les emplacements : dans chaque cascade d'ombres, parmi les
-  dessins opaques (avant le ciel, qui ne remplit que ce qui reste), et après les opaques pour ce qui se mélange
-  (l'eau, en M5.7). Un registre (option B) attendra qu'un renderer possède l'image, et plusieurs plugins.
+- **Un renderer qui possède l'image** (`render/renderer.hpp`). L'ordre des passes, aujourd'hui dans le
+  `renderFrame` du sandbox, passe dans `render` : tri des lumières, éclairage de la frame, ombres, opaques, ciel,
+  transparents, tonemapping, avec le temps GPU de chaque étape (#133). L'application lui donne la vue (caméra,
+  soleil, lumières) et l'image où dessiner.
+- **Le registre** (`render/stages.hpp`) : des étapes fixes, dans l'ordre de l'image :
+  - `ShadowCasters`, appelée une fois par cascade, avec la vue de la cascade ;
+  - `Opaque`, avant le ciel, qui ne remplit que ce qui reste ;
+  - `Transparent`, après le ciel, pour ce qui se mélange (l'eau, en M5.7).
+
+  On y inscrit une fonction (`RenderStages::add(étape, nom, fonction)`). Le renderer l'appelle avec un
+  `StageContext` : la command list, la cible, la `FrameBindings`, la matrice vue-projection et son frustum (pour le
+  culling, #132). Dans une même étape, les fonctions tournent **dans l'ordre de leur inscription**, et le renderer
+  sait les nommer : la fin de boucle donne la liste, étape par étape, pour que l'ordre réel se lise.
+- **Qui inscrit** : l'application, en une ligne à côté de l'import du module. `render` ne voit pas flecs, et un
+  plugin ne peut donc pas s'inscrire seul à son import (SPECS §7) :
+
+  ```cpp
+  world.import<levain::terrain::TerrainModule>();
+  levain::terrain::addTerrainPasses(renderer.stages, world);
+  ```
+
+  Les dessins du sandbox eux-mêmes (cubes, sol, modèles glTF) deviennent des fonctions inscrites, comme celles
+  d'un plugin : le renderer ne connaît aucun objet de la scène.
 - **L'éclairage partagé** :
   - `FrameBindings` (`render/frame.hpp`) : le layout et le binding set de `space0` (ADR-0013), et le buffer des
-    constantes de scène, créés une fois par `createFrameBindings(device, lights, shadows, environment)`.
-    `MeshPass` et les passes des plugins prennent la même ;
-  - `shaders/lighting.slang` : les bindings de `space0`, les constantes de la frame, et les fonctions
-    d'éclairage (`brdf`, `sunVisibilityOf`, `environmentLightOf`, `clusterOf`), avec une fonction qui assemble
-    tout, `shadeSurface`. `mesh.slang` l'inclut, et le shader du terrain aussi ;
+    constantes de scène, créés une fois par `createFrameBindings(device, lights, shadows, environment)`. `MeshPass`
+    et les passes des plugins prennent la même ;
+  - `shaders/lighting.slang` : les bindings de `space0`, les constantes de la frame et les fonctions d'éclairage
+    (`brdf`, `sunVisibilityOf`, `environmentLightOf`, `clusterOf`), avec une fonction qui assemble tout,
+    `shadeSurface`. `mesh.slang` l'inclut, et le shader du terrain aussi ;
   - `levain_add_shader` prend le dossier des shaders du moteur comme chemin d'inclusion, pour qu'un plugin compile
     ses shaders dans son propre dossier.
 - **Le plugin** se crée par `levain_add_plugin` (ADR-0018). Ses données sont des composants de son module flecs ;
-  ses passes lisent ces composants, et la glu tient en une ligne.
+  ses fonctions d'étape lisent ces composants, et la glu tient en une ligne.
 
 ## Conséquences
 
-- Une PR de refactorisation avant le terrain : `FrameBindings` et `lighting.slang`, sans changer un pixel (les
-  tests de fumée et `tools/khronos-compare.sh` le vérifient).
-- Le layout de `space0` et la signature de `shadeSurface` deviennent un **contrat** entre le moteur et ses
-  plugins : les changer, c'est changer les plugins dans la même PR.
-- Le jeu (*Rando*) appellera les passes du terrain, de l'eau et de l'herbe dans son `renderFrame` : quelques lignes,
-  dans un ordre qui se lit. Le jour où un renderer du moteur possédera l'image, l'option B se construira au-dessus
-  de ces mêmes fonctions, et un nouvel ADR remplacera celui-ci.
-- Une passe de plugin ne vérifie pas son emplacement : un terrain dessiné après le ciel serait recouvert. Les
-  tests de fumée du plugin le montreront.
+- **Trois PR avant le terrain**, chacune sans changer un pixel (les tests de fumée et `tools/khronos-compare.sh`
+  le vérifient) : `FrameBindings` et `lighting.slang` ; le renderer et son registre, où le sandbox inscrit ses
+  dessins ; `levain_add_plugin`.
+- Le layout de `space0`, la signature de `shadeSurface`, les étapes et `StageContext` deviennent un **contrat**
+  entre le moteur et ses plugins : les changer, c'est changer les plugins dans la même PR.
+- L'ordre dans une étape est celui des inscriptions : deux plugins opaques ne dépendent pas l'un de l'autre, mais
+  deux transparents, oui (l'herbe sur l'eau). Le jour où cela comptera, une priorité s'ajoutera à `add`.
+- Le jeu (*Rando*) n'a plus qu'à donner sa vue au renderer et à inscrire ses plugins : sa boucle de rendu tient
+  en quelques lignes.
 
 ## Ce que font les autres moteurs
 
@@ -79,8 +98,8 @@ Proposée par Claude, à valider par Donnovan :
 - **Godot** (documenté [3]) : le *Compositor* accepte des effets, des scripts appelés à un moment de l'image
   donné par leur `effect_callback_type` (par exemple après les objets transparents) : encore l'option B.
 
-Les trois moteurs ont un renderer qui possède l'image, et y inscrivent des passes. Levain n'en a pas encore :
-l'option A est l'étape d'avant, que les trois ont dépassée.
+Les trois moteurs ont un renderer qui possède l'image, et des passes qui s'y inscrivent à un moment donné : c'est
+ce que Levain adopte.
 
 ## Sources
 
