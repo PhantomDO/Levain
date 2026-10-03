@@ -269,6 +269,19 @@ Cette passe applique l'**exposition** (`--exposure` dans le sandbox : 2 éclaire
 
 `--tonemap clip|aces|agx|neutral` choisit dans le sandbox.
 
+## Se comparer au glTF Sample Viewer
+
+`tools/khronos-compare.sh <dossier>` mesure l'écart avec la référence de Khronos (#125, #131) :
+
+1. le glTF Sample Viewer hébergé ouvre MetalRoughSpheres dans un Firefox headless. Le viewer ne publie pas sa
+   caméra : un script injecté avant la page la relit dans ses appels WebGL (`u_Camera`) ;
+2. le sandbox rend la même vue (`--view khronos --camera x,y,z`) : le modèle seul, à l'origine, son champ de 45°,
+   son ciel `Cannon_Exterior` tourné de 90° comme le sien, sans soleil tiré du ciel ni lumière de la démo, et sa
+   courbe, Khronos PBR Neutral ;
+3. l'écart se mesure sphère par sphère, en ΔE76 (CIELAB), sur un disque de 6 pixels au centre de chacune des 7 × 7
+   sphères blanches : là, la normale fait face à l'œil, et les bords crénelés (le viewer lisse les siens) ne
+   comptent pas.
+
 ## Mesurer le temps GPU
 
 Le CPU ne voit que le temps qu'il passe à enregistrer : le GPU exécute plus tard, en parallèle. Une **timer
