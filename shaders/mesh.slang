@@ -213,24 +213,40 @@ float sunVisibilityOf(float3 worldPosition, float3 normal, float viewDepth)
     return lit / 9.0;
 }
 
-/// Ce que le ciel renvoie vers l'œil, en « split sum » (Karis) : le reflet préfiltré à la rugosité
-/// du matériau, multiplié par la part que la BRDF en renvoie (la table), plus l'irradiance pour ce
-/// que la surface diffuse. Le diffus ne reçoit que ce que le reflet laisse.
+/// La part du ciel que la surface reflète, pour une couleur spéculaire `f0` : la table de la BRDF
+/// (la « split sum » de Karis), un Fresnel qui tient compte de la rugosité, et l'énergie des rebonds
+/// multiples entre micro-facettes (Fdez-Agüera 2019), que la table ne voit pas : sans elle, un métal
+/// rugueux perd jusqu'au tiers de sa lumière. Le calcul de la spécification glTF (annexe B) et du
+/// glTF Sample Viewer, celui des mesures de #131.
+float3 iblFresnelOf(float cosView, float roughness, float3 f0)
+{
+    const float2 scaleBias =
+        brdfLut.SampleLevel(environmentSampler, float2(cosView, roughness), 0.0).rg;
+    const float3 fresnel = f0 + (max(float3(1.0 - roughness), f0) - f0) * pow(1.0 - cosView, 5.0);
+    const float3 singleScattering = fresnel * scaleBias.x + scaleBias.y;
+    const float missing = 1.0 - (scaleBias.x + scaleBias.y);
+    const float3 averageFresnel = f0 + (1.0 - f0) / 21.0;
+    return singleScattering +
+           missing * singleScattering * averageFresnel / (1.0 - averageFresnel * missing);
+}
+
+/// Ce que le ciel renvoie vers l'œil : le reflet préfiltré à la rugosité du matériau, et
+/// l'irradiance pour ce que la surface diffuse. Un diélectrique (F0 de 0,04) mêle les deux selon son
+/// Fresnel, un métal ne fait que refléter, teinté par sa couleur ; `metallic` passe de l'un à
+/// l'autre.
 float3 environmentLightOf(float3 normal, float3 toEye, float3 albedo, float metallic,
                           float roughness)
 {
     const float cosView = saturate(dot(normal, toEye));
-    const float3 f0 = lerp(float3(0.04), albedo, metallic);
-    const float2 scaleBias =
-        brdfLut.SampleLevel(environmentSampler, float2(cosView, roughness), 0.0).rg;
-    const float3 reflectance = f0 * scaleBias.x + scaleBias.y;
     const float3 reflected = reflect(-toEye, normal);
     const float3 specular =
         specularMap.SampleLevel(environmentSampler, reflected, roughness * float(SpecularMips - 1))
             .rgb;
     const float3 irradiance = irradianceMap.SampleLevel(environmentSampler, normal, 0.0).rgb;
-    const float3 diffuse = (1.0 - reflectance) * (1.0 - metallic) * albedo * irradiance;
-    return (diffuse + specular * reflectance) * frame.environmentIntensity;
+    const float3 dielectric =
+        lerp(albedo * irradiance, specular, iblFresnelOf(cosView, roughness, float3(0.04)));
+    const float3 metal = iblFresnelOf(cosView, roughness, albedo) * specular;
+    return lerp(dielectric, metal, metallic) * frame.environmentIntensity;
 }
 
 /// L'indice du cluster du pixel, par sa position à l'écran et sa profondeur : le calcul inverse de

@@ -16,6 +16,7 @@
 #include <numbers>
 #include <print>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -201,14 +202,23 @@ int checkConvolutions(nvrhi::IDevice& device)
     const auto albedoOf = [&lut](std::uint32_t x, std::uint32_t y)
     { return lut[(y * BrdfLutSize) + x].x + lut[(y * BrdfLutSize) + x].y; };
     expect("BRDF lisse, vue de face", albedoOf(BrdfLutSize - 1, 0), 1.0f, 0.02f);
-    float previous = albedoOf(BrdfLutSize - 1, 0);
+    // Presque lisse, la surface renvoie tout (1,000 deux fois de suite, en flottants 16 bits) : la
+    // part ne doit jamais remonter, et la plus rugueuse doit avoir perdu plus du tiers.
+    std::string profile;
+    const float smooth = albedoOf(BrdfLutSize - 1, 0);
+    float previous = smooth;
+    int rising = 0;
     for (std::uint32_t y = 16; y < BrdfLutSize; y += 16)
     {
         const float albedo = albedoOf(BrdfLutSize - 1, y);
-        failures += albedo < previous ? 0 : 1;
+        rising += albedo > previous + 1e-3f ? 1 : 0;
+        profile += std::format(" {:.3f}", albedo);
         previous = albedo;
     }
-    std::println("BRDF rugueuse, vue de face : {:.3f}, moins à chaque pas de rugosité", previous);
+    const bool decreasing = rising == 0 && previous < smooth * (2.0f / 3.0f);
+    std::println("BRDF vue de face, de rugosité en rugosité :{}{}", profile,
+                 decreasing ? "" : " : ÉCHEC, elle devrait décroître");
+    failures += decreasing ? 0 : 1;
     return failures;
 }
 
