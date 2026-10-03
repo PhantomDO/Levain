@@ -1,6 +1,9 @@
 # Roadmap v1
 
-> Version 0.9 — 02/10/2026 — statut : **validé par Donnovan** (forward+ en clusters, ADR-0024)
+> Version 0.10 — 03/10/2026 — statut : **validé par Donnovan** (clôture de la phase 5)
+>
+> v0.10 : **clôture de la phase 5**, ratio **0,91** (10,0 h pour 11,0) : dans la fourchette, **aucun
+> recalibrage**. Le ratio cumulé des phases 0 à 5 vaut 0,92 (38,0 h pour 41,5). Échéances inchangées.
 >
 > v0.9 : **un rendu forward+ en clusters dès M5.1** ([ADR-0024](adr/0024-forward-plus-en-clusters.md)), par
 > décision de Donnovan : une PR de plus (la grille de clusters et le tri des lumières), M5.1 passe de 1,75 à
@@ -58,7 +61,7 @@
 | 2 | 3D de base | 4,25 (réel, 3,75 estimées) | 4 | fini le 22/09/2026 |
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
 | 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
-| 5 | Rendu PBR et monde | 11,0 | 13 | 31/01/2027 |
+| 5 | Rendu PBR et monde | 10,0 (réel, 11,0 estimées) | 13 | fini le 03/10/2026 |
 | 6 | Physique et traversée | 7,15 | 6 | 28/02/2027 |
 | 7 | Éditeur | 7,5 | 8 | 04/04/2027 |
 | 8 | Audio et le jeu | 8,25 | 8 | 16/05/2027 |
@@ -66,8 +69,8 @@
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante après M4.6 (33,9 h) selon le rythme : **2 h/sem. → 17 semaines** (fin janvier 2027) ·
-**1,5 h/sem. → 23 semaines** (mi-mars 2027) · **1 h/sem. → 34 semaines** (fin mai 2027).
+Durée restante après la phase 5 (22,9 h) selon le rythme : **2 h/sem. → 12 semaines** (fin décembre 2026) ·
+**1,5 h/sem. → 16 semaines** (fin janvier 2027) · **1 h/sem. → 23 semaines** (mi-mars 2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 09/05/2027.
@@ -270,7 +273,7 @@ Chromium, depuis GitHub Pages ; la CI compile et teste le backend.
 | M5.4 Éclairage d'environnement (IBL) | 2,0 (réel, 2,25 estimées) | 2 | fini le 03/10/2026 |
 | M5.5 Culling et statistiques | 1,0 (réel, 1,25 estimées) | 1 | fini le 03/10/2026 |
 | M5.6 Terrain | 2,0 (réel, 1,25 estimées) | 2 | fini le 03/10/2026 |
-| M5.7 Eau et herbe | 1,75 | 2 | 31/01/2027 |
+| M5.7 Eau et herbe | 2,0 (réel, 1,75 estimées) | 1 | fini le 03/10/2026 |
 
 **M5.1 — PBR direct.** Modèle metallic-roughness (Cook-Torrance), lumières directionnelle et ponctuelles,
 en forward+ en clusters ([ADR-0024](adr/0024-forward-plus-en-clusters.md)) : un compute range les lumières
@@ -438,6 +441,24 @@ dans le journal, puis :
 décisions en font partie (voir la définition des « Heures Donnovan » plus haut). La phase 0 l'a appris à ses
 dépens — mesurée d'abord à 3,0 h en ne comptant que les relectures, contre **4,9 h réelles**. Le ratio erroné de
 0,50 aurait amputé la roadmap de 30 % sans raison.
+
+### Phase 5 — ratio 0,91, aucun recalibrage
+
+| Milestone | Estimé | Passé |
+|---|---:|---:|
+| M5.1 PBR direct | 1,75 h | 1,27 h |
+| M5.2 HDR et tonemapping | 1,0 h | 0,73 h |
+| M5.3 Ombres en cascades | 1,75 h | 1,0 h |
+| M5.4 IBL | 2,25 h | 2,0 h |
+| M5.5 Culling et statistiques | 1,25 h | 1,0 h |
+| M5.6 Terrain | 1,25 h | 2,0 h |
+| M5.7 Eau et herbe | 1,75 h | 2,0 h |
+| **Phase 5** | **11,0 h** | **10,0 h** — ratio **0,91** |
+
+Dans la fourchette : rien à changer. Les premiers milestones (le rendu lui-même) sont passés sous leur
+estimation, les derniers (les plugins moteur) au-dessus : le terrain a porté le renderer à étapes de
+l'ADR-0025, et M5.7 une correction des mips hors de son périmètre (#246). La phase 7 (l'éditeur) ressemble
+davantage aux derniers : du neuf, des ADR, des sondages. Le point se refait à la clôture de la phase 6.
 
 ### Phase 4 — ratio 0,73, aucun recalibrage (décision de Donnovan)
 
