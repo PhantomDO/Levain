@@ -22,8 +22,8 @@ struct Heightmap
     std::vector<float> heights;
 };
 
-/// Une vallée : une cuvette dont le fond est à 0, bordée de crêtes, et un relief fractal
-/// par-dessus.
+/// Une vallée : une cuvette dont le fond est à 0, bordée de crêtes, un relief fractal par-dessus,
+/// et le creux d'un lac dans le fond (M5.7).
 struct ValleySettings
 {
     std::uint32_t size = 513; ///< 513 échantillons à 1 m : 512 m de côté.
@@ -32,6 +32,10 @@ struct ValleySettings
     float roughness = 12.0f;    ///< L'amplitude du relief fractal, en mètres.
     float featureSize = 120.0f; ///< La taille des plus grandes bosses du relief, en mètres.
     std::uint32_t seed = 2026;  ///< Une autre graine, une autre vallée.
+    /// Le centre du lac, en mètres, contre le versant est du fond : son rivage y monte en pente.
+    glm::vec2 lakeCenter{330.0f, 280.0f};
+    float lakeRadius = 90.0f; ///< Où le creux rejoint le fond.
+    float lakeDepth = 8.0f;   ///< Sa profondeur au centre, sous le fond ; 0 : pas de lac.
 };
 
 /// La vallée de `settings`, la même à chaque appel pour la même graine.

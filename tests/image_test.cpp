@@ -131,6 +131,20 @@ TEST_CASE("buildMipChain fait la moyenne en lumière linéaire, pas sur les octe
     CHECK(levels[1].rgba[3] == 255); // l'alpha est linéaire : il reste opaque
 }
 
+TEST_CASE("buildMipChain fait la moyenne des octets d'une image de données, comme une normale")
+{
+    // Des normales qui penchent l'une à gauche (64), l'autre à droite (192) : leur moyenne est
+    // droite (128). En sRGB, elle pencherait à droite (≈ 150).
+    Image normals = uniformImage(2, 1, 128);
+    normals.rgba[0] = 64;
+    normals.rgba[4] = 192;
+
+    const std::vector<Image> levels = buildMipChain(normals, levain::assets::ImageEncoding::Linear);
+
+    REQUIRE(levels.size() == 2);
+    CHECK(levels[1].rgba[0] == 128);
+}
+
 TEST_CASE("loadHdrImage lit la lumière d'une HDR, au-delà de 1, et refuse une image 8 bits")
 {
     // Deux pixels écrits à la main en RGBE : (1 ; 0,5 ; 0,25) puis (4 ; 4 ; 4), exacts en RGBE.

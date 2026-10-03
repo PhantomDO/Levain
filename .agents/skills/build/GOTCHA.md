@@ -315,6 +315,8 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 - **Le bootstrap de vcpkg exige `zip`** (paquet système).
 - **Le shell des commandes de l'agent est zsh** : une variable non quotée n'y est pas découpée en mots
   (`$args` valant `--seconds 2` arrive en un seul argument). Écrire les arguments en toutes lettres.
+  Et `$var:r…` y applique un modificateur (`:r` retire l'« extension ») : `git push origin $C:refs/heads/x`
+  pousse une référence tronquée (2026-10-03). Écrire `${C}:refs/heads/x`.
 - **Le shell de Donnovan est fish** : `set -Ux` pour une variable d'environnement persistante. Les scripts du
   dépôt commencent par `#!/usr/bin/env bash`.
 
