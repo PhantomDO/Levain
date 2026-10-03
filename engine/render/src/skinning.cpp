@@ -2,9 +2,8 @@
 
 #include <cstdint>
 
-#include "shader.hpp"
-
 #include "levain/core/assert.hpp"
+#include "levain/render/shader.hpp"
 
 namespace levain::render
 {

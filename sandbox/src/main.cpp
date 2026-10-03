@@ -65,6 +65,8 @@
 #include "levain/scene/fixed_step.hpp"
 #include "levain/scene/scene.hpp"
 #include "levain/scene/transform.hpp"
+#include "levain/terrain/heightmap.hpp"
+#include "levain/terrain/terrain_pass.hpp"
 
 namespace
 {
@@ -260,8 +262,13 @@ struct DemoScene
     nvrhi::BindingSetHandle material;
     flecs::entity cameraEntity; ///< Transform + FpsController : la caméra libre (M3.4).
     levain::render::Camera camera;
-    /// La grille de cubes, le sol et les lumières de couleur ; absents de `--view khronos`.
+    /// La grille de cubes, le sol et les lumières de couleur ; absents des autres vues.
     bool demoProps = true;
+    /// La vallée de `--view terrain` (M5.6), et ce que ses dessins ont soumis et écarté.
+    std::optional<levain::terrain::Heightmap> heightmap;
+    std::optional<levain::terrain::TerrainPass> terrain;
+    levain::terrain::TerrainStats terrainCamera;
+    levain::terrain::TerrainStats terrainShadows;
     levain::render::GpuTimer gpuTimer;
     levain::render::GpuTimer skinningTimer; ///< Le seul skinning : le critère de coût de #117.
     SkinningCost skinningCost;
@@ -729,6 +736,15 @@ void logScanReport(const levain::assets::ScanReport& report)
     }
 }
 
+/// Ce que montre le sandbox : la démo (cubes, sol, modèle), la vue du glTF Sample Viewer (#125,
+/// #131), ou le terrain (M5.6).
+enum class SandboxView : std::uint8_t
+{
+    Demo,
+    Khronos,
+    Terrain,
+};
+
 /// Le soleil de la démo : haut, de biais, légèrement chaud.
 constexpr levain::render::Sun DemoSun{
     .direction = {-0.7f, 0.45f, 0.5f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
@@ -842,7 +858,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                 const std::optional<std::filesystem::path>& modelPath,
                 const std::optional<std::string>& clipName,
                 const std::optional<std::string>& locomotion, float modelScale,
-                const std::optional<std::filesystem::path>& skyPath, bool khronosView,
+                const std::optional<std::filesystem::path>& skyPath, SandboxView view,
                 std::optional<glm::vec3> cameraPosition, std::optional<glm::vec3> sunDirection)
 {
     // Le modèle de `--model`, par son GUID : le dossier qui le contient est scanné (ADR-0019), ce
@@ -956,6 +972,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(skinning.error());
     }
+    const bool khronosView = view == SandboxView::Khronos;
     auto sky = loadSky(*gpu.nvrhi, skyPath, khronosView);
     if (!sky)
     {
@@ -996,6 +1013,12 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     flecs::query<const levain::scene::WorldTransform> cubes =
         world.query_builder<const levain::scene::WorldTransform>("cubes").with<Cube>().build();
     levain::scene::FixedStep fixedStep;
+    if (view == SandboxView::Terrain)
+    {
+        // Sur une crête, au coin de la vallée, le regard vers son fond.
+        cameraEntity.set(levain::scene::Transform{.position = {30.0f, 140.0f, 480.0f}})
+            .set(levain::scene::FpsController{.yawDegrees = -45.0f, .pitchDegrees = -22.0f});
+    }
     if (cameraPosition)
     {
         // Face à −Z : le regard du glTF Sample Viewer à l'ouverture d'un modèle.
@@ -1063,6 +1086,19 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         bindModelMaterials(*gpu.nvrhi, *upload, renderer->meshPass, *samplerHandle, *model,
                            models.at(modelId));
     }
+    std::optional<levain::terrain::Heightmap> heightmap;
+    std::optional<levain::terrain::TerrainPass> terrain;
+    if (view == SandboxView::Terrain)
+    {
+        heightmap = levain::terrain::valleyOf({});
+        auto pass = levain::terrain::createTerrainPass(*gpu.nvrhi, *upload, *heightmap,
+                                                       renderer->frame, renderer->shadows);
+        if (!pass)
+        {
+            return std::unexpected(pass.error());
+        }
+        terrain = std::move(*pass);
+    }
     upload->close();
     gpu.nvrhi->executeCommandList(upload);
     if (model != nullptr)
@@ -1115,7 +1151,11 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .material = std::move(material),
                      .cameraEntity = cameraEntity,
                      .camera = camera,
-                     .demoProps = !khronosView,
+                     .demoProps = view == SandboxView::Demo,
+                     .heightmap = std::move(heightmap),
+                     .terrain = std::move(terrain),
+                     .terrainCamera = {},
+                     .terrainShadows = {},
                      .gpuTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningCost = {},
@@ -1298,6 +1338,11 @@ void addDemoStages(DemoScene& scene)
                                 {.viewProjection = context.viewProjection, .model = model});
                         });
         });
+    if (scene.terrain && scene.heightmap)
+    {
+        levain::terrain::addTerrainPasses(scene.renderer.stages, *scene.terrain, *scene.heightmap,
+                                          scene.terrainCamera, scene.terrainShadows);
+    }
     levain::core::log("sandbox", levain::core::LogLevel::Info, "étapes du rendu : {}",
                       levain::render::describeStages(scene.renderer.stages));
 }
@@ -1506,8 +1551,8 @@ struct SandboxOptions
     std::optional<std::filesystem::path> capturePath;
     /// `--view khronos` : la scène telle que l'ouvre le glTF Sample Viewer, pour s'y comparer
     /// (#125, #131, tools/khronos-compare.sh). Le modèle seul, à l'origine, sous sa caméra et son
-    /// ciel ; ni cubes, ni sol, ni lumières de la démo.
-    bool khronosView = false;
+    /// ciel ; ni cubes, ni sol, ni lumières de la démo. `--view terrain` : la vallée de M5.6.
+    SandboxView view = SandboxView::Demo;
     /// `--camera x,y,z` : la caméra à cette position, face à −Z. Celle du glTF Sample Viewer, que
     /// tools/khronos-compare.sh relit dans sa page.
     std::optional<glm::vec3> cameraPosition;
@@ -1602,11 +1647,13 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         if (name == "--view")
         {
             const std::string_view view{arguments[i + 1]};
-            if (view != "khronos" && view != "demo")
+            if (view != "khronos" && view != "demo" && view != "terrain")
             {
                 return std::nullopt;
             }
-            options.khronosView = view == "khronos";
+            options.view = view == "khronos"   ? SandboxView::Khronos
+                           : view == "terrain" ? SandboxView::Terrain
+                                               : SandboxView::Demo;
             continue;
         }
         if (name == "--gpu")
@@ -1722,7 +1769,7 @@ levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
     auto scene =
         createDemoScene(gpu, sampler, options.modelPath, options.clipName, options.locomotion,
                         options.modelScale, options.skyPath ? options.skyPath : defaultSky(),
-                        options.khronosView, options.cameraPosition, options.sunDirection);
+                        options.view, options.cameraPosition, options.sunDirection);
     if (!scene)
     {
         return std::unexpected{std::move(scene.error())};
@@ -1970,6 +2017,16 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
                       "{:.1f} appels et {:.0f} triangles",
                       perFrame(camera.drawn), perFrame(camera.triangles), perFrame(shadows.drawn),
                       perFrame(shadows.triangles));
+    if (loop.scene.terrain)
+    {
+        const levain::terrain::TerrainStats& camera = loop.scene.terrainCamera;
+        const levain::terrain::TerrainStats& shadows = loop.scene.terrainShadows;
+        levain::core::log("sandbox", levain::core::LogLevel::Info,
+                          "terrain, par image : {:.1f} parcelles dessinées sur {:.1f}, ombres "
+                          "{:.1f} sur {:.1f} (4 cascades)",
+                          perFrame(camera.drawn), perFrame(camera.drawn + camera.culled),
+                          perFrame(shadows.drawn), perFrame(shadows.drawn + shadows.culled));
+    }
     const SkinningCost& skinning = loop.scene.skinningCost;
     if (skinning.frames > 0)
     {
@@ -2053,13 +2110,14 @@ int main(int argc, char** argv)
             parseOptions(std::span{argv, static_cast<std::size_t>(argc)});
         if (!options)
         {
-            std::println(stderr,
-                         "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
-                         "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
-                         "repos,marche,course] "
-                         "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
-                         "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
-                         "fichier.hdr|none] [--view demo|khronos] [--camera x,y,z] [--sun x,y,z]");
+            std::println(
+                stderr,
+                "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
+                "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
+                "repos,marche,course] "
+                "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
+                "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
+                "fichier.hdr|none] [--view demo|khronos|terrain] [--camera x,y,z] [--sun x,y,z]");
             return 2;
         }
 

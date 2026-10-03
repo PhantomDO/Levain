@@ -6,7 +6,7 @@
 
 #include "levain/core/error.hpp"
 
-// En-tête privé du module : partagé par les passes, jamais installé.
+// Partagé par les passes du moteur et par celles des plugins (ADR-0025).
 
 namespace levain::render
 {

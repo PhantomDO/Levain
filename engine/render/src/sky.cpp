@@ -4,7 +4,7 @@
 
 #include <glm/glm.hpp>
 
-#include "shader.hpp"
+#include "levain/render/shader.hpp"
 
 namespace levain::render
 {

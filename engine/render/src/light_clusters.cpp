@@ -6,7 +6,7 @@
 #include <format>
 #include <limits>
 
-#include "shader.hpp"
+#include "levain/render/shader.hpp"
 
 namespace levain::render
 {
