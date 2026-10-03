@@ -66,6 +66,7 @@ add_subdirectory(engine/input)
 # Les plugins moteur (ADR-0018), après le moteur dont ils dépendent.
 add_subdirectory(plugins/terrain)
 add_subdirectory(plugins/water)
+add_subdirectory(plugins/grass)
 # Le cuiseur est un outil de la machine de développement : les assets arrivent cuits au navigateur.
 if(NOT EMSCRIPTEN)
     add_subdirectory(tools/cook)
