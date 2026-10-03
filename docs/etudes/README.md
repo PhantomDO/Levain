@@ -10,7 +10,7 @@ plus. On distingue toujours ce qui est **documenté** (avec la source) de ce qui
 | E2 | Ressources GPU et shaders ([écrite](E2-ressources-gpu.md)) | 2 |
 | E3 | Modèles objets ([écrite](E3-modeles-objets.md)) | 3 |
 | E4 | Pipelines d'assets ([écrite](E4-pipelines-assets.md)) | 4 |
-| E5 | Forward, deferred, forward+ | 5 |
+| E5 | Forward, deferred, forward+ ([écrite](E5-forward-deferred.md)) | 5 |
 | E6 | La physique dans les moteurs | 6 |
 | E7 | Réflexion et éditeurs | 7 |
 | E8 | Post-mortem du moteur et du jeu | 8 |
