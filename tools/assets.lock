@@ -89,3 +89,11 @@ e2ab2939dda535ad28779e41c20c98368f630f29c5824a0a5a430f47b3b6da12 Models/Sponza/g
 5244534e9cf5b606f2ff513aa00ddb161b0a4826ffd88a0d3bd03ac29247d198 HDRIs/kloofendal_48d_partly_cloudy_puresky_2k.hdr https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/kloofendal_48d_partly_cloudy_puresky_2k.hdr
 # La même en 1k (1,4 Mo), embarquée par la page web (GitHub Pages) : le ciel par défaut dans le navigateur.
 fd94c84997b8a3c353b62c2125a9b44e19509956986a126e472684432a02d798 HDRIs/kloofendal_48d_partly_cloudy_puresky_1k.hdr https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloofendal_48d_partly_cloudy_puresky_1k.hdr
+# MetalRoughSpheres : CC-BY 4.0 (Ed Mackey, Analytical Graphics). La grille de sphères de la comparaison
+# avec le glTF Sample Viewer (#125, #131, tools/khronos-compare.sh). Tests seulement.
+a24fd6fd24b2baef80a5d56b465a55635f7ec79039414e25c341d1402cc28048 Models/MetalRoughSpheres/glTF/MetalRoughSpheres.gltf
+f35a1caf37837b2987e24859d812a23e40ca37e1f741782e2a754961250e8c36 Models/MetalRoughSpheres/glTF/MetalRoughSpheres0.bin
+7327b8de2ce91d0ca4fdefcf28fdc58cb555e885a8e5f3b3cfab867c3f349efc Models/MetalRoughSpheres/glTF/Spheres_BaseColor.png
+7b352787106705789df0e025a8ea2209074569cd87029369bc66080dfca78e5a Models/MetalRoughSpheres/glTF/Spheres_MetalRough.png
+# Le ciel par défaut du glTF Sample Viewer, en CC0 (Greg Zaal), au commit de sa branche low_resolution_hdrs.
+7d65926ed2fa41c121738af2addf1fd5f1ae42d12ff77255e2679777f06c984b HDRIs/Cannon_Exterior.hdr https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Environments/3a030b54c2e4f0f4d469eec2f98f47398c9a2a30/Cannon_Exterior.hdr

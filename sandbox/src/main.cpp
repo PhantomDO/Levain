@@ -263,6 +263,8 @@ struct DemoScene
     nvrhi::BindingSetHandle material;
     flecs::entity cameraEntity; ///< Transform + FpsController : la caméra libre (M3.4).
     levain::render::Camera camera;
+    /// La grille de cubes, le sol et les lumières de couleur ; absents de `--view khronos`.
+    bool demoProps = true;
     levain::render::GpuTimer gpuTimer;
     levain::render::GpuTimer skinningTimer; ///< Le seul skinning : le critère de coût de #117.
     SkinningCost skinningCost;
@@ -750,11 +752,28 @@ struct Sky
     levain::render::Sun sun;
 };
 
+/// Tourne le ciel de `degrees` autour de la verticale : chaque ligne de l'image équirectangulaire
+/// glisse d'autant de colonnes, la longitude faisant le tour de l'image.
+void turnSkyAroundUp(levain::assets::HdrImage& image, float degrees)
+{
+    const auto columns = static_cast<std::ptrdiff_t>(
+        std::lround(static_cast<double>(image.width) * degrees / 360.0));
+    const auto rowLength = static_cast<std::ptrdiff_t>(image.width) * 4;
+    for (auto row = image.rgba.begin(); row != image.rgba.end(); row += rowLength)
+    {
+        std::rotate(row, row + rowLength - (columns * 4), row + rowLength);
+    }
+}
+
 /// Le ciel de `--sky`, ou sans HDRI un ciel uniforme et sombre, l'ambiance d'avant l'IBL, sous le
 /// soleil de la démo. Le soleil de l'HDRI en est retiré, pour devenir celui de la scène, qui jette
 /// les ombres. Le temps de calcul est donné : il se paie à chaque chargement.
+///
+/// `khronosView` : le ciel tel que l'éclaire le glTF Sample Viewer. Son soleil reste dans l'IBL,
+/// sans lumière directionnelle, et le ciel est tourné de 90° (sa rotation par défaut, « +Z »).
 levain::core::Result<Sky> loadSky(nvrhi::IDevice& device,
-                                  const std::optional<std::filesystem::path>& skyPath)
+                                  const std::optional<std::filesystem::path>& skyPath,
+                                  bool khronosView)
 {
     if (!skyPath)
     {
@@ -770,9 +789,22 @@ levain::core::Result<Sky> loadSky(nvrhi::IDevice& device,
     {
         return std::unexpected(image.error());
     }
-    const std::optional<levain::render::Sun> sun =
-        levain::render::extractSun(image->width, image->height, image->rgba);
-    if (sun)
+    std::optional<levain::render::Sun> sun;
+    if (khronosView)
+    {
+        turnSkyAroundUp(*image, 90.0f);
+        sun = levain::render::Sun{.direction = {0.0f, 1.0f, 0.0f}, .color{1.0f}, .intensity = 0.0f};
+    }
+    else
+    {
+        sun = levain::render::extractSun(image->width, image->height, image->rgba);
+    }
+    if (khronosView)
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Info,
+                          "vue du glTF Sample Viewer : le ciel seul éclaire, tourné de 90°");
+    }
+    else if (sun)
     {
         levain::core::log("sandbox", levain::core::LogLevel::Info,
                           "soleil de l'HDRI : direction ({:.2f}, {:.2f}, {:.2f}), intensité {:.2f}",
@@ -807,6 +839,9 @@ levain::core::Result<Sky> loadSky(nvrhi::IDevice& device,
     return Sky{.environment = std::move(*environment), .sun = sun.value_or(DemoSun)};
 }
 
+/// Le champ vertical de la caméra du glTF Sample Viewer (PerspectiveCamera.yfov).
+constexpr float KhronosViewerFovDegrees = 45.0f;
+
 /// Crée la passe des meshes et envoie au GPU le cube, la grille, le sol, la texture du damier, le
 /// modèle de `--model` et le ciel de `--sky`.
 levain::core::Result<DemoScene>
@@ -814,7 +849,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                 const std::optional<std::filesystem::path>& modelPath,
                 const std::optional<std::string>& clipName,
                 const std::optional<std::string>& locomotion, float modelScale,
-                const std::optional<std::filesystem::path>& skyPath)
+                const std::optional<std::filesystem::path>& skyPath, bool khronosView,
+                std::optional<glm::vec3> cameraPosition)
 {
     // Le modèle de `--model`, par son GUID : le dossier qui le contient est scanné (ADR-0019), ce
     // qui lui donne un .meta s'il n'en avait pas.
@@ -938,7 +974,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(shadows.error());
     }
-    auto sky = loadSky(*gpu.nvrhi, skyPath);
+    auto sky = loadSky(*gpu.nvrhi, skyPath, khronosView);
     if (!sky)
     {
         return std::unexpected(sky.error());
@@ -976,7 +1012,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     if (model != nullptr)
     {
         levain::assets::instantiateModel(world, *model, modelId, "model")
-            .set(modelPlacement(modelScale));
+            .set(khronosView ? levain::scene::Transform{} : modelPlacement(modelScale));
     }
     // La caméra est une entité comme les autres : basse, sur le côté de la grille, et visant loin
     // devant. Elle porte son état précédent pour que le rendu l'interpole entre deux pas de
@@ -992,6 +1028,12 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     flecs::query<const levain::scene::WorldTransform> cubes =
         world.query_builder<const levain::scene::WorldTransform>("cubes").with<Cube>().build();
     levain::scene::FixedStep fixedStep;
+    if (cameraPosition)
+    {
+        // Face à −Z : le regard du glTF Sample Viewer à l'ouverture d'un modèle.
+        cameraEntity.set(levain::scene::Transform{.position = *cameraPosition})
+            .set(levain::scene::FpsController{.yawDegrees = 0.0f, .pitchDegrees = 0.0f});
+    }
     levain::scene::advanceWorld(world, fixedStep,
                                 0.0f); // les matrices monde, avant le premier envoi
     std::vector<glm::vec3> cubePositions;
@@ -1071,11 +1113,12 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     // La grille occupe la gauche de l'image, le sol file jusqu'à l'horizon à droite, de plus en
     // plus de biais : c'est là que le filtrage trilinéaire seul le rend flou. Position et regard
     // sont ceux de l'entité, et le joueur peut les changer.
-    const levain::render::Camera camera{.position = {},
-                                        .target = {},
-                                        .verticalFovRadians = glm::radians(60.0f),
-                                        .nearPlane = 0.5f,
-                                        .farPlane = 1000.0f};
+    const levain::render::Camera camera{
+        .position = {},
+        .target = {},
+        .verticalFovRadians = glm::radians(khronosView ? KhronosViewerFovDegrees : 60.0f),
+        .nearPlane = 0.5f,
+        .farPlane = 1000.0f};
     // Avant le return : `.world = std::move(world)` vide `world` avant les champs suivants.
     flecs::query<const levain::assets::MeshRef, const levain::scene::WorldTransform> modelParts =
         world.query<const levain::assets::MeshRef, const levain::scene::WorldTransform>();
@@ -1108,6 +1151,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .material = std::move(material),
                      .cameraEntity = cameraEntity,
                      .camera = camera,
+                     .demoProps = !khronosView,
                      .gpuTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningCost = {},
@@ -1219,8 +1263,11 @@ void animateModels(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, Dem
 /// chacun : par la passe d'ombres, puis par la passe des meshes.
 template <typename Draw> void forEachDraw(DemoScene& scene, double seconds, Draw&& draw)
 {
-    draw(scene.cube, scene.grid, *scene.material, cubeRotation(seconds));
-    draw(scene.ground, scene.groundInstance, *scene.material, glm::mat4{1.0f});
+    if (scene.demoProps)
+    {
+        draw(scene.cube, scene.grid, *scene.material, cubeRotation(seconds));
+        draw(scene.ground, scene.groundInstance, *scene.material, glm::mat4{1.0f});
+    }
     scene.modelParts.each(
         [&](const levain::assets::MeshRef& part, const levain::scene::WorldTransform& world)
         {
@@ -1298,7 +1345,9 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         // Les lumières ponctuelles triées par cluster, puis l'éclairage de l'image, avant les
         // dessins qui les lisent (ADR-0024).
         if (auto assigned = levain::render::assignLightsToClusters(
-                commandList, scene.clusters, demoLightsAt(seconds), lighting.view);
+                commandList, scene.clusters,
+                scene.demoProps ? demoLightsAt(seconds) : std::vector<levain::render::PointLight>{},
+                lighting.view);
             !assigned)
         {
             levain::core::log("sandbox", levain::core::LogLevel::Error, "{}",
@@ -1511,6 +1560,13 @@ struct SandboxOptions
     /// Où écrire une capture de la dernière image, en PNG. Avec `--seconds`, c'est ce qui montre un
     /// rendu à distance, sans écran ni capture du bureau.
     std::optional<std::filesystem::path> capturePath;
+    /// `--view khronos` : la scène telle que l'ouvre le glTF Sample Viewer, pour s'y comparer
+    /// (#125, #131, tools/khronos-compare.sh). Le modèle seul, à l'origine, sous sa caméra et son
+    /// ciel ; ni cubes, ni sol, ni lumières de la démo.
+    bool khronosView = false;
+    /// `--camera x,y,z` : la caméra à cette position, face à −Z. Celle du glTF Sample Viewer, que
+    /// tools/khronos-compare.sh relit dans sa page.
+    std::optional<glm::vec3> cameraPosition;
     /// L'HDRI qui éclaire la scène (M5.4) ; sans, `LEVAIN_DEFAULT_SKY` s'il a été téléchargé.
     std::optional<std::filesystem::path> skyPath;
     /// `--gpu webgpu` : le backend WebGPU sur Dawn, hors écran, pour le vérifier sans navigateur
@@ -1528,6 +1584,25 @@ std::optional<double> parsePositive(std::string_view text)
         return std::nullopt;
     }
     return value;
+}
+
+/// Trois nombres séparés par des virgules, « 1.5,-2,0 ». Vide si le texte n'en est pas.
+std::optional<glm::vec3> parseVector(std::string_view text)
+{
+    glm::vec3 vector{0.0f};
+    const char* cursor = text.data();
+    const char* const end = text.data() + text.size();
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        const auto [next, error] = std::from_chars(cursor, end, vector[axis]);
+        const bool last = axis == 2;
+        if (error != std::errc{} || (last ? next != end : (next == end || *next != ',')))
+        {
+            return std::nullopt;
+        }
+        cursor = next + 1;
+    }
+    return vector;
 }
 
 /// `[--seconds N] [--anisotropy N] [--capture fichier.png] [--model fichier.gltf]`, dans n'importe
@@ -1564,6 +1639,25 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
                 return std::nullopt;
             }
             options.tonemapper = found->second;
+            continue;
+        }
+        if (name == "--camera")
+        {
+            options.cameraPosition = parseVector(arguments[i + 1]);
+            if (!options.cameraPosition)
+            {
+                return std::nullopt;
+            }
+            continue;
+        }
+        if (name == "--view")
+        {
+            const std::string_view view{arguments[i + 1]};
+            if (view != "khronos" && view != "demo")
+            {
+                return std::nullopt;
+            }
+            options.khronosView = view == "khronos";
             continue;
         }
         if (name == "--gpu")
@@ -1678,7 +1772,8 @@ levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
                       levain::render::clampAnisotropy(sampler.maxAnisotropy));
     auto scene =
         createDemoScene(gpu, sampler, options.modelPath, options.clipName, options.locomotion,
-                        options.modelScale, options.skyPath ? options.skyPath : defaultSky());
+                        options.modelScale, options.skyPath ? options.skyPath : defaultSky(),
+                        options.khronosView, options.cameraPosition);
     if (!scene)
     {
         return std::unexpected{std::move(scene.error())};
@@ -1975,12 +2070,12 @@ int main(int argc, char** argv)
             parseOptions(std::span{argv, static_cast<std::size_t>(argc)});
         if (!options)
         {
-            std::println(stderr,
-                         "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
-                         "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
-                         "repos,marche,course] "
-                         "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
-                         "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky fichier.hdr]");
+            std::println(stderr, "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
+                                 "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
+                                 "repos,marche,course] "
+                                 "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
+                                 "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
+                                 "fichier.hdr] [--view demo|khronos] [--camera x,y,z]");
             return 2;
         }
 
