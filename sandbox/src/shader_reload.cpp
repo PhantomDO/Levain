@@ -99,9 +99,12 @@ void reloadChangedShaders(ShaderReload& reload, nvrhi::IDevice& device,
                       millisecondsSince(buildStart));
 
     // Seules les passes dont la source a changé recréent leur pipeline (#45).
-    const bool touchesMeshPass =
-        std::ranges::any_of(changed, [](const std::filesystem::path& file)
-                            { return file.stem() == levain::render::MeshPassShaderFile; });
+    const bool touchesMeshPass = std::ranges::any_of(
+        changed,
+        [](const std::filesystem::path& file)
+        {
+            return std::ranges::contains(levain::render::MeshPassShaderFiles, file.stem().string());
+        });
     if (!touchesMeshPass)
     {
         levain::core::log("shaders", levain::core::LogLevel::Info, "aucun pipeline à recréer");

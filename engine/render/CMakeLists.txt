@@ -5,6 +5,7 @@ add_library(levain_render STATIC
     src/camera.cpp
     src/culling.cpp
     src/environment.cpp
+    src/frame.cpp
     src/gpu_timer.cpp
     src/light_clusters.cpp
     src/mesh.cpp

@@ -165,8 +165,13 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
     {
         return std::unexpected(environment.error());
     }
-    auto meshPass = levain::render::createMeshPass(device, framebuffer.getFramebufferInfo(),
-                                                   *clusters, *shadows, *environment);
+    auto frame = levain::render::createFrameBindings(device, *clusters, *shadows, *environment);
+    if (!frame)
+    {
+        return std::unexpected(frame.error());
+    }
+    auto meshPass =
+        levain::render::createMeshPass(device, framebuffer.getFramebufferInfo(), *frame);
     if (!meshPass)
     {
         return std::unexpected(meshPass.error());
@@ -245,13 +250,13 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
     {
         return std::unexpected(assigned.error());
     }
-    levain::render::setFrameLighting(commandList, *meshPass, *clusters, *shadows, lighting);
-    levain::render::drawMesh(commandList, *meshPass, framebuffer, cube, instances, *material,
-                             constants);
+    levain::render::setFrameLighting(commandList, *frame, *clusters, *shadows, lighting);
+    levain::render::drawMesh(commandList, *meshPass, *frame, framebuffer, cube, instances,
+                             *material, constants);
     if (withGround)
     {
         levain::render::drawMesh(
-            commandList, *meshPass, framebuffer, ground, instances, *material,
+            commandList, *meshPass, *frame, framebuffer, ground, instances, *material,
             {.viewProjection = constants.viewProjection, .model = glm::mat4{1.0f}});
     }
     return {};

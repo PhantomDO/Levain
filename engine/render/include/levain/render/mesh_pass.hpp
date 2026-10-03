@@ -1,49 +1,21 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include <string_view>
 
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
 
 #include "levain/core/error.hpp"
-#include "levain/render/environment.hpp"
-#include "levain/render/light_clusters.hpp"
+#include "levain/render/frame.hpp"
 #include "levain/render/mesh.hpp"
-#include "levain/render/shadows.hpp"
 
 namespace levain::render
 {
 
 /// Le format du depth buffer : 32 bits flottants, disponible partout.
 inline constexpr nvrhi::Format DepthFormat = nvrhi::Format::D32;
-
-/// Combien de `drawMesh` une command list peut enregistrer. Chaque dessin écrit ses constantes dans
-/// une nouvelle version du buffer volatil, et NVRHI refuse d'en dépasser le nombre prévu : c'est
-/// Sponza (105 dessins) qui l'a montré, en Debug seulement, la validation de NVRHI étant éteinte en
-/// Release.
-// ponytail: 4 096 versions de 128 octets, 512 Kio réservés. Passer la matrice du modèle en push
-// constants quand la passe sera refaite pour le PBR (M5.1) : plus aucune limite par dessin.
-inline constexpr std::uint32_t MaxMeshDrawsPerCommandList = 4096;
-
-/// Les constantes du shader. Doit correspondre à `SceneConstants` dans `shaders/mesh.slang`.
-struct SceneConstants
-{
-    glm::mat4 viewProjection;
-    glm::mat4 model;
-};
-
-/// L'éclairage d'une image : la caméra (pour les reflets, et pour retrouver le cluster d'un pixel),
-/// le soleil, et le ciel (l'environnement de `createMeshPass`), multiplié par
-/// `environmentIntensity`.
-struct FrameLighting
-{
-    ClusterView view;
-    glm::vec3 cameraPosition{0.0f};
-    Sun sun;
-    float environmentIntensity = 1.0f;
-    /// Les cascades des ombres du soleil (`cascadesOf`), que la passe d'ombres a dessinées.
-    std::array<Cascade, CascadeCount> cascades{};
-};
 
 /// Les facteurs d'un matériau metallic-roughness, avec les défauts de glTF. Doit correspondre à
 /// `MaterialConstants` dans `shaders/mesh.slang`.
@@ -90,32 +62,20 @@ struct MeshPass
     nvrhi::ShaderHandle vertexShader;
     nvrhi::ShaderHandle pixelShader;
     nvrhi::InputLayoutHandle inputLayout;
-    nvrhi::BindingLayoutHandle frameLayout;
+    nvrhi::BindingLayoutHandle frameLayout; ///< Celui de `FrameBindings`, gardé pour le hot-reload.
     nvrhi::BindingLayoutHandle materialLayout;
-    nvrhi::BufferHandle sceneConstants;
-    nvrhi::BufferHandle frameConstants;
-    nvrhi::BindingSetHandle frameBindings;
     nvrhi::GraphicsPipelineHandle pipeline;
 };
 
-/// Crée la passe pour des framebuffers de ce format, couleur et profondeur (`DepthFormat`). Ses
-/// shaders lisent les lumières ponctuelles triées par `lights` (ADR-0024), l'atlas des ombres de
-/// `shadows` (M5.3) et l'éclairage par l'image de `environment` (M5.4).
+/// Crée la passe pour des framebuffers de ce format, couleur et profondeur (`DepthFormat`),
+/// éclairée par les ressources de l'image `frame`.
 [[nodiscard]] core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device,
                                                     const nvrhi::FramebufferInfo& target,
-                                                    const LightClusterPass& lights,
-                                                    const ShadowPass& shadows,
-                                                    const Environment& environment);
+                                                    const FrameBindings& frame);
 
-/// Enregistre l'éclairage de l'image, une fois par command list, avant les dessins : après
-/// `assignLightsToClusters`, dont il reprend la grille.
-void setFrameLighting(nvrhi::ICommandList& commandList, const MeshPass& pass,
-                      const LightClusterPass& lights, const ShadowPass& shadows,
-                      const FrameLighting& lighting);
-
-/// Le nom des sources de la passe dans `shaders/`, sans extension : le hot-reload recrée la passe
-/// quand ce fichier change (ADR-0014).
-inline constexpr const char* MeshPassShaderFile = "mesh";
+/// Les sources de la passe dans `shaders/`, sans extension : le hot-reload recrée la passe quand
+/// l'une d'elles change (ADR-0014), le fichier de la passe comme ceux qu'il inclut.
+inline constexpr std::array<std::string_view, 3> MeshPassShaderFiles{"mesh", "lighting", "brdf"};
 
 /// Recharge les shaders compilés de la passe et recrée son pipeline, sans toucher aux layouts, aux
 /// buffers ni aux binding sets. En cas d'échec, `pass` reste tel quel (#46).
@@ -137,7 +97,7 @@ createMaterialBindings(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
 
 /// Enregistre le dessin de toutes les `instances` de `mesh`, en un seul appel, dans `framebuffer`,
 /// qui doit avoir un depth buffer.
-void drawMesh(nvrhi::ICommandList& commandList, const MeshPass& pass,
+void drawMesh(nvrhi::ICommandList& commandList, const MeshPass& pass, const FrameBindings& frame,
               nvrhi::IFramebuffer& framebuffer, const Mesh& mesh, const Instances& instances,
               nvrhi::IBindingSet& material, const SceneConstants& constants);
 

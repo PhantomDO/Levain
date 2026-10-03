@@ -292,6 +292,8 @@ struct DemoScene
     std::vector<glm::vec3>
         cubePositions; ///< Relevées à chaque frame, gardées pour ne pas réallouer.
     levain::render::LightClusterPass clusters; ///< Le tri des lumières ponctuelles (ADR-0024).
+    /// Les ressources de l'image, partagées par toutes les passes éclairées (ADR-0025).
+    levain::render::FrameBindings frame;
     levain::render::MeshPass meshPass;
     levain::render::SkinningPass skinning;
     levain::render::ShadowPass shadows; ///< Les ombres du soleil, en cascades (M5.3).
@@ -1041,8 +1043,13 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(sky.error());
     }
-    auto meshPass = levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *clusters,
-                                                   *shadows, sky->environment);
+    auto frame =
+        levain::render::createFrameBindings(*gpu.nvrhi, *clusters, *shadows, sky->environment);
+    if (!frame)
+    {
+        return std::unexpected(frame.error());
+    }
+    auto meshPass = levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *frame);
     std::optional<levain::render::SkyPass> skyPass;
     if (skyPath && skyPath->native() != NoSky)
     {
@@ -1189,6 +1196,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .cubes = std::move(cubes),
                      .cubePositions = std::move(cubePositions),
                      .clusters = std::move(*clusters),
+                     .frame = std::move(*frame),
                      .meshPass = std::move(*meshPass),
                      .skinning = std::move(*skinning),
                      .shadows = std::move(*shadows),
@@ -1439,7 +1447,7 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
                               assigned.error().message);
         }
         endPass(commandList, scene.passes, Pass::Clusters);
-        levain::render::setFrameLighting(commandList, scene.meshPass, scene.clusters, scene.shadows,
+        levain::render::setFrameLighting(commandList, scene.frame, scene.clusters, scene.shadows,
                                          lighting);
         // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
         gatherCubePositions(scene.cubes, scene.cubePositions);
@@ -1470,8 +1478,8 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
                         const glm::mat4& model)
                     {
                         levain::render::drawMesh(
-                            commandList, scene.meshPass, *framebuffer, mesh, instances, material,
-                            {.viewProjection = constants.viewProjection, .model = model});
+                            commandList, scene.meshPass, scene.frame, *framebuffer, mesh, instances,
+                            material, {.viewProjection = constants.viewProjection, .model = model});
                     });
         endPass(commandList, scene.passes, Pass::Meshes);
         if (scene.sky)
