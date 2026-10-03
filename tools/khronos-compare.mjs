@@ -1,7 +1,9 @@
 // Les deux moitiés de tools/khronos-compare.sh (#125, #131).
-//   node tools/khronos-compare.mjs capture <url> <capture.png> <port>
+//   node tools/khronos-compare.mjs capture <ibl|direct> <url> <capture.png> <port>
 //     Ouvre le glTF Sample Viewer dans le Firefox lancé par le script, capture son image et écrit
 //     sur la sortie la position de sa caméra, « x,y,z », relue dans les appels WebGL de la page.
+//     En `direct`, coupe d'abord l'IBL (son interrupteur « Image Based ») et écrit sur une seconde
+//     ligne la direction d'où vient sa lumière principale.
 //   node tools/khronos-compare.mjs measure <viewer.png> <levain.png> <x,y,z>
 //     Mesure l'écart de couleur, sphère par sphère, entre les deux images de MetalRoughSpheres.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -23,7 +25,7 @@ if (command === "capture") {
   process.exit(2);
 }
 
-async function capture(url, capturePath, port) {
+async function capture(mode, url, capturePath, port) {
   const socket = new WebSocket(`ws://127.0.0.1:${port}/session`);
   const pending = new Map();
   let nextId = 1;
@@ -82,6 +84,35 @@ async function capture(url, capturePath, port) {
     console.error("ÉCHEC : le viewer n'a dessiné aucune image (u_Camera jamais envoyée)");
     process.exit(1);
   }
+  const evaluate = async (expression) =>
+    (await send("script.evaluate", { expression, target: { context }, awaitPromise: false }))
+      .result.value;
+  let light;
+  if (mode === "direct") {
+    // L'interface est cachée (noUI), mais ses composants existent : cliquer l'interrupteur suffit.
+    // Sans IBL, le viewer allume deux lumières directionnelles fixes : la principale (u_Lights[0],
+    // intensité 1) et une d'appoint (0,5) venant de l'opposé, qui n'éclaire pas la face des sphères
+    // tournée vers l'œil, là où se fait la mesure.
+    const clicked = await evaluate(`(() => {
+      const label = [...document.querySelectorAll("label.switch")]
+        .find((candidate) => candidate.textContent.includes("Image Based"));
+      if (!label) return false;
+      label.querySelector("input").click();
+      return true;
+    })()`);
+    if (!clicked) {
+      console.error("ÉCHEC : interrupteur « Image Based » introuvable dans le viewer");
+      process.exit(1);
+    }
+    for (const start = Date.now(); !light && Date.now() - start < TimeoutMs; ) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      light = JSON.parse(await evaluate(`JSON.stringify(window.levainUniforms["u_Lights[0].direction"] ?? null)`));
+    }
+    if (!light) {
+      console.error("ÉCHEC : le viewer sans IBL n'a envoyé aucune lumière");
+      process.exit(1);
+    }
+  }
   // Le modèle dessiné, le viewer filtre encore le ciel pour l'IBL : quelques secondes de marge.
   await new Promise((resolve) => setTimeout(resolve, 8000));
   const shot = await send("browsingContext.captureScreenshot", { context });
@@ -89,6 +120,8 @@ async function capture(url, capturePath, port) {
   socket.close();
   writeFileSync(capturePath, Buffer.from(shot.data, "base64"));
   console.log(camera.join(","));
+  // La direction de la lumière, vers où elle va ; le sandbox veut d'où elle vient.
+  if (light) console.log(light.map((component) => -component).join(","));
 }
 
 /// sRGB 8 bits vers CIELAB (illuminant D65) : un écart de 1 est à peine visible (ΔE76).
