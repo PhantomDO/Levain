@@ -17,9 +17,14 @@ renderer (ADR-0025) ; le moteur ne le connaît pas.
   bords ne tombent pas aux mêmes hauteurs : une **jupe**, une bande verticale qui descend sous chaque bord
   (`patchGeometryOf`), cache la fente. Le niveau se choisit par la distance à la caméra, la même dans l'image et
   dans les ombres : jusqu'à 64 m, un sommet par mètre.
-- **Les couches** (`layers.hpp`) : l'herbe sur le plat du fond, un sol rocailleux en hauteur, la roche dans les
-  pentes de plus de 28 à 45°. `layerWeightsOf` les dose, de somme 1 ; `weightMapOf` en fait la carte de poids,
-  en RGBA 8 bits, que lira le shader.
+- **Les couches** (`layers.hpp`, `layer_textures.hpp`) : l'herbe sur le plat du fond, un gravier en hauteur, la
+  roche dans les pentes de plus de 28 à 45°. `layerWeightsOf` les dose, de somme 1 ; `weightMapOf` en fait la
+  carte de poids, en RGBA 8 bits. Leurs textures viennent de Poly Haven (CC0, `tools/assets.lock`) :
+  `rocky_terrain_02` pour l'herbe et `grass_path_2` pour le gravier (les noms trompent), `rock_face` pour la
+  roche. Chaque sorte (couleur, normale, rugosité) est un **tableau** de trois textures : trois bindings au lieu
+  de neuf, quand WebGPU n'en admet que seize par étage de shader. Sans les fichiers (le navigateur), chaque couche
+  prend une couleur unie. Le shader les plaque vues du ciel, tous les 4 m, et lit la couleur une seconde fois
+  tous les 29,3 m : la moyenne des deux casse la trame qu'une seule répétition dessine vue de loin.
 
 - **Le rendu** (`terrain_pass.hpp`) : la heightmap (R16 flottant, de 0 à 1) et la carte de poids en textures,
   une grille de sommets par niveau de détail, et deux pipelines. Le shader (`shaders/terrain.slang`) pose chaque

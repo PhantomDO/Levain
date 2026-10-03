@@ -1091,8 +1091,9 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     if (view == SandboxView::Terrain)
     {
         heightmap = levain::terrain::valleyOf({});
-        auto pass = levain::terrain::createTerrainPass(*gpu.nvrhi, *upload, *heightmap,
-                                                       renderer->frame, renderer->shadows);
+        auto pass = levain::terrain::createTerrainPass(
+            *gpu.nvrhi, *upload, *heightmap, renderer->frame, renderer->shadows,
+            std::filesystem::path{LEVAIN_TEST_ASSETS_DIR} / "Textures");
         if (!pass)
         {
             return std::unexpected(pass.error());

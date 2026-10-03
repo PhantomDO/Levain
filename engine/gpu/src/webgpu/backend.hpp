@@ -149,6 +149,7 @@ struct BindingHint
         DepthTexture,
         ComparisonSampler,
         CubeTexture,
+        ArrayTexture, ///< Un tableau de textures, lu couche par couche (les couches du terrain).
         StorageTexture2D,
         StorageTexture2DArray, ///< Une cubemap s'écrit face par face, comme un tableau 2D.
     };

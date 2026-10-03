@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <vector>
 
 #include <nvrhi/nvrhi.h>
@@ -18,6 +19,7 @@
 #include "levain/render/shadows.hpp"
 #include "levain/render/stages.hpp"
 #include "levain/terrain/heightmap.hpp"
+#include "levain/terrain/layer_textures.hpp"
 #include "levain/terrain/patches.hpp"
 
 namespace levain::terrain
@@ -37,6 +39,8 @@ struct TerrainPass
         heightmap; ///< R16 flottant, de 0 à 1 : de `heightOffset` à + `heightScale`.
     nvrhi::TextureHandle weights;
     nvrhi::SamplerHandle sampler;
+    LayerTextures layers;
+    nvrhi::SamplerHandle layerSampler; ///< Répété et anisotrope : les couches se répètent au sol.
     float heightOffset = 0.0f;
     float heightScale = 1.0f;
     std::array<PatchGrid, MaxLod + 1> grids;
@@ -48,17 +52,21 @@ struct TerrainPass
     nvrhi::BindingLayoutHandle layout; ///< space1, les ressources du terrain.
     nvrhi::BufferHandle constants;
     nvrhi::BindingSetHandle bindings;
+    /// L'ombre ne lit que les constantes et la heightmap : son propre layout, pas celui des
+    /// couches, que son shader n'a pas (en WebGPU, un layout doit correspondre au binding près).
+    nvrhi::BindingLayoutHandle shadowLayout;
+    nvrhi::BindingSetHandle shadowBindings;
     nvrhi::GraphicsPipelineHandle pipeline;
     nvrhi::GraphicsPipelineHandle shadowPipeline;
 };
 
 /// Crée la passe de `heightmap`, éclairée par `frame`, et enregistre l'envoi de ses textures et de
-/// ses grilles dans `commandList`. Ses ombres se dessinent dans l'atlas de `shadows`.
-[[nodiscard]] core::Result<TerrainPass> createTerrainPass(nvrhi::IDevice& device,
-                                                          nvrhi::ICommandList& commandList,
-                                                          const Heightmap& heightmap,
-                                                          const render::FrameBindings& frame,
-                                                          const render::ShadowPass& shadows);
+/// ses grilles dans `commandList`. Ses ombres se dessinent dans l'atlas de `shadows`. Les textures
+/// des couches se lisent dans `layerDirectory` (`loadLayerTextures`).
+[[nodiscard]] core::Result<TerrainPass>
+createTerrainPass(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
+                  const Heightmap& heightmap, const render::FrameBindings& frame,
+                  const render::ShadowPass& shadows, const std::filesystem::path& layerDirectory);
 
 /// Ce que les dessins du terrain ont soumis et écarté depuis le début.
 struct TerrainStats

@@ -97,3 +97,14 @@ f35a1caf37837b2987e24859d812a23e40ca37e1f741782e2a754961250e8c36 Models/MetalRou
 7b352787106705789df0e025a8ea2209074569cd87029369bc66080dfca78e5a Models/MetalRoughSpheres/glTF/Spheres_MetalRough.png
 # Le ciel par défaut du glTF Sample Viewer, en CC0 (Greg Zaal), au commit de sa branche low_resolution_hdrs.
 7d65926ed2fa41c121738af2addf1fd5f1ae42d12ff77255e2679777f06c984b HDRIs/Cannon_Exterior.hdr https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Environments/3a030b54c2e4f0f4d469eec2f98f47398c9a2a30/Cannon_Exterior.hdr
+# Les trois couches du terrain (M5.6), de Poly Haven, en CC0 : l'herbe, un sol rocailleux et la roche, en 1k
+# (couleur, normale OpenGL, rugosité). Choisies par Donnovan le 03/10/2026, comme le prévoit le document de jeu.
+7f30b163739435c11f500f3818c7bb4922bab5f2734cc9ba6dd36817f0c9a8ab Textures/grass_path_2_diff_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grass_path_2/grass_path_2_diff_1k.jpg
+4f6e911619d4c79a6bc340a64eac1e5fcbae8e54ea2674ed1892f6a9a1dfb5fa Textures/grass_path_2_nor_gl_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grass_path_2/grass_path_2_nor_gl_1k.jpg
+2aaf4400e7892d643a4f64d7347f2a0ca65051b5cb0c1b5d0ef383a65a5fa172 Textures/grass_path_2_rough_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grass_path_2/grass_path_2_rough_1k.jpg
+d570c10b1d5302f4fde9e0e94f4cbab0d5e112fc3fe2b3b91c38a98bd3ddaf4b Textures/rocky_terrain_02_diff_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocky_terrain_02/rocky_terrain_02_diff_1k.jpg
+f4f9d9671c660f4e509e96d5da3091887dfd557e1353e313fa2d1dc789499ffd Textures/rocky_terrain_02_nor_gl_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocky_terrain_02/rocky_terrain_02_nor_gl_1k.jpg
+8652ee05de206888eb77f84df7c8080f6ffef27afadb7917127726570b66c45d Textures/rocky_terrain_02_rough_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocky_terrain_02/rocky_terrain_02_rough_1k.jpg
+cce4b50517161264bdef196f5e247e328ca3739083cd6044ad3cc54d88cb82e2 Textures/rock_face_diff_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_diff_1k.jpg
+e2682e1286c8b6aca7e01ba7b8fe1726cb6606042b9ee70d097aa67470d410ef Textures/rock_face_nor_gl_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_nor_gl_1k.jpg
+70ddfc5d7f292909d18ad56dbb1ff7c3a65809dc031854356c7a6978cb446219 Textures/rock_face_rough_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_rough_1k.jpg

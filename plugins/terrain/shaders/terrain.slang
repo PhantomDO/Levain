@@ -63,11 +63,17 @@ VertexOutput vertexMain(float3 local : POSITION)
     return output;
 }
 
-/// La couleur de chaque couche, en attendant leurs textures : des albédos de sol réels, en lumière
-/// linéaire (une herbe renvoie moins d'un dixième de la lumière, une roche claire un cinquième).
-static const float3 GrassColor = float3(0.05, 0.09, 0.02);
-static const float3 StonyColor = float3(0.12, 0.10, 0.08);
-static const float3 RockColor = float3(0.20, 0.19, 0.17);
+/// Les trois couches (layer_textures.hpp), dans l'ordre des canaux de la carte de poids.
+Texture2DArray layerAlbedo : register(t2, space1);    ///< sRGB : lue en lumière linéaire.
+Texture2DArray layerNormal : register(t3, space1);    ///< L'espace tangent, le vert vers le haut.
+Texture2DArray layerRoughness : register(t4, space1); ///< Dans le rouge.
+SamplerState layerSampler : register(s1, space1);     ///< Répété, anisotrope.
+
+/// Le côté, en mètres, d'une répétition des textures au sol, et celui d'une seconde lecture de la
+/// couleur, plus large : leur moyenne casse la trame que la répétition dessine vue de loin. Un
+/// rapport non entier, pour que les deux répétitions ne retombent jamais ensemble.
+static const float LayerTileSize = 4.0;
+static const float LayerMacroTileSize = 29.3;
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target
@@ -81,13 +87,51 @@ float4 fragmentMain(VertexOutput input) : SV_Target
     const float slopeZ =
         (heightAt(position + float2(0.0, step)) - heightAt(position - float2(0.0, step))) /
         (2.0 * step);
-    const float3 normal = normalize(float3(-slopeX, 1.0, -slopeZ));
+    const float3 surfaceNormal = normalize(float3(-slopeX, 1.0, -slopeZ));
     const float3 weights = weightMap.Sample(terrainSampler, heightmapUvOf(position)).rgb;
-    const float3 albedo =
-        (weights.r * GrassColor + weights.g * StonyColor + weights.b * RockColor) /
-        max(weights.r + weights.g + weights.b, 1e-3);
+    const float3 normalizedWeights = weights / max(weights.r + weights.g + weights.b, 1e-3);
+
+    // Les couches, plaquées vues du ciel (x et z du monde).
+    // ponytail: projection plane, étirée dans les pentes raides (×1,4 à 45°) ; un plaquage
+    // triplanaire pour la roche si les falaises le demandent.
+    const float2 uv = position / LayerTileSize;
+    const float2 macroUv = position / LayerMacroTileSize;
+    // Les dérivées hors de la boucle : en WGSL, une lecture qui les calcule elle-même (Sample) est
+    // interdite dans une branche qui dépend des données, comme le saut des couches sans poids.
+    const float2 uvDx = ddx(uv);
+    const float2 uvDy = ddy(uv);
+    const float2 macroDx = ddx(macroUv);
+    const float2 macroDy = ddy(macroUv);
+    float3 albedo = 0.0;
+    float3 tangentNormal = 0.0;
+    float roughness = 0.0;
+    for (uint layer = 0; layer < 3; ++layer)
+    {
+        const float weight = normalizedWeights[layer];
+        // La plupart des pixels n'ont qu'une ou deux couches : ne pas lire les autres.
+        if (weight < 1e-3)
+        {
+            continue;
+        }
+        const float3 coordinates = float3(uv, float(layer));
+        const float3 macroCoordinates = float3(macroUv, float(layer));
+        albedo += weight * 0.5 *
+                  (layerAlbedo.SampleGrad(layerSampler, coordinates, uvDx, uvDy).rgb +
+                   layerAlbedo.SampleGrad(layerSampler, macroCoordinates, macroDx, macroDy).rgb);
+        tangentNormal +=
+            weight *
+            (layerNormal.SampleGrad(layerSampler, coordinates, uvDx, uvDy).rgb * 2.0 - 1.0);
+        roughness += weight * layerRoughness.SampleGrad(layerSampler, coordinates, uvDx, uvDy).r;
+    }
+    // L'espace tangent du plaquage : u le long de x, v le long de z, la normale de la pente.
+    const float3 tangent = normalize(float3(1.0, 0.0, 0.0) -
+                                     surfaceNormal * dot(surfaceNormal, float3(1.0, 0.0, 0.0)));
+    const float3 bitangent = cross(tangent, surfaceNormal);
+    const float3 normal = normalize(tangent * tangentNormal.x + bitangent * tangentNormal.y +
+                                    surfaceNormal * max(tangentNormal.z, 1e-3));
     const Surface surface = {
-        input.worldPosition, input.clipPosition, normal, normal, albedo, 0.0, 0.9,
+        input.worldPosition, input.clipPosition, normal, surfaceNormal, albedo, 0.0,
+        clamp(roughness, 0.045, 1.0),
     };
     return float4(shadeSurface(surface), 1.0);
 }

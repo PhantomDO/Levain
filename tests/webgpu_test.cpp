@@ -14,6 +14,7 @@
 #include "levain/render/readback.hpp"
 #include "levain/render/skinning.hpp"
 #include "levain/render/tonemap.hpp"
+#include "levain/terrain/layer_textures.hpp"
 
 namespace
 {
@@ -394,4 +395,118 @@ TEST_CASE("un compute écrit une cubemap face par face, qu'un shader relit, sur 
         CHECK(std::abs(static_cast<float>(image->rgba[(face * 4) + 1]) -
                        ((1.0f - expected) * 255.0f)) <= 2.0f);
     }
+}
+
+TEST_CASE("un shader lit chaque couche d'un tableau de textures, sur le backend WebGPU")
+{
+    // Le layout de NVRHI ne dit pas qu'une texture est un tableau : le backend le déduit de la
+    // ressource et du WGSL (backend.hpp, BindingHint), comme pour une cubemap.
+    const nvrhi::DeviceHandle device = webGpuDevice();
+    const std::string wgsl = R"(
+@binding(0) @group(0) var layers : texture_2d_array<f32>;
+@binding(128) @group(0) var layerSampler : sampler;
+
+@vertex fn vertexMain(@builtin(vertex_index) index : u32) -> @builtin(position) vec4<f32> {
+    let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+
+@fragment fn fragmentMain(@builtin(position) position : vec4<f32>) -> @location(0) vec4<f32> {
+    return textureSampleLevel(layers, layerSampler, vec2<f32>(0.5), i32(position.x), 0.0);
+}
+)";
+    const nvrhi::ShaderHandle vertexShader = device->createShader(
+        nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex).setEntryName("vertexMain"),
+        wgsl.data(), wgsl.size());
+    const nvrhi::ShaderHandle pixelShader = device->createShader(
+        nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel).setEntryName("fragmentMain"),
+        wgsl.data(), wgsl.size());
+    REQUIRE(vertexShader);
+    REQUIRE(pixelShader);
+
+    const nvrhi::TextureHandle layers =
+        device->createTexture(nvrhi::TextureDesc()
+                                  .setDimension(nvrhi::TextureDimension::Texture2DArray)
+                                  .setWidth(1)
+                                  .setHeight(1)
+                                  .setArraySize(2)
+                                  .setFormat(nvrhi::Format::RGBA8_UNORM)
+                                  .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                  .setKeepInitialState(true)
+                                  .setDebugName("couches"));
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Pixel;
+    layoutDesc.bindings = {nvrhi::BindingLayoutItem::Texture_SRV(0),
+                           nvrhi::BindingLayoutItem::Sampler(0)};
+    const nvrhi::BindingLayoutHandle layout = device->createBindingLayout(layoutDesc);
+    const nvrhi::SamplerHandle sampler = device->createSampler(nvrhi::SamplerDesc());
+    const nvrhi::BindingSetHandle bindings =
+        device->createBindingSet(nvrhi::BindingSetDesc()
+                                     .addItem(nvrhi::BindingSetItem::Texture_SRV(0, layers))
+                                     .addItem(nvrhi::BindingSetItem::Sampler(0, sampler)),
+                                 layout);
+    const nvrhi::TextureHandle target =
+        device->createTexture(nvrhi::TextureDesc()
+                                  .setWidth(2)
+                                  .setHeight(1)
+                                  .setFormat(nvrhi::Format::RGBA8_UNORM)
+                                  .setIsRenderTarget(true)
+                                  .setInitialState(nvrhi::ResourceStates::RenderTarget)
+                                  .setKeepInitialState(true)
+                                  .setDebugName("couches lues"));
+    const nvrhi::FramebufferHandle framebuffer =
+        device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(target));
+    nvrhi::GraphicsPipelineDesc pipelineDesc;
+    pipelineDesc.VS = vertexShader;
+    pipelineDesc.PS = pixelShader;
+    pipelineDesc.addBindingLayout(layout);
+    pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+    pipelineDesc.renderState.depthStencilState.depthTestEnable = false;
+    const nvrhi::GraphicsPipelineHandle pipeline =
+        device->createGraphicsPipeline(pipelineDesc, framebuffer->getFramebufferInfo());
+    REQUIRE(bindings);
+    REQUIRE(pipeline);
+
+    const std::array<std::uint8_t, 4> red{255, 0, 0, 255};
+    const std::array<std::uint8_t, 4> blue{0, 0, 255, 255};
+    const nvrhi::CommandListHandle commandList = device->createCommandList();
+    commandList->open();
+    commandList->writeTexture(layers, 0, 0, red.data(), 4);
+    commandList->writeTexture(layers, 1, 0, blue.data(), 4);
+    nvrhi::GraphicsState graphics;
+    graphics.pipeline = pipeline;
+    graphics.framebuffer = framebuffer;
+    graphics.viewport.addViewportAndScissorRect(framebuffer->getFramebufferInfo().getViewport());
+    graphics.addBindingSet(bindings);
+    commandList->setGraphicsState(graphics);
+    commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+    const nvrhi::StagingTextureHandle staging =
+        levain::render::copyForReadback(*device, *commandList, *target);
+    commandList->close();
+    device->executeCommandList(commandList);
+    const auto image = levain::render::readBack(*device, *staging);
+    REQUIRE(image.has_value());
+    // Le pixel 0 lit la couche 0, rouge ; le pixel 1, la couche 1, bleue.
+    CHECK(image->rgba[0] == 255);
+    CHECK(image->rgba[2] == 0);
+    CHECK(image->rgba[4] == 0);
+    CHECK(image->rgba[6] == 255);
+}
+
+TEST_CASE("sans leurs fichiers, les couches du terrain prennent une couleur unie au lieu d'échouer")
+{
+    // Le navigateur n'embarque pas les textures Poly Haven : le terrain doit s'y dessiner quand
+    // même.
+    const nvrhi::DeviceHandle device = webGpuDevice();
+    const nvrhi::CommandListHandle commandList = device->createCommandList();
+    commandList->open();
+    const auto layers =
+        levain::terrain::loadLayerTextures(*device, *commandList, "/chemin/qui/n/existe/pas");
+    commandList->close();
+    device->executeCommandList(commandList);
+    REQUIRE(layers.has_value());
+    CHECK(layers->albedo->getDesc().arraySize == 3);
+    CHECK(layers->albedo->getDesc().width == 1);
+    CHECK(layers->normal);
+    CHECK(layers->roughness);
 }
