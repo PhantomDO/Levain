@@ -241,9 +241,9 @@ jobs:
           grep -Eq "ombres : [0-9.]+ ms GPU en moyenne sur [1-9][0-9]* mesures" fox.log \
             || { echo "::error::le temps GPU de la passe d'ombres n'a pas été mesuré"; exit 1; }
           # Chaque passe chronométrée, et des dessins comptés (#133) : une passe à 0,000 ms n'a pas été
-          # mesurée.
-          passes=$(grep -E "passes, GPU en moyenne : clusters" fox.log) \
-            || { echo "::error::le temps GPU des passes n'a pas été donné"; exit 1; }
+          # mesurée, et une passe absente n'a pas tourné (le renderer ne cite que les étapes mesurées).
+          passes=$(grep -E "passes, GPU en moyenne : clusters [0-9.]+ ms, ombres [0-9.]+ ms, opaques [0-9.]+ ms, ciel [0-9.]+ ms, tonemapping" fox.log) \
+            || { echo "::error::le temps GPU des passes n'a pas été donné en entier"; exit 1; }
           if grep -q " 0\.000 ms" <<<"$passes"; then
             echo "::error::une passe n'a pas été mesurée : $passes"; exit 1
           fi

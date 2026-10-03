@@ -54,6 +54,7 @@
 #include "levain/render/mesh.hpp"
 #include "levain/render/mesh_pass.hpp"
 #include "levain/render/readback.hpp"
+#include "levain/render/renderer.hpp"
 #include "levain/render/shadows.hpp"
 #include "levain/render/skinning.hpp"
 #include "levain/render/sky.hpp"
@@ -121,11 +122,8 @@ double secondsBetween(Clock::time_point start, Clock::time_point end)
 }
 
 /// Temps GPU moyen sur une période : somme et nombre des mesures reçues.
-struct GpuTimeAverage
-{
-    double totalMs = 0.0;
-    int samples = 0;
-};
+using levain::render::averageOf;
+using levain::render::GpuTimeAverage;
 
 /// Les dessins d'une passe depuis le début de la boucle : soumis au GPU, écartés par le frustum
 /// culling (#132), et les triangles soumis, instances comprises (#133).
@@ -135,57 +133,6 @@ struct DrawCount
     std::uint64_t culled = 0;
     std::uint64_t triangles = 0;
 };
-
-double averageOf(const GpuTimeAverage& average)
-{
-    return average.samples > 0 ? average.totalMs / average.samples : 0.0;
-}
-
-/// Les passes de l'image, chronométrées une à une sur le GPU (#133), dans l'ordre où elles passent.
-enum class Pass : std::uint8_t
-{
-    Clusters,
-    Shadows,
-    Meshes,
-    Sky,
-    Tonemap,
-};
-constexpr std::array<std::string_view, 5> PassNames{"clusters", "ombres", "meshes", "ciel",
-                                                    "tonemapping"};
-
-struct PassTimers
-{
-    std::array<levain::render::GpuTimer, PassNames.size()> timers;
-    std::array<GpuTimeAverage, PassNames.size()> averages;
-};
-
-PassTimers createPassTimers(nvrhi::IDevice& device)
-{
-    PassTimers passes;
-    for (levain::render::GpuTimer& timer : passes.timers)
-    {
-        timer = levain::render::createGpuTimer(device);
-    }
-    return passes;
-}
-
-/// Commence la mesure de `pass`, et compte celle d'une image précédente, lisible maintenant
-/// (gpu_timer.hpp).
-void beginPass(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, PassTimers& passes,
-               Pass pass)
-{
-    const auto index = static_cast<std::size_t>(pass);
-    if (const auto ms = levain::render::beginGpuTimer(device, commandList, passes.timers[index]))
-    {
-        passes.averages[index].totalMs += *ms;
-        ++passes.averages[index].samples;
-    }
-}
-
-void endPass(nvrhi::ICommandList& commandList, PassTimers& passes, Pass pass)
-{
-    levain::render::endGpuTimer(commandList, passes.timers[static_cast<std::size_t>(pass)]);
-}
 
 std::string describeFrameTimes(const levain::core::FrameTimeSummary& summary, double gpuMs)
 {
@@ -291,20 +238,12 @@ struct DemoScene
     flecs::query<const levain::scene::WorldTransform> cubes;
     std::vector<glm::vec3>
         cubePositions; ///< Relevées à chaque frame, gardées pour ne pas réallouer.
-    levain::render::LightClusterPass clusters; ///< Le tri des lumières ponctuelles (ADR-0024).
-    /// Les ressources de l'image, partagées par toutes les passes éclairées (ADR-0025).
-    levain::render::FrameBindings frame;
-    levain::render::MeshPass meshPass;
+    /// L'image et l'ordre de ses passes (ADR-0025) ; la démo s'inscrit dans ses étapes
+    /// (`addDemoStages`).
+    levain::render::Renderer renderer;
     levain::render::SkinningPass skinning;
-    levain::render::ShadowPass shadows; ///< Les ombres du soleil, en cascades (M5.3).
-    levain::render::CascadeSettings cascadeSettings;
-    levain::render::Environment environment; ///< Le ciel qui éclaire la scène (IBL, M5.4).
-    levain::render::Sun sun;                 ///< Celui du ciel, ou celui de la démo sans HDRI.
-    /// Le ciel en fond, avec `--sky` seulement : sans HDRI, le fond reste la croûte de levain.
-    std::optional<levain::render::SkyPass> sky;
-    levain::render::TonemapPass tonemap; ///< De l'image HDR à la swapchain (M5.2).
+    levain::render::Sun sun; ///< Celui du ciel, ou celui de la démo sans HDRI.
     levain::render::TonemapSettings tonemapSettings;
-    levain::render::HdrTarget hdr; ///< Créée à la première frame, à la taille de l'image.
     levain::render::Mesh cube;
     levain::render::Instances grid;
     levain::render::Mesh ground;
@@ -326,10 +265,8 @@ struct DemoScene
     levain::render::GpuTimer gpuTimer;
     levain::render::GpuTimer skinningTimer; ///< Le seul skinning : le critère de coût de #117.
     SkinningCost skinningCost;
-    PassTimers passes; ///< Le temps GPU de chaque passe (#133), dont les ombres (M5.3, #129).
     DrawCount cameraCulling;
-    DrawCount shadowCulling;    ///< Les quatre cascades ensemble.
-    nvrhi::TextureHandle depth; ///< Créé à la première frame, à la taille de l'image.
+    DrawCount shadowCulling; ///< Les quatre cascades ensemble.
 };
 
 /// Les cubes de la grille : une entité chacun, nommée par sa colonne et sa rangée
@@ -502,14 +439,6 @@ nvrhi::Format nvrhiFormatOf(levain::assets::TextureFormat format, bool linear)
         return linear ? nvrhi::Format::BC7_UNORM : nvrhi::Format::BC7_UNORM_SRGB;
     }
     return linear ? nvrhi::Format::RGBA8_UNORM : nvrhi::Format::SRGBA8_UNORM;
-}
-
-/// Le format des images où dessine la passe des meshes : l'image HDR et le depth buffer (M5.2).
-nvrhi::FramebufferInfo sceneTargetOf(levain::gpu::GpuDevice&)
-{
-    return nvrhi::FramebufferInfo()
-        .addColorFormat(levain::render::HdrFormat)
-        .setDepthFormat(levain::render::DepthFormat);
 }
 
 /// Le format où charger les textures cuites : le BC7 si le GPU l'échantillonne (tous les GPU de
@@ -1027,48 +956,18 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(skinning.error());
     }
-    auto clusters = levain::render::createLightClusterPass(*gpu.nvrhi);
-    if (!clusters)
-    {
-        return std::unexpected(clusters.error());
-    }
-    const levain::render::CascadeSettings cascadeSettings;
-    auto shadows = levain::render::createShadowPass(*gpu.nvrhi, cascadeSettings.resolution);
-    if (!shadows)
-    {
-        return std::unexpected(shadows.error());
-    }
     auto sky = loadSky(*gpu.nvrhi, skyPath, khronosView);
     if (!sky)
     {
         return std::unexpected(sky.error());
     }
-    auto frame =
-        levain::render::createFrameBindings(*gpu.nvrhi, *clusters, *shadows, sky->environment);
-    if (!frame)
+    // Le ciel en fond, avec une HDRI seulement : sans elle, le fond reste la croûte de levain.
+    auto renderer = levain::render::createRenderer(*gpu.nvrhi, levain::gpu::swapchainFormat(gpu),
+                                                   std::move(sky->environment),
+                                                   skyPath && skyPath->native() != NoSky);
+    if (!renderer)
     {
-        return std::unexpected(frame.error());
-    }
-    auto meshPass = levain::render::createMeshPass(*gpu.nvrhi, sceneTargetOf(gpu), *frame);
-    std::optional<levain::render::SkyPass> skyPass;
-    if (skyPath && skyPath->native() != NoSky)
-    {
-        auto pass = levain::render::createSkyPass(*gpu.nvrhi, sceneTargetOf(gpu), sky->environment);
-        if (!pass)
-        {
-            return std::unexpected(pass.error());
-        }
-        skyPass = std::move(*pass);
-    }
-    if (!meshPass)
-    {
-        return std::unexpected(meshPass.error());
-    }
-    auto tonemap = levain::render::createTonemapPass(
-        *gpu.nvrhi, nvrhi::FramebufferInfo().addColorFormat(levain::gpu::swapchainFormat(gpu)));
-    if (!tonemap)
-    {
-        return std::unexpected(tonemap.error());
+        return std::unexpected(renderer.error());
     }
 
     flecs::world world;
@@ -1150,7 +1049,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     // cubes et du sol : non métallique, assez rugueux.
     nvrhi::SamplerHandle samplerHandle = levain::render::createSampler(*gpu.nvrhi, sampler);
     nvrhi::BindingSetHandle material = levain::render::createMaterialBindings(
-        *gpu.nvrhi, *upload, *meshPass,
+        *gpu.nvrhi, *upload, renderer->meshPass,
         {.baseColorFactor = glm::vec4{1.0f},
          .metallicFactor = 0.0f,
          .roughnessFactor = 0.8f,
@@ -1161,7 +1060,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         *samplerHandle);
     if (model != nullptr)
     {
-        bindModelMaterials(*gpu.nvrhi, *upload, *meshPass, *samplerHandle, *model,
+        bindModelMaterials(*gpu.nvrhi, *upload, renderer->meshPass, *samplerHandle, *model,
                            models.at(modelId));
     }
     upload->close();
@@ -1195,21 +1094,13 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .fixedStep = fixedStep,
                      .cubes = std::move(cubes),
                      .cubePositions = std::move(cubePositions),
-                     .clusters = std::move(*clusters),
-                     .frame = std::move(*frame),
-                     .meshPass = std::move(*meshPass),
+                     .renderer = std::move(*renderer),
                      .skinning = std::move(*skinning),
-                     .shadows = std::move(*shadows),
-                     .cascadeSettings = cascadeSettings,
-                     .environment = std::move(sky->environment),
                      .sun = sunDirection ? levain::render::Sun{.direction = *sunDirection,
                                                                .color = glm::vec3{1.0f},
                                                                .intensity = 1.0f}
                                          : sky->sun,
-                     .sky = std::move(skyPass),
-                     .tonemap = std::move(*tonemap),
                      .tonemapSettings = {},
-                     .hdr = {},
                      .cube = std::move(cube),
                      .grid = std::move(grid),
                      .ground = std::move(ground),
@@ -1228,10 +1119,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .gpuTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningCost = {},
-                     .passes = createPassTimers(*gpu.nvrhi),
                      .cameraCulling = {},
-                     .shadowCulling = {},
-                     .depth = {}};
+                     .shadowCulling = {}};
 }
 
 /// Huit lumières de couleur qui tournent autour du modèle (`modelPlacement`), un tour en 12 s :
@@ -1373,6 +1262,46 @@ void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum
         });
 }
 
+/// Inscrit les dessins de la démo dans les étapes du renderer (ADR-0025), comme le ferait un plugin
+/// : les cubes, le sol et les modèles projettent leur ombre, puis se dessinent parmi les opaques.
+/// La scène doit être à sa place définitive : les fonctions la gardent par référence.
+void addDemoStages(DemoScene& scene)
+{
+    using levain::render::RenderStage;
+    using levain::render::StageContext;
+    levain::render::addStageFunction(
+        scene.renderer.stages, RenderStage::ShadowCasters, "démo",
+        [&scene](const StageContext& context)
+        {
+            forEachDraw(scene, context.seconds, context.frustum, scene.shadowCulling,
+                        [&](const levain::render::Mesh& mesh,
+                            const levain::render::Instances& instances, nvrhi::IBindingSet&,
+                            const glm::mat4& model)
+                        {
+                            levain::render::drawShadowCaster(context.commandList, context.shadows,
+                                                             context.cascade, *context.cascadeView,
+                                                             mesh, instances, model);
+                        });
+        });
+    levain::render::addStageFunction(
+        scene.renderer.stages, RenderStage::Opaque, "démo",
+        [&scene](const StageContext& context)
+        {
+            forEachDraw(scene, context.seconds, context.frustum, scene.cameraCulling,
+                        [&](const levain::render::Mesh& mesh,
+                            const levain::render::Instances& instances,
+                            nvrhi::IBindingSet& material, const glm::mat4& model)
+                        {
+                            levain::render::drawMesh(
+                                context.commandList, scene.renderer.meshPass, context.frame,
+                                context.target, mesh, instances, material,
+                                {.viewProjection = context.viewProjection, .model = model});
+                        });
+        });
+    levain::core::log("sandbox", levain::core::LogLevel::Info, "étapes du rendu : {}",
+                      levain::render::describeStages(scene.renderer.stages));
+}
+
 /// Efface l'image de la swapchain et son depth buffer, y dessine la grille, et la présente. Rend le
 /// temps GPU d'une frame précédente, dès qu'il est lisible. Avec `capture`, l'image est aussi
 /// copiée pour être relue (`render::readBack`).
@@ -1394,105 +1323,24 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         // tools/tracy-capture.sh).
         LEVAIN_PROFILE_SCOPE_NAMED("commandes");
 
-        const nvrhi::TextureDesc& target = backBuffer->getDesc();
-        nvrhi::ITexture* depth = levain::render::ensureDepthTexture(*gpu.nvrhi, scene.depth,
-                                                                    target.width, target.height);
-        // La scène se dessine dans l'image HDR, où la lumière n'est pas coupée à 1 ; le tonemapping
-        // la ramène ensuite dans la swapchain (M5.2).
-        nvrhi::ITexture* hdr = levain::render::ensureHdrTarget(*gpu.nvrhi, scene.tonemap, scene.hdr,
-                                                               target.width, target.height);
-
-        // ponytail: framebuffers recréés à chaque frame. C'est léger avec le rendu dynamique de
-        // Vulkan 1.3 (NVRHI ne crée pas de VkFramebuffer) ; un cache par image si un profil le
-        // montre.
-        const nvrhi::FramebufferHandle framebuffer = gpu.nvrhi->createFramebuffer(
-            nvrhi::FramebufferDesc().addColorAttachment(hdr).setDepthAttachment(depth));
-        const nvrhi::FramebufferHandle output =
-            gpu.nvrhi->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(backBuffer));
-
-        const float aspect = static_cast<float>(target.width) / static_cast<float>(target.height);
-        const levain::render::SceneConstants constants{
-            .viewProjection = levain::render::viewProjectionOf(scene.camera, aspect),
-            .model = cubeRotation(seconds),
-        };
-        const levain::render::FrameLighting lighting{
-            .view = levain::render::clusterViewOf(scene.camera, aspect),
-            .cameraPosition = scene.camera.position,
-            .sun = scene.sun,
-            .environmentIntensity = 1.0f,
-            .cascades = levain::render::cascadesOf(scene.camera, aspect, scene.sun.direction,
-                                                   scene.cascadeSettings)};
-
-        // La couleur de fond : une croûte de levain. Locale et non globale : le constructeur de
-        // nvrhi::Color n'est pas noexcept, et une exception levée à l'initialisation d'une
-        // globale ne se rattrape pas.
-        const nvrhi::Color clearColor{0.55f, 0.32f, 0.14f, 1.0f};
-
         commandList.open();
         gpuMs = levain::render::beginGpuTimer(*gpu.nvrhi, commandList, scene.gpuTimer);
-        commandList.clearTextureFloat(hdr, nvrhi::AllSubresources, clearColor);
-        // 1 : la profondeur la plus lointaine, que tout ce qu'on dessine vient remplacer.
-        commandList.clearDepthStencilTexture(depth, nvrhi::AllSubresources, true, 1.0f, false, 0);
         animateModels(*gpu.nvrhi, commandList, scene, seconds);
-        // Les lumières ponctuelles triées par cluster, puis l'éclairage de l'image, avant les
-        // dessins qui les lisent (ADR-0024).
-        beginPass(*gpu.nvrhi, commandList, scene.passes, Pass::Clusters);
-        if (auto assigned = levain::render::assignLightsToClusters(
-                commandList, scene.clusters,
-                scene.demoProps ? demoLightsAt(seconds) : std::vector<levain::render::PointLight>{},
-                lighting.view);
-            !assigned)
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Error, "{}",
-                              assigned.error().message);
-        }
-        endPass(commandList, scene.passes, Pass::Clusters);
-        levain::render::setFrameLighting(commandList, scene.frame, scene.clusters, scene.shadows,
-                                         lighting);
         // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
         gatherCubePositions(scene.cubes, scene.cubePositions);
         levain::render::updateInstances(commandList, scene.grid, scene.cubePositions);
-        // Les ombres : chaque objet, vu du soleil, dans chacune des cascades (M5.3).
-        const std::array<levain::render::Cascade, levain::render::CascadeCount>& cascades =
-            lighting.cascades;
-        beginPass(*gpu.nvrhi, commandList, scene.passes, Pass::Shadows);
-        levain::render::clearShadows(commandList, scene.shadows);
-        for (std::uint32_t cascade = 0; cascade < levain::render::CascadeCount; ++cascade)
-        {
-            forEachDraw(
-                scene, seconds, levain::render::frustumOf(cascades[cascade].viewProjection),
-                scene.shadowCulling,
-                [&](const levain::render::Mesh& mesh, const levain::render::Instances& instances,
-                    nvrhi::IBindingSet&, const glm::mat4& model)
-                {
-                    levain::render::drawShadowCaster(commandList, scene.shadows, cascade,
-                                                     cascades[cascade], mesh, instances, model);
-                });
-        }
-        endPass(commandList, scene.passes, Pass::Shadows);
-        beginPass(*gpu.nvrhi, commandList, scene.passes, Pass::Meshes);
-        forEachDraw(scene, seconds, levain::render::frustumOf(constants.viewProjection),
-                    scene.cameraCulling,
-                    [&](const levain::render::Mesh& mesh,
-                        const levain::render::Instances& instances, nvrhi::IBindingSet& material,
-                        const glm::mat4& model)
-                    {
-                        levain::render::drawMesh(
-                            commandList, scene.meshPass, scene.frame, *framebuffer, mesh, instances,
-                            material, {.viewProjection = constants.viewProjection, .model = model});
-                    });
-        endPass(commandList, scene.passes, Pass::Meshes);
-        if (scene.sky)
-        {
-            beginPass(*gpu.nvrhi, commandList, scene.passes, Pass::Sky);
-            levain::render::drawSky(commandList, *scene.sky, *framebuffer, scene.camera, aspect,
-                                    lighting.environmentIntensity);
-            endPass(commandList, scene.passes, Pass::Sky);
-        }
-        beginPass(*gpu.nvrhi, commandList, scene.passes, Pass::Tonemap);
-        levain::render::tonemap(commandList, scene.tonemap, scene.hdr, *output,
-                                scene.tonemapSettings);
-        endPass(commandList, scene.passes, Pass::Tonemap);
+        const std::vector<levain::render::PointLight> lights =
+            scene.demoProps ? demoLightsAt(seconds) : std::vector<levain::render::PointLight>{};
+        levain::render::renderFrame(*gpu.nvrhi, commandList, scene.renderer,
+                                    {.camera = scene.camera,
+                                     .sun = scene.sun,
+                                     .environmentIntensity = 1.0f,
+                                     .lights = lights,
+                                     .tonemap = scene.tonemapSettings,
+                                     // Une croûte de levain, là où rien n'est dessiné.
+                                     .background = {0.55f, 0.32f, 0.14f, 1.0f},
+                                     .seconds = seconds},
+                                    *backBuffer);
         if (capture != nullptr)
         {
             *capture = levain::render::copyForReadback(*gpu.nvrhi, commandList, *backBuffer);
@@ -1936,6 +1784,7 @@ Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, Sa
                double loopSeconds, std::optional<double> frozenSeconds)
 {
     DemoScene& scene = sandbox.scene;
+    addDemoStages(scene);
     const Clock::time_point now = Clock::now();
     return Loop{.window = window,
                 .gpu = gpu,
@@ -1954,7 +1803,7 @@ Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, Sa
                 .frameCount = 0,
                 .shaderReload = startShaderReload(),
                 .textureReload = startTextureReload(scene.registry),
-                .sceneTarget = sceneTargetOf(gpu),
+                .sceneTarget = levain::render::sceneTargetInfo(),
                 .input = levain::input::makeInputState(sandbox.bindings),
                 .mouseCaptured = false,
                 .lastFrameSeconds = scene.fixedStep.stepSeconds};
@@ -2020,9 +1869,10 @@ bool runFrame(Loop& loop)
         scene.world.set<levain::scene::FpsInput>(fpsInputFrom(loop.input, loop.actions));
     }
 
-    reloadChangedShaders(loop.shaderReload, *loop.gpu.nvrhi, loop.sceneTarget, scene.meshPass);
+    reloadChangedShaders(loop.shaderReload, *loop.gpu.nvrhi, loop.sceneTarget,
+                         scene.renderer.meshPass);
     reloadChangedTextures(loop.textureReload, *loop.gpu.nvrhi, scene.registry, scene.modelCache,
-                          scene.models, scene.meshPass, *scene.sampler);
+                          scene.models, scene.renderer.meshPass, *scene.sampler);
 
     {
         // Un tour du monde : les pas de simulation que la dernière image a mérités, puis une
@@ -2085,17 +1935,22 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
         secondsBetween(loop.loopStart, Clock::now()), loop.frameCount, averageOf(loop.totalGpu),
         loop.totalGpu.samples);
     // Le critère de M5.3 : le temps GPU de la passe d'ombres, quatre cascades.
-    const GpuTimeAverage& shadowGpu =
-        loop.scene.passes.averages[static_cast<std::size_t>(Pass::Shadows)];
+    const auto& passTimes = loop.scene.renderer.passTimes;
+    const GpuTimeAverage& shadowGpu = passTimes[1]; // RendererPassNames : « ombres »
     levain::core::log("sandbox", levain::core::LogLevel::Info,
                       "ombres : {:.3f} ms GPU en moyenne sur {} mesures", averageOf(shadowGpu),
                       shadowGpu.samples);
-    // Le critère de #133 : le temps GPU de chaque passe.
+    // Le critère de #133 : le temps GPU de chaque passe. Une étape où rien n'est inscrit n'est pas
+    // chronométrée, et n'apparaît pas.
     std::string passes;
-    for (std::size_t pass = 0; pass < PassNames.size(); ++pass)
+    for (std::size_t pass = 0; pass < levain::render::RendererPassNames.size(); ++pass)
     {
-        passes += std::format("{}{} {:.3f} ms", pass == 0 ? "" : ", ", PassNames[pass],
-                              averageOf(loop.scene.passes.averages[pass]));
+        if (passTimes[pass].samples > 0)
+        {
+            passes +=
+                std::format("{}{} {:.3f} ms", passes.empty() ? "" : ", ",
+                            levain::render::RendererPassNames[pass], averageOf(passTimes[pass]));
+        }
     }
     levain::core::log("sandbox", levain::core::LogLevel::Info, "passes, GPU en moyenne : {}",
                       passes);

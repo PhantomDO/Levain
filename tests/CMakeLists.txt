@@ -26,6 +26,7 @@ set(nativeTests
     input_test.cpp
     light_clusters_test.cpp
     shadows_test.cpp
+    stages_test.cpp
     tangent_test.cpp
     process_test.cpp
     texture_test.cpp

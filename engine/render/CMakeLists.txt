@@ -11,10 +11,12 @@ add_library(levain_render STATIC
     src/mesh.cpp
     src/mesh_pass.cpp
     src/readback.cpp
+    src/renderer.cpp
     src/shader.cpp
     src/shadows.cpp
     src/skinning.cpp
     src/sky.cpp
+    src/stages.cpp
     src/texture.cpp
     src/tonemap.cpp
     src/triangle.cpp)
