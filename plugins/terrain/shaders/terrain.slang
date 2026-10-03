@@ -16,7 +16,7 @@ struct TerrainConstants
     float heightOffset;      ///< La hauteur du 0 de la heightmap.
     float heightScale;       ///< Celle de son 1 moins celle de son 0.
     float samples;           ///< Les échantillons sur un côté.
-    float padding;
+    float skirtDepth;        ///< De combien la jupe descend sous le bord.
 };
 
 ConstantBuffer<TerrainConstants> terrain : register(b0, space1);
@@ -37,11 +37,13 @@ float heightAt(float2 position)
            terrain.heightOffset;
 }
 
-/// La position, dans le monde, du sommet `local` de la parcelle.
-float3 worldPositionOf(float2 local)
+/// La position, dans le monde, du sommet de la parcelle : `local.xy` de 0 à 1 sur ses côtés, et
+/// `local.z` à 1 pour un sommet de jupe, descendu sous le bord pour cacher la fente avec une parcelle
+/// d'un autre niveau de détail.
+float3 worldPositionOf(float3 local)
 {
-    const float2 position = terrain.patchOrigin + local * terrain.patchSize;
-    return float3(position.x, heightAt(position), position.y);
+    const float2 position = terrain.patchOrigin + local.xy * terrain.patchSize;
+    return float3(position.x, heightAt(position) - local.z * terrain.skirtDepth, position.y);
 }
 
 struct VertexOutput
@@ -52,7 +54,7 @@ struct VertexOutput
 };
 
 [shader("vertex")]
-VertexOutput vertexMain(float2 local : POSITION)
+VertexOutput vertexMain(float3 local : POSITION)
 {
     VertexOutput output;
     output.worldPosition = worldPositionOf(local);
@@ -92,7 +94,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target
 
 /// L'ombre portée : la même parcelle, vue du soleil, la profondeur seule.
 [shader("vertex")]
-float4 shadowMain(float2 local : POSITION) : SV_Position
+float4 shadowMain(float3 local : POSITION) : SV_Position
 {
     return mul(terrain.viewProjection, float4(worldPositionOf(local), 1.0));
 }

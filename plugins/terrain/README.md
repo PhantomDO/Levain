@@ -13,7 +13,10 @@ renderer (ADR-0025) ; le moteur ne le connaît pas.
 - **Les parcelles** (`patches.hpp`) : des carrés de 32 m (`PatchQuads`), 16 × 16 sur la vallée. Chacune a un
   niveau de détail selon sa distance à la caméra (`lodOf`) : un sommet tous les 1, 2, 4, 8 ou 16 m, un niveau de
   plus à chaque doublement de la distance. Et une boîte, de sa plus basse à sa plus haute hauteur
-  (`patchBoundsOf`), pour le frustum culling du moteur (#132).
+  (`patchBoundsOf`), pour le frustum culling du moteur (#132). Entre deux parcelles de niveaux différents, les
+  bords ne tombent pas aux mêmes hauteurs : une **jupe**, une bande verticale qui descend sous chaque bord
+  (`patchGeometryOf`), cache la fente. Le niveau se choisit par la distance à la caméra, la même dans l'image et
+  dans les ombres : jusqu'à 64 m, un sommet par mètre.
 - **Les couches** (`layers.hpp`) : l'herbe sur le plat du fond, un sol rocailleux en hauteur, la roche dans les
   pentes de plus de 28 à 45°. `layerWeightsOf` les dose, de somme 1 ; `weightMapOf` en fait la carte de poids,
   en RGBA 8 bits, que lira le shader.

@@ -45,6 +45,9 @@ struct StageContext
     const FrameBindings& frame;
     /// La caméra, ou le soleil de la cascade pour `ShadowCasters`.
     glm::mat4 viewProjection{1.0f};
+    /// La position de la caméra, dans toutes les étapes : un niveau de détail choisi par elle reste
+    /// le même dans l'image et dans ses ombres.
+    glm::vec3 cameraPosition{0.0f};
     Frustum frustum;
     const ShadowPass& shadows;
     std::uint32_t cascade = 0;    ///< Pour `ShadowCasters` seulement.

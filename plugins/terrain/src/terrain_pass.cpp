@@ -18,6 +18,9 @@ namespace levain::terrain
 namespace
 {
 
+/// Jusqu'à 64 m de la caméra, un sommet par mètre ; un niveau de plus à chaque doublement.
+constexpr float Lod0Distance = 64.0f;
+
 /// Les constantes d'un dessin, telles que les lit `plugins/terrain/shaders/terrain.slang`.
 struct TerrainConstants
 {
@@ -28,54 +31,35 @@ struct TerrainConstants
     float heightOffset;
     float heightScale;
     float samples;
-    float padding;
+    float skirtDepth; ///< De combien la jupe descend sous le bord.
 };
 
 static_assert(sizeof(TerrainConstants) == 96, "disposition lue par terrain.slang");
 
-/// La grille d'une parcelle à `quads` intervalles par côté. Les deux triangles d'un carré tournent
-/// dans le sens trigonométrique vu d'en haut : leur normale est +Y, la face avant des pipelines.
+/// La grille d'une parcelle à `quads` intervalles par côté, avec sa jupe (`patchGeometryOf`).
 PatchGrid createPatchGrid(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
                           std::uint32_t quads)
 {
-    const std::uint32_t side = quads + 1;
-    std::vector<glm::vec2> vertices;
-    vertices.reserve(std::size_t{side} * side);
-    for (std::uint32_t z = 0; z < side; ++z)
-    {
-        for (std::uint32_t x = 0; x < side; ++x)
-        {
-            vertices.emplace_back(glm::vec2{x, z} / static_cast<float>(quads));
-        }
-    }
-    std::vector<std::uint32_t> indices;
-    indices.reserve(std::size_t{quads} * quads * 6);
-    for (std::uint32_t z = 0; z < quads; ++z)
-    {
-        for (std::uint32_t x = 0; x < quads; ++x)
-        {
-            const std::uint32_t corner = (z * side) + x;
-            indices.insert(indices.end(), {corner, corner + side, corner + 1, corner + 1,
-                                           corner + side, corner + side + 1});
-        }
-    }
+    const PatchGeometry geometry = patchGeometryOf(quads);
+    const std::span vertices{geometry.vertices};
+    const std::span indices{geometry.indices};
     PatchGrid grid{
         .vertices = device.createBuffer(nvrhi::BufferDesc()
-                                            .setByteSize(vertices.size() * sizeof(glm::vec2))
+                                            .setByteSize(vertices.size_bytes())
                                             .setIsVertexBuffer(true)
                                             .setInitialState(nvrhi::ResourceStates::VertexBuffer)
                                             .setKeepInitialState(true)
                                             .setDebugName("terrain : grille")),
         .indices = device.createBuffer(nvrhi::BufferDesc()
-                                           .setByteSize(indices.size() * sizeof(std::uint32_t))
+                                           .setByteSize(indices.size_bytes())
                                            .setIsIndexBuffer(true)
                                            .setInitialState(nvrhi::ResourceStates::IndexBuffer)
                                            .setKeepInitialState(true)
                                            .setDebugName("terrain : triangles")),
         .indexCount = static_cast<std::uint32_t>(indices.size()),
     };
-    commandList.writeBuffer(grid.vertices, vertices.data(), vertices.size() * sizeof(glm::vec2));
-    commandList.writeBuffer(grid.indices, indices.data(), indices.size() * sizeof(std::uint32_t));
+    commandList.writeBuffer(grid.vertices, vertices.data(), vertices.size_bytes());
+    commandList.writeBuffer(grid.indices, indices.data(), indices.size_bytes());
     return grid;
 }
 
@@ -105,8 +89,8 @@ nvrhi::GraphicsPipelineHandle createPipeline(nvrhi::IDevice& device, const Terra
     desc.renderState.depthStencilState.depthTestEnable = true;
     desc.renderState.depthStencilState.depthWriteEnable = true;
     desc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::Less;
-    desc.renderState.rasterState.frontCounterClockwise = true;
-    desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::Back;
+    // Les deux faces : une jupe se voit de l'une ou de l'autre, selon le côté de la fente.
+    desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
     return device.createGraphicsPipeline(desc, target);
 }
 
@@ -146,6 +130,12 @@ void forEachVisiblePatch(const render::StageContext& context, const TerrainPass&
                 continue;
             }
             ++stats.drawn;
+            const glm::vec2 center = (glm::vec2{x, z} + 0.5f) * patchSize;
+            const glm::vec3 centerPoint{center.x, heightAt(heightmap, center), center.y};
+            const std::uint32_t lod =
+                lodOf(glm::distance(centerPoint, context.cameraPosition), Lod0Distance);
+            const PatchGrid& grid = pass.grids[lod];
+            stats.triangles += grid.indexCount / 3;
             const TerrainConstants constants{
                 .viewProjection = context.viewProjection,
                 .patchOrigin = glm::vec2{x, z} * patchSize,
@@ -154,12 +144,12 @@ void forEachVisiblePatch(const render::StageContext& context, const TerrainPass&
                 .heightOffset = pass.heightOffset,
                 .heightScale = pass.heightScale,
                 .samples = static_cast<float>(heightmap.size),
-                .padding = 0.0f,
+                // Deux fois l'écart entre deux sommets : ce qu'un niveau plus grossier peut
+                // manquer sur un bord, dans une pente à 45°.
+                .skirtDepth = 2.0f * heightmap.spacing * static_cast<float>(1u << lod),
             };
             context.commandList.writeBuffer(pass.constants, &constants, sizeof(constants));
-            // ponytail: toutes les parcelles au niveau 0 ; le niveau par la distance vient avec
-            // les jupes qui cachent les fentes entre niveaux.
-            draw(pass.grids[0]);
+            draw(grid);
         }
     }
 }
@@ -229,9 +219,9 @@ core::Result<TerrainPass> createTerrainPass(nvrhi::IDevice& device,
 
     const nvrhi::VertexAttributeDesc position = nvrhi::VertexAttributeDesc()
                                                     .setName("POSITION")
-                                                    .setFormat(nvrhi::Format::RG32_FLOAT)
+                                                    .setFormat(nvrhi::Format::RGB32_FLOAT)
                                                     .setOffset(0)
-                                                    .setElementStride(sizeof(glm::vec2));
+                                                    .setElementStride(sizeof(GridVertex));
     pass.inputLayout = device.createInputLayout(&position, 1, pass.vertexShader);
     nvrhi::BindingLayoutDesc layoutDesc;
     layoutDesc.visibility = nvrhi::ShaderType::All;
