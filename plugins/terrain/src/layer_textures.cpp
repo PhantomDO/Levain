@@ -31,7 +31,11 @@ loadKind(const std::filesystem::path& directory, std::string_view kind)
                       image.error().message);
             return std::nullopt;
         }
-        layers[layer] = assets::buildMipChain(std::move(*image));
+        // La couleur se moyenne en lumière linéaire ; la normale et la rugosité sont des données,
+        // moyennées sur leurs octets.
+        layers[layer] = assets::buildMipChain(std::move(*image),
+                                              kind == "diff" ? assets::ImageEncoding::Srgb
+                                                             : assets::ImageEncoding::Linear);
         if (layers[layer].front().width != layers[0].front().width ||
             layers[layer].front().height != layers[0].front().height)
         {

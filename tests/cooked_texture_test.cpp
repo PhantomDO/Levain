@@ -135,5 +135,20 @@ TEST_CASE("loadTextureData prend le cache de la plateforme, sinon la source")
         levain::assets::loadTextureData(registry, models, ref, TextureFormat::Bc7Srgb);
     REQUIRE(cooked.has_value());
     CHECK(cooked->format == TextureFormat::Bc7Srgb);
+
+    // La même image lue comme des données n'a pas de version cuite : ce n'est pas le même
+    // fichier, et ses mips viennent de la source, moyennées sur les octets. Le rouge, le vert, le
+    // bleu et le blanc donnent 128 dans chaque canal, et non les 188 d'une moyenne en sRGB.
+    const auto dataStem =
+        levain::assets::cookedTextureStem(registry, ref, levain::assets::ImageEncoding::Linear);
+    REQUIRE(dataStem.has_value());
+    CHECK(dataStem.value_or(fs::path{}).filename().string().ends_with(".linear"));
+    const auto data = levain::assets::loadTextureData(registry, models, ref, TextureFormat::Bc7Srgb,
+                                                      levain::assets::ImageEncoding::Linear);
+    REQUIRE(data.has_value());
+    CHECK(data->format == TextureFormat::Rgba8Srgb);
+    REQUIRE(data->mips.size() == 2);
+    CHECK(std::to_integer<int>(data->mips[1].bytes[0]) == 128);
+    CHECK(std::to_integer<int>(source->mips[1].bytes[0]) > 180);
     fs::remove_all(root);
 }

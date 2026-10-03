@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <flecs.h>
@@ -99,6 +100,12 @@ struct Model
 /// récupérable (ADR-0008).
 [[nodiscard]] core::Result<Model> loadGltf(const std::filesystem::path& path, AssetId self,
                                            const AssetRegistry& registry);
+
+/// Chaque texture des matériaux de `model`, avec l'encodage de ses octets : la couleur de base en
+/// sRGB, la rugosité-métal et la normal map en données (`ImageEncoding::Linear`), dont les mips se
+/// moyennent sur les octets. Une image qui sert aux deux usages paraît deux fois. C'est ce qui dit
+/// au cuiseur comment cuire chaque image.
+[[nodiscard]] std::vector<std::pair<AssetRef, ImageEncoding>> textureUsesOf(const Model& model);
 
 /// Crée une entité par nœud qui n'est pas un os, avec son `Transform` et sa hiérarchie
 /// (`flecs::Parent`, ADR-0015), sous une entité racine nommée `rootName`, que l'on déplace pour

@@ -76,6 +76,11 @@ gris à 128 au lieu de 188, et une texture paraît plus sombre de loin que de pr
 convertit en linéaire, fait la moyenne, puis reconvertit (test « buildMipChain fait la moyenne en lumière
 linéaire »).
 
+**Le piège inverse : une donnée n'est pas une couleur.** Une normal map ou une rugosité se moyenne sur ses
+octets : lue comme du sRGB, la moyenne de deux normales penchées en sens contraires penche encore.
+`buildMipChain(image, ImageEncoding::Linear)` le fait. Le cuiseur apprend l'usage de chaque image des matériaux
+glTF (`textureUsesOf`), et cuit les données sous `<guid>.linear.*` (ADR-0020, amendement du 03/10).
+
 **Pourquoi sur le CPU** : c'est le plus simple (aucun pipeline de calcul), et la cuisson des assets fera ce
 travail hors ligne un jour. Le filtre est écrit à la main plutôt que pris dans stb_image_resize2, qui déclenche
 UBSan (`.agents/skills/build/GOTCHA.md`). La génération sur le GPU, par un compute shader comme dans Donut, se
