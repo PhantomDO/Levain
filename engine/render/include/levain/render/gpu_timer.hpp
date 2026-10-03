@@ -32,4 +32,17 @@ beginGpuTimer(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, GpuTimer
 /// Termine la mesure commencée par `beginGpuTimer`, dans la même command list.
 void endGpuTimer(nvrhi::ICommandList& commandList, GpuTimer& timer);
 
+/// La somme des mesures d'un timer, et leur nombre : de quoi donner une moyenne.
+struct GpuTimeAverage
+{
+    double totalMs = 0.0;
+    int samples = 0;
+};
+
+/// La moyenne des mesures, 0 sans mesure.
+[[nodiscard]] inline double averageOf(const GpuTimeAverage& average)
+{
+    return average.samples > 0 ? average.totalMs / average.samples : 0.0;
+}
+
 } // namespace levain::render

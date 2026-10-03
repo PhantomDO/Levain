@@ -32,6 +32,8 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/mesh_pass.hpp`](include/levain/render/mesh_pass.hpp) | `createMeshPass`, `reloadMeshPassShaders`, `ensureDepthTexture`, `createMaterialBindings`, `drawMesh` — la première passe avec constantes, profondeur et texture |
 | [`include/levain/render/texture.hpp`](include/levain/render/texture.hpp) | `TextureLevel`, `createTexture` — une texture sRGB et tous ses niveaux de mip ; `SamplerSettings`, `createSampler`, `clampAnisotropy` |
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
+| [`include/levain/render/renderer.hpp`](include/levain/render/renderer.hpp) | `Renderer`, `createRenderer`, `renderFrame` — l'image et l'ordre de ses passes (ADR-0025) |
+| [`include/levain/render/stages.hpp`](include/levain/render/stages.hpp) | `RenderStage`, `addStageFunction` — les étapes où l'application et les plugins inscrivent leurs dessins |
 | [`include/levain/render/shadows.hpp`](include/levain/render/shadows.hpp) | `CascadeSettings`, `cascadeSplitsOf`, `cascadesOf` — les tranches de profondeur et les projections du soleil des ombres en cascades |
 | [`include/levain/render/culling.hpp`](include/levain/render/culling.hpp) | `frustumOf`, `isOutside`, `transformed` — le frustum culling : ne pas soumettre ce que la caméra ne verra pas |
 | [`include/levain/render/frame.hpp`](include/levain/render/frame.hpp) | `FrameBindings`, `createFrameBindings`, `setFrameLighting` — les ressources de l'image (space0), partagées par les meshes et les passes des plugins (ADR-0025) |
@@ -278,6 +280,24 @@ Cette passe applique l'**exposition** (`--exposure` dans le sandbox : 2 éclaire
 - **la coupe nette** : ce que faisait le moteur avant M5.2, les blancs saturent.
 
 `--tonemap clip|aces|agx|neutral` choisit dans le sandbox.
+
+## Le renderer et ses étapes
+
+Le `Renderer` possède l'image (ADR-0025) : `renderFrame` trie les lumières en clusters, enregistre l'éclairage de
+la frame, efface l'atlas des ombres, puis appelle les étapes dans l'ordre de l'image :
+
+1. `ShadowCasters`, une fois par cascade, avec la vue du soleil ;
+2. `Opaque` ;
+3. le ciel, qui ne remplit que ce qui reste ;
+4. `Transparent` ;
+5. le tonemapping.
+
+Ce qui se dessine, il ne le connaît pas : ce sont les fonctions que l'application et les plugins y inscrivent
+(`addStageFunction`), dans l'ordre de leur inscription. Chacune reçoit un `StageContext` : la command list, la
+cible, les ressources de l'image (`FrameBindings`), la matrice vue-projection de l'étape et son frustum, pour le
+culling. Le sandbox inscrit ainsi ses cubes, son sol et ses modèles (`addDemoStages`), et donne l'ordre réel au
+démarrage (« étapes du rendu : ombres : démo ; opaques : démo ; transparents : aucune »). Le temps GPU de chaque
+passe est mesuré par le renderer (`passTimes`) ; une étape vide n'est pas chronométrée.
 
 ## Le frustum culling
 
