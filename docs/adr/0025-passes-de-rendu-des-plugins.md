@@ -1,6 +1,6 @@
 # ADR-0025 — Des passes de rendu venues d'un plugin
 
-- **Statut** : proposé, options choisies par Donnovan le 2026-10-03, à valider dans sa forme finale
+- **Statut** : accepté le 2026-10-03 (options choisies et forme finale validée par Donnovan, inscription par l'application)
 - **Date** : 2026-10-03
 - **Milestone** : M5.6
 
