@@ -1,7 +1,7 @@
 add_executable(levain_sandbox src/main.cpp src/shader_reload.cpp)
 target_link_libraries(levain_sandbox PRIVATE
     levain::animation levain::assets levain::core levain::platform levain::gpu levain::input
-    levain::render levain::scene plugin::terrain plugin::water)
+    levain::render levain::scene plugin::grass plugin::terrain plugin::water)
 
 # L'explorer web de flecs, en Debug seulement : en Release, le code qui l'active n'est pas compilé,
 # et aucun serveur n'écoute.

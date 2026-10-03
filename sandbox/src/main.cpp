@@ -44,6 +44,7 @@
 #include "levain/core/profile.hpp"
 #include "levain/core/version.hpp"
 #include "levain/gpu/device.hpp"
+#include "levain/grass/grass_pass.hpp"
 #include "levain/input/bindings.hpp"
 #include "levain/input/state.hpp"
 #include "levain/platform/window.hpp"
@@ -269,6 +270,8 @@ struct DemoScene
     std::optional<levain::terrain::Heightmap> heightmap;
     std::optional<levain::terrain::TerrainPass> terrain;
     std::optional<levain::water::WaterPass> water; ///< Le lac de la vallée (M5.7).
+    std::optional<levain::grass::GrassPass> grass; ///< Son herbe (M5.7).
+    levain::grass::GrassStats grassStats;
     levain::terrain::TerrainStats terrainCamera;
     levain::terrain::TerrainStats terrainShadows;
     levain::render::GpuTimer gpuTimer;
@@ -1093,6 +1096,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     std::optional<levain::terrain::Heightmap> heightmap;
     std::optional<levain::terrain::TerrainPass> terrain;
     std::optional<levain::water::WaterPass> water;
+    std::optional<levain::grass::GrassPass> grass;
     if (view == SandboxView::Terrain)
     {
         const levain::terrain::ValleySettings valley;
@@ -1106,8 +1110,9 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         }
         terrain = std::move(*pass);
         // L'eau à 1,5 m sous le fond de la vallée : elle ne remplit que le creux du lac.
+        constexpr float LakeLevel = -1.5f;
         const levain::water::Lake lake{
-            .center = valley.lakeCenter, .radius = valley.lakeRadius, .level = -1.5f};
+            .center = valley.lakeCenter, .radius = valley.lakeRadius, .level = LakeLevel};
         auto lakePass = levain::water::createWaterPass(*gpu.nvrhi, *upload, lake, *terrain,
                                                        *heightmap, renderer->frame);
         if (!lakePass)
@@ -1115,6 +1120,13 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
             return std::unexpected(lakePass.error());
         }
         water = std::move(*lakePass);
+        auto grassPass = levain::grass::createGrassPass(*gpu.nvrhi, *upload, *terrain, *heightmap,
+                                                        LakeLevel, renderer->frame);
+        if (!grassPass)
+        {
+            return std::unexpected(grassPass.error());
+        }
+        grass = std::move(*grassPass);
     }
     upload->close();
     gpu.nvrhi->executeCommandList(upload);
@@ -1172,6 +1184,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .heightmap = std::move(heightmap),
                      .terrain = std::move(terrain),
                      .water = std::move(water),
+                     .grass = std::move(grass),
+                     .grassStats = {},
                      .terrainCamera = {},
                      .terrainShadows = {},
                      .gpuTimer = levain::render::createGpuTimer(*gpu.nvrhi),
@@ -1360,6 +1374,10 @@ void addDemoStages(DemoScene& scene)
     {
         levain::terrain::addTerrainPasses(scene.renderer.stages, *scene.terrain, *scene.heightmap,
                                           scene.terrainCamera, scene.terrainShadows);
+    }
+    if (scene.grass)
+    {
+        levain::grass::addGrassPasses(scene.renderer.stages, *scene.grass, scene.grassStats);
     }
     if (scene.water)
     {
@@ -2049,6 +2067,13 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
                           perFrame(camera.drawn), perFrame(camera.drawn + camera.culled),
                           perFrame(camera.triangles), perFrame(shadows.drawn),
                           perFrame(shadows.drawn + shadows.culled), perFrame(shadows.triangles));
+    }
+    if (loop.scene.grass)
+    {
+        const levain::grass::GrassStats& grass = loop.scene.grassStats;
+        levain::core::log("sandbox", levain::core::LogLevel::Info,
+                          "herbe, par image : {:.1f} parcelles et {:.0f} brins demandés",
+                          perFrame(grass.patches), perFrame(grass.blades));
     }
     const SkinningCost& skinning = loop.scene.skinningCost;
     if (skinning.frames > 0)

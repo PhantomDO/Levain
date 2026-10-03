@@ -1,0 +1,5 @@
+set(shaderOutputs)
+levain_add_shader(grass vertexMain vertex)
+levain_add_shader(grass fragmentMain fragment)
+add_custom_target(grass_shaders ALL DEPENDS ${shaderOutputs})
+add_dependencies(grass grass_shaders)

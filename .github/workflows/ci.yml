@@ -263,7 +263,7 @@ jobs:
 
       # Sponza : 105 dessins par image. En Debug seulement, où la validation de NVRHI est active :
       # c'est elle qui a montré que le buffer des constantes manquait de versions (M4.1).
-      # Le terrain (M5.6), premier plugin moteur, et le lac (M5.7) : leurs passes s'inscrivent dans
+      # Le terrain (M5.6), premier plugin moteur, le lac et l'herbe (M5.7) : leurs passes s'inscrivent dans
       # le renderer (ADR-0025) et doivent dessiner, sur Vulkan comme sur WebGPU, validation active.
       - name: Lancer le sandbox sur le terrain
         if: matrix.preset == 'linux-debug'
@@ -288,6 +288,11 @@ jobs:
               grep -Eq "transparents [0-9.]+ ms" terrain-$gpu.log \
                 || { echo "::error::l'étape transparente n'a rien dessiné ($gpu)"; exit 1; }
             fi
+            # L'herbe (M5.7), dans l'étape Opaque après le terrain, et des brins demandés.
+            grep -q "opaques : démo, terrain, herbe" terrain-$gpu.log \
+              || { echo "::error::l'herbe ne s'est pas inscrite dans le renderer ($gpu)"; exit 1; }
+            grep -Eq "herbe, par image : [0-9.]+ parcelles et [1-9][0-9]* brins" terrain-$gpu.log \
+              || { echo "::error::aucun brin d'herbe dessiné ($gpu)"; exit 1; }
           done
 
       - name: Lancer le sandbox avec Sponza
