@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <utility>
 
-#include "shader.hpp"
+#include "levain/render/shader.hpp"
 
 namespace levain::render
 {

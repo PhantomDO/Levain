@@ -1,0 +1,6 @@
+set(shaderOutputs)
+levain_add_shader(terrain vertexMain vertex)
+levain_add_shader(terrain fragmentMain fragment)
+levain_add_shader(terrain shadowMain vertex)
+add_custom_target(terrain_shaders ALL DEPENDS ${shaderOutputs})
+add_dependencies(terrain terrain_shaders)

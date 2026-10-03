@@ -7,9 +7,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-#include "shader.hpp"
-
 #include "levain/render/mesh_pass.hpp"
+#include "levain/render/shader.hpp"
 
 namespace levain::render
 {

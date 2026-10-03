@@ -160,6 +160,11 @@ void renderFrame(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, Rende
     }
     endPass(commandList, renderer, TimedPass::Clusters);
     setFrameLighting(commandList, renderer.frame, renderer.clusters, renderer.shadows, lighting);
+    // Une première version des constantes de scène : NVRHI refuse de lier un buffer volatil jamais
+    // écrit, et une étape peut lier les ressources de l'image sans rien dessiner d'autre (le
+    // terrain sans la démo).
+    setSceneConstants(commandList, renderer.frame,
+                      {.viewProjection = viewProjection, .model = glm::mat4{1.0f}});
 
     // Les ombres : chaque cascade, vue du soleil (M5.3), même sans rien d'inscrit, pour que l'atlas
     // soit effacé.

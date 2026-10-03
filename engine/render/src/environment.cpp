@@ -11,9 +11,8 @@
 
 #include <glm/gtc/packing.hpp>
 
-#include "shader.hpp"
-
 #include "levain/core/assert.hpp"
+#include "levain/render/shader.hpp"
 #include "levain/render/texture.hpp"
 
 namespace levain::render

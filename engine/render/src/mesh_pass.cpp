@@ -6,8 +6,7 @@
 #include <span>
 #include <utility>
 
-#include "shader.hpp"
-
+#include "levain/render/shader.hpp"
 #include "levain/render/texture.hpp"
 
 namespace levain::render

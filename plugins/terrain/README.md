@@ -18,11 +18,20 @@ renderer (ADR-0025) ; le moteur ne le connaît pas.
   pentes de plus de 28 à 45°. `layerWeightsOf` les dose, de somme 1 ; `weightMapOf` en fait la carte de poids,
   en RGBA 8 bits, que lira le shader.
 
+- **Le rendu** (`terrain_pass.hpp`) : la heightmap (R16 flottant, de 0 à 1) et la carte de poids en textures,
+  une grille de sommets par niveau de détail, et deux pipelines. Le shader (`shaders/terrain.slang`) pose chaque
+  sommet sur la heightmap, calcule la normale au pixel, et éclaire par `lighting.slang` comme les meshes
+  (ADR-0025). `addTerrainPasses` inscrit le dessin dans l'étape `Opaque` du renderer, et l'ombre portée dans
+  `ShadowCasters` ; chaque parcelle hors du frustum de l'étape est écartée. Le sandbox le montre :
+  `levain_sandbox --view terrain`.
+
 ## Invariants
 
 - Un terrain fait un nombre entier de parcelles de côté : `(size − 1)` est un multiple de 32.
 - Les hauteurs sont en mètres, l'échantillon (0, 0) à l'origine, x le long d'une ligne et z d'une ligne à
   l'autre.
+- La heightmap est en R16 flottant, pas en R16 normalisé ni en R32 flottant : les deux manquent au cœur de
+  WebGPU (absent pour l'un, non filtrable pour l'autre). Ramenée de 0 à 1, elle garde un pas de moins de 5 cm.
 - Le plugin ne dépend que de `core` et de `render` (`levain_add_plugin`, ADR-0018) : `render` pour `Box`, et pour
   ses passes de rendu.
 
@@ -33,6 +42,8 @@ renderer (ADR-0025) ; le moteur ne le connaît pas.
 | [`include/levain/terrain/heightmap.hpp`](include/levain/terrain/heightmap.hpp) | `Heightmap`, `valleyOf`, `heightAt`, `normalAt` |
 | [`include/levain/terrain/patches.hpp`](include/levain/terrain/patches.hpp) | `patchesFor`, `lodOf`, `patchBoundsOf` |
 | [`include/levain/terrain/layers.hpp`](include/levain/terrain/layers.hpp) | `layerWeightsOf`, `weightMapOf` |
+| [`include/levain/terrain/terrain_pass.hpp`](include/levain/terrain/terrain_pass.hpp) | `createTerrainPass`, `addTerrainPasses`, `drawTerrain`, `drawTerrainShadow` |
+| [`shaders/terrain.slang`](shaders/terrain.slang) | le relief, la normale au pixel, l'ombre portée |
 
 Les tests : `tests/terrain_test.cpp`.
 
