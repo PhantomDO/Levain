@@ -127,16 +127,64 @@ struct GpuTimeAverage
     int samples = 0;
 };
 
-/// Ce que le frustum culling (#132) a laissé passer et écarté, depuis le début de la boucle.
-struct CullingCount
+/// Les dessins d'une passe depuis le début de la boucle : soumis au GPU, écartés par le frustum
+/// culling (#132), et les triangles soumis, instances comprises (#133).
+struct DrawCount
 {
     std::uint64_t drawn = 0;
     std::uint64_t culled = 0;
+    std::uint64_t triangles = 0;
 };
 
 double averageOf(const GpuTimeAverage& average)
 {
     return average.samples > 0 ? average.totalMs / average.samples : 0.0;
+}
+
+/// Les passes de l'image, chronométrées une à une sur le GPU (#133), dans l'ordre où elles passent.
+enum class Pass : std::uint8_t
+{
+    Clusters,
+    Shadows,
+    Meshes,
+    Sky,
+    Tonemap,
+};
+constexpr std::array<std::string_view, 5> PassNames{"clusters", "ombres", "meshes", "ciel",
+                                                    "tonemapping"};
+
+struct PassTimers
+{
+    std::array<levain::render::GpuTimer, PassNames.size()> timers;
+    std::array<GpuTimeAverage, PassNames.size()> averages;
+};
+
+PassTimers createPassTimers(nvrhi::IDevice& device)
+{
+    PassTimers passes;
+    for (levain::render::GpuTimer& timer : passes.timers)
+    {
+        timer = levain::render::createGpuTimer(device);
+    }
+    return passes;
+}
+
+/// Commence la mesure de `pass`, et compte celle d'une image précédente, lisible maintenant
+/// (gpu_timer.hpp).
+void beginPass(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, PassTimers& passes,
+               Pass pass)
+{
+    const auto index = static_cast<std::size_t>(pass);
+    if (const auto ms = levain::render::beginGpuTimer(device, commandList, passes.timers[index]))
+    {
+        passes.averages[index].totalMs += *ms;
+        ++passes.averages[index].samples;
+    }
+}
+
+void endPass(nvrhi::ICommandList& commandList, PassTimers& passes, Pass pass)
+{
+    levain::render::endGpuTimer(commandList, passes.timers[static_cast<std::size_t>(pass)]);
 }
 
 std::string describeFrameTimes(const levain::core::FrameTimeSummary& summary, double gpuMs)
@@ -276,10 +324,9 @@ struct DemoScene
     levain::render::GpuTimer gpuTimer;
     levain::render::GpuTimer skinningTimer; ///< Le seul skinning : le critère de coût de #117.
     SkinningCost skinningCost;
-    levain::render::GpuTimer shadowTimer; ///< La seule passe d'ombres : le critère de M5.3 (#129).
-    GpuTimeAverage shadowGpu;
-    CullingCount cameraCulling;
-    CullingCount shadowCulling; ///< Les quatre cascades ensemble.
+    PassTimers passes; ///< Le temps GPU de chaque passe (#133), dont les ombres (M5.3, #129).
+    DrawCount cameraCulling;
+    DrawCount shadowCulling;    ///< Les quatre cascades ensemble.
     nvrhi::TextureHandle depth; ///< Créé à la première frame, à la taille de l'image.
 };
 
@@ -1173,8 +1220,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .gpuTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningTimer = levain::render::createGpuTimer(*gpu.nvrhi),
                      .skinningCost = {},
-                     .shadowTimer = levain::render::createGpuTimer(*gpu.nvrhi),
-                     .shadowGpu = {},
+                     .passes = createPassTimers(*gpu.nvrhi),
                      .cameraCulling = {},
                      .shadowCulling = {},
                      .depth = {}};
@@ -1284,7 +1330,7 @@ void animateModels(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, Dem
 /// autres sont comptés dans `count`, sans être soumis au GPU.
 template <typename Draw>
 void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum& frustum,
-                 CullingCount& count, Draw&& draw)
+                 DrawCount& count, Draw&& draw)
 {
     const auto drawIfVisible = [&](const levain::render::Mesh& mesh,
                                    const levain::render::Instances& instances,
@@ -1297,6 +1343,7 @@ void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum
             return;
         }
         ++count.drawn;
+        count.triangles += std::uint64_t{mesh.indexCount / 3} * std::max(instances.count, 1u);
         draw(mesh, instances, material, model);
     };
     if (scene.demoProps)
@@ -1381,6 +1428,7 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         animateModels(*gpu.nvrhi, commandList, scene, seconds);
         // Les lumières ponctuelles triées par cluster, puis l'éclairage de l'image, avant les
         // dessins qui les lisent (ADR-0024).
+        beginPass(*gpu.nvrhi, commandList, scene.passes, Pass::Clusters);
         if (auto assigned = levain::render::assignLightsToClusters(
                 commandList, scene.clusters,
                 scene.demoProps ? demoLightsAt(seconds) : std::vector<levain::render::PointLight>{},
@@ -1390,6 +1438,7 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
             levain::core::log("sandbox", levain::core::LogLevel::Error, "{}",
                               assigned.error().message);
         }
+        endPass(commandList, scene.passes, Pass::Clusters);
         levain::render::setFrameLighting(commandList, scene.meshPass, scene.clusters, scene.shadows,
                                          lighting);
         // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
@@ -1398,13 +1447,7 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         // Les ombres : chaque objet, vu du soleil, dans chacune des cascades (M5.3).
         const std::array<levain::render::Cascade, levain::render::CascadeCount>& cascades =
             lighting.cascades;
-        // Son temps GPU : celui d'une image précédente, lisible maintenant (gpu_timer.hpp).
-        if (const auto shadowMs =
-                levain::render::beginGpuTimer(*gpu.nvrhi, commandList, scene.shadowTimer))
-        {
-            scene.shadowGpu.totalMs += *shadowMs;
-            ++scene.shadowGpu.samples;
-        }
+        beginPass(*gpu.nvrhi, commandList, scene.passes, Pass::Shadows);
         levain::render::clearShadows(commandList, scene.shadows);
         for (std::uint32_t cascade = 0; cascade < levain::render::CascadeCount; ++cascade)
         {
@@ -1418,7 +1461,8 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
                                                      cascades[cascade], mesh, instances, model);
                 });
         }
-        levain::render::endGpuTimer(commandList, scene.shadowTimer);
+        endPass(commandList, scene.passes, Pass::Shadows);
+        beginPass(*gpu.nvrhi, commandList, scene.passes, Pass::Meshes);
         forEachDraw(scene, seconds, levain::render::frustumOf(constants.viewProjection),
                     scene.cameraCulling,
                     [&](const levain::render::Mesh& mesh,
@@ -1429,13 +1473,18 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
                             commandList, scene.meshPass, *framebuffer, mesh, instances, material,
                             {.viewProjection = constants.viewProjection, .model = model});
                     });
+        endPass(commandList, scene.passes, Pass::Meshes);
         if (scene.sky)
         {
+            beginPass(*gpu.nvrhi, commandList, scene.passes, Pass::Sky);
             levain::render::drawSky(commandList, *scene.sky, *framebuffer, scene.camera, aspect,
                                     lighting.environmentIntensity);
+            endPass(commandList, scene.passes, Pass::Sky);
         }
+        beginPass(*gpu.nvrhi, commandList, scene.passes, Pass::Tonemap);
         levain::render::tonemap(commandList, scene.tonemap, scene.hdr, *output,
                                 scene.tonemapSettings);
+        endPass(commandList, scene.passes, Pass::Tonemap);
         if (capture != nullptr)
         {
             *capture = levain::render::copyForReadback(*gpu.nvrhi, commandList, *backBuffer);
@@ -2028,20 +2077,36 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
         secondsBetween(loop.loopStart, Clock::now()), loop.frameCount, averageOf(loop.totalGpu),
         loop.totalGpu.samples);
     // Le critère de M5.3 : le temps GPU de la passe d'ombres, quatre cascades.
+    const GpuTimeAverage& shadowGpu =
+        loop.scene.passes.averages[static_cast<std::size_t>(Pass::Shadows)];
     levain::core::log("sandbox", levain::core::LogLevel::Info,
-                      "ombres : {:.3f} ms GPU en moyenne sur {} mesures",
-                      averageOf(loop.scene.shadowGpu), loop.scene.shadowGpu.samples);
+                      "ombres : {:.3f} ms GPU en moyenne sur {} mesures", averageOf(shadowGpu),
+                      shadowGpu.samples);
+    // Le critère de #133 : le temps GPU de chaque passe.
+    std::string passes;
+    for (std::size_t pass = 0; pass < PassNames.size(); ++pass)
+    {
+        passes += std::format("{}{} {:.3f} ms", pass == 0 ? "" : ", ", PassNames[pass],
+                              averageOf(loop.scene.passes.averages[pass]));
+    }
+    levain::core::log("sandbox", levain::core::LogLevel::Info, "passes, GPU en moyenne : {}",
+                      passes);
     // Le critère de #132 : ce que le frustum culling épargne au GPU, par image.
     const auto perFrame = [&loop](std::uint64_t count)
     { return static_cast<double>(count) / std::max(loop.frameCount, 1); };
-    const CullingCount& camera = loop.scene.cameraCulling;
-    const CullingCount& shadows = loop.scene.shadowCulling;
+    const DrawCount& camera = loop.scene.cameraCulling;
+    const DrawCount& shadows = loop.scene.shadowCulling;
     levain::core::log(
         "sandbox", levain::core::LogLevel::Info,
         "culling, par image : caméra {:.1f} dessins écartés sur {:.1f}, ombres {:.1f} "
         "sur {:.1f} (4 cascades)",
         perFrame(camera.culled), perFrame(camera.culled + camera.drawn), perFrame(shadows.culled),
         perFrame(shadows.culled + shadows.drawn));
+    levain::core::log("sandbox", levain::core::LogLevel::Info,
+                      "dessins, par image : caméra {:.1f} appels et {:.0f} triangles, ombres "
+                      "{:.1f} appels et {:.0f} triangles",
+                      perFrame(camera.drawn), perFrame(camera.triangles), perFrame(shadows.drawn),
+                      perFrame(shadows.triangles));
     const SkinningCost& skinning = loop.scene.skinningCost;
     if (skinning.frames > 0)
     {

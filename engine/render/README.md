@@ -310,6 +310,11 @@ query** demande au GPU d'horodater le début et la fin d'un bloc de commandes ; 
 (`beginTimerQuery`, `endTimerQuery`) et rend la durée en secondes (`getTimerQueryTime`). Le résultat n'arrive
 que quand le GPU a fini la frame, d'où l'anneau de trois requêtes de `GpuTimer`.
 
+Le sandbox chronomètre ainsi chaque passe (#133) : clusters, ombres, meshes, ciel et tonemapping, un `GpuTimer`
+chacune. À la fin de la boucle, il donne leur moyenne (« passes, GPU en moyenne »), avec les appels de dessin et
+les triangles soumis par image, pour la caméra et pour les ombres (« dessins, par image »). Sur WebGPU, pas de
+mesure : Dawn n'y a pas de `timestamp-query` ici.
+
 ## Équivalents ailleurs
 
 | Moteur | Module | Ce qu'on y trouve |
@@ -321,6 +326,9 @@ que quand le GPU a fini la frame, d'où l'anneau de trois requêtes de `GpuTimer
 | **Unity** | URP Forward+ | Les lumières triées par tuiles et en profondeur, au-delà de la limite de 8 lumières par objet du Forward (**documenté** : manuel de l'URP). |
 | **Unreal** | Post Process Volume, *Film* | Exposition automatique ou manuelle, courbe « Filmic » inspirée d'ACES (**documenté** : documentation d'Epic). |
 | **Godot** | `Environment.tonemap_mode` | Linear, Reinhard, Filmic, ACES, et AgX depuis Godot 4.4 (**documenté** : documentation de Godot). |
+| **Unreal** | `stat scenerendering` | Appels de dessin, triangles et primitives écartées, par image (**documenté** : documentation d'Epic). |
+| **Unity** | Frame Debugger, fenêtre *Statistics* | Batches, triangles et temps par passe (**documenté** : manuel). |
+| **Godot** | `RenderingServer.get_rendering_info` | Objets, primitives et appels de dessin de l'image (**documenté** : docs officielles). |
 | **Unreal** | `FRHIRenderQuery`, `stat gpu` | Timer queries au-dessus de la RHI, affichées par passe (**documenté** : sources publiques). |
 | **Unreal** | `recompileshaders changed`, `ShaderCompileWorker` | Recompilation à chaud par des processus séparés (**documenté** : documentation d'Epic). |
 | **Unity** | GPU Instancing, Frame Timing Manager | Instancing activé par matériau ; temps GPU par frame (**documenté** : manuel). |

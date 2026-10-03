@@ -240,6 +240,15 @@ jobs:
           # rendre sa mesure. Le chiffre de Sponza vient de la machine de référence (journal).
           grep -Eq "ombres : [0-9.]+ ms GPU en moyenne sur [1-9][0-9]* mesures" fox.log \
             || { echo "::error::le temps GPU de la passe d'ombres n'a pas été mesuré"; exit 1; }
+          # Chaque passe chronométrée, et des dessins comptés (#133) : une passe à 0,000 ms n'a pas été
+          # mesurée.
+          passes=$(grep -E "passes, GPU en moyenne : clusters" fox.log) \
+            || { echo "::error::le temps GPU des passes n'a pas été donné"; exit 1; }
+          if grep -q " 0\.000 ms" <<<"$passes"; then
+            echo "::error::une passe n'a pas été mesurée : $passes"; exit 1
+          fi
+          grep -Eq "dessins, par image : caméra [1-9][0-9.]* appels et [1-9][0-9]* triangles" fox.log \
+            || { echo "::error::les appels de dessin n'ont pas été comptés"; exit 1; }
           # Le même renard sur le backend WebGPU (Dawn, hors écran, ADR-0023), validation active :
           # le skinning compute passe par le backend, et doit tourner.
           timeout --foreground --preserve-status -k 10 60 \
