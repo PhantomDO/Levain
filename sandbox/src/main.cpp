@@ -789,9 +789,17 @@ levain::core::Result<Sky> loadSky(nvrhi::IDevice& device,
     device.waitForIdle();
     const std::chrono::duration<double, std::milli> elapsed =
         std::chrono::steady_clock::now() - start;
+#ifdef __EMSCRIPTEN__
+    // Le navigateur ne laisse pas attendre le GPU (waitForIdle n'y fait rien) : le temps ne compte
+    // que l'enregistrement des passes, pas leur calcul.
+    constexpr std::string_view Measured = "enregistré";
+#else
+    constexpr std::string_view Measured = "calculé";
+#endif
     levain::core::log("sandbox", levain::core::LogLevel::Info,
-                      "ciel : {} ({} × {}), environnement calculé en {:.1f} ms",
-                      skyPath->filename().string(), image->width, image->height, elapsed.count());
+                      "ciel : {} ({} × {}), environnement {} en {:.1f} ms",
+                      skyPath->filename().string(), image->width, image->height, Measured,
+                      elapsed.count());
     if (!environment)
     {
         return std::unexpected(environment.error());
@@ -1503,7 +1511,7 @@ struct SandboxOptions
     /// Où écrire une capture de la dernière image, en PNG. Avec `--seconds`, c'est ce qui montre un
     /// rendu à distance, sans écran ni capture du bureau.
     std::optional<std::filesystem::path> capturePath;
-    /// L'HDRI qui éclaire la scène (M5.4) ; sans, un ciel uniforme.
+    /// L'HDRI qui éclaire la scène (M5.4) ; sans, `LEVAIN_DEFAULT_SKY` s'il a été téléchargé.
     std::optional<std::filesystem::path> skyPath;
     /// `--gpu webgpu` : le backend WebGPU sur Dawn, hors écran, pour le vérifier sans navigateur
     /// (ADR-0023).
@@ -1641,14 +1649,30 @@ struct Sandbox
     CameraActions actions;
 };
 
+/// Le ciel par défaut, Kloofendal (sandbox/CMakeLists.txt), s'il a été téléchargé : sans lui, un
+/// ciel uniforme, et la ligne du journal dit pourquoi.
+std::optional<std::filesystem::path> defaultSky()
+{
+    std::error_code error;
+    if (std::filesystem::exists(LEVAIN_DEFAULT_SKY, error))
+    {
+        return std::filesystem::path{LEVAIN_DEFAULT_SKY};
+    }
+    levain::core::log("sandbox", levain::core::LogLevel::Info,
+                      "pas de ciel : {} absent (tools/fetch-assets.sh), ambiance uniforme",
+                      LEVAIN_DEFAULT_SKY);
+    return std::nullopt;
+}
+
 levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
                                             const SandboxOptions& options)
 {
     const levain::render::SamplerSettings sampler{.maxAnisotropy = options.maxAnisotropy};
     levain::core::log("sandbox", levain::core::LogLevel::Info, "filtrage anisotrope : {}",
                       levain::render::clampAnisotropy(sampler.maxAnisotropy));
-    auto scene = createDemoScene(gpu, sampler, options.modelPath, options.clipName,
-                                 options.locomotion, options.modelScale, options.skyPath);
+    auto scene =
+        createDemoScene(gpu, sampler, options.modelPath, options.clipName, options.locomotion,
+                        options.modelScale, options.skyPath ? options.skyPath : defaultSky());
     if (!scene)
     {
         return std::unexpected{std::move(scene.error())};
