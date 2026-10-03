@@ -26,9 +26,50 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 | 3 | 4,5 | **5,25** | **1,17** |
 | 4 | 8,25 | **6,0** | **0,73** |
 | 4 (M4.6) | 3,5 | **4,5** | **1,29** |
-| 5 (en cours : M5.1 à M5.5) | 8,0 | **6,0** | **0,75** |
+| 5 (en cours : M5.1 à M5.6) | 9,25 | **8,0** | **0,86** |
 
 ---
+
+## 2026-10-03 — M5.6 — Clôture : le terrain, premier plugin moteur, dans un renderer à étapes
+
+- **Temps Donnovan : 2,0 h** (estimé 1,25 h). Réparti au prorata des estimations : #134 0,4 h, #135 1,6 h.
+  **Ratio 1,6** : le milestone a porté plus que le terrain, avec le renderer qui possède l'image et son registre
+  d'étapes, que demandait le choix de l'ADR-0025.
+- Sessions Claude Code : 1
+- Fait, en 7 PR (#236 à #242) :
+  - **l'ADR-0025** (#236) : un registre par étape, dans un renderer qui possède l'image, et l'éclairage partagé.
+    C'est Donnovan qui a choisi le registre, contre les passes explicites que proposait Claude ; l'application y
+    inscrit les plugins, `render` ne voyant pas flecs ;
+  - **`FrameBindings` et `lighting.slang`** (#237), puis **le renderer et ses étapes** (#238) : `ShadowCasters`,
+    `Opaque`, `Transparent`. Les dessins du sandbox s'y inscrivent comme ceux d'un plugin. Aucun pixel ne change ;
+  - **le plugin terrain** (#239) : la vallée procédurale de 512 m, ses parcelles, leurs niveaux de détail et les
+    poids des couches, en fonctions CPU testées ;
+  - **le rendu du terrain** (#240), éclairé par `shadeSurface` et projetant son ombre ; **les niveaux de détail et
+    leurs jupes** (#241) ; **les couches Poly Haven** mélangées par la carte de poids (#242).
+- Mesures (Release, RX 9070 XT, 1920 × 1080, `levain_sandbox --seconds 10 --view terrain`) :
+  - **critère de M5.6, une vallée de 500 m à 1 m de résolution en moins de 2 ms GPU : 0,61 ms** (0,603 à 0,609 sur
+    trois lancements) ;
+  - les niveaux de détail divisent les triangles de la caméra par 17 (518 000 → 29 770), et l'image ne change
+    presque pas : 0,09 d'écart moyen sur 255 ;
+  - lire seulement les couches de poids non nul fait passer les opaques de 1,03 à 0,50 ms ;
+  - Vulkan et WebGPU donnent la même image, à 1 niveau près sur 255 ;
+  - tests : 162 en natif, 87 en WebAssembly (`ctest`).
+- Décisions de Donnovan, par sondage : le registre par étape et l'éclairage partagé (ADR-0025), l'inscription
+  par l'application, un relief généré par le code, et trois textures Poly Haven 1k.
+- Écarts et problèmes :
+  - les noms de Poly Haven trompaient : `grass_path_2` est un gravier, et `rocky_terrain_02` une herbe. Le sondage
+    les annonçait à l'envers ; ce sont les mêmes textures, rangées selon leur aperçu ;
+  - trois pièges WebGPU, consignés dans `build/GOTCHA.md`, trouvés par la validation :
+    - ni R16 normalisé ni R32 filtrable dans le cœur de WebGPU, d'où une heightmap en R16 flottant ;
+    - `textureSample` est interdit dans une branche qui dépend des données ;
+    - deux pipelines qui partagent un binding set doivent avoir le même layout ;
+  - une erreur NVRHI : un buffer volatil jamais écrit ne se lie pas. Le renderer écrit désormais les constantes de
+    scène à chaque image ;
+  - le hot-reload ignorait les fichiers inclus (`brdf.slang` depuis #231) : corrigé, et vérifié par
+    `tools/shader-hot-reload.sh`, qui était lui-même cassé depuis le PBR ;
+  - **ponytail** : la projection plane étire la roche dans les pentes raides ; les shaders d'un plugin ne se
+    rechargent pas à chaud.
+- Prochaine étape : M5.7, l'eau et l'herbe, deux autres plugins moteur.
 
 ## 2026-10-03 — M5.5 — Clôture : le frustum culling, et le temps de chaque passe
 

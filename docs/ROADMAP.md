@@ -269,7 +269,7 @@ Chromium, depuis GitHub Pages ; la CI compile et teste le backend.
 | M5.3 Ombres en cascades | 1,0 (réel, 1,75 estimées) | 2 | fini le 02/10/2026 |
 | M5.4 Éclairage d'environnement (IBL) | 2,0 (réel, 2,25 estimées) | 2 | fini le 03/10/2026 |
 | M5.5 Culling et statistiques | 1,0 (réel, 1,25 estimées) | 1 | fini le 03/10/2026 |
-| M5.6 Terrain | 1,25 | 2 | 24/01/2027 |
+| M5.6 Terrain | 2,0 (réel, 1,25 estimées) | 2 | fini le 03/10/2026 |
 | M5.7 Eau et herbe | 1,75 | 2 | 31/01/2027 |
 
 **M5.1 — PBR direct.** Modèle metallic-roughness (Cook-Torrance), lumières directionnelle et ponctuelles,
