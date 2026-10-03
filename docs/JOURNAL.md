@@ -26,9 +26,33 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 | 3 | 4,5 | **5,25** | **1,17** |
 | 4 | 8,25 | **6,0** | **0,73** |
 | 4 (M4.6) | 3,5 | **4,5** | **1,29** |
-| 5 (en cours : M5.1 à M5.4) | 6,75 | **5,0** | **0,74** |
+| 5 (en cours : M5.1 à M5.5) | 8,0 | **6,0** | **0,75** |
 
 ---
+
+## 2026-10-03 — M5.5 — Clôture : le frustum culling, et le temps de chaque passe
+
+- **Temps Donnovan : 1,0 h** (estimé 1,25 h). Réparti au prorata des estimations : #132 0,4 h, #133 0,6 h.
+  Ratio 0,80.
+- Sessions Claude Code : 1
+- Fait :
+  - **le frustum culling sur CPU** (#233) : chaque mesh connaît sa boîte, chaque dessin est testé contre les six
+    plans du volume de vue, pour la caméra comme pour chaque cascade d'ombres ; un mesh skinné n'est jamais
+    écarté ;
+  - **le temps GPU de chaque passe** et **les appels de dessin et triangles par image** (#234), vérifiés en CI
+    sur le renard.
+- Mesures (Release, RX 9070 XT, 1920 × 1080) :
+  - culling sur Sponza (`levain_sandbox --model Sponza.gltf`, ligne « culling, par image ») : depuis la caméra
+    de départ, 22 dessins écartés sur 105 pour la caméra et 48 sur 420 pour les ombres ; de l'intérieur
+    (`--view khronos --camera 8,3,0`), 89 sur 103 et 72 sur 412. Captures identiques avec et sans culling ;
+  - **critère de M5.5 : Sponza en PBR, avec ombres et IBL, à 0,645 ms GPU par image** (0,642 à 0,646 sur trois
+    lancements de 10 s), soit 1 500 images/s hors écran, pour un critère de 60 ;
+  - par passe : clusters 0,005 ms, ombres 0,309, meshes 0,288, ciel 0,003, tonemapping 0,016 ; par image, 83
+    appels et 372 000 triangles pour la caméra, 372 appels et 1,2 million de triangles pour les ombres ;
+  - tests : 152 en natif (`ctest`).
+- Écarts et problèmes : un rebase de pile raté, la branche de base ayant été supprimée par la fusion ; consigné
+  dans `session/GOTCHA.md`.
+- Prochaine étape : M5.6, le terrain.
 
 ## 2026-10-03 — M5.4 — Clôture : l'éclairage par le ciel, mesuré contre le glTF Sample Viewer
 

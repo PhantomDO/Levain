@@ -2,6 +2,16 @@
 
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut.
 
+## Rebaser une pile après la fusion de sa base : la branche n'existe plus (2026-10-03)
+
+- **Symptôme** : `git rebase --onto origin/main $(git log -1 --format=%H <branche fusionnée>) <suivante>` échoue
+  sur « argument ambigu », et la PR suivante s'ouvre avec le commit déjà fusionné en double.
+- **Cause** : `gh pr merge --delete-branch` supprime aussi la branche locale de la base ; la variable est vide, et
+  la commande composée continue.
+- **Parade** : noter le SHA de la base **avant** la fusion, ou le reprendre dans `git log` de la suivante (le
+  commit juste sous le sien), puis `git rebase --onto origin/main <sha> <suivante>` et
+  `git push --force-with-lease`. Vérifier les fichiers de la PR (`gh pr view --json files`) avant d'attendre la CI.
+
 ## `gh pr merge --delete-branch` supprime le worktree de la branche (2026-10-02)
 
 - **Symptôme** : après la fusion de la dernière PR d'une pile, le worktree `../Levain-pbr` où elle était sortie
