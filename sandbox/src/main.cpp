@@ -1556,7 +1556,7 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
                              {"aces", levain::render::Tonemapper::Aces},
                              {"agx", levain::render::Tonemapper::Agx},
                              {"neutral", levain::render::Tonemapper::KhronosPbrNeutral}}};
-            const auto* found =
+            const auto found =
                 std::ranges::find(Tonemappers, tonemapper,
                                   &std::pair<std::string_view, levain::render::Tonemapper>::first);
             if (found == Tonemappers.end())
