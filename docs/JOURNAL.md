@@ -26,9 +26,53 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 | 3 | 4,5 | **5,25** | **1,17** |
 | 4 | 8,25 | **6,0** | **0,73** |
 | 4 (M4.6) | 3,5 | **4,5** | **1,29** |
-| 5 (en cours : M5.1 à M5.6) | 9,25 | **8,0** | **0,86** |
+| 5 | 11,0 | **10,0** | **0,91** |
 
 ---
+
+## 2026-10-03 — M5.7 — Clôture : l'eau et l'herbe, et la fin de la phase 5
+
+- **Temps Donnovan : 2,0 h** (estimé 1,75 h). Réparti au prorata des estimations : #136 0,55 h, #137 1,0 h,
+  #138 0,45 h. Ratio 1,14. La correction des mips (#246), hors du périmètre, est comptée dedans.
+- **Phase 5 close : 10,0 h pour 11,0 estimées, ratio 0,91**, dans la fourchette : aucun recalibrage. Le
+  cumul des phases 0 à 5 vaut 0,92 (38,0 h pour 41,5).
+- Sessions Claude Code : 1
+- Fait, en 6 PR (#244 à #249) :
+  - **le plugin `water`** (#244, #245) : un creux de lac dans la vallée, une carte de vaguelettes calculée par
+    le code et répétable sans couture, et le lac dessiné à l'étape `Transparent`, premier dessin de cette étape.
+    Le ciel s'y reflète selon le Fresnel, le soleil y brille, et le fond se voit au travers d'une eau qui
+    absorbe le rouge d'abord. La profondeur se lit dans la heightmap du terrain, dont le plugin dépend ;
+  - **la correction des mips des textures de données** (#246) : les normal maps et les rugosités avaient leurs
+    mips moyennés en sRGB, ce qui penchait les normales au loin. Le cuiseur apprend l'usage de chaque image des
+    matériaux glTF, choix de Donnovan au sondage (amendement de l'ADR-0020) ;
+  - **le plugin `grass`** (#247, #248) : des brins instanciés sur le GPU, sans buffer d'instances. Le numéro
+    d'instance donne la place (suite R2 de Roberts), un hachage le reste, et la carte de densité (le poids de
+    l'herbe du terrain, hors de l'eau) dit où ils poussent. Le vent les plie ;
+  - **l'étude E5** (#249) : forward, deferred et forward+ dans Unreal, Unity et Godot.
+- Mesures (Release, RX 9070 XT, 1920 × 1080, `levain_sandbox --seconds 10 --view terrain [--camera 250,3,300]`) :
+  - **critère de M5.7, la vallée avec son lac et son herbe à plus de 60 images/s : 0,94 ms GPU par image** au
+    bord du lac, avec 241 000 brins demandés (1 060 images/s hors écran), et 0,58 ms depuis la crête ;
+  - l'herbe coûte 0,24 ms (0,545 ms d'opaques sans elle, 0,786 avec) ; l'eau 0,004 ms vue de la crête, 0,037 ms
+    quand elle couvre la moitié de l'écran ;
+  - Vulkan et WebGPU donnent la même image : 0,06 % d'écart moyen pour l'eau, 0,04 % pour l'herbe ;
+  - les mips corrigés ne changent pas l'écart à la visionneuse Khronos (0,77 en IBL, 1,64 en direct,
+    `tools/khronos-compare.sh`), et changent Sponza de 0,1 niveau sur 255 en moyenne, sur les surfaces
+    lointaines et rasantes ;
+  - tests : 169 en natif, 88 en WebAssembly (`ctest`).
+- Décisions de Donnovan, par sondage : l'usage des textures appris des matériaux glTF (ADR-0020, amendement du
+  03/10).
+- Écarts et problèmes :
+  - la CI ne passait ni le format ni clang-tidy sur `plugins/` : le terrain y échappait depuis #239. Corrigé
+    en #244 ; il passait les deux contrôles ;
+  - un contrôle de la CI que j'avais ajouté lisait le temps GPU de l'étape transparente, que le backend WebGPU
+    ne mesure pas : il échouait sous WebGPU. Il ne tourne plus que sous Vulkan, et le commentaire le dit ;
+  - deux PR dépassent les 400 lignes, signalées comme blocs GPU : le rendu de l'eau (442) et celui de l'herbe
+    (525) ;
+  - zsh applique un modificateur à `$C:r…` dans un refspec : consigné dans `build/GOTCHA.md` ;
+  - **ponytail** : seul le ciel se reflète dans l'eau, pas les versants ; un objet dans l'eau ne l'assombrit
+    pas (la profondeur vient du terrain) ; l'herbe ne projette pas d'ombre ; un pixel de brin caché par un autre
+    est éclairé pour rien, et une pré-passe de profondeur l'éviterait (étude E5).
+- Prochaine étape : la phase 6, physique et traversée, en commençant par l'ADR d'intégration de Jolt (#173).
 
 ## 2026-10-03 — M5.6 — Clôture : le terrain, premier plugin moteur, dans un renderer à étapes
 
