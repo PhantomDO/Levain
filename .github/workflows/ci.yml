@@ -263,8 +263,8 @@ jobs:
 
       # Sponza : 105 dessins par image. En Debug seulement, où la validation de NVRHI est active :
       # c'est elle qui a montré que le buffer des constantes manquait de versions (M4.1).
-      # Le terrain (M5.6), premier plugin moteur : ses passes s'inscrivent dans le renderer
-      # (ADR-0025) et doivent dessiner, sur Vulkan comme sur WebGPU, validation active.
+      # Le terrain (M5.6), premier plugin moteur, et le lac (M5.7) : leurs passes s'inscrivent dans
+      # le renderer (ADR-0025) et doivent dessiner, sur Vulkan comme sur WebGPU, validation active.
       - name: Lancer le sandbox sur le terrain
         if: matrix.preset == 'linux-debug'
         env:
@@ -279,6 +279,15 @@ jobs:
               || { echo "::error::le terrain ne s'est pas inscrit dans le renderer ($gpu)"; exit 1; }
             grep -Eq "terrain, par image : [1-9][0-9.]* parcelles dessinées" terrain-$gpu.log \
               || { echo "::error::aucune parcelle du terrain dessinée ($gpu)"; exit 1; }
+            # Le lac (M5.7), le premier dessin de l'étape Transparent : il doit y être inscrit, et
+            # chronométré, donc dessiné. Le chronomètre n'existe que sous Vulkan : le backend WebGPU
+            # ne mesure pas les temps GPU, et sa ligne de passes reste vide.
+            grep -q "transparents : eau" terrain-$gpu.log \
+              || { echo "::error::l'eau ne s'est pas inscrite dans le renderer ($gpu)"; exit 1; }
+            if [ "$gpu" = vulkan ]; then
+              grep -Eq "transparents [0-9.]+ ms" terrain-$gpu.log \
+                || { echo "::error::l'étape transparente n'a rien dessiné ($gpu)"; exit 1; }
+            fi
           done
 
       - name: Lancer le sandbox avec Sponza
