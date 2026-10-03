@@ -21,6 +21,9 @@ enum class Tonemapper : std::uint8_t
     Clip, ///< Coupe net à 1 : ce que faisait le moteur avant M5.2. Les blancs saturent.
     Aces, ///< ACES (approximation de Stephen Hill) : contrasté, le standard du cinéma.
     Agx,  ///< AgX (Troy Sobotka) : plus doux, les couleurs vives virent au blanc sans saturer.
+    /// Khronos PBR Neutral : les couleurs telles quelles jusqu'à 0,76, puis un pic comprimé.
+    /// Celle du glTF Sample Viewer, pour s'y comparer.
+    KhronosPbrNeutral,
 };
 
 /// Comment ramener la lumière de la scène dans l'image affichée.

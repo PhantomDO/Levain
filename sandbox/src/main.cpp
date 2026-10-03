@@ -1493,7 +1493,7 @@ struct SandboxOptions
     float maxAnisotropy = 16.0f;
     /// L'exposition du tonemapping (M5.2) : 2 éclaire d'un diaphragme.
     float exposure = 1.0f;
-    /// La courbe du tonemapping : `--tonemap clip|aces|agx`.
+    /// La courbe du tonemapping : `--tonemap clip|aces|agx|neutral`.
     levain::render::Tonemapper tonemapper = levain::render::Tonemapper::Agx;
     /// Un glTF à afficher devant la caméra (M4.1).
     std::optional<std::filesystem::path> modelPath;
@@ -1551,14 +1551,20 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         if (name == "--tonemap")
         {
             const std::string_view tonemapper{arguments[i + 1]};
-            if (tonemapper == "clip" || tonemapper == "aces" || tonemapper == "agx")
+            constexpr std::array<std::pair<std::string_view, levain::render::Tonemapper>, 4>
+                Tonemappers{{{"clip", levain::render::Tonemapper::Clip},
+                             {"aces", levain::render::Tonemapper::Aces},
+                             {"agx", levain::render::Tonemapper::Agx},
+                             {"neutral", levain::render::Tonemapper::KhronosPbrNeutral}}};
+            const auto* found =
+                std::ranges::find(Tonemappers, tonemapper,
+                                  &std::pair<std::string_view, levain::render::Tonemapper>::first);
+            if (found == Tonemappers.end())
             {
-                options.tonemapper = tonemapper == "aces"  ? levain::render::Tonemapper::Aces
-                                     : tonemapper == "agx" ? levain::render::Tonemapper::Agx
-                                                           : levain::render::Tonemapper::Clip;
-                continue;
+                return std::nullopt;
             }
-            return std::nullopt;
+            options.tonemapper = found->second;
+            continue;
         }
         if (name == "--gpu")
         {
@@ -1969,11 +1975,12 @@ int main(int argc, char** argv)
             parseOptions(std::span{argv, static_cast<std::size_t>(argc)});
         if (!options)
         {
-            std::println(stderr, "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
-                                 "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
-                                 "repos,marche,course] "
-                                 "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
-                                 "[--exposure N] [--tonemap clip|aces|agx] [--sky fichier.hdr]");
+            std::println(stderr,
+                         "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
+                         "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
+                         "repos,marche,course] "
+                         "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
+                         "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky fichier.hdr]");
             return 2;
         }
 

@@ -6,7 +6,7 @@
 struct TonemapConstants
 {
     float exposure;
-    uint tonemapper; ///< Tonemapper (tonemap.hpp) : 0 coupe, 1 ACES, 2 AgX.
+    uint tonemapper; ///< Tonemapper (tonemap.hpp) : 0 coupe, 1 ACES, 2 AgX, 3 Khronos PBR Neutral.
     float padding1;
     float padding2;
 };
@@ -72,6 +72,29 @@ float3 agx(float3 color)
     return pow(saturate(mul(v, outset)), 2.2);
 }
 
+/// Khronos PBR Neutral, d'après le code de référence de KhronosGroup/ToneMapping (Apache-2.0) : la
+/// lumière jusqu'à 0,76 passe telle quelle, teintes comprises, puis le pic se comprime vers 1 et se
+/// désature un peu. La courbe par défaut du glTF Sample Viewer, celle des comparaisons avec lui
+/// (#125, #131) : un albédo s'y lit à sa vraie couleur.
+float3 khronosPbrNeutral(float3 color)
+{
+    const float startCompression = 0.8 - 0.04;
+    const float desaturation = 0.15;
+    const float x = min(color.r, min(color.g, color.b));
+    const float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+    color -= offset;
+    const float peak = max(color.r, max(color.g, color.b));
+    if (peak < startCompression)
+    {
+        return color;
+    }
+    const float d = 1.0 - startCompression;
+    const float newPeak = 1.0 - d * d / (peak + d - startCompression);
+    color *= newPeak / peak;
+    const float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+    return lerp(color, float3(newPeak), g);
+}
+
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target
 {
@@ -82,6 +105,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target
         return float4(aces(light), 1.0);
     case 2:
         return float4(agx(light), 1.0);
+    case 3:
+        return float4(khronosPbrNeutral(light), 1.0);
     default:
         // La lumière au-delà de 1 est coupée net : ce que faisait le moteur avant M5.2.
         return float4(saturate(light), 1.0);
