@@ -12,6 +12,7 @@ add_library(levain_render STATIC
     src/shader.cpp
     src/shadows.cpp
     src/skinning.cpp
+    src/sky.cpp
     src/texture.cpp
     src/tonemap.cpp
     src/triangle.cpp)

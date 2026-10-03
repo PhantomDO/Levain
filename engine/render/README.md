@@ -34,6 +34,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
 | [`include/levain/render/shadows.hpp`](include/levain/render/shadows.hpp) | `CascadeSettings`, `cascadeSplitsOf`, `cascadesOf` — les tranches de profondeur et les projections du soleil des ombres en cascades |
 | [`include/levain/render/environment.hpp`](include/levain/render/environment.hpp) | `createEnvironment` — l'HDRI du ciel converti en cubemap, mips comprises, puis l'irradiance, le spéculaire préfiltré et la table de la BRDF de l'éclairage par l'image |
+| [`include/levain/render/sky.hpp`](include/levain/render/sky.hpp) | `createSkyPass`, `drawSky` — le ciel de l'environnement en fond, là où aucun mesh n'est dessiné |
 | [`include/levain/render/tonemap.hpp`](include/levain/render/tonemap.hpp) | `HdrFormat`, `createTonemapPass`, `ensureHdrTarget`, `tonemap` — l'image HDR et sa passe vers la swapchain |
 | [`include/levain/render/skinning.hpp`](include/levain/render/skinning.hpp) | `SkinnedVertex`, `createSkinningPass`, `createSkinnedMesh`, `skinMesh` — le skinning en compute |
 | [`include/levain/render/light_clusters.hpp`](include/levain/render/light_clusters.hpp) | `PointLight`, `ClusterGrid`, `createLightClusterPass`, `assignLightsToClusters` — le tri des lumières ponctuelles en clusters (forward+) ; `lightsPerClusterOf`, sa référence CPU |
@@ -226,6 +227,10 @@ Puis trois **convolutions** préparent l'éclairage, d'après Karis (« Real Sha
 Chaque échantillon des convolutions lit le ciel au mip dont un texel couvre son angle solide (l'échantillonnage
 *filtré* de Colbert et Křivánek) : 256 échantillons suffisent, sans les points brillants d'un soleil tiré au
 hasard.
+
+Le **ciel en fond** (`drawSky`, `shaders/sky.slang`) se dessine après les meshes : un triangle plein écran au plan
+lointain, qui ne passe le test de profondeur que là où aucun mesh n'est dessiné, et lit la cubemap dans la direction
+de chaque pixel. La vue n'y garde que sa rotation : le ciel reste à l'infini quand la caméra avance.
 
 `levain_environment` (tests `gpu.environment.*`) vérifie tout sur Vulkan et sur WebGPU :
 
