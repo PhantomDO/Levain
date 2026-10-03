@@ -228,6 +228,13 @@ Chaque échantillon des convolutions lit le ciel au mip dont un texel couvre son
 *filtré* de Colbert et Křivánek) : 256 échantillons suffisent, sans les points brillants d'un soleil tiré au
 hasard.
 
+Le **soleil d'une HDRI** (`extractSun`) en est retiré avant le calcul : sans cela, il éclairerait aussi par l'IBL,
+qui n'a pas d'ombres, et pâlirait celles du soleil. Le pixel le plus brillant, s'il dépasse 1000 fois la moyenne de
+l'image, donne la direction ; les pixels à moins de 5° de lui sont ramenés à un millième de son pic, et l'énergie
+retirée (luminance × angle solide de chaque pixel) devient une lumière directionnelle, qui jette les ombres. Le
+soleil de Kloofendal culmine à 72 559, au-delà du plus grand flottant 16 bits (65 504) : écrêté sans être retiré, il
+aurait perdu son énergie en silence.
+
 Le **ciel en fond** (`drawSky`, `shaders/sky.slang`) se dessine après les meshes : un triangle plein écran au plan
 lointain, qui ne passe le test de profondeur que là où aucun mesh n'est dessiné, et lit la cubemap dans la direction
 de chaque pixel. La vue n'y garde que sa rotation : le ciel reste à l'infini quand la caméra avance.
