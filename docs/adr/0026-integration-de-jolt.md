@@ -1,7 +1,7 @@
 # ADR-0026 — Intégrer Jolt : des corps qui suivent les entités, au pas fixe
 
 - **Statut** : accepté le 2026-10-04 (options choisies par Donnovan sur sondage ; forme finale relue par un
-  subagent, en mode autonome)
+  subagent, en mode autonome, et corrigée selon sa relecture)
 - **Date** : 2026-10-04
 - **Milestone** : M6.1
 
@@ -59,7 +59,7 @@ suivant, 16 ms plus tard.
 | Option | Pour | Contre |
 |---|---|---|
 | **A. Une table fixe du moteur** | Ce dont *Rando* a besoin, rien à configurer | Un jeu qui voudrait d'autres couches demandera un ADR |
-| B. Le jeu déclare jusqu'à 16 couches et leur matrice (Unity) | Souple | Du code et des tests dès M6.1, pour un seul jeu |
+| B. Le jeu déclare jusqu'à 32 couches et leur matrice (Unity) | Souple | Du code et des tests dès M6.1, pour un seul jeu |
 
 **5. Les threads** (sondage)
 
@@ -74,70 +74,103 @@ suivant, 16 ms plus tard.
 **Un module `engine/physics`, qui cache Jolt derrière des composants flecs et des fonctions libres.**
 
 1. **Deux composants de données.** `physics::Collider` porte la forme (une boîte, une sphère, une capsule en
-   M6.1 ; le maillage et le heightfield du terrain en M6.2) et la couche. `physics::RigidBody` porte le type de
-   mouvement (`Dynamic` ou `Kinematic`), la masse, le frottement et le rebond. **Un `Collider` sans `RigidBody`
-   est statique.** Les deux ne contiennent que des types de glm : rien de Jolt n'en sort.
-2. **Un corps est créé par un observateur** quand une entité a un `Collider` et un `Transform`, et recréé quand
-   son `Collider` ou son `RigidBody` change, arrive ou part. Il est détruit avec son `Collider` ou son entité.
-   Le corps garde l'identifiant de l'entité dans ses *user data* ; l'entité garde l'identifiant du corps dans
-   un composant `physics::BodyHandle`, posé par le module.
-3. **Jolt fait autorité sur les corps dynamiques.** Après chaque pas, seuls les corps **actifs** (ceux que Jolt
-   n'a pas endormis) recopient leur position et leur rotation dans le `Transform`, **par référence** : la
-   recopie ne déclenche pas les observateurs. Un `Transform` **posé** (`set`) sur un corps le téléporte et le
-   réveille. Un corps **cinématique** va dans l'autre sens : le gameplay écrit son `Transform`, et le module
-   demande à Jolt de l'y amener pendant le pas (`MoveKinematic`), pour que ce qu'il pousse soit poussé. Un corps
-   statique ne bouge pas : le téléporter reste possible, mais coûte une mise à jour de l'arbre du décor.
-4. **Un corps est une entité racine, sans échelle.** Un `Collider` sur une entité qui a un parent, ou dont le
-   `Transform` a une échelle autre que 1, est **refusé bruyamment** (règle n°7) : la taille se donne dans la
-   forme. Un enfant d'un corps le suit normalement, par la hiérarchie.
-5. **Trois phases dans le pipeline de simulation**, ordonnées par profondeur de `DependsOn` : `Simulation`, le
-   gameplay, inchangée ; `Physics`, où le module pousse les cinématiques, avance Jolt d'un pas et recopie les
-   corps actifs ; `PostPhysics`, pour ce qui lit le résultat du pas (les événements des volumes déclencheurs en
-   M6.2, le personnage en M6.3). Les phases portent l'étiquette `SimulationPhase`, et non `flecs::Phase`, pour
-   rester hors du pipeline par défaut.
+   M6.1 ; le maillage et le heightfield du terrain en M6.2) et, s'il le faut, la couche. `physics::RigidBody`
+   porte le type de mouvement (`Dynamic` ou `Kinematic`), la masse, le frottement et le rebond. **Un `Collider`
+   sans `RigidBody` est statique.** Aucun type de Jolt n'en sort. Une grande forme (les 263 000 hauteurs du
+   terrain, un maillage) ne tiendra pas dans un composant de valeurs : en M6.2, elle passera par une donnée
+   partagée et immuable, dont le module garde la forme Jolt en cache.
+2. **Les corps se construisent en lot, au début du pas de physique.** Un observateur marque l'entité dont le
+   `Collider` ou le `RigidBody` arrive, change ou part ; le premier système de la phase `Physics` (re)construit
+   les corps marqués. Un corps ne naît donc pas statique pour être aussitôt recréé dynamique selon l'ordre des
+   `set`, et un chargement de milliers de corps pourra passer par l'ajout groupé de Jolt. Le corps garde
+   l'identifiant de l'entité dans ses *user data* ; l'entité garde celui du corps dans un composant
+   `physics::BodyHandle`, posé par le module. Le corps est détruit avec son `BodyHandle`, donc avec son
+   `Collider` ou son entité.
+3. **Qui écrit la position** :
+   - **un corps dynamique** : Jolt. Après chaque pas, les seuls corps dynamiques **actifs** (ceux que Jolt n'a
+     pas endormis) recopient leur position et leur rotation dans le `Transform`, **par référence** : la
+     recopie ne déclenche pas les observateurs ;
+   - **un corps cinématique** : le gameplay, qui écrit son `Transform` **par référence**. Le module demande à
+     Jolt de l'y amener pendant le pas (`MoveKinematic`), pour que ce qu'il rencontre soit poussé. Il n'est
+     jamais recopié : la pose que Jolt intègre diffère de la cible de quelques ulps ;
+   - **tout corps** : un `Transform` **posé** (`set`) le téléporte, sans rien pousser, et le réveille s'il est
+     mobile. Téléporter un corps statique réveille aussi ce qui reposait dessus et ce qu'il recouvre, ce que
+     Jolt ne fait pas seul.
+4. **Un corps est une entité racine, sans échelle.** Une entité qui a un `flecs::Parent` (ADR-0015, et non
+   `ChildOf`), ou dont le `Transform` a une échelle autre que 1, est **refusée bruyamment** (règle n°7) :
+   une erreur au journal, pas de corps, et une assertion en Debug. Le contrôle est refait quand le corps est
+   téléporté ou que l'entité change de parent. La taille se donne dans la forme ; un enfant d'un corps le suit
+   normalement, par la hiérarchie.
+5. **Trois phases dans le pipeline de simulation**, déclarées par `scene` et ordonnées par profondeur de
+   `DependsOn` : `Simulation`, le gameplay, inchangée ; `Physics`, où le module construit les corps, pousse
+   les cinématiques, avance Jolt d'un pas et recopie les dynamiques ; `PostPhysics`, pour ce qui lit le
+   résultat du pas (les événements des volumes déclencheurs en M6.2). Le personnage de M6.3 choisira sa phase :
+   les exemples de Jolt le mettent à jour avant le pas. Les phases portent l'étiquette `SimulationPhase`, et
+   non `flecs::Phase`, pour rester hors du pipeline par défaut.
 6. **Un pas de Jolt par pas de simulation** : `Update(1/60 s, 1 étape de collision)`, la recommandation de Jolt
-   pour 60 Hz. Les corps dynamiques reçoivent automatiquement un `PreviousTransform` (trait `With`, comme
-   `Velocity`) : le rendu les interpole entre deux pas, comme le prévoyait l'ADR-0016.
-7. **Une table fixe de couches**, avec leur matrice :
+   pour 60 Hz. **Tout `RigidBody`**, dynamique ou cinématique, reçoit un `PreviousTransform` (trait `With`, comme
+   `Velocity`) : le rendu l'interpole entre deux pas, comme le prévoyait l'ADR-0016. Une plateforme non
+   interpolée ferait trembler les caisses interpolées qu'elle porte.
+7. **Une table fixe de couches**, avec leur matrice et leur couche de *broad phase* :
 
-   | Couche | Touche |
-   |---|---|
-   | `Static` (le décor) | `Dynamic`, `Character`, `Debris` |
-   | `Dynamic` | tout |
-   | `Character` | `Static`, `Dynamic`, `Sensor` |
-   | `Sensor` (les volumes déclencheurs) | `Dynamic`, `Character` |
-   | `Debris` (ce qui tombe pour le décor) | `Static`, `Dynamic` |
+   | Couche | Touche | Broad phase |
+   |---|---|---|
+   | `Static` (le décor) | `Dynamic`, `Character`, `Debris` | `NonMoving` |
+   | `Dynamic` | tout | `Moving` |
+   | `Character` | `Static`, `Dynamic`, `Sensor` | `Moving` |
+   | `Sensor` (les volumes déclencheurs) | `Dynamic`, `Character` | `NonMoving` |
+   | `Debris` (ce qui tombe pour le décor) | `Static`, `Dynamic` | `Moving` |
 
-   Deux couches de *broad phase*, `NonMoving` et `Moving` : la recommandation de Jolt pour commencer, chaque
-   couche de broad phase ayant un coût.
-8. **Le monde physique est un singleton flecs**, `physics::PhysicsWorld`, posé par `PhysicsModule` : il possède le
-   `PhysicsSystem` de Jolt, son allocateur temporaire et son job system, derrière un pointeur opaque. Les
-   fonctions libres le prennent en paramètre (ADR-0011) : `createBody`, `stepPhysics`, `readBackActiveBodies`…
-   La glu flecs, une instruction par système, appelle ces fonctions.
+   Sans couche donnée, un corps prend celle de son mouvement : `Static` sans `RigidBody`, `Dynamic` avec. Une
+   couche `Static` par défaut, gardée par un corps dynamique, le ferait traverser le sol. Deux couches de
+   *broad phase* : la recommandation de Jolt pour commencer, chacune ayant un coût.
+8. **Le monde physique est un singleton flecs**, `physics::PhysicsWorld`, posé par `PhysicsModule` dans sa
+   portée : il possède le `PhysicsSystem` de Jolt, son allocateur temporaire et son job system, derrière un
+   pointeur opaque. Les fonctions libres le prennent en paramètre (ADR-0011) : `createBody`, `stepPhysics`,
+   `collectMovedBodies`… La glu flecs, une instruction par système, appelle ces fonctions.
+   - **Les plafonds** : 65 536 corps, 65 536 paires et 10 240 contacts, 10 Mio de mémoire de travail par pas,
+     de quoi tenir les 1 000 caisses de M6.1 et le décor de *Rando*. Un corps refusé faute de place, ou un pas
+     que Jolt n'a pas pu finir (`EPhysicsUpdateError`), donne une erreur au journal et une assertion en Debug.
+   - **L'état global de Jolt** (son allocateur, sa fabrique de types, son journal) appartient au processus,
+     pas à un monde : il s'installe avec le premier `PhysicsWorld` et part avec le dernier. Les tests créent
+     beaucoup de mondes, l'éditeur et le jeu en auront deux.
+   - **À la fermeture du monde**, flecs supprime les entités avant les modules : le singleton survit aux
+     corps. Le module ne détruit alors aucun corps un par un ; le destructeur du `PhysicsSystem` les libère
+     tous.
 9. **Threads** : le `JobSystemThreadPool` de Jolt en natif (cœurs − 1), le `JobSystemSingleThreaded` sous
    Emscripten, où les threads exigeraient des en-têtes HTTP (COOP et COEP) qu'un hébergement simple n'envoie pas.
 
 ## Conséquences
 
 - **Ce que voit un plugin** : les en-têtes de `levain/physics/`, sans aucun type de Jolt. La visibilité est
-  contrôlée par un test, comme fastgltf et ozz (`deps.jolt-visibility`). L'herbe pourra demander la hauteur du
-  sol, l'eau déclarer un volume `Sensor`, la nage lire ce qui y entre.
+  contrôlée par le même test que fastgltf et ozz (`deps.asset-libraries-visibility`), étendu aux plugins. La
+  caméra de M6.4 fera un *sphere cast*, l'eau déclarera un volume `Sensor`, la nage lira ce qui y entre.
 - **Écrire le `Transform` d'un corps dynamique par référence ne sert à rien** : il est réécrit au pas suivant.
   Pour pousser un corps, il faudra des fonctions (`addImpulse`, `setLinearVelocity`), ajoutées quand un besoin
   les demandera ; pour le déplacer, `set<Transform>`. C'est la même règle que Godot, qui déconseille d'écrire
   la position d'un corps rigide.
-- **Le coût de la recopie suit ce qui bouge** : un décor de dix mille corps endormis ne coûte rien par pas.
-  L'ordre dans lequel Jolt rend les corps actifs n'est pas déterministe (ils sont réveillés depuis plusieurs
-  threads), mais chacun écrit sa propre entité : le résultat ne dépend pas de l'ordre.
+- **Ce que coûte un corps qui dort** : un corps statique ne coûte rien par pas. Un corps dynamique endormi
+  n'est pas recopié, mais il a un `PreviousTransform` : environ 20 ns par pas et par image (mesures de
+  l'ADR-0016), soit 0,2 ms pour dix mille. L'ordre dans lequel Jolt rend les corps actifs n'est pas déterministe
+  (ils sont réveillés depuis plusieurs threads), mais chacun écrit sa propre entité : le résultat n'en dépend
+  pas.
 - **Le déterminisme promis par l'ADR-0016 tient** : Jolt est déterministe pour un même binaire et une même suite
-  d'appels, quel que soit le nombre de threads. Un test le vérifiera, au bit près, avec un et plusieurs threads.
-  Les rappels de contact de Jolt arrivent, eux, dans un ordre qui varie : les événements des volumes
-  déclencheurs devront être triés avant d'être livrés au gameplay (M6.2).
+  d'appels (Architecture.md), et son propre test le vérifie avec 0 et 15 threads de travail
+  (`PhysicsDeterminismTests.cpp`). Le nôtre le vérifiera au bit près, avec un et plusieurs threads. Le natif et
+  le navigateur sont deux binaires : ils ne donneront pas les mêmes résultats, ce que l'ADR-0016 ne promettait
+  pas. Les rappels de contact arrivent, eux, dans un ordre qui varie, et sur les threads de Jolt : les
+  événements des volumes déclencheurs devront être collectés, triés, puis livrés au gameplay hors de ces
+  threads (M6.2).
 - **Jolt doit être compilé avec les mêmes options que le moteur** (ses `JPH_*`) : un écart casse la mémoire
-  sans prévenir. Le module appelle `JPH::VerifyJoltVersionID()` au démarrage et s'arrête en cas d'écart
-  (règle n°7).
-- **La physique tourne aussi dans le navigateur**, sur un thread : à vérifier en M6.1, Jolt n'ayant jamais été
-  compilé par notre triplet Emscripten.
+  sans prévenir. Le port les exporte avec sa cible, et le module vérifie `JPH::VerifyJoltVersionID()` au
+  démarrage, avec un message dans notre journal, avant l'arrêt. Ce contrôle ne couvre pas le jeu
+  d'instructions : le port x64 compile Jolt en **AVX2**, que le moteur exige désormais du processeur. Jolt est
+  lié en `PRIVATE` à `physics` : ses options ne s'appliquent qu'à nos sources de ce module.
+- **La physique tourne aussi dans le navigateur**, sur un thread : le port se compile pour `wasm32-emscripten`,
+  l'édition de liens et l'exécution restent à vérifier en M6.1.
+- **Un volume déclencheur statique perd le contact d'un corps qui s'endort** (Architecture.md, « Sensors ») : une
+  sortie fantôme est possible. Le personnage, lui, signale ses contacts par un autre canal
+  (`CharacterContactListener`). À traiter en M6.2 et M6.5.
 - **Les couches sont figées** : un second jeu qui en voudrait d'autres demandera un ADR, qui pourra reprendre
   l'option B.
 - **À revoir** si un corps doit vraiment vivre dans une hiérarchie (un wagon accroché à un train), ou si les
@@ -157,9 +190,9 @@ suivant, 16 ms plus tard.
 - **Unreal** (Chaos depuis Unreal 5) : la physique est portée par les *primitive components*, avec un
   `BodyInstance` qui réunit forme, masse et réglages : notre option B. Les collisions se règlent par
   *object channels* et par réponse (*Block*, *Overlap*, *Ignore*) (**documenté** [7]).
-- **Pourquoi toujours une bibliothèque** : aucun des trois n'écrit son solveur depuis zéro pour le jeu — Unity
-  prend PhysX, Godot a pris Jolt ; Unreal, qui a écrit Chaos, l'a fait sur plusieurs années, avec une équipe
-  dédiée. L'étude E6 (M6.3) développera ce point.
+- **Une bibliothèque, ou un solveur maison** : Unity délègue à PhysX ; Godot a longtemps eu son propre solveur,
+  Godot Physics, avant de passer à Jolt par défaut ; Unreal a écrit Chaos pour remplacer PhysX (**documenté**
+  pour les trois, mais ce qu'a coûté chaque choix est **supposé**). L'étude E6 (M6.3) creusera ce point.
 
 ## Sources
 
@@ -169,10 +202,13 @@ suivant, 16 ms plus tard.
 3. Unity, *Layer-based collision detection* — https://docs.unity3d.com/Manual/LayerBasedCollision.html
 4. Godot, *Godot 4.6 release* — https://godotengine.org/releases/4.6/
 5. Godot, *Using Jolt Physics* — https://docs.godotengine.org/en/4.6/tutorials/physics/using_jolt_physics.html
-6. Godot, *Physics introduction* —
+6. Godot, *Physics introduction* (la page est écrite pour la 2D ; la règle de l'échelle vaut aussi en 3D,
+   **supposé**) —
    https://docs.godotengine.org/en/stable/tutorials/physics/physics_introduction.html
 7. Epic Games, *Collision Overview* —
    https://dev.epicgames.com/documentation/en-us/unreal-engine/collision-in-unreal-engine---overview
 8. Jolt Physics, *Architecture* (sections « Deterministic Simulation », « Broad Phase », « Sensors ») —
    https://jrouwe.github.io/JoltPhysics/
-9. flecs, *Systems Manual*, section « Custom pipeline » — https://www.flecs.dev/flecs/md_docs_2Systems.html
+9. Jolt Physics, test `UnitTests/Physics/PhysicsDeterminismTests.cpp` (v5.6.0) —
+   https://github.com/jrouwe/JoltPhysics/blob/v5.6.0/UnitTests/Physics/PhysicsDeterminismTests.cpp
+10. flecs, *Systems Manual*, section « Custom pipeline » — https://www.flecs.dev/flecs/md_docs_2Systems.html
