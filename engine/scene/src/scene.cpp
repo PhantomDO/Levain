@@ -120,8 +120,19 @@ SceneModule::SceneModule(flecs::world& world)
     // tairait au lieu d'échouer (règle n°7). 1 : on affiche l'état simulé tel quel.
     world.set<RenderAlpha>({.value = 1.0f});
 
-    world.set<SimulationPipeline>(
-        {.pipeline = world.pipeline().with(flecs::System).with<Simulation>().build()});
+    // Les phases de simulation, dans l'ordre : gameplay, physique, après la physique (ADR-0026).
+    // `cascade(DependsOn)` range les systèmes par profondeur de leur phase dans cette chaîne, puis
+    // dans l'ordre de leur déclaration : un plugin gameplay, qui importe la physique avant de
+    // déclarer ses systèmes, tourne quand même avant le pas
+    // (https://www.flecs.dev/flecs/md_docs_2Systems.html, section « Custom pipeline »).
+    world.component<Simulation>().add<SimulationPhase>();
+    world.component<Physics>().add<SimulationPhase>().depends_on(world.component<Simulation>());
+    world.component<PostPhysics>().add<SimulationPhase>().depends_on(world.component<Physics>());
+    world.set<SimulationPipeline>({.pipeline = world.pipeline()
+                                                   .with(flecs::System)
+                                                   .with<SimulationPhase>()
+                                                   .cascade(flecs::DependsOn)
+                                                   .build()});
 
     // Ce que la simulation déplace garde son état précédent, et rien d'autre : le décor immobile ne
     // paie pas l'interpolation (ADR-0016). Demain, un corps physique l'ajoutera de la même façon.

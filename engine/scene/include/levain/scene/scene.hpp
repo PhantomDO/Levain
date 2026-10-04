@@ -7,11 +7,30 @@
 namespace levain::scene
 {
 
-/// L'étiquette des systèmes de simulation : ils tournent dans un pipeline à part, exécuté N fois
-/// par image avec un pas fixe (ADR-0016). Un système de gameplay se déclare
+/// Ce qui fait d'une entité une phase du pipeline de simulation. Pas `flecs::Phase` : le pipeline
+/// par défaut prend toute entité qui le porte, et rejouerait la simulation une fois de plus par
+/// image, avec le temps réel (ADR-0026, vu au prototype).
+struct SimulationPhase
+{
+};
+
+/// La première phase de simulation, celle du gameplay : ses systèmes tournent dans un pipeline à
+/// part, exécuté N fois par image avec un pas fixe (ADR-0016). Un système de gameplay se déclare
 /// `world.system<...>().kind<levain::scene::Simulation>()`, et son `delta_time` vaut alors toujours
 /// un pas — c'est ce qui rend son résultat reproductible.
 struct Simulation
+{
+};
+
+/// La phase du pas de physique, après le gameplay (ADR-0026) : ce que le gameplay demande à la
+/// physique pendant un pas est pris en compte dans ce même pas, comme `FixedUpdate` avant la
+/// simulation chez Unity. Le module `physics` y range ses systèmes.
+struct Physics
+{
+};
+
+/// Après le pas de physique : ce qui lit son résultat (les volumes déclencheurs, le personnage).
+struct PostPhysics
 {
 };
 
