@@ -420,6 +420,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0011 | Identifiants d'assets et format `.meta` | M4.2 |
 | 0024 | Forward ou forward+ (forward+ en clusters) | M5.1 |
 | 0025 | Des passes de rendu venues d'un plugin (registre par étape, éclairage partagé) | M5.6 |
+| 0026 | Intégrer Jolt (Collider et RigidBody, autorité de Jolt, phases de simulation, couches fixes) | M6.1 |
 | 0013 | Réflexion des composants (addon meta de flecs) | M7.2 |
 
 ## Numérotation des ADR
