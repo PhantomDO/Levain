@@ -50,12 +50,20 @@ IncludeBlocks: Regroup
 IncludeCategories:
   - Regex: '^<[a-z_]+>$'
     Priority: 1
+  # Jolt/Jolt.h avant tout autre en-tête de Jolt, qui attend ses macros : même bloc (Priority), trié
+  # en tête (SortPriority). Les SortPriority suivantes sont décalées d'un cran pour garder l'ordre.
+  - Regex: '^<Jolt/Jolt\.h>$'
+    Priority: 2
+    SortPriority: 2
   - Regex: '^<.*>$'
     Priority: 2
+    SortPriority: 3
   - Regex: '^"levain/'
     Priority: 4
+    SortPriority: 5
   - Regex: '.*'
     Priority: 3
+    SortPriority: 4
 
 # Une ligne vide entre deux définitions de fonctions : elles ne se collent jamais.
 SeparateDefinitionBlocks: Always

@@ -24,6 +24,7 @@
     },
     "fastgltf",
     "glm",
+    "joltphysics",
     "ktx",
     "nvrhi",
     "ozz-animation",

@@ -56,6 +56,7 @@ add_subdirectory(engine/core)
 add_subdirectory(engine/scene)
 add_subdirectory(engine/assets)
 add_subdirectory(engine/animation)
+add_subdirectory(engine/physics)
 # Le GPU (dans le navigateur, son seul backend WebGPU, ADR-0023), le rendu et ses shaders.
 add_subdirectory(shaders)
 add_subdirectory(engine/gpu)

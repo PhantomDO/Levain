@@ -3,6 +3,27 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Jolt n'a aucune assertion, même en Debug (2026-10-04)
+
+- **Symptôme** : une masse nulle, un rayon négatif, un quaternion non normalisé ou `destroyBody` sur le corps
+  invalide passent sans un mot ; les NaN ou la corruption arrivent plus loin (vu en relecture de #174).
+- **Cause** : le port vcpkg compile Jolt avec `USE_ASSERTS=OFF` : `JPH_ENABLE_ASSERTS` n'est pas exporté, et
+  aucun `JPH_ASSERT` n'existe. L'activer demanderait un port en overlay et la même définition côté moteur, car
+  elle entre dans `JPH_VERSION_ID`.
+- **Parade** : le moteur valide lui-même ce qu'il donne à Jolt (`whyNotThisShape`, `whyNotThisLayer`, le corps
+  invalide dans `destroyBody`, `toJoltRotation` qui renormalise), avec erreur au journal et assertion à nous.
+
+## « clang++ : commande introuvable » : le système hôte est immuable (2026-10-04)
+
+- **Symptôme** : sur la machine de référence, `clang++`, `cmake --preset` ou `clang-format` échouent depuis le
+  shell de l'agent, alors que `build/linux-debug/CMakeCache.txt` désigne bien `clang++`.
+- **Cause** : l'hôte est une Fedora Atomic (`ogc`), sans chaîne de compilation. Tout s'outille dans la
+  distrobox `dev` (Arch) : clang 23, CMake 4.4, vcpkg et emsdk y sont, avec le même `$HOME`.
+- **Parade** : `distrobox enter dev -- bash -lc 'cd <dépôt> && <commande>'`. Une variable du shell de l'agent
+  n'y passe pas : écrire les chemins en toutes lettres dans la commande. `gh`, `git`, `curl` et les scripts de
+  `tools/` qui ne compilent rien tournent aussi sur l'hôte. Les assets de test (`assets-cache/`) ne sont pas
+  partagés entre worktrees : `tools/fetch-assets.sh` dans chacun.
+
 ## Une lecture de texture dans une branche : refusée en WGSL (2026-10-03)
 
 - **Symptôme** : le shader du terrain compile en SPIR-V et tourne sur Vulkan, mais Dawn le refuse :
