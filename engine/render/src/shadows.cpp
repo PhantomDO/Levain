@@ -140,18 +140,26 @@ core::Result<ShadowPass> createShadowPass(nvrhi::IDevice& device, std::uint32_t 
     {
         return std::unexpected(vertexShader.error());
     }
-    // Les sommets de la passe des meshes : seule la position sert, puis le décalage de l'instance.
-    const std::array<nvrhi::VertexAttributeDesc, 2> attributes{
+    // Les sommets de la passe des meshes : seule la position sert, puis la pose de l'instance.
+    const std::array<nvrhi::VertexAttributeDesc, 3> attributes{
         nvrhi::VertexAttributeDesc()
             .setName("POSITION")
             .setFormat(nvrhi::Format::RGB32_FLOAT)
             .setOffset(offsetof(MeshVertex, position))
             .setElementStride(sizeof(MeshVertex)),
         nvrhi::VertexAttributeDesc()
-            .setName("INSTANCE_OFFSET")
+            .setName("INSTANCE_POSITION")
             .setFormat(nvrhi::Format::RGB32_FLOAT)
             .setBufferIndex(1)
-            .setElementStride(sizeof(glm::vec3))
+            .setOffset(offsetof(InstancePose, position))
+            .setElementStride(sizeof(InstancePose))
+            .setIsInstanced(true),
+        nvrhi::VertexAttributeDesc()
+            .setName("INSTANCE_ROTATION")
+            .setFormat(nvrhi::Format::RGBA32_FLOAT)
+            .setBufferIndex(1)
+            .setOffset(offsetof(InstancePose, rotation))
+            .setElementStride(sizeof(InstancePose))
             .setIsInstanced(true),
     };
     nvrhi::BindingLayoutDesc layoutDesc;
@@ -247,7 +255,7 @@ void drawShadowCaster(nvrhi::ICommandList& commandList, const ShadowPass& pass,
     state.addVertexBuffer(
         nvrhi::VertexBufferBinding().setBuffer(mesh.vertexBuffer).setSlot(0).setOffset(0));
     state.addVertexBuffer(
-        nvrhi::VertexBufferBinding().setBuffer(instances.offsets).setSlot(1).setOffset(0));
+        nvrhi::VertexBufferBinding().setBuffer(instances.poses).setSlot(1).setOffset(0));
     state.setIndexBuffer(nvrhi::IndexBufferBinding()
                              .setBuffer(mesh.indexBuffer)
                              .setFormat(nvrhi::Format::R32_UINT)

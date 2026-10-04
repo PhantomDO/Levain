@@ -43,36 +43,69 @@ Mesh createMesh(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
     return mesh;
 }
 
+namespace
+{
+
+// Le shader lit la pose par octets : position aux octets 0 à 11, quaternion (x, y, z, w) de 12
+// à 27.
+static_assert(sizeof(InstancePose) == 28);
+static_assert(offsetof(InstancePose, rotation) == 12);
+// glm range ses quaternions (x, y, z, w) en mémoire, sauf si on lui demande l'inverse : une telle
+// définition, venue d'une dépendance, échangerait w et x dans le shader sans un message.
+#if defined(GLM_FORCE_QUAT_DATA_WXYZ)
+#error "InstancePose suppose glm::quat rangé (x, y, z, w) : GLM_FORCE_QUAT_DATA_WXYZ le casse"
+#endif
+
+/// La boîte des positions, et si une instance au moins tourne. Une boucle et non `boundsOf` : elle
+/// tourne à chaque image sur toutes les instances, sans copier leurs positions ailleurs.
+void measurePoses(std::span<const InstancePose> poses, Instances& instances)
+{
+    // Sans instance, une boîte réduite à l'origine, comme `boundsOf`.
+    const glm::vec3 first = poses.empty() ? glm::vec3{0.0f} : poses.front().position;
+    Box bounds{.min = first, .max = first};
+    bool anyRotated = false;
+    for (const InstancePose& pose : poses)
+    {
+        bounds.min = glm::min(bounds.min, pose.position);
+        bounds.max = glm::max(bounds.max, pose.position);
+        anyRotated = anyRotated || pose.rotation != glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
+    }
+    instances.positionBounds = bounds;
+    instances.anyRotated = anyRotated;
+}
+
+} // namespace
+
 Instances createInstances(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
-                          std::span<const glm::vec3> offsets)
+                          std::span<const InstancePose> poses)
 {
     Instances instances{
-        .offsets = device.createBuffer(nvrhi::BufferDesc()
-                                           .setByteSize(offsets.size_bytes())
-                                           .setIsVertexBuffer(true)
-                                           .setInitialState(nvrhi::ResourceStates::VertexBuffer)
-                                           .setKeepInitialState(true)
-                                           .setDebugName("instances : positions")),
-        .count = static_cast<std::uint32_t>(offsets.size()),
-        .capacity = static_cast<std::uint32_t>(offsets.size()),
-        .offsetBounds = boundsOf(offsets),
+        .poses = device.createBuffer(nvrhi::BufferDesc()
+                                         .setByteSize(poses.size_bytes())
+                                         .setIsVertexBuffer(true)
+                                         .setInitialState(nvrhi::ResourceStates::VertexBuffer)
+                                         .setKeepInitialState(true)
+                                         .setDebugName("instances : poses")),
+        .count = static_cast<std::uint32_t>(poses.size()),
+        .capacity = static_cast<std::uint32_t>(poses.size()),
     };
-    commandList.writeBuffer(instances.offsets, offsets.data(), offsets.size_bytes());
+    measurePoses(poses, instances);
+    commandList.writeBuffer(instances.poses, poses.data(), poses.size_bytes());
     return instances;
 }
 
 void updateInstances(nvrhi::ICommandList& commandList, Instances& instances,
-                     std::span<const glm::vec3> offsets)
+                     std::span<const InstancePose> poses)
 {
     // ponytail: capacité fixe ; des entités créées depuis l'explorer au-delà ne s'affichent pas.
     // Un buffer recréé plus grand le jour où la scène grandit pour de bon.
-    const std::span<const glm::vec3> drawn =
-        offsets.first(std::min(offsets.size(), static_cast<std::size_t>(instances.capacity)));
-    // writeBuffer se place dans la command list, avant le dessin qui lit ces positions : NVRHI met
-    // la barrière entre les deux, et le GPU n'écrase pas ce qu'une frame précédente lit encore.
-    commandList.writeBuffer(instances.offsets, drawn.data(), drawn.size_bytes());
+    const std::span<const InstancePose> drawn =
+        poses.first(std::min(poses.size(), static_cast<std::size_t>(instances.capacity)));
+    // writeBuffer se place dans la command list, avant le dessin qui lit ces poses : NVRHI met la
+    // barrière entre les deux, et le GPU n'écrase pas ce qu'une frame précédente lit encore.
+    commandList.writeBuffer(instances.poses, drawn.data(), drawn.size_bytes());
     instances.count = static_cast<std::uint32_t>(drawn.size());
-    instances.offsetBounds = boundsOf(drawn);
+    measurePoses(drawn, instances);
 }
 
 std::optional<Box> worldBoundsOf(const Mesh& mesh, const Instances& instances,
@@ -82,9 +115,16 @@ std::optional<Box> worldBoundsOf(const Mesh& mesh, const Instances& instances,
     {
         return std::nullopt;
     }
-    const Box placed = transformed(*mesh.bounds, model);
-    return Box{.min = placed.min + instances.offsetBounds.min,
-               .max = placed.max + instances.offsetBounds.max};
+    Box placed = transformed(*mesh.bounds, model);
+    if (instances.anyRotated)
+    {
+        // La rotation de l'instance tourne le mesh placé autour de l'origine : il reste dans la
+        // sphère qui passe par son coin le plus éloigné.
+        const float radius = glm::length(glm::max(glm::abs(placed.min), glm::abs(placed.max)));
+        placed = Box{.min = glm::vec3{-radius}, .max = glm::vec3{radius}};
+    }
+    return Box{.min = placed.min + instances.positionBounds.min,
+               .max = placed.max + instances.positionBounds.max};
 }
 
 /// Les coordonnées de texture des quatre coins d'une face carrée, dans l'ordre où createCube et

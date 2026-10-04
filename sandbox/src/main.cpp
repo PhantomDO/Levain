@@ -240,8 +240,8 @@ struct DemoScene
     flecs::world world; ///< Les cubes, une entité chacun (M3.1), enfants de « grid » (M3.2).
     levain::scene::FixedStep fixedStep; ///< L'horloge de la simulation, 60 Hz (M3.3).
     flecs::query<const levain::scene::WorldTransform> cubes;
-    std::vector<glm::vec3>
-        cubePositions; ///< Relevées à chaque frame, gardées pour ne pas réallouer.
+    /// Relevées à chaque frame, gardées pour ne pas réallouer.
+    std::vector<levain::render::InstancePose> cubePoses;
     /// L'image et l'ordre de ses passes (ADR-0025) ; la démo s'inscrit dans ses étapes
     /// (`addDemoStages`).
     levain::render::Renderer renderer;
@@ -381,15 +381,16 @@ levain::scene::FpsInput fpsInputFrom(const levain::input::InputState& input,
             .sprint = levain::input::actionHeld(input, actions.sprint)};
 }
 
-/// Les positions des cubes **dans le monde**, dans `positions`, que le rendu envoie ensuite au GPU.
+/// Les positions des cubes **dans le monde**, dans `poses`, que le rendu envoie ensuite au GPU.
 /// La glu entre scene et render, qui ne se connaissent pas (SPECS §7). Lire `WorldTransform` et non
-/// `Transform` : c'est ce qui fait suivre les cubes quand la grille bouge.
-void gatherCubePositions(const flecs::query<const levain::scene::WorldTransform>& cubes,
-                         std::vector<glm::vec3>& positions)
+/// `Transform` : c'est ce qui fait suivre les cubes quand la grille bouge. Les cubes tournent tous
+/// ensemble, par la matrice du modèle : leur pose garde la rotation identité.
+void gatherCubePoses(const flecs::query<const levain::scene::WorldTransform>& cubes,
+                     std::vector<levain::render::InstancePose>& poses)
 {
-    positions.clear();
-    cubes.each([&positions](const levain::scene::WorldTransform& transform)
-               { positions.push_back(levain::scene::worldPosition(transform)); });
+    poses.clear();
+    cubes.each([&poses](const levain::scene::WorldTransform& transform)
+               { poses.push_back({.position = levain::scene::worldPosition(transform)}); });
 }
 
 #ifdef LEVAIN_ENABLE_EXPLORER
@@ -1034,18 +1035,19 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     }
     levain::scene::advanceWorld(world, fixedStep,
                                 0.0f); // les matrices monde, avant le premier envoi
-    std::vector<glm::vec3> cubePositions;
-    gatherCubePositions(cubes, cubePositions);
+    std::vector<levain::render::InstancePose> cubePoses;
+    gatherCubePoses(cubes, cubePoses);
 
     const nvrhi::CommandListHandle upload = gpu.nvrhi->createCommandList();
     upload->open();
     levain::render::Mesh cube = levain::render::createCube(*gpu.nvrhi, *upload);
     levain::render::Instances grid =
-        levain::render::createInstances(*gpu.nvrhi, *upload, cubePositions);
+        levain::render::createInstances(*gpu.nvrhi, *upload, cubePoses);
     levain::render::Mesh ground =
         levain::render::createPlane(*gpu.nvrhi, *upload, GroundSize, GroundTextureRepeat);
     // Juste sous les cubes, qui tournent sur eux-mêmes : leur demi-diagonale fait 0,87.
-    const std::array<glm::vec3, 1> groundOffset{glm::vec3{0.0f, -1.0f, 0.0f}};
+    const std::array<levain::render::InstancePose, 1> groundOffset{
+        levain::render::InstancePose{.position = {0.0f, -1.0f, 0.0f}}};
     levain::render::Instances groundInstance =
         levain::render::createInstances(*gpu.nvrhi, *upload, groundOffset);
     nvrhi::TextureHandle checker =
@@ -1072,7 +1074,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         uploaded->clip = clip;
         models.emplace(modelId, std::move(*uploaded));
     }
-    const std::array<glm::vec3, 1> origin{glm::vec3{0.0f}};
+    const std::array<levain::render::InstancePose, 1> origin{};
     levain::render::Instances modelInstance =
         levain::render::createInstances(*gpu.nvrhi, *upload, origin);
     // Les matériaux avant la fermeture de l'envoi : leurs constantes passent par lui. Le damier des
@@ -1158,7 +1160,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     return DemoScene{.world = std::move(world),
                      .fixedStep = fixedStep,
                      .cubes = std::move(cubes),
-                     .cubePositions = std::move(cubePositions),
+                     .cubePoses = std::move(cubePoses),
                      .renderer = std::move(*renderer),
                      .skinning = std::move(*skinning),
                      .sun = sunDirection ? levain::render::Sun{.direction = *sunDirection,
@@ -1412,8 +1414,8 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         gpuMs = levain::render::beginGpuTimer(*gpu.nvrhi, commandList, scene.gpuTimer);
         animateModels(*gpu.nvrhi, commandList, scene, seconds);
         // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
-        gatherCubePositions(scene.cubes, scene.cubePositions);
-        levain::render::updateInstances(commandList, scene.grid, scene.cubePositions);
+        gatherCubePoses(scene.cubes, scene.cubePoses);
+        levain::render::updateInstances(commandList, scene.grid, scene.cubePoses);
         const std::vector<levain::render::PointLight> lights =
             scene.demoProps ? demoLightsAt(seconds) : std::vector<levain::render::PointLight>{};
         levain::render::renderFrame(*gpu.nvrhi, commandList, scene.renderer,
