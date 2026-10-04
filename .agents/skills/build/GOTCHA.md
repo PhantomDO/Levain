@@ -3,15 +3,20 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
-## Jolt n'a aucune assertion, même en Debug (2026-10-04)
+## Jolt n'a ses assertions qu'en Debug (2026-10-04, corrigé le 2026-10-05)
 
-- **Symptôme** : une masse nulle, un rayon négatif, un quaternion non normalisé ou `destroyBody` sur le corps
-  invalide passent sans un mot ; les NaN ou la corruption arrivent plus loin (vu en relecture de #174).
-- **Cause** : le port vcpkg compile Jolt avec `USE_ASSERTS=OFF` : `JPH_ENABLE_ASSERTS` n'est pas exporté, et
-  aucun `JPH_ASSERT` n'existe. L'activer demanderait un port en overlay et la même définition côté moteur, car
-  elle entre dans `JPH_VERSION_ID`.
+- **Symptôme** : en Release, une masse nulle, un rayon négatif, un quaternion non normalisé ou `destroyBody`
+  sur le corps invalide passent sans un mot ; les NaN ou la corruption arrivent plus loin.
+- **Cause** : `JPH_ENABLE_ASSERTS` n'est pas exporté par le port vcpkg, mais Jolt le déduit lui-même :
+  sans `NDEBUG`, `Core.h` définit `JPH_DEBUG`, et `IssueReporting.h` active les assertions. Le Debug du
+  moteur et la bibliothèque Debug de vcpkg les ont donc tous deux, le Release aucun des deux, et
+  `JPH_VERSION_ID`, qui les compte, concorde des deux côtés. Une première version de cette entrée, écrite
+  d'après une relecture qui ne lisait que `JoltConfig.cmake`, disait « aucune assertion, même en Debug » :
+  c'était faux, vu en compilant un essai sans `NDEBUG` contre la bibliothèque Release (`AssertFailed`
+  indéfini à l'édition de liens).
 - **Parade** : le moteur valide lui-même ce qu'il donne à Jolt (`whyNotThisShape`, `whyNotThisLayer`, le corps
-  invalide dans `destroyBody`, `toJoltRotation` qui renormalise), avec erreur au journal et assertion à nous.
+  invalide dans `destroyBody`, `toJoltRotation` qui renormalise), pour le Release ; en Debug,
+  `JPH::AssertFailed` écrit dans notre journal avant de s'arrêter dans le débogueur.
 
 ## « clang++ : commande introuvable » : le système hôte est immuable (2026-10-04)
 

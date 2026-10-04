@@ -6,18 +6,25 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <flecs.h>
 #include <glm/gtc/quaternion.hpp>
 
 #include "levain/physics/body_rules.hpp"
 #include "levain/physics/components.hpp"
 #include "levain/physics/layers.hpp"
+#include "levain/physics/physics.hpp"
 #include "levain/physics/physics_world.hpp"
+#include "levain/scene/components.hpp"
+#include "levain/scene/fixed_step.hpp"
+#include "levain/scene/scene.hpp"
 
 using levain::physics::Box;
 using levain::physics::Collider;
 using levain::physics::Layer;
+using levain::physics::Motion;
 using levain::physics::PhysicsWorld;
 using levain::physics::RigidBody;
+using levain::scene::Transform;
 
 namespace
 {
@@ -48,6 +55,23 @@ bool restsOn(float y, float surface, float halfHeight)
 {
     const float expected = surface + halfHeight;
     return y <= expected + 0.001f && y >= expected - PenetrationSlop - 0.001f;
+}
+
+void advance(flecs::world& world, int steps)
+{
+    levain::scene::FixedStep step;
+    for (int i = 0; i < steps; ++i)
+    {
+        levain::scene::advanceWorld(world, step, Step);
+    }
+}
+
+flecs::world physicsWorld()
+{
+    flecs::world world;
+    world.import<levain::physics::PhysicsModule>();
+    world.entity("Ground").set(Transform{.position = GroundPose.position}).set(groundCollider());
+    return world;
 }
 
 } // namespace
@@ -194,6 +218,16 @@ TEST_CASE("une caisse Debris traverse une dalle Debris et s'arrête sur le sol")
     CHECK(restsOn(levain::physics::bodyPose(world, crate).position.y, 0.0f, 0.5f));
 }
 
+TEST_CASE("un corps est une racine sans échelle")
+{
+    CHECK_FALSE(levain::physics::whyNotABody(Transform{}, false).has_value());
+    CHECK(levain::physics::whyNotABody(Transform{}, true).has_value());
+    CHECK(levain::physics::whyNotABody(Transform{.scale = {2.0f, 2.0f, 2.0f}}, false).has_value());
+    CHECK(levain::physics::whyNotABody(Transform{.rotation = glm::quat{0.0f, 0.0f, 0.0f, 0.0f}},
+                                       false)
+              .has_value());
+}
+
 TEST_CASE("une caisse lâchée tombe sur le sol et s'y arrête")
 {
     PhysicsWorld world = levain::physics::createPhysicsWorld();
@@ -201,6 +235,13 @@ TEST_CASE("une caisse lâchée tombe sur le sol et s'y arrête")
     const RigidBody body{.mass = 20.0f};
     const auto crate = levain::physics::createBody(world, crateCollider(), &body,
                                                    {.position = {0.0f, 5.0f, 0.0f}}, 2);
+
+    std::vector<levain::physics::MovedBody> moved;
+    levain::physics::stepPhysics(world, Step);
+    levain::physics::collectMovedBodies(world, moved);
+    REQUIRE(moved.size() == 1); // la caisse, pas le sol
+    CHECK(moved[0].entity == 2);
+    CHECK(moved[0].pose.position.y < 5.0f);
 
     for (int i = 0; i < 180; ++i) // 3 s : la chute de 4,5 m prend moins d'une seconde
     {
@@ -280,5 +321,243 @@ TEST_CASE("createBody refuse une masse nulle : aucun corps, et le monde reste in
     const auto refused = levain::physics::createBody(world, crateCollider(), &weightless, {}, 1);
     CHECK(refused.value == levain::physics::BodyHandle::None);
     CHECK(levain::physics::bodyCount(world) == 0);
+}
+#endif
+
+TEST_CASE("une entité avec Collider et RigidBody tombe, et son Transform suit")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity crate = world.entity("Crate")
+                                    .set(Transform{.position = {0.0f, 3.0f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+
+    advance(world, 1);
+    CHECK(crate.has<levain::physics::BodyHandle>());
+    CHECK(crate.has<levain::scene::PreviousTransform>()); // le rendu l'interpolera
+    CHECK(crate.get<Transform>().position.y < 3.0f);
+
+    advance(world, 180);
+    CHECK(restsOn(crate.get<Transform>().position.y, 0.0f, 0.5f));
+}
+
+TEST_CASE("un Transform posé téléporte le corps")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity crate = world.entity()
+                                    .set(Transform{.position = {0.0f, 0.5f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    advance(world, 1);
+
+    crate.set(Transform{.position = {10.0f, 8.0f, 0.0f}});
+    const auto pose = levain::physics::bodyPose(world.get<PhysicsWorld>(),
+                                                crate.get<levain::physics::BodyHandle>());
+    CHECK(pose.position.x == doctest::Approx(10.0f));
+    CHECK(pose.position.y == doctest::Approx(8.0f));
+
+    advance(world, 1); // et il retombe de là
+    CHECK(crate.get<Transform>().position.x == doctest::Approx(10.0f));
+    CHECK(crate.get<Transform>().position.y < 8.0f);
+}
+
+TEST_CASE(
+    "un Transform posé par le gameplay pendant la simulation téléporte le corps dans le même pas")
+{
+    // Le vrai cas : un `set` fait dans un système de la phase Simulation. Sans le point de
+    // synchronisation avant la phase Physics, son OnSet arriverait après le pas, et la recopie
+    // aurait déjà remis le corps où Jolt le voyait.
+    flecs::world world = physicsWorld();
+    const flecs::entity crate = world.entity("Crate")
+                                    .set(Transform{.position = {0.0f, 5.0f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    advance(world, 1);
+    world.system("Teleport")
+        .kind<levain::scene::Simulation>()
+        .run([crate](flecs::iter&) { crate.set(Transform{.position = {10.0f, 5.0f, 0.0f}}); });
+
+    advance(world, 1);
+    CHECK(crate.get<Transform>().position.x == doctest::Approx(10.0f));
+}
+
+TEST_CASE("un Collider ou un RigidBody ajoutés sans valeur font aussi un corps")
+{
+    // `add` n'émet pas d'OnSet : sans OnAdd, ces entités resteraient sans corps, en silence.
+    flecs::world world = physicsWorld();
+    const flecs::entity crate = world.entity()
+                                    .set(Transform{.position = {0.0f, 3.0f, 0.0f}})
+                                    .add<Collider>()
+                                    .add<RigidBody>();
+    advance(world, 30);
+    CHECK(crate.has<levain::physics::BodyHandle>());
+    CHECK(crate.get<Transform>().position.y < 3.0f); // dynamique : il tombe
+}
+
+TEST_CASE("désactiver la phase Physics met la physique en pause")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity crate = world.entity()
+                                    .set(Transform{.position = {0.0f, 5.0f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    advance(world, 1);
+    const float before = crate.get<Transform>().position.y;
+    world.component<levain::scene::Physics>().disable();
+    advance(world, 30);
+    CHECK(crate.get<Transform>().position.y == before);
+    world.component<levain::scene::Physics>().enable();
+    advance(world, 30);
+    CHECK(crate.get<Transform>().position.y < before);
+}
+
+TEST_CASE("un cinématique suit son Transform et pousse ce qu'il rencontre")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity pusher = world.entity()
+                                     .set(Transform{.position = {-2.0f, 0.5f, 0.0f}})
+                                     .set(crateCollider())
+                                     .set(RigidBody{.motion = Motion::Kinematic});
+    const flecs::entity crate = world.entity()
+                                    .set(Transform{.position = {0.0f, 0.5f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    // Le gameplay avance le pousseur de 3 m/s, dans la phase Simulation, avant le pas.
+    world.system<Transform, const RigidBody>("MovePusher")
+        .kind<levain::scene::Simulation>()
+        .each(
+            [](flecs::iter& it, std::size_t, Transform& transform, const RigidBody& body)
+            {
+                if (body.motion == Motion::Kinematic)
+                {
+                    transform.position.x += 3.0f * it.delta_time();
+                }
+            });
+
+    advance(world, 60); // une seconde : le pousseur passe de -2 à 1, la caisse doit reculer
+
+    CHECK(pusher.get<Transform>().position.x == doctest::Approx(1.0f).epsilon(0.001));
+    CHECK(crate.get<Transform>().position.x > 1.5f); // poussée au-delà du pousseur (demi-largeurs)
+}
+
+TEST_CASE("retirer le RigidBody fige le corps, retirer le Collider le supprime")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity crate = world.entity()
+                                    .set(Transform{.position = {0.0f, 5.0f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    advance(world, 10);
+    const PhysicsWorld& physics = world.get<PhysicsWorld>();
+    CHECK(levain::physics::bodyCount(physics) == 2);
+
+    crate.remove<RigidBody>();
+    advance(world, 1);
+    const float frozenAt = crate.get<Transform>().position.y;
+    advance(world, 30);
+    CHECK(crate.get<Transform>().position.y == frozenAt); // statique : plus rien ne le déplace
+    CHECK(levain::physics::bodyCount(physics) == 2);
+
+    crate.remove<Collider>();
+    CHECK_FALSE(crate.has<levain::physics::BodyHandle>());
+    CHECK(levain::physics::bodyCount(physics) == 1);
+}
+
+TEST_CASE("retirer le Transform retire le corps, le remettre le reconstruit")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity crate = world.entity()
+                                    .set(Transform{.position = {0.0f, 5.0f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    advance(world, 1);
+    const PhysicsWorld& physics = world.get<PhysicsWorld>();
+    REQUIRE(levain::physics::bodyCount(physics) == 2);
+
+    crate.remove<Transform>();
+    CHECK_FALSE(crate.has<levain::physics::BodyHandle>());
+    CHECK(levain::physics::bodyCount(physics) == 1);
+
+    crate.set(Transform{.position = {0.0f, 5.0f, 0.0f}});
+    advance(world, 1);
+    CHECK(crate.has<levain::physics::BodyHandle>());
+    CHECK(levain::physics::bodyCount(physics) == 2);
+}
+
+TEST_CASE("détruire l'entité détruit son corps")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity crate = world.entity()
+                                    .set(Transform{.position = {0.0f, 5.0f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    advance(world, 1);
+    const PhysicsWorld& physics = world.get<PhysicsWorld>();
+    CHECK(levain::physics::bodyCount(physics) == 2);
+
+    crate.destruct();
+    advance(world, 1);
+    CHECK(levain::physics::bodyCount(physics) == 1);
+}
+
+TEST_CASE("déplacer le sol réveille la caisse endormie dessus")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity crate = world.entity()
+                                    .set(Transform{.position = {0.0f, 0.5f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    advance(world, 120); // deux secondes : Jolt l'endort
+    std::vector<levain::physics::MovedBody> moved;
+    levain::physics::collectMovedBodies(world.get<PhysicsWorld>(), moved);
+    REQUIRE(moved.empty());
+
+    // Le sol descend de 2 m : sans réveil, la caisse resterait suspendue dans le vide.
+    world.lookup("Ground").set(Transform{.position = {0.0f, -2.5f, 0.0f}});
+    advance(world, 120);
+    CHECK(restsOn(crate.get<Transform>().position.y, -2.0f, 0.5f));
+}
+
+#if !LEVAIN_ASSERTIONS_ENABLED
+// En Debug, le refus s'arrête sur une assertion : il ne se teste qu'en Release, où il doit rester
+// bruyant au journal et ne laisser aucun corps.
+TEST_CASE("un corps refusé n'existe pas : enfant, ou avec une échelle")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity parent = world.entity().set(Transform{});
+    const flecs::entity child = world.entity(flecs::Parent{parent})
+                                    .set(Transform{.position = {0.0f, 3.0f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    const flecs::entity scaled = world.entity()
+                                     .set(Transform{.scale = {2.0f, 2.0f, 2.0f}})
+                                     .set(crateCollider())
+                                     .set(RigidBody{});
+    advance(world, 1);
+    CHECK_FALSE(child.has<levain::physics::BodyHandle>());
+    CHECK_FALSE(scaled.has<levain::physics::BodyHandle>());
+    CHECK(levain::physics::bodyCount(world.get<PhysicsWorld>()) == 1); // le sol seul
+
+    // Un corps accepté qui prend une échelle plus tard perd aussi le sien.
+    const flecs::entity crate =
+        world.entity().set(Transform{}).set(crateCollider()).set(RigidBody{});
+    advance(world, 1);
+    REQUIRE(crate.has<levain::physics::BodyHandle>());
+    crate.set(Transform{.scale = {0.5f, 0.5f, 0.5f}});
+    advance(world, 1);
+    CHECK_FALSE(crate.has<levain::physics::BodyHandle>());
+
+    // Un refus n'est pas définitif : l'échelle revenue à 1, le corps revient.
+    crate.set(Transform{});
+    advance(world, 1);
+    CHECK(crate.has<levain::physics::BodyHandle>());
+
+    // Un corps existant qui prend un parent le perd, et le retrouve quand il redevient une racine.
+    crate.set(flecs::Parent{parent});
+    advance(world, 1);
+    CHECK_FALSE(crate.has<levain::physics::BodyHandle>());
+    crate.remove<flecs::Parent>();
+    advance(world, 1);
+    CHECK(crate.has<levain::physics::BodyHandle>());
 }
 #endif
