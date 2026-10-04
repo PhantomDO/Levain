@@ -43,6 +43,15 @@ M6.2, le personnage en M6.3.
 8. **Déterministe au bit près** pour un même binaire, quel que soit le nombre de threads (test). Le natif et le
    navigateur, deux binaires, ne donnent pas les mêmes résultats.
 
+## Mesures
+
+Critère de M6.1, 1 000 caisses en chute libre sans un pas au-dessus de 4 ms (Release, machine de référence,
+`./build/linux-release/tests/levain_physics_bench`, 600 pas, trois lancements) : **0,52 ms par pas en
+moyenne, 1,1 à 2,4 ms au pire**, avec 15 threads de travail ; 1,7 ms en moyenne et 3,3 à 3,6 ms au pire sur un
+seul thread (`levain_physics_bench 0`), comme dans le navigateur. Le pas qui construit les 1 001 corps coûte
+1,4 ms (2,5 sur un thread). La scène est celle de `levain_sandbox --view physics` (`sandbox/src/crates.hpp`) :
+les deux finissent avec la plus haute caisse à 6,39 m.
+
 ## Pièges connus
 
 - **Une caisse posée s'enfonce de 2 cm** : c'est la *penetration slop* de Jolt (`PhysicsSettings::

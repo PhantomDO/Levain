@@ -57,4 +57,19 @@ inline glm::vec3 worldPosition(const WorldTransform& transform)
     return glm::vec3(transform.matrix[3]);
 }
 
+/// Comment l'entité est tournée dans le monde, tirée de sa matrice. Le piège : la matrice porte
+/// aussi l'échelle, dans la longueur de ses trois premières colonnes, et `quat_cast` d'une matrice
+/// étirée rend un quaternion faux. On ramène chaque axe à une longueur de 1 d'abord ; une échelle
+/// non uniforme (1, 2, 3) est donc retirée exactement. Trois cas restent faux, sans prévenir : un
+/// cisaillement (une échelle non uniforme sous la rotation d'un parent) n'a pas de quaternion
+/// exact ; une échelle nulle donne des NaN ; une échelle négative (un miroir) n'est pas une
+/// rotation.
+inline glm::quat worldRotation(const WorldTransform& transform)
+{
+    const glm::mat3 axes{glm::normalize(glm::vec3(transform.matrix[0])),
+                         glm::normalize(glm::vec3(transform.matrix[1])),
+                         glm::normalize(glm::vec3(transform.matrix[2]))};
+    return glm::quat_cast(axes);
+}
+
 } // namespace levain::scene
