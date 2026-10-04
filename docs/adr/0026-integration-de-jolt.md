@@ -122,7 +122,8 @@ suivant, 16 ms plus tard.
    | `Debris` (ce qui tombe pour le décor) | `Static`, `Dynamic` | `Moving` |
 
    Sans couche donnée, un corps prend celle de son mouvement : `Static` sans `RigidBody`, `Dynamic` avec. Une
-   couche `Static` par défaut, gardée par un corps dynamique, le ferait traverser le sol. Deux couches de
+   couche `Static` par défaut, gardée par un corps dynamique, le ferait traverser le sol ; donnée
+   explicitement à un corps mobile, elle est refusée bruyamment, comme au point 4. Deux couches de
    *broad phase* : la recommandation de Jolt pour commencer, chacune ayant un coût.
 8. **Le monde physique est un singleton flecs**, `physics::PhysicsWorld`, posé par `PhysicsModule` dans sa
    portée : il possède le `PhysicsSystem` de Jolt, son allocateur temporaire et son job system, derrière un
@@ -135,9 +136,10 @@ suivant, 16 ms plus tard.
      pas à un monde : il s'installe avec le premier `PhysicsWorld`, une seule fois, et n'est jamais
      désinstallé. Les tests créent beaucoup de mondes, l'éditeur et le jeu en auront deux ; et le
      réinstaller après l'avoir désinstallé plante en WebAssembly (vu à l'implémentation).
-   - **À la fermeture du monde**, flecs supprime les entités avant les modules : le singleton survit aux
-     corps. Le module ne détruit alors aucun corps un par un ; le destructeur du `PhysicsSystem` les libère
-     tous.
+   - **À la fermeture du monde**, flecs supprime d'abord les entités racines, puis les modules : le
+     singleton survit aux corps, que l'observateur détruit un par un comme en cours de partie. Ce qui serait
+     supprimé ensuite, une fois le monde marqué en fermeture (`ecs_is_fini`), n'est pas détruit à part : le
+     destructeur du `PhysicsSystem` libère tout ce qui reste.
 9. **Threads** : le `JobSystemThreadPool` de Jolt en natif (cœurs − 1), le `JobSystemSingleThreaded` sous
    Emscripten, où les threads exigeraient des en-têtes HTTP (COOP et COEP) qu'un hébergement simple n'envoie pas.
 
