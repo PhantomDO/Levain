@@ -1,4 +1,5 @@
 #include <cmath>
+#include <string>
 #include <string_view>
 
 #include <doctest/doctest.h>
@@ -62,6 +63,33 @@ TEST_CASE("les systèmes de simulation ne tournent pas dans le pipeline du rendu
     // images, et le critère de M3.3 tomberait.
     world.progress(1.0f);
     CHECK(moving.get<Transform>().position.x == doctest::Approx(0.0f));
+}
+
+TEST_CASE("les phases de simulation tournent dans leur ordre, pas dans celui de leur déclaration")
+{
+    flecs::world world;
+    world.import<levain::scene::SceneModule>();
+    std::string order;
+
+    // Déclarés à l'envers : c'est ce qui arrive à un plugin gameplay, qui importe la physique
+    // avant de déclarer ses systèmes (ADR-0026).
+    world.system("AfterPhysics")
+        .kind<levain::scene::PostPhysics>()
+        .run([&order](flecs::iter&) { order += "post "; });
+    world.system("Step").kind<levain::scene::Physics>().run([&order](flecs::iter&)
+                                                            { order += "physics "; });
+    world.system("Gameplay")
+        .kind<levain::scene::Simulation>()
+        .run([&order](flecs::iter&) { order += "gameplay "; });
+
+    FixedStep step;
+    levain::scene::advanceWorld(world, step, 1.0f / 60.0f);
+    CHECK(order == "gameplay physics post ");
+
+    // Le pipeline du rendu n'en exécute aucune : elles ne portent pas `flecs::Phase`.
+    order.clear();
+    world.progress(1.0f / 60.0f);
+    CHECK(order.empty());
 }
 
 TEST_CASE("les champs des composants se lisent et s'écrivent en JSON, comme dans l'explorer")

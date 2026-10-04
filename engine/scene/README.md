@@ -36,6 +36,10 @@ lever la grille dans l'explorer lève les 10 000 cubes.
    `.kind<levain::scene::Simulation>()`. Son `delta_time` vaut alors toujours un pas — c'est ce qui rend son
    résultat reproductible. Un système déclaré dans une phase du pipeline par défaut tourne, lui, une fois par
    **image**, à cadence libre : c'est la place du rendu, pas celle du jeu.
+   Le pipeline de simulation a **trois phases, dans cet ordre** ([ADR-0026](../../docs/adr/0026-integration-de-jolt.md)) :
+   `Simulation` (le gameplay), `Physics` (le pas de physique), `PostPhysics` (ce qui lit son résultat). Dans
+   une phase, l'ordre est celui des déclarations. Elles portent `SimulationPhase`, jamais `flecs::Phase` : le
+   pipeline par défaut prend toute entité qui le porte, et rejouerait la simulation une fois par image.
 8. **L'application avance le monde par `advanceWorld`**, jamais par `world.progress` : `progress` seul ne
    simule rien.
 9. **`scene` ignore l'existence de l'input** (SPECS §7) : la caméra libre lit un singleton `FpsInput`, que
@@ -64,8 +68,8 @@ lever la grille dans l'explorer lève les 10 000 cubes.
   (`OnLoad`, `PostLoad`, `PreUpdate`, `OnUpdate`, `OnValidate`, `PostUpdate`, `PreStore`, `OnStore`). La
   simulation va dans `OnUpdate`, les matrices monde dans `PostUpdate`.
 - **Pipeline** : une liste de systèmes, exécutée par `progress` (celui par défaut) ou par `run_pipeline`
-  (le nôtre, `Simulation`). Un système y entre par son étiquette, et flecs les exécute dans l'ordre de leur
-  déclaration. Deux pipelines, c'est ce qui permet de rejouer la simulation N fois sans rejouer le rendu.
+  (le nôtre, la simulation). Un système y entre par sa phase ; `cascade(DependsOn)` range les phases par
+  profondeur, puis flecs exécute les systèmes d'une phase dans l'ordre de leur déclaration. Deux pipelines, c'est ce qui permet de rejouer la simulation N fois sans rejouer le rendu.
 - **Hiérarchie** : le composant `flecs::Parent` contient l'entité parente, et flecs y ajoute la profondeur
   (`(ParentDepth, @n)`). `group_by(flecs::ParentDepth)` range les entités par niveau pour qu'un parent soit
   calculé avant ses enfants — c'est ce qui remplace une récursion. Coût mesuré : 100 000 entités sur 10
