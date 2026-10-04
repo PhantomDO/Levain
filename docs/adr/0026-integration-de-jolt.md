@@ -132,8 +132,9 @@ suivant, 16 ms plus tard.
      de quoi tenir les 1 000 caisses de M6.1 et le décor de *Rando*. Un corps refusé faute de place, ou un pas
      que Jolt n'a pas pu finir (`EPhysicsUpdateError`), donne une erreur au journal et une assertion en Debug.
    - **L'état global de Jolt** (son allocateur, sa fabrique de types, son journal) appartient au processus,
-     pas à un monde : il s'installe avec le premier `PhysicsWorld` et part avec le dernier. Les tests créent
-     beaucoup de mondes, l'éditeur et le jeu en auront deux.
+     pas à un monde : il s'installe avec le premier `PhysicsWorld`, une seule fois, et n'est jamais
+     désinstallé. Les tests créent beaucoup de mondes, l'éditeur et le jeu en auront deux ; et le
+     réinstaller après l'avoir désinstallé plante en WebAssembly (vu à l'implémentation).
    - **À la fermeture du monde**, flecs supprime les entités avant les modules : le singleton survit aux
      corps. Le module ne détruit alors aucun corps un par un ; le destructeur du `PhysicsSystem` les libère
      tous.
