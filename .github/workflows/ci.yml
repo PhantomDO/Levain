@@ -161,8 +161,9 @@ jobs:
 
       # Les assets de test tiers (tools/assets.lock), jamais versionnés : téléchargés et vérifiés
       # par SHA-256, en cache tant que la liste ne change pas.
-      # Les fichiers cuits (.cooked) restent hors du cache : le camion doit se charger depuis sa
-      # source, Sponza depuis sa version cuite, et les deux chemins rester vivants (ADR-0020).
+      # Les fichiers cuits (.cooked) restent hors de ce cache : le camion doit se charger depuis sa
+      # source, Sponza depuis sa version cuite, et les deux chemins rester vivants (ADR-0020). Le job
+      # Release les garde dans un cache à lui, restauré juste avant la cuisson.
       - name: Cache des assets de test
         uses: actions/cache@v4
         with:
@@ -343,9 +344,35 @@ jobs:
       # rapide qu'en Debug (1,0 s contre 5,1 s pour la texture du camion), et cuire Sponza en Debug
       # prendrait une dizaine de minutes. Debug et ASan chargent donc les sources, Release le cuit :
       # les deux chemins restent vivants.
+      # Les fichiers cuits, en cache pour ce seul job (2 min 30 à 4 min de cuisson à chaque PR),
+      # restaurés juste avant la cuisson : les étapes d'avant chargent les sources.
+      #   - Avec les `.meta` : un fichier cuit porte le GUID de son asset, que le `.meta` fixe ; sans
+      #     lui, chaque run tire de nouveaux GUID et ne retrouve rien. La restauration écrase ceux
+      #     que les étapes précédentes ont tirés.
+      #   - Sans `restore-keys` : le cuiseur ne recuit que si sa version ou la source change, et
+      #     `CookerVersion` ne suit pas chaque changement de sa sortie. Toute clé nouvelle recuit tout.
+      #     La clé suit les assets, le cuiseur, le module assets et les dépendances (libktx, basisu).
+      - name: Cache des assets cuits
+        id: cooked
+        if: matrix.preset == 'linux-release'
+        uses: actions/cache@v4
+        with:
+          path: |
+            assets-cache/.cooked
+            assets-cache/**/*.meta
+          key: cooked-${{ hashFiles('tools/assets.lock', 'tools/cook/**', 'engine/assets/**', 'vcpkg.json', 'ports/**') }}
+
+      # Un cache trouvé ne doit rien laisser à cuire : un fichier recuit trahirait un cache qui ne
+      # sert pas, et la CI resterait verte en payant la cuisson (règle n°7).
       - name: Cuire les assets de test
         if: matrix.preset == 'linux-release'
-        run: ./build/${{ matrix.preset }}/tools/cook/levain_cook assets-cache
+        run: |
+          set -euo pipefail
+          ./build/${{ matrix.preset }}/tools/cook/levain_cook assets-cache 2>&1 | tee cook.log
+          if [ "${{ steps.cooked.outputs.cache-hit }}" = true ] && grep -Eq "cuit en|texture cuite" cook.log; then
+            echo "::error::cache des assets cuits restauré, mais le cuiseur a recuit des fichiers"
+            exit 1
+          fi
 
       - name: Lancer le sandbox avec Sponza cuite
         if: matrix.preset == 'linux-release'

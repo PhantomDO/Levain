@@ -67,9 +67,11 @@ Un piège par entrée : symptôme, cause, parade. Le plus récent en haut.
   n°2 d'`AGENTS.md`). Ce qui se découpe proprement se découpe toujours : l'ADR-0012 est parti seul (#54).
 
 - **Symptôme** : M1.1 complet faisait ~710 lignes, près du double de la règle n°2.
-- **Parade** : une PR par issue, en branches empilées (B part de A). La règle n°1 interdit d'ouvrir B avant la
-  fusion de A : B reste poussée sans PR. Après la fusion de A **en squash**, les commits de A n'existent plus
-  sur `main` : `git rebase --onto main <dernier commit de A>` sur B, sinon le rebase rejoue A.
+- **Parade** : une PR par issue, en branches empilées (B part de A). Depuis le 2026-10-05 (exception à la
+  règle n°1 d'`AGENTS.md`), B s'ouvre en même temps que A, avec A pour base, et elles fusionnent en **merge
+  commit** : B n'a pas à être rebasée. Avant, A fusionnait **en squash** : ses commits n'existaient plus sur
+  `main`, et il fallait `git rebase --onto main <dernier commit de A>` sur B, sinon le rebase rejouait A. C'est
+  toujours le cas pour une PR fusionnée seule en squash.
 - **`gh pr merge --delete-branch` supprime aussi la branche locale** (2026-09-22) : le rebase de B qui la
   nommait échoue (« amont invalide »). Noter le hash du dernier commit de A avant la fusion, et rebaser sur lui.
 
