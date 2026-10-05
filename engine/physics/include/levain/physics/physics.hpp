@@ -16,6 +16,12 @@ struct BodyDirty
 {
 };
 
+/// L'étiquette d'une entité dont le personnage est à (re)construire : son `CharacterController` a
+/// changé. Comme les corps, au début du pas suivant (ADR-0028).
+struct CharacterDirty
+{
+};
+
 /// La relation qu'un volume déclencheur pose sur chaque corps qu'il contient : `(InsideOf, volume)`
 /// (ADR-0027). Rangée sur le corps et non sur le volume : dans un ECS à archetypes, la liste
 /// changeante des occupants ferait du volume une table nouvelle à chaque entrée. flecs indexe une

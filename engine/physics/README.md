@@ -9,8 +9,9 @@ calcul ; ce module est la frontière entre Jolt et le reste du moteur.
 **État en M6.3 (en cours)** : des boîtes, des sphères et des capsules, statiques, dynamiques ou cinématiques,
 sur cinq couches fixes ; des maillages et des grilles de hauteurs partagés, pour le décor ; des rayons et des
 sphères lancés ; des volumes déclencheurs (ADR-0027). Le personnage (ADR-0028) existe au niveau du monde
-physique : il tombe, monte des marches et des pentes, pousse les caisses légères et suit une plateforme ; sa
-glu flecs vient ensuite.
+physique et par les entités : un `CharacterController` en fait un personnage, qui tombe, monte des marches
+et des pentes, pousse les caisses légères et suit une plateforme. La marche (gravité, saut) est dans le
+plugin `character`.
 
 ## Invariants
 
@@ -34,9 +35,11 @@ glu flecs vient ensuite.
    l'arrivée, au changement ou au départ d'un `Collider` ou d'un `RigidBody`, `add` compris), le système
    `BuildBodies` (re)construit. Un corps n'existe donc qu'à partir du pas qui suit son `set`.
 6. **Le pas est dans la phase `Physics`** du pipeline de simulation, entre le gameplay (`Simulation`) et ce qui
-   lit son résultat (`PostPhysics`) : `SyncBeforePhysics`, `BuildBodies`, `PushKinematicBodies`, puis
-   `StepPhysics`, dans cet ordre. Le premier est un point de synchronisation : sans lui, un `set` fait par le
-   gameplay serait appliqué après le pas. `world.component<levain::scene::Physics>().disable()` met la
+   lit son résultat (`PostPhysics`), sept systèmes dans cet ordre : `SyncBeforePhysics`, `BuildBodies`,
+   `PushKinematicBodies`, `BuildCharacters`, `MoveCharacters`, `StepPhysics`, `RefreshCharacters`. Le
+   premier est un point de synchronisation : sans lui, un `set` fait par le gameplay serait appliqué après le
+   pas. Les `write<BodyHandle>` et `write<CharacterHandle>` des systèmes qui construisent en créent un aussi :
+   un cinématique ou un personnage né à ce pas bouge dès ce pas. `world.component<levain::scene::Physics>().disable()` met la
    physique en pause, et avec elle `PostPhysics`, qui en dépend ; désactiver `Simulation` arrête toute la
    simulation. C'est la règle des phases du pipeline intégré de flecs.
 7. **L'état global de Jolt** (allocateur, fabrique, journal) appartient au processus : il s'installe avec le
@@ -75,6 +78,10 @@ glu flecs vient ensuite.
     - **son corps intérieur fait 90 % de sa capsule** (`innerShapeOf`) : de sa taille, il pousserait les caisses
       sans la limite de `maxPushForce` ;
     - **il ignore les volumes déclencheurs** (`characterSees`) : c'est son corps intérieur qu'ils voient.
+    - **par les entités** : le gameplay écrit `CharacterVelocity` (chute comprise, elle persiste) et la rotation
+      du `Transform` par référence ; le module recopie la position et pose `CharacterState`. Un `set<Transform>`
+      le téléporte, remet sa vitesse voulue à zéro et relit son sol. Il est refusé, comme un corps, s'il est
+      enfant ou mis à l'échelle, et aussi s'il porte un `Collider`.
 
 ## Les volumes déclencheurs, par l'exemple
 
@@ -163,12 +170,13 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | [`include/levain/physics/physics_world.hpp`](include/levain/physics/physics_world.hpp) | `PhysicsWorld`, `createPhysicsWorld`, `createBody`, `teleportBody`, `moveKinematic`, `stepPhysics`, `collectMovedBodies`, `sharedShapeCount` : la logique, sans flecs |
 | [`include/levain/physics/queries.hpp`](include/levain/physics/queries.hpp) | `Ray`, `RayHit`, `LayerMask`, `maskOf`, `SolidLayers`, `raycast`, `sphereCast` |
 | [`include/levain/physics/outlines.hpp`](include/levain/physics/outlines.hpp) | `Segment`, `CircleSegments`, `appendOutline` — les arêtes de chaque forme, pour les lignes de debug de `render` ; sans Jolt |
-| [`include/levain/physics/character.hpp`](include/levain/physics/character.hpp) | `CharacterController`, `whyNotThisCharacter`, `GroundState`, `CharacterGround`, `isWalking`, `createCharacter`, `moveCharacter`, `teleportCharacter`, `turnCharacter`, `refreshCharacterGround`, `characterVelocity`, `characterGround` : le personnage, un `CharacterVirtual` de Jolt (ADR-0028), sans flecs |
+| [`include/levain/physics/character.hpp`](include/levain/physics/character.hpp) | `CharacterController`, `whyNotThisCharacter`, `GroundState`, `CharacterGround`, `isWalking`, `CharacterVelocity`, `CharacterState`, `createCharacter`, `moveCharacter`, `teleportCharacter`, `turnCharacter`, `refreshCharacterGround`, `characterVelocity`, `characterGround` : le personnage, un `CharacterVirtual` de Jolt (ADR-0028), sans flecs |
 | [`include/levain/physics/body_rules.hpp`](include/levain/physics/body_rules.hpp) | `whyNotABody`, `whyNotThisLayer`, `poseOf` |
-| [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs |
+| [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs ; `CharacterDirty` |
 | [`src/physics_world.cpp`](src/physics_world.cpp) | Jolt : les couches, le job system, les corps, le pas |
 | [`src/physics_state.hpp`](src/physics_state.hpp) | L'état de Jolt partagé par les fichiers du module ; interne, aucun en-tête de Jolt n'en sort |
 | [`src/character.cpp`](src/character.cpp) | Le personnage : sa capsule posée sur ses pieds, son corps intérieur, son `ExtendedUpdate` |
+| [`src/character_sync.cpp`](src/character_sync.cpp) | Les personnages et leurs entités : construction, téléportation, un pas, l'état relu après le pas |
 | [`src/physics.cpp`](src/physics.cpp) | La glu flecs : observateurs et systèmes de la phase `Physics` |
 
 ## Équivalents ailleurs
