@@ -45,6 +45,18 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   invalide dans `destroyBody`, `toJoltRotation` qui renormalise), pour le Release ; en Debug,
   `JPH::AssertFailed` écrit dans notre journal avant de s'arrêter dans le débogueur.
 
+## `tools/web-smoke.sh` : ni Firefox dans la distrobox, ni Node sur l'hôte (2026-10-04)
+
+- **Symptôme** : « firefox introuvable », dans la distrobox comme sur l'hôte.
+- **Cause** : Firefox n'existe qu'en Flatpak (`org.mozilla.firefox`), sur l'hôte ; Node n'est que dans la
+  distrobox. Un Flatpak a son propre `/tmp` : un profil créé par `mktemp -d` lui est invisible.
+- **Parade**, à la main, les deux côtés partageant le réseau : sur l'hôte, `python3 -m http.server 8765 --bind
+  127.0.0.1 --directory build/web` et `flatpak run org.mozilla.firefox --headless --no-remote --profile
+  ~/.var/app/org.mozilla.firefox/levain-smoke-profile --remote-debugging-port 9222` (le `user.js` du script
+  dans ce profil) ; dans la distrobox, `node tools/web-smoke.mjs <url> <référence|-> <capture.png> 9222`. Pour
+  arrêter Firefox, le PID de `flatpak run` ne suffit pas : tuer le processus `/app/lib/firefox/firefox` dont la
+  ligne de commande porte ce profil, jamais `flatpak kill`, qui fermerait aussi le Firefox de Donnovan.
+
 ## La distrobox est passée à LLVM 23, la CI est restée à 22 (2026-10-04)
 
 - **Symptôme** : clang-tidy signale en local des fichiers que la CI accepte (`bugprone-signed-bitwise`,

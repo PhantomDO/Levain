@@ -2,6 +2,19 @@
 
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut.
 
+## Modifier une branche au milieu d'une pile : la propager tout de suite (2026-10-05)
+
+- **Symptôme** : après plusieurs `commit --amend` sur la branche C d'une pile B → C → D → E, un rebase de D et
+  E « sur C » rejoue le commit de B et s'arrête sur des conflits ; D et E reposaient en fait sur une version de
+  C antérieure aux corrections de relecture, qui manquaient donc au sommet de la pile.
+- **Cause** : `git rebase --update-refs` ne déplace que les branches qui sont des ancêtres de celle qu'on
+  rebase. Une C modifiée à part n'est plus l'ancêtre de E : la référence suivante l'a ignorée.
+- **Parade** : après chaque `--amend` d'une branche du milieu, noter son SHA d'avant
+  (`OLD=$(git rev-parse HEAD)` avant l'amend), puis tout de suite
+  `git rebase --update-refs --onto <C> $OLD <sommet>`. Vérifier la pile :
+  `for b in …; do echo "$b parent=$(git rev-parse --short $b~1)"; done`. Pour réparer : `git rebase --abort`,
+  reconstruire C par `cherry-pick` sur le bon B, puis rebaser le reste depuis l'ancienne C de la chaîne.
+
 ## Rebaser une pile après la fusion de sa base : la branche n'existe plus (2026-10-03)
 
 - **Symptôme** : `git rebase --onto origin/main $(git log -1 --format=%H <branche fusionnée>) <suivante>` échoue

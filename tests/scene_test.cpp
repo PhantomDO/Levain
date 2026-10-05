@@ -339,3 +339,17 @@ TEST_CASE("un monde qui n'avance que son rendu compose quand même ses matrices"
     world.progress(1.0f / 60.0f);
     CHECK(worldPosition(entity.get<WorldTransform>()).x == doctest::Approx(3.0f));
 }
+
+TEST_CASE("worldRotation retrouve la rotation d'une matrice monde, même étirée")
+{
+    const glm::quat rotation =
+        glm::angleAxis(glm::radians(40.0f), glm::normalize(glm::vec3{1.0f, 2.0f, 0.5f}));
+    // Une échelle non uniforme : chaque axe a sa longueur, toutes retirées.
+    const Transform transform{
+        .position = {1.0f, 2.0f, 3.0f}, .rotation = rotation, .scale = {1.0f, 2.0f, 3.0f}};
+    const WorldTransform world{.matrix = levain::scene::localMatrix(transform)};
+
+    const glm::quat found = levain::scene::worldRotation(world);
+    // q et −q sont la même rotation : on compare la valeur absolue du produit scalaire.
+    CHECK(std::abs(glm::dot(found, rotation)) == doctest::Approx(1.0f));
+}

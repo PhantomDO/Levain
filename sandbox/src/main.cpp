@@ -2,6 +2,7 @@
 #include <array>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <exception>
@@ -29,6 +30,7 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "crates.hpp"
 #include "shader_reload.hpp"
 
 #include "levain/animation/animation_set.hpp"
@@ -47,6 +49,9 @@
 #include "levain/grass/grass_pass.hpp"
 #include "levain/input/bindings.hpp"
 #include "levain/input/state.hpp"
+#include "levain/physics/components.hpp"
+#include "levain/physics/physics.hpp"
+#include "levain/physics/physics_world.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/camera.hpp"
 #include "levain/render/culling.hpp"
@@ -266,6 +271,12 @@ struct DemoScene
     levain::render::Camera camera;
     /// La grille de cubes, le sol et les lumières de couleur ; absents des autres vues.
     bool demoProps = true;
+    /// Les cubes tournent tous ensemble sur eux-mêmes (la démo), ou chacun selon sa physique.
+    bool spinCubes = true;
+    /// Chaque cube a sa propre rotation, à relire à chaque image : les caisses de la physique, et
+    /// elles seules. Un drapeau à part, et non `!spinCubes` : les vues khronos et terrain gardent
+    /// leurs 10 000 cubes sans les dessiner, et paieraient la rotation pour rien.
+    bool cubesTurn = false;
     /// La vallée de `--view terrain` (M5.6), et ce que ses dessins ont soumis et écarté.
     std::optional<levain::terrain::Heightmap> heightmap;
     std::optional<levain::terrain::TerrainPass> terrain;
@@ -381,16 +392,25 @@ levain::scene::FpsInput fpsInputFrom(const levain::input::InputState& input,
             .sprint = levain::input::actionHeld(input, actions.sprint)};
 }
 
-/// Les positions des cubes **dans le monde**, dans `poses`, que le rendu envoie ensuite au GPU.
-/// La glu entre scene et render, qui ne se connaissent pas (SPECS §7). Lire `WorldTransform` et non
-/// `Transform` : c'est ce qui fait suivre les cubes quand la grille bouge. Les cubes tournent tous
-/// ensemble, par la matrice du modèle : leur pose garde la rotation identité.
-void gatherCubePoses(const flecs::query<const levain::scene::WorldTransform>& cubes,
+/// Les poses des cubes **dans le monde**, dans `poses`, que le rendu envoie ensuite au GPU. La glu
+/// entre scene et render, qui ne se connaissent pas (SPECS §7). Lire `WorldTransform` et non
+/// `Transform` : c'est ce qui fait suivre les cubes quand la grille bouge, et ce qui donne aux
+/// caisses de la physique leur pose interpolée entre deux pas (ADR-0016).
+///
+/// La rotation de chacun seulement si `eachTurns` : les cubes de la démo tournent tous ensemble,
+/// par la matrice du modèle, et la lire coûterait pour rien 0,08 ms par image en Release, 4,2 ms en
+/// Debug, sur 10 000 cubes (mesuré le 04/10/2026).
+void gatherCubePoses(const flecs::query<const levain::scene::WorldTransform>& cubes, bool eachTurns,
                      std::vector<levain::render::InstancePose>& poses)
 {
     poses.clear();
-    cubes.each([&poses](const levain::scene::WorldTransform& transform)
-               { poses.push_back({.position = levain::scene::worldPosition(transform)}); });
+    cubes.each(
+        [&poses, eachTurns](const levain::scene::WorldTransform& transform)
+        {
+            poses.push_back({.position = levain::scene::worldPosition(transform),
+                             .rotation = eachTurns ? levain::scene::worldRotation(transform)
+                                                   : glm::quat{1.0f, 0.0f, 0.0f, 0.0f}});
+        });
 }
 
 #ifdef LEVAIN_ENABLE_EXPLORER
@@ -745,12 +765,13 @@ void logScanReport(const levain::assets::ScanReport& report)
 }
 
 /// Ce que montre le sandbox : la démo (cubes, sol, modèle), la vue du glTF Sample Viewer (#125,
-/// #131), ou le terrain (M5.6).
+/// #131), le terrain (M5.6), ou les caisses de la physique (M6.1).
 enum class SandboxView : std::uint8_t
 {
     Demo,
     Khronos,
     Terrain,
+    Physics,
 };
 
 /// Le soleil de la démo : haut, de biais, légèrement chaud.
@@ -1001,7 +1022,15 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
 #ifdef LEVAIN_ENABLE_EXPLORER
     enableExplorerOnLoopback(world);
 #endif
-    spawnCubeGrid(world);
+    if (view == SandboxView::Physics)
+    {
+        world.import<levain::physics::PhysicsModule>();
+        levain::sandbox::spawnCrates<Cube>(world, GroundSize);
+    }
+    else
+    {
+        spawnCubeGrid(world);
+    }
     if (model != nullptr)
     {
         levain::assets::instantiateModel(world, *model, modelId, "model")
@@ -1021,6 +1050,12 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     flecs::query<const levain::scene::WorldTransform> cubes =
         world.query_builder<const levain::scene::WorldTransform>("cubes").with<Cube>().build();
     levain::scene::FixedStep fixedStep;
+    if (view == SandboxView::Physics)
+    {
+        // Devant le tas, un peu au-dessus : on voit les caisses tomber, puis s'étaler.
+        cameraEntity.set(levain::scene::Transform{.position = {0.0f, 9.0f, 26.0f}})
+            .set(levain::scene::FpsController{.yawDegrees = 0.0f, .pitchDegrees = -14.0f});
+    }
     if (view == SandboxView::Terrain)
     {
         // Sur une crête, au coin de la vallée, le regard vers son fond.
@@ -1036,7 +1071,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     levain::scene::advanceWorld(world, fixedStep,
                                 0.0f); // les matrices monde, avant le premier envoi
     std::vector<levain::render::InstancePose> cubePoses;
-    gatherCubePoses(cubes, cubePoses);
+    gatherCubePoses(cubes, view == SandboxView::Physics, cubePoses);
 
     const nvrhi::CommandListHandle upload = gpu.nvrhi->createCommandList();
     upload->open();
@@ -1182,7 +1217,9 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .material = std::move(material),
                      .cameraEntity = cameraEntity,
                      .camera = camera,
-                     .demoProps = view == SandboxView::Demo,
+                     .demoProps = view == SandboxView::Demo || view == SandboxView::Physics,
+                     .spinCubes = view == SandboxView::Demo,
+                     .cubesTurn = view == SandboxView::Physics,
                      .heightmap = std::move(heightmap),
                      .terrain = std::move(terrain),
                      .water = std::move(water),
@@ -1319,7 +1356,8 @@ void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum
     };
     if (scene.demoProps)
     {
-        drawIfVisible(scene.cube, scene.grid, *scene.material, cubeRotation(seconds));
+        drawIfVisible(scene.cube, scene.grid, *scene.material,
+                      scene.spinCubes ? cubeRotation(seconds) : glm::mat4{1.0f});
         drawIfVisible(scene.ground, scene.groundInstance, *scene.material, glm::mat4{1.0f});
     }
     scene.modelParts.each(
@@ -1414,7 +1452,7 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         gpuMs = levain::render::beginGpuTimer(*gpu.nvrhi, commandList, scene.gpuTimer);
         animateModels(*gpu.nvrhi, commandList, scene, seconds);
         // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
-        gatherCubePoses(scene.cubes, scene.cubePoses);
+        gatherCubePoses(scene.cubes, scene.cubesTurn, scene.cubePoses);
         levain::render::updateInstances(commandList, scene.grid, scene.cubePoses);
         const std::vector<levain::render::PointLight> lights =
             scene.demoProps ? demoLightsAt(seconds) : std::vector<levain::render::PointLight>{};
@@ -1594,6 +1632,7 @@ struct SandboxOptions
     /// `--view khronos` : la scène telle que l'ouvre le glTF Sample Viewer, pour s'y comparer
     /// (#125, #131, tools/khronos-compare.sh). Le modèle seul, à l'origine, sous sa caméra et son
     /// ciel ; ni cubes, ni sol, ni lumières de la démo. `--view terrain` : la vallée de M5.6.
+    /// `--view physics` : 1 000 caisses qui tombent sur le sol de la démo (M6.1).
     SandboxView view = SandboxView::Demo;
     /// `--camera x,y,z` : la caméra à cette position, face à −Z. Celle du glTF Sample Viewer, que
     /// tools/khronos-compare.sh relit dans sa page.
@@ -1689,12 +1728,13 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         if (name == "--view")
         {
             const std::string_view view{arguments[i + 1]};
-            if (view != "khronos" && view != "demo" && view != "terrain")
+            if (view != "khronos" && view != "demo" && view != "terrain" && view != "physics")
             {
                 return std::nullopt;
             }
             options.view = view == "khronos"   ? SandboxView::Khronos
                            : view == "terrain" ? SandboxView::Terrain
+                           : view == "physics" ? SandboxView::Physics
                                                : SandboxView::Demo;
             continue;
         }
@@ -2059,6 +2099,17 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
                       "{:.1f} appels et {:.0f} triangles",
                       perFrame(camera.drawn), perFrame(camera.triangles), perFrame(shadows.drawn),
                       perFrame(shadows.triangles));
+    // La physique de `--view physics` (M6.1) : combien de corps, et où est la plus haute des
+    // caisses. La plus haute part de 18,4 m (`HighestCrateStart`) ; retombées, aucune ne dépasse
+    // quelques mètres. La CI le vérifie : un pas qui ne tournerait pas laisserait la grille en
+    // l'air.
+    if (const auto* physics = loop.scene.world.try_get<levain::physics::PhysicsWorld>())
+    {
+        const float highest = levain::sandbox::highestCrate(loop.scene.world);
+        levain::core::log("sandbox", levain::core::LogLevel::Info,
+                          "physique : {} corps ; la caisse la plus haute à y = {:.2f} m",
+                          levain::physics::bodyCount(*physics), highest);
+    }
     if (loop.scene.terrain)
     {
         const levain::terrain::TerrainStats& camera = loop.scene.terrainCamera;
@@ -2160,14 +2211,13 @@ int main(int argc, char** argv)
             parseOptions(std::span{argv, static_cast<std::size_t>(argc)});
         if (!options)
         {
-            std::println(
-                stderr,
-                "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
-                "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
-                "repos,marche,course] "
-                "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
-                "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
-                "fichier.hdr|none] [--view demo|khronos|terrain] [--camera x,y,z] [--sun x,y,z]");
+            std::println(stderr, "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
+                                 "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
+                                 "repos,marche,course] "
+                                 "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
+                                 "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
+                                 "fichier.hdr|none] [--view demo|khronos|terrain|physics] "
+                                 "[--camera x,y,z] [--sun x,y,z]");
             return 2;
         }
 

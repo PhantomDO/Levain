@@ -112,6 +112,13 @@ target_link_libraries(levain_bench PRIVATE levain::core)
 add_executable(levain_scene_bench scene_bench.cpp)
 target_link_libraries(levain_scene_bench PRIVATE levain::scene)
 
+# Le critère de M6.1 : 1 000 caisses en chute libre, aucun pas au-dessus de 4 ms (ADR-0026).
+# Sa scène est celle de `levain_sandbox --view physics`, dans un en-tête du sandbox : le chiffre du
+# banc est celui de la démo.
+add_executable(levain_physics_bench physics_bench.cpp)
+target_include_directories(levain_physics_bench PRIVATE ${PROJECT_SOURCE_DIR}/sandbox/src)
+target_link_libraries(levain_physics_bench PRIVATE levain::physics levain::scene)
+
 # SPECS §7 : flecs n'apparaît pas sous scene/. Un contrôle des sources plutôt que du link : les
 # en-têtes de vcpkg sont visibles de tous les modules, un #include <flecs.h> compilerait partout.
 add_test(NAME deps.flecs-visibility
