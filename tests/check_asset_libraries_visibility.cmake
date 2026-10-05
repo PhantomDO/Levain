@@ -2,6 +2,7 @@
 # où elles servent.
 #   - fastgltf : engine/assets/src, et engine/animation/src pour la passerelle glTF (ADR-0022) ;
 #   - libktx : engine/assets/src (ADR-0020) ;
+#   - meshoptimizer : engine/assets/src (ADR-0028) ;
 #   - ozz-animation : engine/animation/src (ADR-0022) ;
 #   - Jolt : engine/physics/src (ADR-0026).
 # Le reste du moteur, les plugins et le cuiseur compris, ne voit que nos types. Lancé par ctest :
@@ -30,6 +31,7 @@ set(failures 0)
 foreach(file IN LISTS files)
     is_under(fastgltfAllowed "${file}" engine/assets/src engine/animation/src)
     is_under(ktxAllowed "${file}" engine/assets/src)
+    is_under(meshoptimizerAllowed "${file}" engine/assets/src)
     is_under(ozzAllowed "${file}" engine/animation/src)
     is_under(joltAllowed "${file}" engine/physics/src)
     set(forbidden "")
@@ -38,6 +40,9 @@ foreach(file IN LISTS files)
     endif()
     if(NOT ktxAllowed)
         list(APPEND forbidden ktx)
+    endif()
+    if(NOT meshoptimizerAllowed)
+        list(APPEND forbidden meshoptimizer)
     endif()
     if(NOT ozzAllowed)
         list(APPEND forbidden ozz)
@@ -56,5 +61,5 @@ foreach(file IN LISTS files)
     endif()
 endforeach()
 if(failures EQUAL 0)
-    message(STATUS "fastgltf, libktx, ozz-animation et Jolt seulement là où SPECS §7 les permet")
+    message(STATUS "fastgltf, libktx, meshoptimizer, ozz-animation et Jolt seulement là où SPECS §7 les permet")
 endif()

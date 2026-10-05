@@ -182,9 +182,11 @@ demande donc d'en poser un.
        cogne pas à des feuilles (un piège nommé). Pas ceux en `BLEND` : une vitre reste solide ;
      - les sommets sont soudés par position, puis **simplifiés à 2 cm près** par meshoptimizer
        (`meshopt_simplify` avec `meshopt_SimplifyErrorAbsolute`, sans quoi l'erreur serait relative à la
-       taille du modèle ; licence MIT, port vcpkg), visible dans `assets/src` seulement. Les 2 cm sont
-       mesurés **dans le monde** : l'échelle du placement est appliquée aux triangles avant, puisqu'un corps
-       n'a pas d'échelle (ADR-0026).
+       taille du modèle ; licence MIT, port vcpkg), visible dans `assets/src` seulement. *Amendé le
+       2026-10-05, à la relecture du code :* les 2 cm sont **en unités du modèle**, et non dans le monde,
+       puisque le cuiseur ne connaît pas le placement. Posé à l'échelle s, un modèle a une collision à
+       s × 2 cm près ; l'appelant qui simplifie au chargement passe 2 cm / s. Les sommets sont mis à
+       l'échelle par l'appelant, puisqu'un corps n'a pas d'échelle (ADR-0026).
 
      Le résultat : des sommets et des indices. ni `physics` ni `assets` ne dépendent l'un de l'autre
      (SPECS §7). La glu d'une ligne vit dans l'application.
@@ -225,6 +227,10 @@ demande donc d'en poser un.
   `deps.asset-libraries-visibility` étendu). Elle servira aussi aux LOD des modèles, si on en fait.
 - **Un modèle dont la simplification enlève l'essentiel** (un objet fin, une grille) perd sa collision : une
   erreur de 2 cm efface un barreau de 1 cm. Le cas se règlera par la convention faite à la main.
+- **La tolérance n'est pas un écart maximal** : meshoptimizer mesure une moyenne pondérée par l'aire, et un
+  pic fin et raide au milieu d'une grande surface plate disparaît bien au-delà des 2 cm (mesuré à la relecture :
+  un pic de 10 cm sur des cases de 6,25 cm s'efface). La garde est la vérification des hauteurs du sol de
+  Sponza par rayons ; un test fige la limite.
 - **Le cache des assets cuits de la CI** : sa clé couvre déjà le code qui simplifie (`engine/assets`). La CI web
   ne cuit pas : le navigateur simplifie au chargement, sur un seul thread. À mesurer dans le navigateur.
 - ***Rando* recopie la dépendance** dans son manifeste vcpkg, comme ktx (contrôle de l'ADR-0018).

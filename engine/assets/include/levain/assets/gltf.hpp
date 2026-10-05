@@ -60,6 +60,9 @@ struct ModelMaterial
     /// Une normal map dans l'espace tangent (la tangente des sommets) : des données elle aussi.
     std::optional<AssetRef> normalTexture;
     float normalScale = 1.0f; ///< Multiplie x et y de la normal map.
+    /// Une transparence découpée (`alphaMode` `MASK` de glTF) : du feuillage, une grille, un rideau
+    /// ajouré. Le rendu ne l'exploite pas encore ; la collision l'écarte (ADR-0028).
+    bool alphaMasked = false;
 };
 
 struct ModelMesh
@@ -92,6 +95,14 @@ struct Model
     /// asset à part, chargé par son GUID.
     std::map<std::uint32_t, Image> embeddedImages;
 };
+
+/// Pourquoi ce modèle n'est pas cohérent, ou rien : des triangles complets (indices par trois),
+/// des indices qui désignent un sommet de leur primitive, des os et des poids un par sommet, des
+/// matériaux, des meshes et des parents qui existent, chaque parent rangé avant ses enfants. Les
+/// bibliothèques qui le reçoivent ensuite (meshoptimizer, Jolt) ne le vérifient qu'en Debug : en
+/// Release, un indice faux devient une lecture hors bornes (règle n°7). `loadGltf` et
+/// `readCookedModel` refusent un modèle qui ne passe pas.
+[[nodiscard]] std::optional<std::string> whyNotAValidModel(const Model& model);
 
 /// Lit un `.gltf` (et ses `.bin`) ou un `.glb`, avec fastgltf. `self` est le GUID du modèle, et
 /// `registry` donne celui des images qu'il désigne par leur chemin : une image hors du registre

@@ -23,6 +23,12 @@ chargement, `loadModel` et `loadTextureData` prennent le plus rapide des fichier
 source en le signalant. Sponza charge en 19 ms au lieu de 442, et ses textures tiennent 32 Mo de mémoire vidéo
 au lieu de 128.
 
+**En M6.3** : la collision du décor ([ADR-0028](../../docs/adr/0028-personnage.md)). `collisionMeshOf` tire
+d'un modèle des triangles pour la physique : les nœuds composés, sans le feuillage (les matériaux en `MASK`) ni
+ce qui est skinné ou pend sous un os, soudés par position, puis simplifiés par meshoptimizer à 2 cm près, en
+unités du modèle. Sponza sans feuillage passe de 230 831 à 34 016 triangles. `whyNotAValidModel` refuse au
+chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou un parent ne tient pas.
+
 ## Invariants
 
 1. **Aucun GPU ici.** Le module rend des pixels en mémoire (`Image`) ; c'est `engine/render` qui les envoie au
@@ -50,6 +56,9 @@ au lieu de 128.
    périmé, et `loadTextureData` reprend la source jusqu'au prochain `levain_cook`. Vérifié sur le sandbox en
    marche par `tools/texture-hot-reload.sh`.
 
+10. **meshoptimizer reste privé** : seul `src/collision.cpp` l'inclut (`deps.asset-libraries-visibility`). Comme
+   Jolt, il n'a ses assertions qu'en Debug : ce qu'il reçoit a été vérifié au chargement (`whyNotAValidModel`).
+
 ## Points d'entrée
 
 | Fichier | Contenu |
@@ -59,6 +68,7 @@ au lieu de 128.
 | [`include/levain/assets/asset_ref.hpp`](include/levain/assets/asset_ref.hpp) | `MeshRef`, `AssetsModule` (le comptage), `takeUnusedAssets`, `ModelCache`, `loadModel`, `loadTexture`, `loadTextureData` |
 | [`include/levain/assets/asset_id.hpp`](include/levain/assets/asset_id.hpp) | `AssetId`, `contentHash`, `readMeta`, `writeMeta` |
 | [`include/levain/assets/registry.hpp`](include/levain/assets/registry.hpp) | `AssetRegistry` (fichier, racine et hash de chaque asset), `scanAssets` (les cinq cas de l'ADR-0019), `pathOf`, `cookedPathOf` ; `watchAssets` et `takeChangedAssets`, le hot-reload (ADR-0021) |
+| [`include/levain/assets/collision.hpp`](include/levain/assets/collision.hpp) | `collisionMeshOf`, `CollisionMesh`, `DefaultCollisionError` : la collision du décor tirée du maillage affiché, sans le feuillage, soudée et simplifiée par meshoptimizer (ADR-0028) |
 | [`include/levain/assets/cooked.hpp`](include/levain/assets/cooked.hpp) | Le format `.lvmesh` : `writeCookedModel`, `readCookedModel`, `CookerVersion`, `MeshEncoding` |
 | [`include/levain/assets/cooked_texture.hpp`](include/levain/assets/cooked_texture.hpp) | `TextureData`, `writeCookedTexture` (UASTC), `writePlatformTexture` (BC7), `readCookedTexture` |
 | [`../../tools/cook/main.cpp`](../../tools/cook/main.cpp) | `levain_cook`, le cuiseur |
@@ -96,3 +106,4 @@ justifiera si des textures sont créées à l'exécution.
 | **Unreal** | Interchange, importeur glTF | Un glTF devient des Static Meshes, et ses nœuds des Actors dans le niveau (**documenté** : documentation d'Epic). |
 | **Unity** | package glTFast | Import à l'exécution ou dans l'éditeur, les nœuds deviennent des GameObjects (**documenté** : manuel du package). |
 | **Godot** | `GLTFDocument` | Le format 3D recommandé ; un glTF s'importe comme une scène de nœuds (**documenté** : documentation officielle). C'est le plus proche d'ici : une entité par nœud. |
+| **Collision du décor** | Unreal : `UCX_` à l'import, ou « Use Complex Collision As Simple » ; Unity : `MeshCollider`, dont la forme est « cuite » au chargement ; Godot : les suffixes `-col` et `-colonly` à l'import | Levain simplifie le maillage affiché et cuit le résultat (**documenté** pour Unreal et Godot, ADR-0028 ; **déduit** pour Unity, de l'option `cookingOptions` du `MeshCollider`) |

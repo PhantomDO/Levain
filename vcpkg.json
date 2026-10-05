@@ -26,6 +26,7 @@
     "glm",
     "joltphysics",
     "ktx",
+    "meshoptimizer",
     "nvrhi",
     "ozz-animation",
     {
