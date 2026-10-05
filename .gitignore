@@ -22,6 +22,8 @@ __pycache__/
 *.rdc
 *.tracy
 /captures/
+# L'image d'un test de fumée qui diffère de sa référence, écrite dans le dossier courant
+*.actual.ppm
 
 # Clone et cache de vcpkg en CI
 /vcpkg/

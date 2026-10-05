@@ -4,6 +4,7 @@ find_package(nvrhi CONFIG REQUIRED)
 add_library(levain_render STATIC
     src/camera.cpp
     src/culling.cpp
+    src/debug_lines.cpp
     src/environment.cpp
     src/frame.cpp
     src/gpu_timer.cpp
