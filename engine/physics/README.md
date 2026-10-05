@@ -7,8 +7,8 @@ des entités flecs qui tombent, se heurtent et se poussent, au pas fixe de la si
 calcul ; ce module est la frontière entre Jolt et le reste du moteur.
 
 **État en M6.2 (en cours)** : des boîtes, des sphères et des capsules, statiques, dynamiques ou cinématiques,
-sur cinq couches fixes ; des maillages et des grilles de hauteurs partagés, pour le décor (ADR-0027). Les
-raycasts et les volumes déclencheurs suivent, le personnage en M6.3.
+sur cinq couches fixes ; des maillages et des grilles de hauteurs partagés, pour le décor ; des rayons et des
+sphères lancés (ADR-0027). Les volumes déclencheurs suivent, le personnage en M6.3.
 
 ## Invariants
 
@@ -51,6 +51,12 @@ raycasts et les volumes déclencheurs suivent, le personnage en M6.3.
    ou une hauteur qui n'est pas fini, une grille de moins de 3 × 3 ou dont Jolt refuse la forme ne donne pas
    de corps, et le journal le dit.
 
+10. **Les requêtes sont des fonctions libres** (`raycast`, `sphereCast`, ADR-0027) filtrées par un masque de
+    couches (`LayerMask`, `maskOf`). Par défaut (`SolidLayers`), elles traversent les volumes déclencheurs. Une
+    direction nulle ou une distance non positive ne lancent rien. Un rayon ne voit que les surfaces qu'il
+    traverse en entrant (rien du corps d'où il part, rien du dessous d'un terrain), comme celui d'Unity ; une
+    sphère qui touche déjà un corps le touche à 0 en avançant vers lui, et ne le voit pas en s'en éloignant.
+
 ## Mesures
 
 Critère de M6.1, 1 000 caisses en chute libre sans un pas au-dessus de 4 ms (Release, machine de référence,
@@ -82,6 +88,7 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | [`include/levain/physics/components.hpp`](include/levain/physics/components.hpp) | `Collider` (forme et couche), `RigidBody` (mouvement, masse, frottement, rebond), `BodyHandle`, `effectiveLayer` |
 | [`include/levain/physics/layers.hpp`](include/levain/physics/layers.hpp) | `Layer` et la matrice `layersCollide` |
 | [`include/levain/physics/physics_world.hpp`](include/levain/physics/physics_world.hpp) | `PhysicsWorld`, `createPhysicsWorld`, `createBody`, `teleportBody`, `moveKinematic`, `stepPhysics`, `collectMovedBodies`, `sharedShapeCount` : la logique, sans flecs |
+| [`include/levain/physics/queries.hpp`](include/levain/physics/queries.hpp) | `Ray`, `RayHit`, `LayerMask`, `maskOf`, `SolidLayers`, `raycast`, `sphereCast` |
 | [`include/levain/physics/body_rules.hpp`](include/levain/physics/body_rules.hpp) | `whyNotABody`, `whyNotThisLayer`, `poseOf` |
 | [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` |
 | [`src/physics_world.cpp`](src/physics_world.cpp) | Jolt : les couches, le job system, les corps, le pas |

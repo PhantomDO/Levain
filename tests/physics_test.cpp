@@ -16,6 +16,7 @@
 #include "levain/physics/layers.hpp"
 #include "levain/physics/physics.hpp"
 #include "levain/physics/physics_world.hpp"
+#include "levain/physics/queries.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/fixed_step.hpp"
 #include "levain/scene/scene.hpp"
@@ -374,6 +375,137 @@ TEST_CASE("un sol en maillage cinématique soulève la caisse posée dessus")
         levain::physics::stepPhysics(world, Step);
     }
     CHECK(restsOn(levain::physics::bodyPose(world, crate).position.y, 1.0f, 0.5f));
+}
+
+TEST_CASE("un rayon touche le premier corps : son entité, le point, la normale, la distance")
+{
+    PhysicsWorld world = levain::physics::createPhysicsWorld();
+    levain::physics::createBody(world, groundCollider(), nullptr, GroundPose, 1);
+    levain::physics::createBody(world, crateCollider(), nullptr, {.position = {0.0f, 0.5f, 0.0f}},
+                                7);
+
+    // Vers le bas, depuis 10 m : la caisse avant le sol. Son dessus est à y = 1.
+    const auto hit = levain::physics::raycast(
+        world,
+        {.origin = {0.0f, 10.0f, 0.0f}, .direction = {0.0f, -1.0f, 0.0f}, .maxDistance = 100.0f});
+    REQUIRE(hit.has_value());
+    const levain::physics::RayHit found = hit.value_or(levain::physics::RayHit{});
+    CHECK(found.entity == 7);
+    CHECK(found.distance == doctest::Approx(9.0f));
+    CHECK(found.point.y == doctest::Approx(1.0f));
+    CHECK(found.normal.y == doctest::Approx(1.0f));
+
+    // À côté de la caisse : le sol, sa normale vers le haut.
+    const auto beside = levain::physics::raycast(
+        world, {.origin = {3.0f, 10.0f, 0.0f}, .direction = {0.0f, -2.0f, 0.0f}}); // non normalisée
+    CHECK(beside.value_or(levain::physics::RayHit{}).entity == 1);
+    CHECK(beside.value_or(levain::physics::RayHit{}).distance == doctest::Approx(10.0f));
+
+    // Trop court, ou vers le ciel : rien.
+    CHECK_FALSE(levain::physics::raycast(world, {.origin = {0.0f, 10.0f, 0.0f},
+                                                 .direction = {0.0f, -1.0f, 0.0f},
+                                                 .maxDistance = 5.0f})
+                    .has_value());
+    CHECK_FALSE(levain::physics::raycast(
+                    world, {.origin = {0.0f, 10.0f, 0.0f}, .direction = {0.0f, 1.0f, 0.0f}})
+                    .has_value());
+    // Une direction nulle ne lance rien, au lieu d'un rayon de longueur nulle.
+    CHECK_FALSE(levain::physics::raycast(
+                    world, {.origin = {0.0f, 10.0f, 0.0f}, .direction = {0.0f, 0.0f, 0.0f}})
+                    .has_value());
+}
+
+TEST_CASE("un rayon ignore les couches hors de son masque, et les volumes déclencheurs par défaut")
+{
+    PhysicsWorld world = levain::physics::createPhysicsWorld();
+    levain::physics::createBody(world, groundCollider(), nullptr, GroundPose, 1);
+    levain::physics::createBody(world,
+                                Collider{.shape = Box{{2.0f, 2.0f, 2.0f}}, .layer = Layer::Sensor},
+                                nullptr, {.position = {0.0f, 3.0f, 0.0f}}, 2);
+    const levain::physics::Ray down{.origin = {0.0f, 10.0f, 0.0f},
+                                    .direction = {0.0f, -1.0f, 0.0f}};
+
+    CHECK(levain::physics::raycast(world, down).value_or(levain::physics::RayHit{}).entity == 1);
+    CHECK(levain::physics::raycast(world, down, levain::physics::maskOf({Layer::Sensor}))
+              .value_or(levain::physics::RayHit{})
+              .entity == 2);
+    CHECK_FALSE(levain::physics::raycast(world, down, levain::physics::maskOf({Layer::Dynamic}))
+                    .has_value());
+}
+
+TEST_CASE("une sphère lancée s'arrête un rayon avant la surface")
+{
+    PhysicsWorld world = levain::physics::createPhysicsWorld();
+    levain::physics::createBody(world, groundCollider(), nullptr, GroundPose, 1);
+    const auto hit = levain::physics::sphereCast(
+        world, {.origin = {0.0f, 10.0f, 0.0f}, .direction = {0.0f, -1.0f, 0.0f}}, 0.5f);
+    REQUIRE(hit.has_value());
+    const levain::physics::RayHit found = hit.value_or(levain::physics::RayHit{});
+    CHECK(found.entity == 1);
+    CHECK(found.distance == doctest::Approx(9.5f).epsilon(0.001)); // le centre s'arrête à y = 0,5
+    CHECK(found.point.y == doctest::Approx(0.0f).scale(1.0f));     // le contact, sur le sol
+    CHECK(found.normal.y == doctest::Approx(1.0f));
+}
+
+TEST_CASE("un rayon ne voit que les surfaces qu'il traverse en entrant, comme celui d'Unity")
+{
+    PhysicsWorld world = levain::physics::createPhysicsWorld();
+    levain::physics::createBody(world, groundCollider(), nullptr, GroundPose, 1);
+    levain::physics::createBody(world, crateCollider(), nullptr, {.position = {0.0f, 0.5f, 0.0f}},
+                                7);
+    levain::physics::createBody(world,
+                                Collider{.shape = levain::physics::HeightFieldShape{slope()}},
+                                nullptr, {.position = {20.0f, 0.0f, 0.0f}}, 8);
+
+    // Du centre de la caisse : ni vers le ciel, ni vers le sol, la caisse elle-même ne compte pas.
+    CHECK_FALSE(levain::physics::raycast(
+                    world, {.origin = {0.0f, 0.5f, 0.0f}, .direction = {0.0f, 1.0f, 0.0f}})
+                    .has_value());
+    const auto down = levain::physics::raycast(
+        world, {.origin = {0.0f, 0.5f, 0.0f}, .direction = {0.0f, -1.0f, 0.0f}});
+    CHECK(down.value_or(levain::physics::RayHit{}).entity == 1);
+    CHECK(down.value_or(levain::physics::RayHit{}).distance == doctest::Approx(0.5f));
+
+    // La grille, par-dessus, en (6, 2) de son coin : 0,6 m, et non 0,2 comme le dirait une grille
+    // lue dans l'autre sens. Par-dessous, elle n'existe pas.
+    const auto above = levain::physics::raycast(
+        world, {.origin = {26.0f, 10.0f, 2.0f}, .direction = {0.0f, -1.0f, 0.0f}});
+    CHECK(above.value_or(levain::physics::RayHit{}).entity == 8);
+    // Jolt range les hauteurs sur 16 bits par bloc : 0,6004 m, à moins d'un millimètre près.
+    CHECK(above.value_or(levain::physics::RayHit{}).point.y ==
+          doctest::Approx(0.6f).epsilon(0.005));
+    CHECK_FALSE(levain::physics::raycast(
+                    world, {.origin = {26.0f, -0.5f, 2.0f}, .direction = {0.0f, 1.0f, 0.0f}})
+                    .has_value());
+}
+
+TEST_CASE(
+    "une sphère lancée depuis un contact touche à 0 en avançant vers lui, rien en s'éloignant")
+{
+    PhysicsWorld world = levain::physics::createPhysicsWorld();
+    levain::physics::createBody(world, groundCollider(), nullptr, GroundPose, 1);
+    // Le centre à 0,3 au-dessus du sol : la sphère de 0,5 y entre de 0,2.
+    const auto toward = levain::physics::sphereCast(
+        world, {.origin = {0.0f, 0.3f, 0.0f}, .direction = {0.0f, -1.0f, 0.0f}}, 0.5f);
+    CHECK(toward.value_or(levain::physics::RayHit{.distance = -1.0f}).distance ==
+          doctest::Approx(0.0f));
+    CHECK_FALSE(levain::physics::sphereCast(
+                    world, {.origin = {0.0f, 0.3f, 0.0f}, .direction = {0.0f, 1.0f, 0.0f}}, 0.5f)
+                    .has_value());
+}
+
+TEST_CASE("une sphère lancée sur l'arête d'une boîte rend la normale du contact, pas d'une face")
+{
+    PhysicsWorld world = levain::physics::createPhysicsWorld();
+    levain::physics::createBody(world, crateCollider(), nullptr, {.position = {0.0f, 0.5f, 0.0f}},
+                                7);
+    // Le long de la diagonale qui passe par l'arête du dessus, en x = 0,5 et y = 1.
+    const auto hit = levain::physics::sphereCast(
+        world, {.origin = {2.5f, 3.0f, 0.0f}, .direction = {-1.0f, -1.0f, 0.0f}}, 0.5f);
+    REQUIRE(hit.has_value());
+    const glm::vec3 normal = hit.value_or(levain::physics::RayHit{}).normal;
+    CHECK(normal.x == doctest::Approx(std::sqrt(0.5f)).epsilon(0.01));
+    CHECK(normal.y == doctest::Approx(std::sqrt(0.5f)).epsilon(0.01));
 }
 
 TEST_CASE("un corps est une racine sans échelle")
