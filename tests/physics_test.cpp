@@ -157,7 +157,8 @@ TEST_CASE("un corps mobile sur la couche Static est refusé, il traverserait le 
     CHECK_FALSE(levain::physics::whyNotThisLayer(crateCollider(), &dynamic).has_value());
 }
 
-TEST_CASE("créer puis détruire un corps le retire du monde ; détruire « aucun corps » ne fait rien")
+TEST_CASE(
+    "créer puis détruire un corps le retire du monde, et détruire « aucun corps » ne fait rien")
 {
     PhysicsWorld world = levain::physics::createPhysicsWorld();
     const auto ground =

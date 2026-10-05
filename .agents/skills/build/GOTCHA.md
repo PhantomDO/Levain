@@ -3,6 +3,33 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un « ; » dans le nom d'un TEST_CASE : deux tests verts qui ne testent rien (2026-10-05)
+
+- **Symptôme** : `ctest -N` liste un cas coupé en deux entrées (« … le retire du monde » et « détruire
+  « aucun corps » … ») ; les deux passent en 0,00 s, et doctest annonce `test cases: 0 | 0 passed`. Le test,
+  écrit ainsi dès #263, n'avait jamais tourné en CI.
+- **Cause** : `doctest_discover_tests` passe les noms des cas à CMake, pour qui « ; » sépare les éléments
+  d'une liste. Chaque moitié devient un filtre `--test-case=` qui ne retrouve rien, et doctest sort sans
+  erreur quand aucun cas ne correspond.
+- **Parade** : ni « ; » ni crochet non refermé dans un nom de cas (entre crochets, CMake ne sépare plus : un
+  « [ » ouvert fondrait les cas suivants en une seule entrée) ; et `FAIL_REGULAR_EXPRESSION
+  "test cases: 0 [|]"` sur les tests découverts (`tests/CMakeLists.txt`) : une entrée qui n'exécute rien
+  échoue (règle n°7). `[|]` et non `|`, qui est une alternance en regex CMake et reconnaîtrait toute sortie.
+  Contre-test : le nom remis avec son « ; », les deux entrées rougissent.
+
+## LeakSanitizer et lavapipe installé à côté de RADV : des fuites dans un « module inconnu » (2026-10-05)
+
+- **Symptôme** : sous ASan, tous les tests GPU échouent d'un coup sur 128 à 256 octets perdus, dont la pile
+  finit dans `<unknown module>` sous `libvulkan.so.1`, alors que `LD_PRELOAD=/usr/lib/libvulkan_radeon.so` est
+  posé (entrée « LeakSanitizer et RADV » plus bas).
+- **Cause** : lavapipe (`vulkan-swrast`), installé dans la distrobox pour reproduire le pilote de la CI. Le
+  loader le charge avec les autres pilotes pour les énumérer, puis le décharge, puisqu'il n'est pas
+  préchargé : sa globale paraît perdue, le même faux positif que celui de RADV. Les pilotes Intel, présents
+  avant lui, ne le provoquaient pas.
+- **Parade** : un seul pilote, et préchargé : `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/radeon_icd.json` avec
+  `LD_PRELOAD=/usr/lib/libvulkan_radeon.so`, ou `lvp_icd.json` avec `libvulkan_lvp.so` pour lancer les tests
+  de fumée comme la CI (`VK_DRIVER_FILES` seul pour un build sans sanitizer). Les deux passent sous ASan.
+
 ## Jolt n'a ses assertions qu'en Debug (2026-10-04, corrigé le 2026-10-05)
 
 - **Symptôme** : en Release, une masse nulle, un rayon négatif, un quaternion non normalisé ou `destroyBody`

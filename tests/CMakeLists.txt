@@ -85,9 +85,18 @@ target_compile_definitions(levain_tests PRIVATE
 # doctest_discover_tests lance le binaire à la compilation pour lister ses cas, et en
 # déclare un par TEST_CASE à ctest. Une régression pointe donc le cas précis plutôt qu'un
 # « levain_tests a échoué ». Fourni par le port vcpkg de doctest.
+#
+# Un cas que le filtre de ctest ne retrouve pas n'exécute rien, et doctest sort quand même sans
+# erreur. C'est arrivé : un « ; » dans le nom d'un TEST_CASE est le séparateur des listes de CMake,
+# et le cas devenait deux entrées vertes qui ne testaient rien (règle n°7). D'où l'échec quand
+# doctest annonce zéro cas exécuté : `[|]` et non `|`, qui est une alternance en regex CMake et
+# reconnaîtrait toute sortie. Le garde-fou lit le rapporteur console de doctest : un autre
+# rapporteur (`JUNIT_OUTPUT_DIR`) ou `--quiet` le rendraient muet.
 include(doctest)
 # SDL_VIDEO_DRIVER=offscreen : window_test.cpp ouvre une vraie fenêtre, sans écran en CI.
-doctest_discover_tests(levain_tests PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+doctest_discover_tests(levain_tests PROPERTIES
+    ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen"
+    FAIL_REGULAR_EXPRESSION "test cases: 0 [|]")
 
 # Le reste (benchmarks, contrôles des sources, rendu hors écran) ne concerne que le build natif.
 if(EMSCRIPTEN)
