@@ -14,6 +14,7 @@
 #include "levain/physics/body_rules.hpp"
 #include "levain/physics/components.hpp"
 #include "levain/physics/layers.hpp"
+#include "levain/physics/outlines.hpp"
 #include "levain/physics/physics.hpp"
 #include "levain/physics/physics_world.hpp"
 #include "levain/physics/queries.hpp"
@@ -506,6 +507,60 @@ TEST_CASE("une sphère lancée sur l'arête d'une boîte rend la normale du cont
     const glm::vec3 normal = hit.value_or(levain::physics::RayHit{}).normal;
     CHECK(normal.x == doctest::Approx(std::sqrt(0.5f)).epsilon(0.01));
     CHECK(normal.y == doctest::Approx(std::sqrt(0.5f)).epsilon(0.01));
+}
+
+TEST_CASE("le contour d'une boîte : ses 12 arêtes, tournées et placées avec le corps")
+{
+    std::vector<levain::physics::Segment> segments;
+    const levain::physics::BodyPose pose{
+        .position = {5.0f, 1.0f, 0.0f},
+        .rotation = glm::angleAxis(glm::radians(90.0f), glm::vec3{0.0f, 1.0f, 0.0f})};
+    levain::physics::appendOutline(Collider{.shape = Box{{1.0f, 0.5f, 0.25f}}}, pose, segments);
+    REQUIRE(segments.size() == 12);
+    for (const auto& segment : segments)
+    {
+        // Chaque extrémité est un coin : à la demi-diagonale du centre.
+        CHECK(glm::length(segment.from - pose.position) == doctest::Approx(std::sqrt(1.3125f)));
+        // Chaque arête a la longueur d'une dimension de la boîte : 2, 1 ou 0,5.
+        const float length = glm::length(segment.to - segment.from);
+        CHECK((std::abs(length - 2.0f) < 1e-4f || std::abs(length - 1.0f) < 1e-4f ||
+               std::abs(length - 0.5f) < 1e-4f));
+    }
+    // Tournée de 90° autour de Y, la longueur de 2 m va désormais selon z.
+    const bool alongZ =
+        std::ranges::any_of(segments, [](const auto& segment)
+                            { return std::abs(segment.to.z - segment.from.z) > 1.99f; });
+    CHECK(alongZ);
+}
+
+TEST_CASE("le contour d'une sphère, d'une capsule et d'une grille de hauteurs")
+{
+    std::vector<levain::physics::Segment> segments;
+    levain::physics::appendOutline(Collider{.shape = levain::physics::Sphere{.radius = 2.0f}}, {},
+                                   segments);
+    CHECK(segments.size() == 3 * levain::physics::CircleSegments);
+    for (const auto& segment : segments)
+    {
+        CHECK(glm::length(segment.from) == doctest::Approx(2.0f));
+    }
+
+    segments.clear();
+    levain::physics::appendOutline(
+        Collider{.shape = levain::physics::Capsule{.halfHeight = 1.0f, .radius = 0.5f}}, {},
+        segments);
+    CHECK(segments.size() ==
+          2 * levain::physics::CircleSegments + 4 + 4 * (levain::physics::CircleSegments / 2));
+    for (const auto& segment : segments)
+    {
+        // Chaque point est à 0,5 m de l'axe de la capsule, entre −1 et 1.
+        const float y = std::clamp(segment.from.y, -1.0f, 1.0f);
+        CHECK(glm::length(segment.from - glm::vec3{0.0f, y, 0.0f}) == doctest::Approx(0.5f));
+    }
+
+    segments.clear();
+    levain::physics::appendOutline(Collider{.shape = levain::physics::HeightFieldShape{slope()}},
+                                   {}, segments);
+    CHECK(segments.size() == 4 * 8); // les quatre bords de 8 segments, et rien d'autre
 }
 
 TEST_CASE("un corps est une racine sans échelle")

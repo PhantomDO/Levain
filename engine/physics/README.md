@@ -89,6 +89,7 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | [`include/levain/physics/layers.hpp`](include/levain/physics/layers.hpp) | `Layer` et la matrice `layersCollide` |
 | [`include/levain/physics/physics_world.hpp`](include/levain/physics/physics_world.hpp) | `PhysicsWorld`, `createPhysicsWorld`, `createBody`, `teleportBody`, `moveKinematic`, `stepPhysics`, `collectMovedBodies`, `sharedShapeCount` : la logique, sans flecs |
 | [`include/levain/physics/queries.hpp`](include/levain/physics/queries.hpp) | `Ray`, `RayHit`, `LayerMask`, `maskOf`, `SolidLayers`, `raycast`, `sphereCast` |
+| [`include/levain/physics/outlines.hpp`](include/levain/physics/outlines.hpp) | `Segment`, `CircleSegments`, `appendOutline` — les arêtes de chaque forme, pour les lignes de debug de `render` ; sans Jolt |
 | [`include/levain/physics/body_rules.hpp`](include/levain/physics/body_rules.hpp) | `whyNotABody`, `whyNotThisLayer`, `poseOf` |
 | [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` |
 | [`src/physics_world.cpp`](src/physics_world.cpp) | Jolt : les couches, le job system, les corps, le pas |
