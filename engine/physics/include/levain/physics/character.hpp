@@ -38,8 +38,12 @@ struct CharacterController
     float mass = 70.0f;
     /// La force maximale avec laquelle il pousse un corps dynamique, en newtons. Jolt donne au
     /// corps touché l'impulsion qui l'amène à la vitesse du personnage, compte tenu de **sa**
-    /// masse, mais pas plus que cette force : une caisse légère suit au pas, une lourde avance
-    /// d'autant plus lentement qu'elle pèse, et un rocher d'une tonne ne bouge pas. 100 N, le
+    /// masse, mais pas plus que cette force. C'est un seuil : une caisse ne bouge que si la force
+    /// dépasse son frottement, m < F / (μ·g), soit 20 kg avec 100 N et nos frottements de 0,5.
+    ///
+    /// Le piège : contre un obstacle plus haut qu'une marche, `ExtendedUpdate` le déplace **deux
+    /// fois** par pas (son déplacement, puis l'essai de monter la marche), et chaque fois la caisse
+    /// reçoit sa poussée. Avec une hauteur de marche, le seuil double : vers 40 kg. 100 N, le
     /// défaut de Jolt.
     float maxPushForce = 100.0f;
 };
@@ -114,6 +118,9 @@ CharacterHandle createCharacter(PhysicsWorld& world, const CharacterController& 
 
 void destroyCharacter(PhysicsWorld& world, CharacterHandle handle);
 
+/// Place le personnage sans le faire traverser l'espace entre les deux, et oublie son sol.
+void teleportCharacter(PhysicsWorld& world, CharacterHandle handle, const BodyPose& pose);
+
 /// Déplace le personnage à `velocity` pendant `seconds` : il glisse le long des obstacles, monte
 /// les marches et reste au sol (`ExtendedUpdate` de Jolt), et pousse les corps dynamiques qu'il
 /// touche.
@@ -124,7 +131,22 @@ void destroyCharacter(PhysicsWorld& world, CharacterHandle handle);
 void moveCharacter(PhysicsWorld& world, CharacterHandle handle, const glm::vec3& velocity,
                    float seconds);
 
+/// Tourne le personnage, sans le déplacer, **autour de Y seulement** : le tangage et le roulis de
+/// `rotation` sont ignorés, une capsule penchée traverserait le sol (ADR-0028).
+void turnCharacter(PhysicsWorld& world, CharacterHandle handle, const glm::quat& rotation);
+
+/// Relit la vitesse du sol sous le personnage, à appeler **après** `stepPhysics` : une plateforme
+/// a bougé pendant le pas, et la vitesse que le jeu calculera au pas suivant doit inclure la
+/// sienne.
+void refreshCharacterGround(PhysicsWorld& world, CharacterHandle handle);
+
 BodyPose characterPose(const PhysicsWorld& world, CharacterHandle handle);
+
+/// La vitesse que le personnage a vraiment eue à son dernier déplacement, son déplacement divisé
+/// par sa durée : nulle contre un mur, verticale dans un escalier. Pas la vitesse que Jolt garde,
+/// que les collisions ne corrigent pas : un renard animé selon elle courrait sur place contre un
+/// mur.
+glm::vec3 characterVelocity(const PhysicsWorld& world, CharacterHandle handle);
 
 CharacterGround characterGround(const PhysicsWorld& world, CharacterHandle handle);
 
