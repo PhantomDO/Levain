@@ -1,7 +1,7 @@
 find_package(glm CONFIG REQUIRED)
 find_package(Jolt CONFIG REQUIRED)
 
-add_library(levain_physics STATIC src/physics.cpp src/physics_world.cpp)
+add_library(levain_physics STATIC src/outlines.cpp src/physics.cpp src/physics_world.cpp)
 add_library(levain::physics ALIAS levain_physics)
 
 target_include_directories(levain_physics PUBLIC include)
