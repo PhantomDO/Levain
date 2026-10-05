@@ -65,7 +65,7 @@ std::uint64_t contentHash(std::span<const std::byte> bytes)
     // La taille d'abord : deux fichiers de tailles différentes n'ont jamais le même hash.
     for (std::size_t shift = 0; shift < 64; shift += 8)
     {
-        hash = (hash ^ ((bytes.size() >> shift) & 0xff)) * Prime;
+        hash = (hash ^ ((bytes.size() >> shift) & 0xffu)) * Prime;
     }
     for (const std::byte byte : bytes)
     {

@@ -970,7 +970,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     std::optional<levain::animation::AnimationSet> animation;
     std::size_t clip = 0;
     std::optional<levain::animation::AnimatorClips> animatorClips;
-    if (model != nullptr && isSkinned(*model))
+    if (model != nullptr && modelPath && isSkinned(*model))
     {
         auto set = levain::animation::importAnimationSet(
             levain::assets::pathOf(registry, modelId).value_or(*modelPath));

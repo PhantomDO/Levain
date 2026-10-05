@@ -32,7 +32,7 @@ std::vector<PointLight> testLights()
     const auto next = [&seed]
     {
         seed = (seed * 1664525u) + 1013904223u; // un générateur congruentiel : reproductible
-        return static_cast<float>(seed >> 8) / static_cast<float>(1u << 24);
+        return static_cast<float>(seed >> 8u) / static_cast<float>(1u << 24u);
     };
     // 40 lumières serrées autour du point que regarde la caméra : les clusters de cet endroit en
     // voient plus de 32.

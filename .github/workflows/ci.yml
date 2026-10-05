@@ -41,7 +41,7 @@ jobs:
       # Doit rester égal à la version de la machine de référence (SPECS §10) : clang-format
       # ne produit pas la même sortie d'une version majeure à l'autre, un écart ferait
       # échouer le contrôle de format sur des fichiers pourtant corrects.
-      LLVM_VERSION: "22"
+      LLVM_VERSION: "23"
       # Explicite plutôt que par défaut : si LeakSanitizer ne pouvait pas tourner sur le
       # runner, le programme s'arrêterait en erreur au lieu de sauter la détection en silence.
       ASAN_OPTIONS: detect_leaks=1
@@ -97,7 +97,8 @@ jobs:
           clang-format --version
           clang-tidy --version | head -2
           for t in clang++ clang-format clang-tidy; do
-            $t --version | grep -q "${{ env.LLVM_VERSION }}\." \
+            # « version 23. » et non « 23. » : l'horodatage d'un build d'apt.llvm.org peut contenir « 23. ».
+            $t --version | grep -q "version ${{ env.LLVM_VERSION }}\." \
               || { echo "::error::$t n'est pas en version ${{ env.LLVM_VERSION }}"; exit 1; }
           done
 

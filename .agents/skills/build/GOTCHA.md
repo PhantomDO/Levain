@@ -57,16 +57,18 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   arrêter Firefox, le PID de `flatpak run` ne suffit pas : tuer le processus `/app/lib/firefox/firefox` dont la
   ligne de commande porte ce profil, jamais `flatpak kill`, qui fermerait aussi le Firefox de Donnovan.
 
-## La distrobox est passée à LLVM 23, la CI est restée à 22 (2026-10-04)
+## La distrobox est passée à LLVM 23, la CI est restée à 22 (2026-10-04, aligné le 2026-10-05)
 
 - **Symptôme** : clang-tidy signale en local des fichiers que la CI accepte (`bugprone-signed-bitwise`,
   `bugprone-unchecked-optional-access` dans `culling_test.cpp` et `main.cpp`, jamais modifiés).
-- **Cause** : Arch a mis la distrobox à clang 23.1 ; `LLVM_VERSION` vaut 22 dans `ci.yml`. clang-format et
+- **Cause** : Arch a mis la distrobox à clang 23.1 ; `LLVM_VERSION` valait 22 dans `ci.yml`. clang-format et
   clang-tidy changent de règles d'une version majeure à l'autre (piège déjà vu en M0).
 - **Parade** : vérifier avec les outils de la CI, sans toucher au système : `python3 -m venv <dossier>`, puis
-  `pip install "clang-format>=22,<23" "clang-tidy>=22,<23"`, et les lancer dans la distrobox. Aligner les
-  deux versions : la règle écrite dans `ci.yml` veut que la CI suive la machine de référence ; à faire dans
-  une PR à part, avec les remarques que clang-tidy 23 ajoute au code existant.
+  `pip install "clang-format>=N,<N+1" "clang-tidy>=N,<N+1"` pour la version N de la CI, et les lancer dans la distrobox. Aligner les
+  deux versions : la règle écrite dans `ci.yml` veut que la CI suive la machine de référence. Fait le
+  2026-10-05 : la CI est en LLVM 23. `bugprone-signed-bitwise`, nouveau en 23, refuse aussi un **littéral
+  signé** comme décalage ou masque (`h >> 15`, `x & 0xff`) : écrire `15u`, `0xffu`. Au prochain écart de
+  version, la même parade.
 
 ## « clang++ : commande introuvable » : le système hôte est immuable (2026-10-04)
 

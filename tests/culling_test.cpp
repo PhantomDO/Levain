@@ -1,4 +1,5 @@
 #include <array>
+#include <cstdint>
 #include <cstring>
 
 #include <doctest/doctest.h>
@@ -63,11 +64,11 @@ TEST_CASE("une boîte transformée contient chacun des huit coins transformés, 
                                glm::radians(45.0f), glm::vec3{0.0f, 1.0f, 0.0f}),
                    glm::vec3{2.0f});
     std::array<glm::vec3, 8> corners{};
-    for (int i = 0; i < 8; ++i)
+    for (std::uint32_t i = 0; i < 8; ++i)
     {
-        corners[i] = glm::vec3{transform * glm::vec4{(i & 1) != 0 ? box.max.x : box.min.x,
-                                                     (i & 2) != 0 ? box.max.y : box.min.y,
-                                                     (i & 4) != 0 ? box.max.z : box.min.z, 1.0f}};
+        corners[i] = glm::vec3{transform * glm::vec4{(i & 1u) != 0 ? box.max.x : box.min.x,
+                                                     (i & 2u) != 0 ? box.max.y : box.min.y,
+                                                     (i & 4u) != 0 ? box.max.z : box.min.z, 1.0f}};
     }
     const Box expected = levain::render::boundsOf(corners);
     const Box actual = levain::render::transformed(box, transform);
@@ -99,10 +100,10 @@ TEST_CASE(
         glm::angleAxis(glm::radians(50.0f), glm::normalize(glm::vec3{1.0f, 2.0f, 3.0f}));
     const auto box = levain::render::worldBoundsOf(mesh, instances, glm::mat4{1.0f})
                          .value_or(levain::render::Box{});
-    for (int corner = 0; corner < 8; ++corner)
+    for (std::uint32_t corner = 0; corner < 8; ++corner)
     {
-        const glm::vec3 local{(corner & 1) != 0 ? 1.0f : -1.0f, (corner & 2) != 0 ? 0.5f : -0.5f,
-                              (corner & 4) != 0 ? 0.25f : -0.25f};
+        const glm::vec3 local{(corner & 1u) != 0 ? 1.0f : -1.0f, (corner & 2u) != 0 ? 0.5f : -0.5f,
+                              (corner & 4u) != 0 ? 0.25f : -0.25f};
         for (const float x : {10.0f, 12.0f})
         {
             const glm::vec3 placed = rotation * local + glm::vec3{x, 0.0f, 0.0f};
