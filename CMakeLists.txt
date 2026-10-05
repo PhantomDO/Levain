@@ -68,6 +68,7 @@ add_subdirectory(engine/input)
 add_subdirectory(plugins/terrain)
 add_subdirectory(plugins/water)
 add_subdirectory(plugins/grass)
+add_subdirectory(plugins/character)
 # Le cuiseur est un outil de la machine de développement : les assets arrivent cuits au navigateur.
 if(NOT EMSCRIPTEN)
     add_subdirectory(tools/cook)

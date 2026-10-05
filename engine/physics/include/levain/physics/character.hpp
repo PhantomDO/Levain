@@ -143,6 +143,8 @@ void teleportCharacter(PhysicsWorld& world, CharacterHandle handle, const BodyPo
 /// les marches et reste au sol (`ExtendedUpdate` de Jolt), et pousse les corps dynamiques qu'il
 /// touche.
 /// **La gravité est dans `velocity`** : le moteur ne la lui donne pas (ADR-0028).
+/// Sans vitesse horizontale demandée, il **tient** sur une pente qu'il peut monter, au lieu d'y
+/// glisser sous cette gravité, comme dans l'exemple de Jolt ; une plateforme l'emporte toujours.
 ///
 /// À appeler **avant** `stepPhysics`, comme les exemples de Jolt : les impulsions données aux
 /// caisses poussées entrent dans ce pas.

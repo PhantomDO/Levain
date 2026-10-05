@@ -119,6 +119,14 @@ glm::quat uprightOf(const glm::quat& rotation)
     return glm::angleAxis(std::atan2(-right.z, right.x), glm::vec3{0.0f, 1.0f, 0.0f});
 }
 
+/// Le gameplay ne demande pas de bouger à l'horizontale : le personnage tient alors sur une pente
+/// qu'il peut monter, au lieu d'y glisser sous la gravité (`StandStill`). Un millimètre par seconde
+/// près : une manette au repos ne rend pas toujours un zéro exact.
+bool holdsOnSlopes(const glm::vec3& velocity)
+{
+    return glm::length(glm::vec2{velocity.x, velocity.z}) < 1e-3f;
+}
+
 GroundState groundStateOf(JPH::CharacterBase::EGroundState state)
 {
     switch (state)
@@ -165,10 +173,12 @@ CharacterHandle createCharacter(PhysicsWorld& world, const CharacterController& 
     settings.mInnerBodyLayer = static_cast<JPH::ObjectLayer>(Layer::Character);
 
     PhysicsState::Character character{
+        .standStill = std::make_unique<PhysicsState::StandStill>(),
         .jolt = new JPH::CharacterVirtual(&settings, toJolt(pose.position),
                                           toJoltRotation(uprightOf(pose.rotation)), entity,
                                           &state.system),
         .update = {}};
+    character.jolt->SetListener(character.standStill.get());
     character.update.mWalkStairsStepUp = JPH::Vec3(0.0f, controller.stepHeight, 0.0f);
     character.update.mStickToFloorStepDown =
         JPH::Vec3(0.0f, -controller.stickToFloorDistance, 0.0f);
@@ -197,8 +207,10 @@ void destroyCharacter(PhysicsWorld& world, CharacterHandle handle)
     PhysicsState::Character& character = characterOf(state, handle);
     // Les volumes oublient son corps intérieur tout de suite, comme un corps détruit.
     forgetContactsOf(state.contacts, character.jolt->GetInnerBodyID().GetIndexAndSequenceNumber());
-    // Le `Ref` relâché détruit le personnage, qui retire et détruit son corps intérieur.
+    // Le `Ref` relâché détruit le personnage, qui retire et détruit son corps intérieur ; son
+    // écouteur part ensuite.
     character.jolt = nullptr;
+    character.standStill.reset();
     state.freeCharacters.push_back(handle.value);
 }
 
@@ -226,6 +238,7 @@ void moveCharacter(PhysicsWorld& world, CharacterHandle handle, const glm::vec3&
     PhysicsState::Character& character = characterOf(state, handle);
     const JPH::RVec3 before = character.jolt->GetPosition();
     character.jolt->SetLinearVelocity(toJolt(velocity));
+    character.standStill->holding = holdsOnSlopes(velocity);
     const CharacterBroadPhaseFilter broadPhase;
     const CharacterLayerFilter layers;
     // La gravité du monde ne déplace pas le personnage : Jolt s'en sert pour peser sur ce qui le

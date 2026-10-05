@@ -78,6 +78,10 @@ plugin `character`.
     - **son corps intérieur fait 90 % de sa capsule** (`innerShapeOf`) : de sa taille, il pousserait les caisses
       sans la limite de `maxPushForce` ;
     - **il ignore les volumes déclencheurs** (`characterSees`) : c'est son corps intérieur qu'ils voient.
+    - **sans vitesse horizontale demandée, il tient** sur une pente praticable et immobile (`StandStill`,
+      `holdsOnSlopes`), au lieu d'y glisser sous la gravité que le gameplay ajoute même au sol, comme dans
+      l'exemple de Jolt ; une plateforme l'emporte toujours. C'est le `floor_stop_on_slope` du
+      `CharacterBody3D` de Godot.
     - **par les entités** : le gameplay écrit `CharacterVelocity` (chute comprise, elle persiste) et la rotation
       du `Transform` par référence ; le module recopie la position et pose `CharacterState`. Un `set<Transform>`
       le téléporte, remet sa vitesse voulue à zéro et relit son sol. Il est refusé, comme un corps, s'il est
