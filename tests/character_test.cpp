@@ -2,6 +2,7 @@
 // des pentes, s'arrête contre un rebord, pousse des caisses et suit une plateforme. La marche du
 // plugin `character` et la glu flecs ont leurs propres tests.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -397,6 +398,56 @@ TEST_CASE(
                               glm::vec3{0.0f, 0.0f, -1.0f};
     CHECK(forward.x == doctest::Approx(-1.0f));
     CHECK(forward.y == doctest::Approx(0.0f));
+}
+
+// `StandStill` (ADR-0028) : sans vitesse horizontale demandée, la gravité qu'on lui donne même au
+// sol ne le fait pas glisser sur une pente praticable ; avec, il bouge ; et un saut vertical part
+// droit. Le `walk` de ce fichier ne lui donne pas la gravité au sol : ici, si.
+TEST_CASE("sans vitesse horizontale demandée, il tient sur une pente de 30°, et saute droit")
+{
+    PhysicsWorld world = worldWithGround();
+    addRamp(world, -3.0f, 30.0f);
+    // Sur la rampe, en x = −1 : 2 m au-delà de son pied, son dessus y est à 2 tan 30°.
+    Walker player = spawn(world, {-1.0f, 2.0f * std::tan(glm::radians(30.0f)) + 0.2f, 0.0f});
+    const auto stepWith = [&](const glm::vec3& horizontal, float jump)
+    {
+        const auto ground = levain::physics::characterGround(world, player.handle);
+        player.verticalSpeed =
+            (levain::physics::isWalking(ground) ? ground.velocity.y + jump : player.verticalSpeed) -
+            Gravity * Step;
+        levain::physics::moveCharacter(
+            world, player.handle, horizontal + glm::vec3{0.0f, player.verticalSpeed, 0.0f}, Step);
+        levain::physics::stepPhysics(world, Step);
+        levain::physics::refreshCharacterGround(world, player.handle);
+    };
+    for (int i = 0; i < 30; ++i)
+    {
+        stepWith({}, 0.0f);
+    }
+    const glm::vec3 settled = feetOf(world, player);
+    for (int i = 0; i < 180; ++i)
+    {
+        stepWith({}, 0.0f);
+    }
+    CHECK(glm::length(feetOf(world, player) - settled) < 0.005f);
+
+    // Un saut vertical : il monte et retombe à sa place, sans glisser.
+    stepWith({}, 5.0f);
+    float highest = settled.y;
+    for (int i = 0; i < 90; ++i)
+    {
+        stepWith({}, 0.0f);
+        highest = std::max(highest, feetOf(world, player).y);
+    }
+    CHECK(highest > settled.y + 1.0f);
+    CHECK(glm::length(feetOf(world, player) - settled) < 0.02f);
+
+    // Avec une vitesse horizontale, il bouge.
+    for (int i = 0; i < 30; ++i)
+    {
+        stepWith({1.0f, 0.0f, 0.0f}, 0.0f);
+    }
+    CHECK(feetOf(world, player).x > settled.x + 0.3f);
 }
 
 TEST_CASE("des réglages de personnage impossibles sont refusés, avec leur raison")

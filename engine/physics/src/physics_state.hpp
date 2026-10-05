@@ -247,10 +247,34 @@ struct PhysicsState
 
     std::unordered_map<const void*, SharedShape> sharedShapes;
 
+    /// Ce qui empêche un personnage immobile de glisser sur une pente qu'il peut monter, comme dans
+    /// l'exemple de Jolt (`CharacterVirtualTest::OnContactSolve`) : sans lui, la gravité que le
+    /// gameplay ajoute même au sol le fait descendre, 21 cm en 3 s sur 30°. Seulement sur un sol
+    /// immobile : une plateforme l'emporte toujours.
+    class StandStill final : public JPH::CharacterContactListener
+    {
+    public:
+        bool holding = false; ///< Vrai quand le gameplay ne demande aucune vitesse horizontale.
+
+        void OnContactSolve(const JPH::CharacterVirtual* character, const JPH::BodyID&,
+                            const JPH::SubShapeID&, JPH::RVec3Arg, JPH::Vec3Arg normal,
+                            JPH::Vec3Arg contactVelocity, const JPH::PhysicsMaterial*, JPH::Vec3Arg,
+                            JPH::Vec3& newVelocity) override
+        {
+            if (holding && contactVelocity.IsNearZero() && !character->IsSlopeTooSteep(normal))
+            {
+                newVelocity = JPH::Vec3::sZero();
+            }
+        }
+    };
+
     /// Un personnage (ADR-0028) et les réglages de son `ExtendedUpdate` : ses marches et son
     /// collage au sol, que Jolt ne garde pas dans le `CharacterVirtual`.
     struct Character
     {
+        /// Par pointeur : Jolt garde son adresse, et le tableau des personnages peut se réallouer.
+        /// Déclaré avant le personnage, donc détruit après lui : Jolt n'y touche plus alors.
+        std::unique_ptr<StandStill> standStill;
         JPH::Ref<JPH::CharacterVirtual> jolt;
         JPH::CharacterVirtual::ExtendedUpdateSettings update;
         /// Le déplacement du dernier `moveCharacter`, divisé par sa durée (`characterVelocity`).
