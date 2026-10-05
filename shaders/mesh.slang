@@ -3,6 +3,7 @@
 // space0 pour ce qui change une fois par frame (lighting.slang), space2 pour ce qui change à chaque
 // matériau.
 
+#include "instance.slang"
 #include "lighting.slang"
 
 /// Les facteurs du matériau (glTF metallic-roughness) : ils multiplient leur texture.
@@ -28,7 +29,8 @@ struct VertexInput
     float4 tangent : TANGENT; ///< w : le sens où croît v.
     float3 color : COLOR;
     float2 uv : TEXCOORD;
-    float3 instanceOffset : INSTANCE_OFFSET; ///< Une valeur par instance, pas par sommet.
+    float3 instancePosition : INSTANCE_POSITION; ///< Une valeur par instance, pas par sommet.
+    float4 instanceRotation : INSTANCE_ROTATION; ///< Un quaternion (x, y, z, w).
 };
 
 struct VertexOutput
@@ -50,15 +52,19 @@ VertexOutput vertexMain(VertexInput input)
     // mul(matrice, vecteur) : les matrices arrivent de GLM rangées par colonnes, et le shader est
     // compilé avec -matrix-layout-column-major (shaders/CMakeLists.txt).
     VertexOutput output;
-    // Toutes les instances tournent ensemble (scene.model), puis chacune se place à sa position.
-    const float3 world = mul(scene.model, float4(input.position, 1.0)).xyz + input.instanceOffset;
+    // Toutes les instances sont placées ensemble (scene.model), puis chacune tourne sur elle-même et
+    // se place à sa position.
+    const float3 world = placeInInstance(mul(scene.model, float4(input.position, 1.0)).xyz,
+                                         input.instanceRotation, input.instancePosition);
     output.position = mul(scene.viewProjection, float4(world, 1.0));
     output.worldPosition = world;
     // ponytail: la matrice du modèle tourne la normale telle quelle, juste sans échelle non
     // uniforme ; la transposée de son inverse quand un modèle s'étirera d'un seul côté.
-    output.normal = normalize(mul((float3x3)scene.model, input.normal));
-    output.tangent =
-        float4(normalize(mul((float3x3)scene.model, input.tangent.xyz)), input.tangent.w);
+    output.normal = normalize(
+        rotateByQuaternion(input.instanceRotation, mul((float3x3)scene.model, input.normal)));
+    output.tangent = float4(normalize(rotateByQuaternion(
+                                input.instanceRotation, mul((float3x3)scene.model, input.tangent.xyz))),
+                            input.tangent.w);
     output.clipPosition = output.position;
     output.color = input.color;
     output.uv = input.uv;

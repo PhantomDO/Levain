@@ -18,6 +18,17 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   invalide dans `destroyBody`, `toJoltRotation` qui renormalise), pour le Release ; en Debug,
   `JPH::AssertFailed` écrit dans notre journal avant de s'arrêter dans le débogueur.
 
+## La distrobox est passée à LLVM 23, la CI est restée à 22 (2026-10-04)
+
+- **Symptôme** : clang-tidy signale en local des fichiers que la CI accepte (`bugprone-signed-bitwise`,
+  `bugprone-unchecked-optional-access` dans `culling_test.cpp` et `main.cpp`, jamais modifiés).
+- **Cause** : Arch a mis la distrobox à clang 23.1 ; `LLVM_VERSION` vaut 22 dans `ci.yml`. clang-format et
+  clang-tidy changent de règles d'une version majeure à l'autre (piège déjà vu en M0).
+- **Parade** : vérifier avec les outils de la CI, sans toucher au système : `python3 -m venv <dossier>`, puis
+  `pip install "clang-format>=22,<23" "clang-tidy>=22,<23"`, et les lancer dans la distrobox. Aligner les
+  deux versions : la règle écrite dans `ci.yml` veut que la CI suive la machine de référence ; à faire dans
+  une PR à part, avec les remarques que clang-tidy 23 ajoute au code existant.
+
 ## « clang++ : commande introuvable » : le système hôte est immuable (2026-10-04)
 
 - **Symptôme** : sur la machine de référence, `clang++`, `cmake --preset` ou `clang-format` échouent depuis le

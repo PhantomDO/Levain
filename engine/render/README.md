@@ -28,7 +28,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 |---|---|
 | [`include/levain/render/triangle.hpp`](include/levain/render/triangle.hpp) | `createTrianglePass`, `drawTriangle` |
 | [`include/levain/render/camera.hpp`](include/levain/render/camera.hpp) | `Camera`, `viewOf`, `projectionOf`, `viewProjectionOf` — profondeur de 0 à 1, comme Vulkan et Direct3D 12 |
-| [`include/levain/render/mesh.hpp`](include/levain/render/mesh.hpp) | `Mesh`, `createMesh`, `createCube`, `createPlane` — buffers de sommets et d'indices ; `Instances`, `createInstances`, `updateInstances` — un décalage par exemplaire, remplaçable à chaque frame |
+| [`include/levain/render/mesh.hpp`](include/levain/render/mesh.hpp) | `Mesh`, `createMesh`, `createCube`, `createPlane` — buffers de sommets et d'indices ; `InstancePose`, `Instances`, `createInstances`, `updateInstances` — une position et une rotation par exemplaire, remplaçables à chaque frame |
 | [`include/levain/render/mesh_pass.hpp`](include/levain/render/mesh_pass.hpp) | `createMeshPass`, `reloadMeshPassShaders`, `ensureDepthTexture`, `createMaterialBindings`, `drawMesh` — la première passe avec constantes, profondeur et texture |
 | [`include/levain/render/texture.hpp`](include/levain/render/texture.hpp) | `TextureLevel`, `createTexture` — une texture sRGB et tous ses niveaux de mip ; `SamplerSettings`, `createSampler`, `clampAnisotropy` |
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
@@ -72,12 +72,18 @@ frame**, 0,15 ms pour la frame entière hors attente de l'écran
 
 ## Ce qu'ajoute l'instancing
 
-- **Un second vertex buffer, lu par exemplaire et non par sommet** : l'attribut `INSTANCE_OFFSET` est déclaré
-  `setIsInstanced(true)` dans l'input layout et lu dans le slot 1. Le GPU avance d'un élément à chaque exemplaire.
+- **Un second vertex buffer, lu par exemplaire et non par sommet** : les attributs `INSTANCE_POSITION` et
+  `INSTANCE_ROTATION` (un quaternion) sont déclarés `setIsInstanced(true)` dans l'input layout et lus dans le
+  slot 1. Le GPU avance d'une pose à chaque exemplaire. Le sommet, placé par la matrice du modèle, tourne
+  autour de l'origine de l'instance puis s'y pose (`shaders/instance.slang`) ; ses normales tournent avec lui.
+  Le test de fumée `cube-instance` le vérifie : la rotation portée par l'instance donne l'image de `cube`, où
+  elle est portée par le modèle.
 - **Un seul `drawIndexed`** avec `instanceCount = 10 000` : le CPU enregistre un appel, quel que soit le nombre
   de cubes. Mesuré : 0,022 ms de GPU pour 10 000 cubes en 1080p (journal, #42).
-- Le décalage est une simple position, pas une matrice : c'est tout ce dont la grille a besoin. Une matrice par
-  exemplaire viendra avec des objets qui tournent chacun de leur côté.
+- Une pose est une position et un quaternion, 28 octets, et non une matrice de 64 : c'est ce que demandent des
+  caisses qui culbutent. Elle n'a pas d'échelle : un exemplaire ne peut pas être plus grand qu'un autre.
+  ponytail: une échelle par exemplaire, le jour où les rochers et les arbres placés au pinceau (M7.6) en
+  demanderont une.
 
 ## Ce qu'ajoute une texture
 
@@ -302,7 +308,8 @@ passe est mesuré par le renderer (`passTimes`) ; une étape vide n'est pas chro
 ## Le frustum culling
 
 Chaque mesh connaît la boîte de ses sommets (`Mesh::bounds`, calculée par `createMesh`), et ses instances la
-plage de leurs positions (`Instances::offsetBounds`). `worldBoundsOf` en tire la boîte du dessin dans le monde (la
+plage de leurs positions (`Instances::positionBounds`). Si l'une tourne, la boîte du mesh devient celle de la sphère
+qui le contient dans toutes ses rotations : plus large, jamais fausse. `worldBoundsOf` en tire la boîte du dessin dans le monde (la
 méthode d'Arvo, `transformed`), et `isOutside` la teste contre les six plans du volume de vue, que `frustumOf` lit
 directement dans la matrice vue-projection (Gribb et Hartmann). Une boîte qui touche le volume est dessinée : le
 test peut garder un objet invisible, jamais écarter un objet visible. Le sandbox écarte ainsi les dessins hors

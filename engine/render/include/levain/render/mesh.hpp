@@ -5,6 +5,7 @@
 #include <span>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <nvrhi/nvrhi.h>
 
 #include "levain/render/culling.hpp"
@@ -40,33 +41,41 @@ struct Mesh
     std::optional<Box> bounds;
 };
 
-/// Les copies d'un mesh dessinées en un seul appel (instancing) : une position par instance, lue
-/// une fois par instance et non une fois par sommet. Doit correspondre à `instanceOffset` dans
-/// `shaders/mesh.slang`.
-struct Instances
+/// Où est placée une copie d'un mesh : sa rotation propre, autour de son origine, puis sa position.
+/// Doit correspondre à `INSTANCE_POSITION` et `INSTANCE_ROTATION` dans `shaders/mesh.slang` et
+/// `shaders/shadow.slang` : 28 octets, le quaternion rangé (x, y, z, w) comme glm le range.
+struct InstancePose
 {
-    // ponytail: une instance n'est qu'un décalage, pas une matrice. Un parent qu'on ferait tourner
-    // déplacerait donc ses enfants sans les tourner (M3.2). Passer aux matrices quand un objet de
-    // la scène devra tourner ou changer d'échelle indépendamment du mesh.
-    nvrhi::BufferHandle offsets;
-    std::uint32_t count = 0;    ///< Instances dessinées.
-    std::uint32_t capacity = 0; ///< Positions que le buffer peut contenir.
-    Box offsetBounds;           ///< La boîte des positions dessinées.
+    glm::vec3 position{0.0f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f}; ///< (w, x, y, z) au constructeur : l'identité.
 };
 
-/// Crée le buffer des positions, à la taille de `offsets`, et enregistre son envoi dans
-/// `commandList`.
-[[nodiscard]] Instances createInstances(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
-                                        std::span<const glm::vec3> offsets);
+/// Les copies d'un mesh dessinées en un seul appel (instancing) : une pose par instance, lue une
+/// fois par instance et non une fois par sommet. Chacune tourne sur elle-même, ce que demandent
+/// les caisses de la physique (M6.1) et, plus tard, les rochers et les arbres placés au pinceau.
+struct Instances
+{
+    nvrhi::BufferHandle poses;
+    std::uint32_t count = 0;    ///< Instances dessinées.
+    std::uint32_t capacity = 0; ///< Poses que le buffer peut contenir.
+    Box positionBounds{};       ///< La boîte des positions dessinées.
+    bool anyRotated = false;    ///< Une instance au moins tourne : la boîte du mesh ne suffit plus.
+};
 
-/// Remplace les positions des instances, par exemple à chaque frame depuis le monde flecs. Au-delà
-/// de la capacité du buffer, les positions en trop ne sont pas dessinées.
+/// Crée le buffer des poses, à la taille de `poses`, et enregistre son envoi dans `commandList`.
+[[nodiscard]] Instances createInstances(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
+                                        std::span<const InstancePose> poses);
+
+/// Remplace les poses des instances, par exemple à chaque frame depuis le monde flecs. Au-delà de
+/// la capacité du buffer, les poses en trop ne sont pas dessinées.
 void updateInstances(nvrhi::ICommandList& commandList, Instances& instances,
-                     std::span<const glm::vec3> offsets);
+                     std::span<const InstancePose> poses);
 
 /// La boîte, dans le monde, de toutes les instances de `mesh` placées par `model` : la boîte du
 /// mesh transformée, puis étirée de l'écart entre les positions des instances, que le shader ajoute
-/// après la matrice. Absente si le mesh n'a pas de boîte.
+/// après la matrice. Si une instance tourne, la boîte du mesh devient celle de la sphère qui le
+/// contient quelle que soit sa rotation : plus large, jamais fausse. Absente si le mesh n'a pas de
+/// boîte.
 [[nodiscard]] std::optional<Box> worldBoundsOf(const Mesh& mesh, const Instances& instances,
                                                const glm::mat4& model);
 

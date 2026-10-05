@@ -49,8 +49,9 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
 
     // Les noms sont les sémantiques de VertexInput dans shaders/mesh.slang, dans le même ordre (le
     // backend WebGPU numérote les attributs dans cet ordre). Les cinq premiers viennent du buffer
-    // des sommets (slot 0), le dernier du buffer des instances (slot 1), lu une fois par instance.
-    const std::array<nvrhi::VertexAttributeDesc, 6> attributes{
+    // des sommets (slot 0), les deux derniers du buffer des poses (slot 1), lus une fois par
+    // instance.
+    const std::array<nvrhi::VertexAttributeDesc, 7> attributes{
         nvrhi::VertexAttributeDesc()
             .setName("POSITION")
             .setFormat(nvrhi::Format::RGB32_FLOAT)
@@ -77,10 +78,18 @@ core::Result<MeshPass> createMeshPass(nvrhi::IDevice& device, const nvrhi::Frame
             .setOffset(offsetof(MeshVertex, uv))
             .setElementStride(sizeof(MeshVertex)),
         nvrhi::VertexAttributeDesc()
-            .setName("INSTANCE_OFFSET")
+            .setName("INSTANCE_POSITION")
             .setFormat(nvrhi::Format::RGB32_FLOAT)
             .setBufferIndex(1)
-            .setElementStride(sizeof(glm::vec3))
+            .setOffset(offsetof(InstancePose, position))
+            .setElementStride(sizeof(InstancePose))
+            .setIsInstanced(true),
+        nvrhi::VertexAttributeDesc()
+            .setName("INSTANCE_ROTATION")
+            .setFormat(nvrhi::Format::RGBA32_FLOAT)
+            .setBufferIndex(1)
+            .setOffset(offsetof(InstancePose, rotation))
+            .setElementStride(sizeof(InstancePose))
             .setIsInstanced(true),
     };
     nvrhi::InputLayoutHandle inputLayout =
@@ -227,7 +236,7 @@ void drawMesh(nvrhi::ICommandList& commandList, const MeshPass& pass, const Fram
     state.addVertexBuffer(
         nvrhi::VertexBufferBinding().setBuffer(mesh.vertexBuffer).setSlot(0).setOffset(0));
     state.addVertexBuffer(
-        nvrhi::VertexBufferBinding().setBuffer(instances.offsets).setSlot(1).setOffset(0));
+        nvrhi::VertexBufferBinding().setBuffer(instances.poses).setSlot(1).setOffset(0));
     state.setIndexBuffer(nvrhi::IndexBufferBinding()
                              .setBuffer(mesh.indexBuffer)
                              .setFormat(nvrhi::Format::R32_UINT)

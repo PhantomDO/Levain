@@ -28,6 +28,7 @@
 #include <vector>
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include "levain/assets/image.hpp"
 #include "levain/core/file.hpp"
@@ -207,13 +208,22 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
         levain::render::withDefaults({.baseColor = checker}, defaults), *sampler);
 
     const levain::render::Mesh cube = levain::render::createCube(device, commandList);
-    const std::array<glm::vec3, 1> origin{glm::vec3{0.0f}};
+    // « cube-instance » : la rotation de « cube » portée par la pose de l'instance et non par la
+    // matrice du modèle. Même image attendue, même référence : c'est ce qui prouve que le shader
+    // tourne les sommets et les normales comme le ferait la matrice.
+    const glm::quat cubeRotation =
+        glm::angleAxis(glm::radians(35.0f), glm::normalize(glm::vec3{1.0f, 1.0f, 0.0f}));
+    const bool rotatedInstance = scene == "cube-instance";
+    const std::array<levain::render::InstancePose, 1> origin{};
+    const std::array<levain::render::InstancePose, 1> rotated{
+        levain::render::InstancePose{.rotation = cubeRotation}};
     const levain::render::Instances instances =
-        levain::render::createInstances(device, commandList, origin);
+        levain::render::createInstances(device, commandList, rotatedInstance ? rotated : origin);
     const glm::mat4 cubeModel =
-        withGround ? glm::scale(glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 0.6f, 0.0f}),
-                                glm::vec3{0.4f})
-                   : glm::rotate(glm::mat4{1.0f}, glm::radians(35.0f), glm::vec3{1.0f, 1.0f, 0.0f});
+        withGround        ? glm::scale(glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 0.6f, 0.0f}),
+                                       glm::vec3{0.4f})
+        : rotatedInstance ? glm::mat4{1.0f}
+                          : glm::mat4_cast(cubeRotation);
     const levain::render::SceneConstants constants{
         .viewProjection = levain::render::viewProjectionOf(levain::render::Camera{}, 1.0f),
         .model = cubeModel,
@@ -278,7 +288,7 @@ levain::core::Result<Image> renderScene(nvrhi::IDevice& device, std::string_view
 
     nvrhi::FramebufferDesc framebufferDesc = nvrhi::FramebufferDesc().addColorAttachment(target);
     nvrhi::TextureHandle depth;
-    if (scene == "cube" || scene == "shadow")
+    if (scene != "triangle")
     {
         framebufferDesc.setDepthAttachment(
             levain::render::ensureDepthTexture(device, depth, ImageSize, ImageSize));
@@ -354,8 +364,16 @@ int runSmokeTest(std::string_view scene, std::string_view backend)
         return 1;
     }
 
+    // « cube-instance » se compare à l'image de « cube » : c'est tout son intérêt.
+    const std::string_view referenceName = scene == "cube-instance" ? "cube" : scene;
     const std::filesystem::path referencePath =
-        std::filesystem::path{LEVAIN_REFERENCE_DIR} / std::format("{}.ppm", scene);
+        std::filesystem::path{LEVAIN_REFERENCE_DIR} / std::format("{}.ppm", referenceName);
+    if (std::getenv("LEVAIN_UPDATE_REFERENCE") != nullptr && referenceName != scene)
+    {
+        std::println(stderr, "{} se compare à la référence de {} : réécrire celle-ci", scene,
+                     referenceName);
+        return 1;
+    }
     if (std::getenv("LEVAIN_UPDATE_REFERENCE") != nullptr)
     {
         std::println("référence réécrite : {}", referencePath.string());
@@ -394,11 +412,13 @@ int main(int argc, char** argv)
         if (arguments.size() < 2 || arguments.size() > 3 ||
             (std::string_view{arguments[1]} != "triangle" &&
              std::string_view{arguments[1]} != "cube" &&
+             std::string_view{arguments[1]} != "cube-instance" &&
              std::string_view{arguments[1]} != "shadow") ||
             (backend != "vulkan" && backend != "webgpu"))
         {
-            std::println(stderr,
-                         "usage : levain_smoke_render triangle|cube|shadow [vulkan|webgpu]");
+            std::println(
+                stderr,
+                "usage : levain_smoke_render triangle|cube|cube-instance|shadow [vulkan|webgpu]");
             return 2;
         }
         return runSmokeTest(arguments[1], backend);

@@ -1,10 +1,13 @@
 #include <array>
+#include <cstring>
 
 #include <doctest/doctest.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include "levain/render/camera.hpp"
 #include "levain/render/culling.hpp"
+#include "levain/render/mesh.hpp"
 
 namespace
 {
@@ -73,5 +76,75 @@ TEST_CASE("une boîte transformée contient chacun des huit coins transformés, 
         CAPTURE(axis);
         CHECK(actual.min[axis] == doctest::Approx(expected.min[axis]));
         CHECK(actual.max[axis] == doctest::Approx(expected.max[axis]));
+    }
+}
+
+TEST_CASE(
+    "la boîte d'instances tournées contient chaque coin tourné, et reste exacte sans rotation")
+{
+    levain::render::Mesh mesh;
+    mesh.bounds = levain::render::Box{.min = {-1.0f, -0.5f, -0.25f}, .max = {1.0f, 0.5f, 0.25f}};
+    levain::render::Instances instances;
+    instances.positionBounds = {.min = {10.0f, 0.0f, 0.0f}, .max = {12.0f, 0.0f, 0.0f}};
+
+    // Sans rotation : la boîte du mesh, étirée de l'écart entre les positions, comme avant.
+    const auto straight = levain::render::worldBoundsOf(mesh, instances, glm::mat4{1.0f});
+    REQUIRE(straight.has_value());
+    CHECK(straight.value_or(levain::render::Box{}).min.x == doctest::Approx(9.0f));
+    CHECK(straight.value_or(levain::render::Box{}).max.y == doctest::Approx(0.5f));
+
+    // Une instance tournée : chacun des huit coins, tourné d'un angle quelconque, reste dedans.
+    instances.anyRotated = true;
+    const glm::quat rotation =
+        glm::angleAxis(glm::radians(50.0f), glm::normalize(glm::vec3{1.0f, 2.0f, 3.0f}));
+    const auto box = levain::render::worldBoundsOf(mesh, instances, glm::mat4{1.0f})
+                         .value_or(levain::render::Box{});
+    for (int corner = 0; corner < 8; ++corner)
+    {
+        const glm::vec3 local{(corner & 1) != 0 ? 1.0f : -1.0f, (corner & 2) != 0 ? 0.5f : -0.5f,
+                              (corner & 4) != 0 ? 0.25f : -0.25f};
+        for (const float x : {10.0f, 12.0f})
+        {
+            const glm::vec3 placed = rotation * local + glm::vec3{x, 0.0f, 0.0f};
+            CAPTURE(corner);
+            CHECK(glm::all(glm::greaterThanEqual(placed, box.min - 1e-5f)));
+            CHECK(glm::all(glm::lessThanEqual(placed, box.max + 1e-5f)));
+        }
+    }
+}
+
+TEST_CASE("glm range un quaternion (x, y, z, w) en mémoire, comme le shader le lit")
+{
+    // INSTANCE_ROTATION est un float4 (x, y, z, w) : glm doit ranger ses composantes ainsi, alors
+    // que son constructeur prend w en premier.
+    const glm::quat rotation{4.0f, 1.0f, 2.0f, 3.0f};
+    std::array<float, 4> stored{};
+    std::memcpy(stored.data(), &rotation, sizeof(stored));
+    CHECK(stored == std::array{1.0f, 2.0f, 3.0f, 4.0f});
+}
+
+TEST_CASE("la boîte d'instances tournées contient le mesh placé par un modèle déplacé et réduit")
+{
+    // L'ordre du shader (placeInInstance) : le modèle, puis la rotation de l'instance, puis sa
+    // position.
+    levain::render::Mesh mesh;
+    mesh.bounds = levain::render::Box{.min = glm::vec3{-0.5f}, .max = glm::vec3{0.5f}};
+    levain::render::Instances instances;
+    instances.positionBounds = {.min = {3.0f, 0.0f, -2.0f}, .max = {3.0f, 0.0f, -2.0f}};
+    instances.anyRotated = true;
+    const glm::mat4 model =
+        glm::scale(glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 0.6f, 0.0f}), glm::vec3{0.4f});
+    const glm::quat rotation = glm::angleAxis(glm::radians(70.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+    const auto box =
+        levain::render::worldBoundsOf(mesh, instances, model).value_or(levain::render::Box{});
+    for (unsigned corner = 0; corner < 8; ++corner)
+    {
+        const glm::vec3 local{(corner & 1u) != 0 ? 0.5f : -0.5f, (corner & 2u) != 0 ? 0.5f : -0.5f,
+                              (corner & 4u) != 0 ? 0.5f : -0.5f};
+        const glm::vec3 placed =
+            rotation * glm::vec3(model * glm::vec4(local, 1.0f)) + glm::vec3{3.0f, 0.0f, -2.0f};
+        CAPTURE(corner);
+        CHECK(glm::all(glm::greaterThanEqual(placed, box.min - 1e-5f)));
+        CHECK(glm::all(glm::lessThanEqual(placed, box.max + 1e-5f)));
     }
 }

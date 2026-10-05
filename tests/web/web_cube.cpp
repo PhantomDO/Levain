@@ -125,7 +125,7 @@ void createScene(nvrhi::DeviceHandle device)
     upload->open();
     created.texture = levain::render::createTexture(*device, *upload, levels, "rgbw");
     created.cube = levain::render::createCube(*device, *upload);
-    const std::array<glm::vec3, 1> origin{glm::vec3{0.0f}};
+    const std::array<levain::render::InstancePose, 1> origin{};
     created.instances = levain::render::createInstances(*device, *upload, origin);
     created.material = levain::render::createMaterialBindings(
         *device, *upload, created.meshPass,
