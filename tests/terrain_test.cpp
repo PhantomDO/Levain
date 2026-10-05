@@ -3,8 +3,14 @@
 #include <set>
 
 #include <doctest/doctest.h>
+#include <flecs.h>
 
+#include "lake_shore.hpp"
+
+#include "levain/physics/physics.hpp"
 #include "levain/physics/physics_world.hpp"
+#include "levain/scene/fixed_step.hpp"
+#include "levain/scene/scene.hpp"
 #include "levain/terrain/collision.hpp"
 #include "levain/terrain/heightmap.hpp"
 #include "levain/terrain/layers.hpp"
@@ -199,4 +205,27 @@ TEST_CASE("un corps lâché sur la vallée tombe sur le terrain et s'y arrête (
     const float surface = levain::terrain::heightAt(valley, {position.x, position.z});
     CHECK(position.y > surface + 0.4f);
     CHECK(position.y < surface + 0.6f);
+}
+
+TEST_CASE("les caisses de la démo roulent de la rive est jusque dans le lac, un volume déclencheur")
+{
+    // La scène de `levain_sandbox --view terrain`, sans le rendu : la CI n'y fait que 2 images par
+    // seconde sous lavapipe, trop peu pour que les caisses atteignent l'eau.
+    flecs::world world;
+    world.import<levain::physics::PhysicsModule>();
+    const levain::terrain::ValleySettings valley;
+    levain::sandbox::spawnLakeShoreCrates(world, levain::terrain::valleyOf(valley), valley);
+    const flecs::entity lake = world.lookup("lac");
+    REQUIRE(lake);
+    levain::scene::FixedStep step;
+    for (int i = 0; i < 600; ++i) // 10 s : les 64 y sont (mesuré en Debug), 25 au bout de 6 s
+    {
+        levain::scene::advanceWorld(world, step, 1.0f / 60.0f);
+    }
+    // La moitié au moins : le chiffre exact peut varier d'un compilateur à l'autre, pas l'ordre de
+    // grandeur. Un terrain qui ne collisionne pas les ferait passer dessous, un volume muet n'en
+    // compterait aucune.
+    const auto swimmers = levain::physics::occupantsOf(world, lake).size();
+    CAPTURE(swimmers);
+    CHECK(swimmers >= 32);
 }

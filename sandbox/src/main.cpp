@@ -31,6 +31,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "crates.hpp"
+#include "lake_shore.hpp"
 #include "shader_reload.hpp"
 
 #include "levain/animation/animation_set.hpp"
@@ -74,6 +75,7 @@
 #include "levain/scene/fixed_step.hpp"
 #include "levain/scene/scene.hpp"
 #include "levain/scene/transform.hpp"
+#include "levain/terrain/collision.hpp"
 #include "levain/terrain/heightmap.hpp"
 #include "levain/terrain/terrain_pass.hpp"
 #include "levain/water/water_pass.hpp"
@@ -277,9 +279,11 @@ struct DemoScene
     /// Les cubes tournent tous ensemble sur eux-mêmes (la démo), ou chacun selon sa physique.
     bool spinCubes = true;
     /// Chaque cube a sa propre rotation, à relire à chaque image : les caisses de la physique, et
-    /// elles seules. Un drapeau à part, et non `!spinCubes` : les vues khronos et terrain gardent
-    /// leurs 10 000 cubes sans les dessiner, et paieraient la rotation pour rien.
+    /// elles seules. Un drapeau à part, et non `!spinCubes` : la vue khronos garde ses 10 000 cubes
+    /// sans les dessiner, et paierait la rotation pour rien.
     bool cubesTurn = false;
+    /// Les cubes se dessinent : la grille de la démo, ou les caisses de la physique.
+    bool drawCubes = true;
     /// La sélection à la souris (M6.2) : le corps visé par le dernier clic, et la passe qui dessine
     /// son contour. Vide tant que rien n'est sélectionné, ou sans physique.
     flecs::entity selected{};
@@ -1025,6 +1029,14 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         return std::unexpected(renderer.error());
     }
 
+    // La vallée de --view terrain, avant le monde : sa physique en a besoin pour le sol (M6.2).
+    const levain::terrain::ValleySettings valley;
+    std::optional<levain::terrain::Heightmap> heightmap;
+    if (view == SandboxView::Terrain)
+    {
+        heightmap = levain::terrain::valleyOf(valley);
+    }
+
     flecs::world world;
     world.import<levain::scene::SceneModule>();
     world.import<levain::assets::AssetsModule>();
@@ -1035,6 +1047,11 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         world.import<levain::physics::PhysicsModule>();
         levain::sandbox::spawnCrates<Cube>(world, GroundSize);
+    }
+    else if (view == SandboxView::Terrain && heightmap)
+    {
+        world.import<levain::physics::PhysicsModule>();
+        levain::sandbox::spawnLakeShoreCrates<Cube>(world, *heightmap, valley);
     }
     else
     {
@@ -1139,14 +1156,11 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         bindModelMaterials(*gpu.nvrhi, *upload, renderer->meshPass, *samplerHandle, *model,
                            models.at(modelId));
     }
-    std::optional<levain::terrain::Heightmap> heightmap;
     std::optional<levain::terrain::TerrainPass> terrain;
     std::optional<levain::water::WaterPass> water;
     std::optional<levain::grass::GrassPass> grass;
-    if (view == SandboxView::Terrain)
+    if (view == SandboxView::Terrain && heightmap)
     {
-        const levain::terrain::ValleySettings valley;
-        heightmap = levain::terrain::valleyOf(valley);
         auto pass = levain::terrain::createTerrainPass(
             *gpu.nvrhi, *upload, *heightmap, renderer->frame, renderer->shadows,
             std::filesystem::path{LEVAIN_TEST_ASSETS_DIR} / "Textures");
@@ -1155,10 +1169,9 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
             return std::unexpected(pass.error());
         }
         terrain = std::move(*pass);
-        // L'eau à 1,5 m sous le fond de la vallée : elle ne remplit que le creux du lac.
-        constexpr float LakeLevel = -1.5f;
-        const levain::water::Lake lake{
-            .center = valley.lakeCenter, .radius = valley.lakeRadius, .level = LakeLevel};
+        const levain::water::Lake lake{.center = valley.lakeCenter,
+                                       .radius = valley.lakeRadius,
+                                       .level = levain::sandbox::LakeLevel};
         auto lakePass = levain::water::createWaterPass(*gpu.nvrhi, *upload, lake, *terrain,
                                                        *heightmap, renderer->frame);
         if (!lakePass)
@@ -1166,8 +1179,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
             return std::unexpected(lakePass.error());
         }
         water = std::move(*lakePass);
-        auto grassPass = levain::grass::createGrassPass(*gpu.nvrhi, *upload, *terrain, *heightmap,
-                                                        LakeLevel, renderer->frame);
+        auto grassPass = levain::grass::createGrassPass(
+            *gpu.nvrhi, *upload, *terrain, *heightmap, levain::sandbox::LakeLevel, renderer->frame);
         if (!grassPass)
         {
             return std::unexpected(grassPass.error());
@@ -1228,7 +1241,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .camera = camera,
                      .demoProps = view == SandboxView::Demo || view == SandboxView::Physics,
                      .spinCubes = view == SandboxView::Demo,
-                     .cubesTurn = view == SandboxView::Physics,
+                     .cubesTurn = view == SandboxView::Physics || view == SandboxView::Terrain,
+                     .drawCubes = view != SandboxView::Khronos,
                      .heightmap = std::move(heightmap),
                      .terrain = std::move(terrain),
                      .water = std::move(water),
@@ -1363,10 +1377,13 @@ void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum
         count.triangles += std::uint64_t{mesh.indexCount / 3} * std::max(instances.count, 1u);
         draw(mesh, instances, material, model);
     };
-    if (scene.demoProps)
+    if (scene.drawCubes)
     {
         drawIfVisible(scene.cube, scene.grid, *scene.material,
                       scene.spinCubes ? cubeRotation(seconds) : glm::mat4{1.0f});
+    }
+    if (scene.demoProps)
+    {
         drawIfVisible(scene.ground, scene.groundInstance, *scene.material, glm::mat4{1.0f});
     }
     scene.modelParts.each(
@@ -1709,6 +1726,9 @@ struct SandboxOptions
     /// `--camera x,y,z` : la caméra à cette position, face à −Z. Celle du glTF Sample Viewer, que
     /// tools/khronos-compare.sh relit dans sa page.
     std::optional<glm::vec3> cameraPosition;
+    /// `--look lacet,tangage` : où regarde la caméra, en degrés. 0,0 regarde vers −Z, à
+    /// l'horizontale. Pour cadrer une capture sans bouger la souris.
+    std::optional<glm::vec2> cameraLook;
     /// `--pick x,y` : à la fin de la boucle, avant la capture, sélectionne ce que vise ce pixel,
     /// compté depuis le coin haut gauche. Le clic de la souris, sans souris : pour la CI et les
     /// captures à distance (critère de M6.2).
@@ -1790,15 +1810,15 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
             options.tonemapper = found->second;
             continue;
         }
-        if (name == "--pick")
+        if (name == "--pick" || name == "--look")
         {
-            const std::optional<glm::vec3> pixel =
-                parseVector(std::string{arguments[i + 1]} + ",0");
-            if (!pixel)
+            const std::optional<glm::vec3> pair = parseVector(std::string{arguments[i + 1]} + ",0");
+            if (!pair)
             {
                 return std::nullopt;
             }
-            options.pickPixel = glm::vec2{pixel->x, pixel->y};
+            (name == "--pick" ? options.pickPixel : options.cameraLook) =
+                glm::vec2{pair->x, pair->y};
             continue;
         }
         if (name == "--camera" || name == "--sun")
@@ -1944,6 +1964,13 @@ levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
         return std::unexpected{std::move(scene.error())};
     }
     scene->tonemapSettings = {.exposure = options.exposure, .tonemapper = options.tonemapper};
+    if (options.cameraLook)
+    {
+        // Le regard de --look, appliqué au premier pas de simulation par la caméra libre.
+        auto& controller = scene->cameraEntity.get_mut<levain::scene::FpsController>();
+        controller.yawDegrees = options.cameraLook->x;
+        controller.pitchDegrees = options.cameraLook->y;
+    }
 
     // Les liaisons d'entrée : changer une touche dans data/input.cfg ne demande aucune
     // recompilation (ADR-0017). Un nom inconnu échoue ici, avec son numéro de ligne.
@@ -2224,6 +2251,12 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
     // l'air.
     if (const auto* physics = loop.scene.world.try_get<levain::physics::PhysicsWorld>())
     {
+        if (const flecs::entity lake = loop.scene.world.lookup("lac"))
+        {
+            levain::core::log("sandbox", levain::core::LogLevel::Info,
+                              "lac : {} caisses dans l'eau",
+                              levain::physics::occupantsOf(loop.scene.world, lake).size());
+        }
         const float highest = levain::sandbox::highestCrate(loop.scene.world);
         levain::core::log("sandbox", levain::core::LogLevel::Info,
                           "physique : {} corps ; la caisse la plus haute à y = {:.2f} m",
@@ -2330,13 +2363,14 @@ int main(int argc, char** argv)
             parseOptions(std::span{argv, static_cast<std::size_t>(argc)});
         if (!options)
         {
-            std::println(stderr, "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
-                                 "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
-                                 "repos,marche,course] "
-                                 "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
-                                 "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
-                                 "fichier.hdr|none] [--view demo|khronos|terrain|physics] "
-                                 "[--camera x,y,z] [--sun x,y,z] [--pick x,y]");
+            std::println(stderr,
+                         "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
+                         "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
+                         "repos,marche,course] "
+                         "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
+                         "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
+                         "fichier.hdr|none] [--view demo|khronos|terrain|physics] "
+                         "[--camera x,y,z] [--look lacet,tangage] [--sun x,y,z] [--pick x,y]");
             return 2;
         }
 

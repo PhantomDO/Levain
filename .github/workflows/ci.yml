@@ -276,7 +276,8 @@ jobs:
             timeout --foreground --preserve-status -k 10 120 \
               ./build/${{ matrix.preset }}/sandbox/levain_sandbox --gpu $gpu --seconds 3 \
               --view terrain | tee terrain-$gpu.log
-            grep -q "étapes du rendu : ombres : démo, terrain ; opaques : démo, terrain" terrain-$gpu.log \
+            # La sélection (M6.2) s'inscrit avec la physique, avant le terrain.
+            grep -q "étapes du rendu : ombres : démo, terrain ; opaques : démo, sélection, terrain" terrain-$gpu.log \
               || { echo "::error::le terrain ne s'est pas inscrit dans le renderer ($gpu)"; exit 1; }
             grep -Eq "terrain, par image : [1-9][0-9.]* parcelles dessinées" terrain-$gpu.log \
               || { echo "::error::aucune parcelle du terrain dessinée ($gpu)"; exit 1; }
@@ -290,10 +291,17 @@ jobs:
                 || { echo "::error::l'étape transparente n'a rien dessiné ($gpu)"; exit 1; }
             fi
             # L'herbe (M5.7), dans l'étape Opaque après le terrain, et des brins demandés.
-            grep -q "opaques : démo, terrain, herbe" terrain-$gpu.log \
+            grep -q "opaques : démo, sélection, terrain, herbe" terrain-$gpu.log \
               || { echo "::error::l'herbe ne s'est pas inscrite dans le renderer ($gpu)"; exit 1; }
             grep -Eq "herbe, par image : [0-9.]+ parcelles et [1-9][0-9]* brins" terrain-$gpu.log \
               || { echo "::error::aucun brin d'herbe dessiné ($gpu)"; exit 1; }
+            # La physique de la vallée (M6.2) : le terrain, le lac et ses 64 caisses. Qu'elles
+            # atteignent l'eau, 2 images par seconde ne le permettent pas ici : terrain_test.cpp le
+            # vérifie sans GPU.
+            grep -q "physique : 66 corps" terrain-$gpu.log \
+              || { echo "::error::la vallée n'a pas ses 66 corps ($gpu)"; exit 1; }
+            grep -Eq "lac : [0-9]+ caisses dans l'eau" terrain-$gpu.log \
+              || { echo "::error::le lac n'est pas un volume de la physique ($gpu)"; exit 1; }
           done
 
       # Les 1 000 caisses de M6.1 (ADR-0026), et leur sélection par raycast (M6.2, ADR-0027) : Jolt
