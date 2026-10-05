@@ -136,9 +136,11 @@ core::Result<void> rebuildSwapchain(Swapchain& swapchain, platform::PixelSize si
             .set_desired_format({VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
             .add_fallback_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
             .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
-            .set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                                   VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                   VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+            // Les bits sont des énumérateurs C au type signé : convertis avant le `|`.
+            .set_image_usage_flags(
+                static_cast<VkImageUsageFlags>(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) |
+                static_cast<VkImageUsageFlags>(VK_IMAGE_USAGE_TRANSFER_DST_BIT) |
+                static_cast<VkImageUsageFlags>(VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
             .build();
     if (!rebuilt)
     {

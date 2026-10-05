@@ -23,10 +23,10 @@ float latticeValueOf(std::int32_t x, std::int32_t z, std::uint32_t seed)
     std::uint32_t h = seed;
     h ^= static_cast<std::uint32_t>(x) * 0x27d4eb2du;
     h ^= static_cast<std::uint32_t>(z) * 0x165667b1u;
-    h = (h ^ (h >> 15)) * 0x85ebca6bu;
-    h = (h ^ (h >> 13)) * 0xc2b2ae35u;
-    h ^= h >> 16;
-    return static_cast<float>(h >> 8) / static_cast<float>(1u << 24);
+    h = (h ^ (h >> 15u)) * 0x85ebca6bu;
+    h = (h ^ (h >> 13u)) * 0xc2b2ae35u;
+    h ^= h >> 16u;
+    return static_cast<float>(h >> 8u) / static_cast<float>(1u << 24u);
 }
 
 /// L'indice ramené dans [0, period) : la grille se referme sur elle-même, et le bruit se répète.

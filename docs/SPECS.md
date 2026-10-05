@@ -206,14 +206,17 @@ d'un milestone à l'autre.
 
 | Élément | Valeur |
 |---|---|
-| OS et version | CachyOS (Arch rolling), noyau 7.2.6-1-cachyos |
+| OS et version | Bazzite 44 (Fedora Kinoite, immuable), noyau 7.2.7-ogc1.1.fc44 ; les builds et les mesures dans une distrobox Arch (`dev`) |
 | CPU | AMD Ryzen 7 7800X3D (8 cœurs / 16 threads) |
 | GPU | AMD Radeon RX 9070 XT (RDNA 4, GFX1201, `0x1002:0x7550`) |
-| Pilote Vulkan | Mesa RADV 26.2.3-arch3.1 (`driverVersion` 26.2.3), Vulkan 1.4.354 sur le GPU, loader 1.4.357 |
+| Pilote Vulkan | Mesa RADV 26.2.4-arch1.1 (dans la distrobox), Vulkan 1.4.354 sur le GPU |
+| Compilateur | Clang 23.1.1, CMake 4.4.4 (dans la distrobox) ; LLVM 23 aussi en CI |
 | RAM | 16 Go (15,5 Go vus par le noyau) |
 | Résolution de mesure | 1920×1080 |
 
-Relevé le 20/09/2026 avec `vulkaninfo --summary`, `uname -r`, `/proc/cpuinfo` et `/proc/meminfo`.
+Relevé le 20/09/2026 avec `vulkaninfo --summary`, `uname -r`, `/proc/cpuinfo` et `/proc/meminfo` ; mis à jour le
+05/10/2026 après le passage de la machine sous Bazzite (`uname -r`, `/etc/os-release`, la ligne `[gpu]` du journal
+du moteur, `clang++ --version`). Le matériel n'a pas changé.
 
 Outils GPU sur cette machine : RenderDoc (captures), Tracy (profiling CPU et GPU), Radeon GPU Profiler (outil
 du constructeur).
