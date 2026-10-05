@@ -6,9 +6,10 @@ La physique des corps rigides, sur **Jolt Physics** ([ADR-0026](../../docs/adr/0
 des entités flecs qui tombent, se heurtent et se poussent, au pas fixe de la simulation (ADR-0016). Jolt fait le
 calcul ; ce module est la frontière entre Jolt et le reste du moteur.
 
-**État en M6.2 (en cours)** : des boîtes, des sphères et des capsules, statiques, dynamiques ou cinématiques,
+**État en M6.3 (en cours)** : des boîtes, des sphères et des capsules, statiques, dynamiques ou cinématiques,
 sur cinq couches fixes ; des maillages et des grilles de hauteurs partagés, pour le décor ; des rayons et des
-sphères lancés ; des volumes déclencheurs (ADR-0027). Le personnage vient en M6.3.
+sphères lancés ; des volumes déclencheurs (ADR-0027). Le personnage (ADR-0028) existe au niveau du monde
+physique : il tombe, monte des marches et des pentes ; sa glu flecs vient ensuite.
 
 ## Invariants
 
@@ -147,9 +148,12 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | [`include/levain/physics/physics_world.hpp`](include/levain/physics/physics_world.hpp) | `PhysicsWorld`, `createPhysicsWorld`, `createBody`, `teleportBody`, `moveKinematic`, `stepPhysics`, `collectMovedBodies`, `sharedShapeCount` : la logique, sans flecs |
 | [`include/levain/physics/queries.hpp`](include/levain/physics/queries.hpp) | `Ray`, `RayHit`, `LayerMask`, `maskOf`, `SolidLayers`, `raycast`, `sphereCast` |
 | [`include/levain/physics/outlines.hpp`](include/levain/physics/outlines.hpp) | `Segment`, `CircleSegments`, `appendOutline` — les arêtes de chaque forme, pour les lignes de debug de `render` ; sans Jolt |
+| [`include/levain/physics/character.hpp`](include/levain/physics/character.hpp) | `CharacterController`, `whyNotThisCharacter`, `GroundState`, `CharacterGround`, `isWalking`, `createCharacter`, `moveCharacter`, `characterGround` : le personnage, un `CharacterVirtual` de Jolt (ADR-0028), sans flecs |
 | [`include/levain/physics/body_rules.hpp`](include/levain/physics/body_rules.hpp) | `whyNotABody`, `whyNotThisLayer`, `poseOf` |
 | [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs |
 | [`src/physics_world.cpp`](src/physics_world.cpp) | Jolt : les couches, le job system, les corps, le pas |
+| [`src/physics_state.hpp`](src/physics_state.hpp) | L'état de Jolt partagé par les fichiers du module ; interne, aucun en-tête de Jolt n'en sort |
+| [`src/character.cpp`](src/character.cpp) | Le personnage : sa capsule posée sur ses pieds, son corps intérieur, son `ExtendedUpdate` |
 | [`src/physics.cpp`](src/physics.cpp) | La glu flecs : observateurs et systèmes de la phase `Physics` |
 
 ## Équivalents ailleurs
@@ -159,3 +163,4 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | **Unreal** | `UPrimitiveComponent`, `FBodyInstance`, Chaos | La forme, la masse et les réglages sont réunis dans le `BodyInstance` du composant ; les collisions se règlent par *object channels* et réponses (**documenté**, ADR-0026). |
 | **Unity** | `Collider`, `Rigidbody`, PhysX | Le même découpage qu'ici : un collider sans `Rigidbody` est statique, et la simulation suit `FixedUpdate` (**documenté**, ADR-0026). 32 couches nommées par le projet, là où Levain en fixe cinq. |
 | **Godot** | `RigidBody3D`, `StaticBody3D`, `CollisionShape3D`, Jolt | Jolt par défaut depuis la 4.6 ; la forme est un nœud enfant du corps, et la documentation interdit l'échelle sur une forme (**documenté**, ADR-0026). |
+| **Personnage** | `UCharacterMovementComponent` (Unreal), `CharacterController` (Unity), `CharacterBody3D` (Godot) | Unreal porte la gravité et le saut dans le moteur ; Unity et Godot, comme Levain, laissent la vitesse au jeu (**documenté**, ADR-0028). |
