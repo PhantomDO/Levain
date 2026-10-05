@@ -1,13 +1,15 @@
-# SPECS §7 : les bibliothèques d'import, de cuisson et d'animation ne sont incluses que là où elles servent.
+# SPECS §7 : les bibliothèques d'import, de cuisson, d'animation et de physique ne sont incluses que là
+# où elles servent.
 #   - fastgltf : engine/assets/src, et engine/animation/src pour la passerelle glTF (ADR-0022) ;
 #   - libktx : engine/assets/src (ADR-0020) ;
-#   - ozz-animation : engine/animation/src (ADR-0022).
-# Le reste du moteur, le cuiseur compris, ne voit que nos types. Lancé par ctest :
+#   - ozz-animation : engine/animation/src (ADR-0022) ;
+#   - Jolt : engine/physics/src (ADR-0026).
+# Le reste du moteur, les plugins et le cuiseur compris, ne voit que nos types. Lancé par ctest :
 #   cmake -DROOT=<dépôt> -P check_asset_libraries_visibility.cmake
 #
 # Le contrôle échoue bruyamment (règle n°7) : sans aucun fichier à lire, il ne vérifierait rien.
-file(GLOB_RECURSE files "${ROOT}/engine/*.cpp" "${ROOT}/engine/*.hpp" "${ROOT}/sandbox/*.cpp"
-     "${ROOT}/tests/*.cpp" "${ROOT}/tools/*.cpp")
+file(GLOB_RECURSE files "${ROOT}/engine/*.cpp" "${ROOT}/engine/*.hpp" "${ROOT}/plugins/*.cpp"
+     "${ROOT}/plugins/*.hpp" "${ROOT}/sandbox/*.cpp" "${ROOT}/tests/*.cpp" "${ROOT}/tools/*.cpp")
 if(NOT files)
     message(FATAL_ERROR "aucune source sous ${ROOT} : le contrôle ne vérifierait rien")
 endif()
@@ -29,6 +31,7 @@ foreach(file IN LISTS files)
     is_under(fastgltfAllowed "${file}" engine/assets/src engine/animation/src)
     is_under(ktxAllowed "${file}" engine/assets/src)
     is_under(ozzAllowed "${file}" engine/animation/src)
+    is_under(joltAllowed "${file}" engine/physics/src)
     set(forbidden "")
     if(NOT fastgltfAllowed)
         list(APPEND forbidden fastgltf)
@@ -38,6 +41,9 @@ foreach(file IN LISTS files)
     endif()
     if(NOT ozzAllowed)
         list(APPEND forbidden ozz)
+    endif()
+    if(NOT joltAllowed)
+        list(APPEND forbidden Jolt)
     endif()
     if(NOT forbidden)
         continue()
@@ -50,5 +56,5 @@ foreach(file IN LISTS files)
     endif()
 endforeach()
 if(failures EQUAL 0)
-    message(STATUS "fastgltf, libktx et ozz-animation seulement là où SPECS §7 les permet")
+    message(STATUS "fastgltf, libktx, ozz-animation et Jolt seulement là où SPECS §7 les permet")
 endif()
