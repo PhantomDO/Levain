@@ -25,6 +25,17 @@ struct DebugLine
     glm::vec3 color{1.0f};
 };
 
+/// Comment les lignes se mêlent à la scène.
+enum class DebugDepth : std::uint8_t
+{
+    /// Testées contre la profondeur : une ligne cachée par un mur l'est aussi à l'écran.
+    Tested,
+    /// Par-dessus ce qui est déjà dessiné : le contour d'une sélection, dont les arêtes sont sur
+    /// les faces mêmes de l'objet, et que le test de profondeur rejetterait à égalité. Ce qui est
+    /// dessiné ensuite (une étape plus tardive, un plugin inscrit après) le couvre encore.
+    OnTop,
+};
+
 /// Les segments qu'une image peut dessiner : le buffer a cette taille, fixée à la création.
 inline constexpr std::uint32_t MaxDebugLines = 65536;
 
@@ -34,7 +45,8 @@ struct DebugLinesPass
     nvrhi::ShaderHandle pixelShader;
     nvrhi::InputLayoutHandle inputLayout;
     nvrhi::BindingLayoutHandle layout;
-    nvrhi::GraphicsPipelineHandle pipeline;
+    nvrhi::GraphicsPipelineHandle pipeline;      ///< `DebugDepth::Tested`.
+    nvrhi::GraphicsPipelineHandle onTopPipeline; ///< `DebugDepth::OnTop`.
     nvrhi::BufferHandle constants;
     nvrhi::BufferHandle vertices;
     nvrhi::BindingSetHandle bindings;
@@ -44,9 +56,9 @@ struct DebugLinesPass
 [[nodiscard]] core::Result<DebugLinesPass>
 createDebugLinesPass(nvrhi::IDevice& device, const nvrhi::FramebufferInfo& target);
 
-/// Dessine `lines` vus par `viewProjection`, avec le test de profondeur et sans écrire la
-/// profondeur : une ligne cachée par un mur l'est aussi à l'écran. Au-delà de `MaxDebugLines`, les
-/// lignes en trop ne sont pas dessinées, et le journal le dit une fois.
+/// Dessine `lines` vus par `viewProjection`, sans écrire la profondeur : une ligne ne cache rien.
+/// Au-delà de `MaxDebugLines`, les lignes en trop ne sont pas dessinées, et le journal le dit une
+/// fois.
 ///
 /// **Un appel par command list** : les sommets sont réécrits depuis le début à chaque appel. Sur
 /// Vulkan, la copie est ordonnée dans la command list ; sur WebGPU, `queue.WriteBuffer` passe
@@ -54,6 +66,6 @@ createDebugLinesPass(nvrhi::IDevice& device, const nvrhi::FramebufferInfo& targe
 /// dessiner pour plusieurs systèmes réunit leurs lignes en une liste.
 void drawDebugLines(nvrhi::ICommandList& commandList, const DebugLinesPass& pass,
                     nvrhi::IFramebuffer& target, const glm::mat4& viewProjection,
-                    std::span<const DebugLine> lines);
+                    std::span<const DebugLine> lines, DebugDepth depth = DebugDepth::Tested);
 
 } // namespace levain::render

@@ -62,6 +62,17 @@ inline constexpr std::uint16_t PadAxisCount = 8;
 [[nodiscard]] std::optional<std::uint16_t> padButtonCodeFromName(const std::string& name);
 [[nodiscard]] std::optional<std::uint16_t> padAxisCodeFromName(const std::string& name);
 
+/// Où est le curseur, en pixels depuis le coin haut gauche de l'image : les coordonnées de la
+/// fenêtre, multipliées par sa densité de pixels. Sans elle, un clic sur un écran HiDPI viserait
+/// la moitié haute gauche de l'image.
+struct CursorPosition
+{
+    float x = 0.0f;
+    float y = 0.0f;
+};
+
+[[nodiscard]] CursorPosition cursorPosition(const Window& window);
+
 /// Capture la souris : curseur caché, mouvements relatifs, sans butée d'écran. C'est ce qu'il faut
 /// pour faire tourner une caméra ; sans ça, le regard s'arrête au bord de l'écran.
 void setMouseCaptured(const Window& window, bool captured);

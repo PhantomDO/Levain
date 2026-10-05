@@ -296,11 +296,14 @@ jobs:
               || { echo "::error::aucun brin d'herbe dessiné ($gpu)"; exit 1; }
           done
 
-      # Les 1 000 caisses de M6.1 (ADR-0026) : Jolt dans l'application, sous la validation, les
-      # sanitizers et les deux backends. La plus haute part de 18,4 m (`HighestCrateStart`) : après
-      # 3 s, elle doit être descendue, ce que 8 pas suffisent à montrer. Pas « retombée » : sur
-      # lavapipe sous ASan, une image lente plafonne la simulation à 4 pas (ADR-0016), et les
-      # caisses tombent alors au ralenti.
+      # Les 1 000 caisses de M6.1 (ADR-0026), et leur sélection par raycast (M6.2, ADR-0027) : Jolt
+      # dans l'application, sous la validation, les sanitizers et les deux backends. La plus haute
+      # part de 18,4 m (`HighestCrateStart`) : après 3 s, elle doit être descendue, ce que 8 pas
+      # suffisent à montrer. Pas « retombée » : sur lavapipe sous ASan, une image lente plafonne la
+      # simulation à 4 pas (ADR-0016), et les caisses tombent alors au ralenti. Le pixel visé, le
+      # centre de l'image, touche une caisse dans la grille de départ, pendant la chute et dans le
+      # tas (essayé de 0,1 à 8 s) : quelle que soit la vitesse du runner. La capture rend une image
+      # après la sélection : le contour passe sous la validation, les sanitizers et WebGPU.
       - name: Lancer le sandbox avec la physique
         env:
           SDL_VIDEO_DRIVER: offscreen
@@ -309,7 +312,7 @@ jobs:
           for gpu in vulkan webgpu; do
             timeout --foreground --preserve-status -k 10 120 \
               ./build/${{ matrix.preset }}/sandbox/levain_sandbox --gpu $gpu --seconds 3 \
-              --view physics | tee physics-$gpu.log
+              --view physics --pick 960,540 --capture physics-$gpu.png | tee physics-$gpu.log
             line=$(grep -o "physique : [0-9]* corps ; la caisse la plus haute à y = [-0-9.]* m" physics-$gpu.log) \
               || { echo "::error::le sandbox n'a pas rendu compte de la physique ($gpu)"; exit 1; }
             echo "$line" | grep -q "physique : 1001 corps" \
@@ -317,6 +320,9 @@ jobs:
             highest=$(echo "$line" | grep -o "y = [-0-9.]*" | cut -d' ' -f3)
             awk -v y="$highest" 'BEGIN { exit !(y < 18.3) }' \
               || { echo "::error::les caisses n'ont pas bougé : $line ($gpu)"; exit 1; }
+            # Le critère de M6.2 : un clic (--pick) sélectionne par raycast une caisse du tas.
+            grep -Eq "sélection : ::crate_[0-9]+_[0-9]+_[0-9]+ à [0-9.]+ m" physics-$gpu.log \
+              || { echo "::error::la sélection par raycast n'a touché aucune caisse ($gpu)"; exit 1; }
           done
 
       - name: Lancer le sandbox avec Sponza
