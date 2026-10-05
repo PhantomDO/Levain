@@ -26,8 +26,8 @@ static_assert(std::is_trivially_copyable_v<scene::Transform>);
 
 constexpr std::array<char, 4> Signature{'L', 'V', 'M', 'S'};
 /// 2 : le skinning des sommets, les nœuds os (M4.5). 3 : les tangentes des sommets (M5.1).
-/// 4 : les matériaux metallic-roughness (M5.1).
-constexpr std::uint32_t FormatVersion = 4;
+/// 4 : les matériaux metallic-roughness (M5.1). 5 : leur transparence découpée (M6.3).
+constexpr std::uint32_t FormatVersion = 5;
 
 /// Ce qu'on écrit, dans l'ordre : des valeurs simples, des chaînes et des tableaux, préfixés de
 /// leur taille.
@@ -199,14 +199,19 @@ bool readBody(Reader& reader, Model& model)
     for (std::uint64_t i = 0; i < materialCount; ++i)
     {
         ModelMaterial& material = model.materials.emplace_back();
+        // Un octet, relu dans un entier : lire un octet quelconque dans un bool serait un
+        // comportement indéfini.
+        std::uint8_t alphaMasked = 0;
         if (!reader.value(material.baseColorFactor) ||
             !readOptional(reader, material.baseColorTexture) ||
             !reader.value(material.metallicFactor) || !reader.value(material.roughnessFactor) ||
             !readOptional(reader, material.metallicRoughnessTexture) ||
-            !readOptional(reader, material.normalTexture) || !reader.value(material.normalScale))
+            !readOptional(reader, material.normalTexture) || !reader.value(material.normalScale) ||
+            !reader.value(alphaMasked) || alphaMasked > 1)
         {
             return false;
         }
+        material.alphaMasked = alphaMasked == 1;
     }
 
     std::uint64_t imageCount = 0;
@@ -275,6 +280,7 @@ core::Result<void> writeCookedModel(const std::filesystem::path& path, const Mod
         writeOptional(writer, material.metallicRoughnessTexture);
         writeOptional(writer, material.normalTexture);
         writer.value(material.normalScale);
+        writer.value(static_cast<std::uint8_t>(material.alphaMasked));
     }
     writer.value(static_cast<std::uint64_t>(model.embeddedImages.size()));
     for (const auto& [index, image] : model.embeddedImages)
@@ -330,6 +336,10 @@ core::Result<Model> readCookedModel(const std::filesystem::path& path, std::uint
     if (!readBody(reader, model))
     {
         return cookedError(path, "tronqué ou corrompu");
+    }
+    if (const auto reason = whyNotAValidModel(model))
+    {
+        return cookedError(path, *reason);
     }
     return model;
 }

@@ -76,6 +76,7 @@
  "materials": [
   {
    "name": "métal rugueux",
+   "alphaMode": "MASK",
    "pbrMetallicRoughness": {
     "metallicFactor": 0.25,
     "roughnessFactor": 0.75,
@@ -87,6 +88,10 @@
     "index": 1,
     "scale": 0.5
    }
+  },
+  {
+   "name": "vitre",
+   "alphaMode": "BLEND"
   }
  ],
  "textures": [

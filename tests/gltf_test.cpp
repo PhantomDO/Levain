@@ -195,11 +195,13 @@ TEST_CASE("loadGltf lit les matériaux metallic-roughness et leurs textures de d
         loadTestModel(std::filesystem::path{LEVAIN_TEST_DATA_DIR} / "materials.gltf");
     INFO("message d'erreur : " << (model ? std::string{} : model.error().message));
     REQUIRE(model.has_value());
-    REQUIRE(model->materials.size() == 1);
+    REQUIRE(model->materials.size() == 2);
     const levain::assets::ModelMaterial& material = model->materials[0];
     CHECK(material.metallicFactor == doctest::Approx(0.25f));
     CHECK(material.roughnessFactor == doctest::Approx(0.75f));
     CHECK(material.normalScale == doctest::Approx(0.5f));
+    CHECK(material.alphaMasked); // « alphaMode » : « MASK », que la collision écarte (ADR-0028)
+    CHECK_FALSE(model->materials[1].alphaMasked); // « BLEND » : une vitre, qui reste solide
     CHECK_FALSE(material.baseColorTexture.has_value());
     CHECK(material.baseColorFactor == glm::vec4{1.0f}); // la valeur de glTF par défaut
     // Les deux images sont embarquées : désignées par {modèle, indice}, et gardées décodées.

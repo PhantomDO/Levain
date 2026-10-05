@@ -1,7 +1,9 @@
 #include "levain/assets/gltf.hpp"
 
+#include <algorithm>
 #include <format>
 #include <numeric>
+#include <optional>
 #include <set>
 #include <span>
 #include <string>
@@ -236,6 +238,7 @@ core::Result<void> readMaterials(const fastgltf::Asset& asset, const std::filesy
             .metallicRoughnessTexture = *metallicRoughness,
             .normalTexture = *normal,
             .normalScale = material.normalTexture ? material.normalTexture->scale : 1.0f,
+            .alphaMasked = material.alphaMode == fastgltf::AlphaMode::Mask,
         });
     }
     return {};
@@ -331,7 +334,55 @@ core::Result<Model> loadGltf(const std::filesystem::path& path, AssetId self,
     {
         appendNode(asset.get(), root, std::nullopt, joints, model);
     }
+    if (const auto reason = whyNotAValidModel(model))
+    {
+        return gltfError(path, *reason);
+    }
     return model;
+}
+
+std::optional<std::string> whyNotAValidModel(const Model& model)
+{
+    for (const ModelMesh& mesh : model.meshes)
+    {
+        for (const MeshPrimitive& primitive : mesh.primitives)
+        {
+            if (primitive.indices.size() % 3 != 0)
+            {
+                return std::format("{} : un nombre d'indices qui n'est pas un multiple de 3",
+                                   mesh.name);
+            }
+            if (std::ranges::any_of(primitive.indices, [&](std::uint32_t index)
+                                    { return index >= primitive.vertices.size(); }))
+            {
+                return std::format("{} : un indice au-delà des sommets de sa primitive", mesh.name);
+            }
+            if (primitive.material && *primitive.material >= model.materials.size())
+            {
+                return std::format("{} : un matériau qui n'existe pas", mesh.name);
+            }
+            if (!primitive.joints.empty() &&
+                (primitive.joints.size() != primitive.vertices.size() ||
+                 primitive.weights.size() != primitive.vertices.size()))
+            {
+                return std::format("{} : des os ou des poids qui ne vont pas un par sommet",
+                                   mesh.name);
+            }
+        }
+    }
+    for (std::size_t i = 0; i < model.nodes.size(); ++i)
+    {
+        const ModelNode& node = model.nodes[i];
+        if (node.mesh && *node.mesh >= model.meshes.size())
+        {
+            return std::format("nœud {} : un mesh qui n'existe pas", node.name);
+        }
+        if (node.parent && *node.parent >= i)
+        {
+            return std::format("nœud {} : un parent qui n'est pas rangé avant lui", node.name);
+        }
+    }
+    return std::nullopt;
 }
 
 flecs::entity instantiateModel(flecs::world& world, const Model& model, AssetId asset,

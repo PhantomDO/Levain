@@ -3,6 +3,15 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## meshoptimizer, comme Jolt, n'a ses assertions qu'en Debug (2026-10-05)
+
+- **Symptôme** : aucun, tant que les données sont saines ; la relecture de la collision du décor (M6.3) l'a
+  relevé avant qu'un fichier abîmé ne le montre.
+- **Cause** : meshoptimizer vérifie ses entrées par `assert`, que `NDEBUG` retire. Un indice au-delà des
+  sommets, ou un nombre d'indices qui n'est pas un multiple de 3, devient en Release une lecture hors bornes.
+- **Parade** : vérifier une fois au chargement, glTF ou cuit (`whyNotAValidModel`), et rendre une erreur ; puis
+  seulement des `LEVAIN_ASSERT` là où la bibliothèque est appelée. Même règle que pour Jolt.
+
 ## Un « ; » dans le nom d'un TEST_CASE : deux tests verts qui ne testent rien (2026-10-05)
 
 - **Symptôme** : `ctest -N` liste un cas coupé en deux entrées (« … le retire du monde » et « détruire

@@ -75,6 +75,9 @@ TEST_CASE("un .lvmesh garde les matériaux metallic-roughness et les tangentes")
                                           levain::assets::AssetRegistry{});
     REQUIRE(model.has_value());
     model->meshes[0].primitives[0].vertices[2].tangent = {0.0f, 0.0f, -1.0f, -1.0f};
+    // materials.gltf est en « MASK » : l'aller-retour vérifie l'autre valeur.
+    REQUIRE(model->materials[0].alphaMasked);
+    model->materials[0].alphaMasked = false;
     REQUIRE(writeCookedModel(directory / "m.lvmesh", *model, SourceHash).has_value());
 
     const auto read = readCookedModel(directory / "m.lvmesh", SourceHash);
@@ -87,6 +90,7 @@ TEST_CASE("un .lvmesh garde les matériaux metallic-roughness et les tangentes")
     CHECK(material.metallicRoughnessTexture == expected.metallicRoughnessTexture);
     CHECK(material.normalTexture == expected.normalTexture);
     CHECK(material.normalScale == expected.normalScale);
+    CHECK_FALSE(material.alphaMasked);
     CHECK(read->meshes[0].primitives[0].vertices[2].tangent == glm::vec4{0.0f, 0.0f, -1.0f, -1.0f});
     fs::remove_all(directory);
 }
@@ -132,6 +136,14 @@ TEST_CASE("un .lvmesh périmé, tronqué ou d'un encodage inconnu est refusé")
 
     // L'encodage suit la signature et la version (4 + 4 octets) : 1 est réservé, donc refusé.
     original[8] = std::byte{1};
+    // Le format 4, d'avant la transparence découpée des matériaux (M6.3) : refusé, donc recuit.
+    std::vector<std::byte> previousFormat = original;
+    previousFormat[8] = std::byte{0};
+    previousFormat[4] = std::byte{4};
+    std::ofstream{path, std::ios::binary}.write(
+        reinterpret_cast<const char*>(previousFormat.data()),
+        static_cast<std::streamsize>(previousFormat.size()));
+    CHECK_FALSE(readCookedModel(path, SourceHash).has_value());
     std::ofstream{path, std::ios::binary}.write(reinterpret_cast<const char*>(original.data()),
                                                 static_cast<std::streamsize>(original.size()));
     const auto reserved = readCookedModel(path, SourceHash);

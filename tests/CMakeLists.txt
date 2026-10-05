@@ -9,6 +9,7 @@ set(cpuTests
     assert_test.cpp
     character_ecs_test.cpp
     character_test.cpp
+    collision_mesh_test.cpp
     cooked_test.cpp
     cooked_texture_test.cpp
     error_test.cpp
