@@ -41,8 +41,10 @@ renderer (ADR-0025) ; le moteur ne le connaît pas.
   l'autre.
 - La heightmap est en R16 flottant, pas en R16 normalisé ni en R32 flottant : les deux manquent au cœur de
   WebGPU (absent pour l'un, non filtrable pour l'autre). Ramenée de 0 à 1, elle garde un pas de moins de 5 cm.
-- Le plugin ne dépend que de `core` et de `render` (`levain_add_plugin`, ADR-0018) : `render` pour `Box`, et pour
-  ses passes de rendu.
+- Le plugin dépend de `core`, d'`assets`, de `render` pour `Box` et ses passes de rendu, et de `physics` pour sa
+  collision (`levain_add_plugin`, ADR-0018, ADR-0027) : un jeu sans physique qui voudrait le terrain la paierait.
+- La collision est une **copie** de la heightmap, en grille de hauteurs immuable (`heightFieldOf`) : la
+  heightmap reste au terrain, qu'on sculptera (M7.6) ; une heightmap sculptée donnera une nouvelle grille.
 
 ## Points d'entrée
 
@@ -51,6 +53,7 @@ renderer (ADR-0025) ; le moteur ne le connaît pas.
 | [`include/levain/terrain/heightmap.hpp`](include/levain/terrain/heightmap.hpp) | `Heightmap`, `valleyOf`, `heightAt`, `normalAt` |
 | [`include/levain/terrain/patches.hpp`](include/levain/terrain/patches.hpp) | `patchesFor`, `lodOf`, `patchBoundsOf` |
 | [`include/levain/terrain/layers.hpp`](include/levain/terrain/layers.hpp) | `layerWeightsOf`, `weightMapOf` |
+| [`include/levain/terrain/collision.hpp`](include/levain/terrain/collision.hpp) | `heightFieldOf`, `colliderOf` : la heightmap donnée à la physique (M6.2) |
 | [`include/levain/terrain/terrain_pass.hpp`](include/levain/terrain/terrain_pass.hpp) | `createTerrainPass`, `addTerrainPasses`, `drawTerrain`, `drawTerrainShadow` |
 | [`shaders/terrain.slang`](shaders/terrain.slang) | le relief, la normale au pixel, l'ombre portée |
 
