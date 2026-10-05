@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <variant>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -32,7 +34,42 @@ struct Capsule
     float radius = 0.5f;
 };
 
-using Shape = std::variant<Box, Sphere, Capsule>;
+/// Des triangles, en sommets indexés : trois indices par triangle, dans le repère du corps. Le
+/// décor importé d'un glTF.
+struct TriangleMesh
+{
+    std::vector<glm::vec3> vertices;
+    std::vector<std::uint32_t> indices;
+};
+
+/// Une grille de hauteurs, `size` × `size` échantillons espacés de `spacing` mètres, rangés ligne
+/// par ligne : x croît le long d'une ligne, z d'une ligne à la suivante, comme la heightmap du
+/// plugin terrain. L'échantillon (0, 0) est à l'origine du corps.
+struct HeightField
+{
+    std::uint32_t size = 0;
+    float spacing = 1.0f;
+    std::vector<float> heights;
+};
+
+/// Les grandes formes ne tiennent pas dans un composant de valeurs : 263 000 hauteurs pour la
+/// vallée. Elles sont **partagées et immuables** (ADR-0027) : cent rochers identiques partagent un
+/// maillage, et le module construit la forme Jolt d'une donnée une seule fois. Une donnée modifiée
+/// est une nouvelle donnée, et un nouveau `Collider`.
+///
+/// Elles ne sont que du décor, ou un cinématique : Jolt ne simule pas un maillage dynamique, dont
+/// il ne sait pas calculer la masse.
+struct MeshShape
+{
+    std::shared_ptr<const TriangleMesh> mesh;
+};
+
+struct HeightFieldShape
+{
+    std::shared_ptr<const HeightField> field;
+};
+
+using Shape = std::variant<Box, Sphere, Capsule, MeshShape, HeightFieldShape>;
 
 /// La forme d'une entité pour la physique. **Seul, il en fait un corps statique** : le décor ne
 /// déclare que sa forme (ADR-0026, comme le collider sans `Rigidbody` d'Unity). Un `RigidBody` en

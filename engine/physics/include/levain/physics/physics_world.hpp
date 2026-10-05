@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -85,5 +86,8 @@ void collectMovedBodies(const PhysicsWorld& world, std::vector<MovedBody>& out);
 
 BodyPose bodyPose(const PhysicsWorld& world, BodyHandle handle);
 std::uint32_t bodyCount(const PhysicsWorld& world);
+/// Les grandes formes que Jolt garde construites : une par donnée partagée, quel que soit le nombre
+/// de corps qui l'utilisent. Celles des données relâchées partent au pas suivant.
+std::size_t sharedShapeCount(const PhysicsWorld& world);
 
 } // namespace levain::physics

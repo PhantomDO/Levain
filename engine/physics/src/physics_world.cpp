@@ -6,9 +6,12 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string_view>
 #include <thread>
 #include <type_traits>
+#include <unordered_map>
+#include <utility>
 #include <variant>
 
 // Jolt.h d'abord : il définit les macros que tous les autres en-têtes attendent
@@ -21,6 +24,8 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/TransformedShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
@@ -193,30 +198,6 @@ JPH::BodyID toJolt(BodyHandle handle)
     return JPH::BodyID(handle.value);
 }
 
-/// La forme de Jolt d'un `Collider`. Les formes sont comptées par référence : le corps garde la
-/// sienne, il n'y a rien à libérer ici.
-JPH::RefConst<JPH::Shape> createShape(const Shape& shape)
-{
-    return std::visit(
-        [](const auto& value) -> JPH::RefConst<JPH::Shape>
-        {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, Box>)
-            {
-                return new JPH::BoxShape(toJolt(value.halfExtents));
-            }
-            else if constexpr (std::is_same_v<T, Sphere>)
-            {
-                return new JPH::SphereShape(value.radius);
-            }
-            else
-            {
-                return new JPH::CapsuleShape(value.halfHeight, value.radius);
-            }
-        },
-        shape);
-}
-
 JPH::EMotionType motionOf(const RigidBody* body)
 {
     if (body == nullptr)
@@ -257,7 +238,126 @@ struct PhysicsState
     JPH::PhysicsSystem system;
     JPH::BodyIDVector activeBodies; ///< Gardé d'un pas à l'autre : la liste ne réalloue pas.
     std::uint32_t bodiesAddedSinceStep = 0; ///< Pour `optimizeAfterLoading`.
+
+    /// La forme Jolt de chaque grande forme partagée, par l'adresse de sa donnée. Le `weak_ptr` dit
+    /// si la donnée vit encore : une nouvelle donnée allouée à la même adresse ne reprend pas la
+    /// forme de l'ancienne.
+    struct SharedShape
+    {
+        std::weak_ptr<const void> data;
+        JPH::RefConst<JPH::Shape> shape;
+    };
+
+    std::unordered_map<const void*, SharedShape> sharedShapes;
 };
+
+namespace
+{
+
+/// Une forme construite par ses réglages : Jolt rend une erreur plutôt qu'une forme quand la donnée
+/// ne lui convient pas. Elle va au journal, et la forme reste vide.
+JPH::RefConst<JPH::Shape> built(const JPH::ShapeSettings& settings)
+{
+    const JPH::ShapeSettings::ShapeResult result = settings.Create();
+    if (result.HasError())
+    {
+        core::log(LogCategory, core::LogLevel::Error, "forme refusée par Jolt : {}",
+                  result.GetError().c_str());
+        return nullptr;
+    }
+    return result.Get();
+}
+
+JPH::RefConst<JPH::Shape> meshShapeOf(const TriangleMesh& mesh)
+{
+    JPH::VertexList vertices;
+    vertices.reserve(mesh.vertices.size());
+    for (const glm::vec3& vertex : mesh.vertices)
+    {
+        vertices.emplace_back(vertex.x, vertex.y, vertex.z);
+    }
+    JPH::IndexedTriangleList triangles;
+    triangles.reserve(mesh.indices.size() / 3);
+    for (std::size_t i = 0; i + 2 < mesh.indices.size(); i += 3)
+    {
+        triangles.emplace_back(mesh.indices[i], mesh.indices[i + 1], mesh.indices[i + 2], 0);
+    }
+    return built(JPH::MeshShapeSettings(std::move(vertices), std::move(triangles)));
+}
+
+/// L'échantillon (x, z) de Jolt est à `scale × (x, hauteur, z)` : le pas en x et en z, 1 en y,
+/// puisque nos hauteurs sont déjà en mètres. Il range ses hauteurs ligne par ligne, `z × size + x`,
+/// comme `HeightField` (HeightFieldShape.h, `HeightFieldShapeSettings` : `mHeightSamples` et
+/// `mOffset + mScale × (x, hauteur, y)`). Jolt complète lui-même une grille dont le côté n'est
+/// pas un multiple de ses blocs (513, celui de la vallée, essayé avant d'écrire ce code).
+JPH::RefConst<JPH::Shape> heightFieldShapeOf(const HeightField& field)
+{
+    return built(JPH::HeightFieldShapeSettings(field.heights.data(), JPH::Vec3::sZero(),
+                                               JPH::Vec3(field.spacing, 1.0f, field.spacing),
+                                               field.size));
+}
+
+/// La forme Jolt d'une grande forme partagée : construite une fois par donnée, gardée tant que la
+/// donnée vit. Une entrée dont la donnée est morte ne sert plus, même si une nouvelle donnée a pris
+/// son adresse : elle est remplacée. Les autres partent au pas suivant (`forgetDeadShapes`).
+template <typename Data, typename Build>
+JPH::RefConst<JPH::Shape> sharedShapeOf(PhysicsState& state,
+                                        const std::shared_ptr<const Data>& data, Build build)
+{
+    const auto found = state.sharedShapes.find(data.get());
+    if (found != state.sharedShapes.end() && !found->second.data.expired())
+    {
+        return found->second.shape;
+    }
+    JPH::RefConst<JPH::Shape> shape = build(*data);
+    if (shape != nullptr)
+    {
+        state.sharedShapes[data.get()] = {.data = data, .shape = shape};
+    }
+    return shape;
+}
+
+/// Oublie les formes des données mortes : une grille de 513² pèse plusieurs centaines de Ko. Une
+/// fois par pas, et non à chaque construction : charger n maillages ne coûte pas n².
+void forgetDeadShapes(PhysicsState& state)
+{
+    std::erase_if(state.sharedShapes,
+                  [](const auto& entry) { return entry.second.data.expired(); });
+}
+
+/// La forme de Jolt d'un `Collider`, ou rien si Jolt la refuse. Les formes sont comptées par
+/// référence : le corps garde la sienne, il n'y a rien à libérer ici.
+JPH::RefConst<JPH::Shape> createShape(PhysicsState& state, const Shape& shape)
+{
+    return std::visit(
+        [&state](const auto& value) -> JPH::RefConst<JPH::Shape>
+        {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, Box>)
+            {
+                return new JPH::BoxShape(toJolt(value.halfExtents));
+            }
+            else if constexpr (std::is_same_v<T, Sphere>)
+            {
+                return new JPH::SphereShape(value.radius);
+            }
+            else if constexpr (std::is_same_v<T, Capsule>)
+            {
+                return new JPH::CapsuleShape(value.halfHeight, value.radius);
+            }
+            else if constexpr (std::is_same_v<T, MeshShape>)
+            {
+                return sharedShapeOf(state, value.mesh, meshShapeOf);
+            }
+            else
+            {
+                return sharedShapeOf(state, value.field, heightFieldShapeOf);
+            }
+        },
+        shape);
+}
+
+} // namespace
 
 PhysicsWorld::PhysicsWorld() = default;
 PhysicsWorld::PhysicsWorld(PhysicsWorld&&) noexcept = default;
@@ -294,10 +394,15 @@ BodyHandle createBody(PhysicsWorld& world, const Collider& collider, const Rigid
         LEVAIN_ASSERT(false, "corps physique refusé");
         return {};
     }
+    const JPH::RefConst<JPH::Shape> shape = createShape(*world.state, collider.shape);
+    if (shape == nullptr)
+    {
+        LEVAIN_ASSERT(false, "forme refusée par Jolt");
+        return {};
+    }
     const Layer layer = effectiveLayer(collider, body);
-    JPH::BodyCreationSettings settings(createShape(collider.shape), toJolt(pose.position),
-                                       toJoltRotation(pose.rotation), motionOf(body),
-                                       static_cast<JPH::ObjectLayer>(layer));
+    JPH::BodyCreationSettings settings(shape, toJolt(pose.position), toJoltRotation(pose.rotation),
+                                       motionOf(body), static_cast<JPH::ObjectLayer>(layer));
     settings.mUserData = entity;
     settings.mIsSensor = layer == Layer::Sensor;
     // Le décor aussi : laissé au 0,2 de Jolt, il ferait glisser ce qu'on y pose.
@@ -310,6 +415,16 @@ BodyHandle createBody(PhysicsWorld& world, const Collider& collider, const Rigid
             // La masse donnée, l'inertie calculée par Jolt depuis la forme et remise à l'échelle.
             settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
             settings.mMassPropertiesOverride.mMass = body->mass;
+        }
+        else if (std::holds_alternative<MeshShape>(collider.shape))
+        {
+            // Jolt ne calcule pas la masse d'un maillage (MeshShape.cpp, `GetMassProperties` rend
+            // 0), mais en exige une pour tout corps mobile (MotionProperties.cpp,
+            // `SetMassProperties` : assertion en Debug, masse inverse infinie en Release). Un
+            // cinématique n'en fait rien, rien ne le pousse : une masse et une inertie unitaires.
+            settings.mOverrideMassProperties = JPH::EOverrideMassProperties::MassAndInertiaProvided;
+            settings.mMassPropertiesOverride.mMass = 1.0f;
+            settings.mMassPropertiesOverride.mInertia = JPH::Mat44::sIdentity();
         }
     }
     JPH::BodyInterface& bodies = world.state->system.GetBodyInterface();
@@ -407,6 +522,7 @@ void stepPhysics(PhysicsWorld& world, float seconds)
 {
     PhysicsState& state = *world.state;
     optimizeAfterLoading(state);
+    forgetDeadShapes(state);
     const JPH::EPhysicsUpdateError error =
         state.system.Update(seconds, 1, &state.tempAllocator, state.jobSystem.get());
     if (error != JPH::EPhysicsUpdateError::None)
@@ -454,6 +570,11 @@ BodyPose bodyPose(const PhysicsWorld& world, BodyHandle handle)
 std::uint32_t bodyCount(const PhysicsWorld& world)
 {
     return world.state->system.GetNumBodies();
+}
+
+std::size_t sharedShapeCount(const PhysicsWorld& world)
+{
+    return world.state->sharedShapes.size();
 }
 
 } // namespace levain::physics

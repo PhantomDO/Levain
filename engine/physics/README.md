@@ -6,9 +6,9 @@ La physique des corps rigides, sur **Jolt Physics** ([ADR-0026](../../docs/adr/0
 des entités flecs qui tombent, se heurtent et se poussent, au pas fixe de la simulation (ADR-0016). Jolt fait le
 calcul ; ce module est la frontière entre Jolt et le reste du moteur.
 
-**État en M6.1** : des boîtes, des sphères et des capsules, statiques, dynamiques ou cinématiques, sur cinq
-couches fixes. Les maillages, le heightfield du terrain, les raycasts et les volumes déclencheurs viennent en
-M6.2, le personnage en M6.3.
+**État en M6.2 (en cours)** : des boîtes, des sphères et des capsules, statiques, dynamiques ou cinématiques,
+sur cinq couches fixes ; des maillages et des grilles de hauteurs partagés, pour le décor (ADR-0027). Les
+raycasts et les volumes déclencheurs suivent, le personnage en M6.3.
 
 ## Invariants
 
@@ -43,6 +43,14 @@ M6.2, le personnage en M6.3.
 8. **Déterministe au bit près** pour un même binaire, quel que soit le nombre de threads (test). Le natif et le
    navigateur, deux binaires, ne donnent pas les mêmes résultats.
 
+9. **Les grandes formes sont partagées et immuables** (`MeshShape`, `HeightFieldShape`, ADR-0027) : un
+   `std::shared_ptr<const …>` vers la donnée, dont le module construit la forme Jolt une seule fois et la garde
+   tant que la donnée vit ; il l'oublie au pas qui suit (`sharedShapeCount`). Une grille de hauteurs n'est que du
+   décor ; un maillage, du décor ou un cinématique (le module lui donne la masse que Jolt ne sait pas calculer) ;
+   aucun des deux n'est un capteur, faute d'intérieur. Une donnée vide, un indice hors du maillage, un sommet
+   ou une hauteur qui n'est pas fini, une grille de moins de 3 × 3 ou dont Jolt refuse la forme ne donne pas
+   de corps, et le journal le dit.
+
 ## Mesures
 
 Critère de M6.1, 1 000 caisses en chute libre sans un pas au-dessus de 4 ms (Release, machine de référence,
@@ -73,7 +81,7 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 |---|---|
 | [`include/levain/physics/components.hpp`](include/levain/physics/components.hpp) | `Collider` (forme et couche), `RigidBody` (mouvement, masse, frottement, rebond), `BodyHandle`, `effectiveLayer` |
 | [`include/levain/physics/layers.hpp`](include/levain/physics/layers.hpp) | `Layer` et la matrice `layersCollide` |
-| [`include/levain/physics/physics_world.hpp`](include/levain/physics/physics_world.hpp) | `PhysicsWorld`, `createPhysicsWorld`, `createBody`, `teleportBody`, `moveKinematic`, `stepPhysics`, `collectMovedBodies` : la logique, sans flecs |
+| [`include/levain/physics/physics_world.hpp`](include/levain/physics/physics_world.hpp) | `PhysicsWorld`, `createPhysicsWorld`, `createBody`, `teleportBody`, `moveKinematic`, `stepPhysics`, `collectMovedBodies`, `sharedShapeCount` : la logique, sans flecs |
 | [`include/levain/physics/body_rules.hpp`](include/levain/physics/body_rules.hpp) | `whyNotABody`, `whyNotThisLayer`, `poseOf` |
 | [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` |
 | [`src/physics_world.cpp`](src/physics_world.cpp) | Jolt : les couches, le job system, les corps, le pas |
