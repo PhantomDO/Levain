@@ -2,11 +2,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <thread>
 #include <type_traits>
@@ -22,11 +24,16 @@
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/TransformedShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
@@ -34,6 +41,7 @@
 #include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
 #include "levain/physics/body_rules.hpp"
+#include "levain/physics/queries.hpp"
 
 namespace levain::physics
 {
@@ -575,6 +583,120 @@ std::uint32_t bodyCount(const PhysicsWorld& world)
 std::size_t sharedShapeCount(const PhysicsWorld& world)
 {
     return world.state->sharedShapes.size();
+}
+
+namespace
+{
+
+static_assert(LayerCount <= 32, "un LayerMask a 32 bits : décaler de plus serait indéfini");
+
+/// Le masque des requêtes, traduit pour Jolt : une couche passe si son bit est mis.
+class MaskFilter final : public JPH::ObjectLayerFilter
+{
+public:
+    explicit MaskFilter(LayerMask mask) : m_mask(mask) {}
+
+    bool ShouldCollide(JPH::ObjectLayer layer) const override
+    {
+        return ((m_mask >> static_cast<std::uint32_t>(layer)) & 1u) != 0;
+    }
+
+private:
+    LayerMask m_mask;
+};
+
+/// La direction d'une requête, de longueur 1, ou rien si elle est nulle ou faite de NaN : Jolt
+/// avancerait d'une longueur nulle, ou de NaN, sans le dire.
+std::optional<glm::vec3> directionOf(const Ray& ray)
+{
+    const float length = glm::length(ray.direction);
+    if (!std::isfinite(length) || length < 1e-6f || !std::isfinite(ray.maxDistance) ||
+        ray.maxDistance <= 0.0f)
+    {
+        return std::nullopt;
+    }
+    return ray.direction / length;
+}
+
+/// Le corps touché, lu sous son verrou : c'est ainsi que Jolt fait lire un corps hors du pas
+/// (Architecture.md, « Locking and Concurrency »). La normale est celle de la face touchée, sauf si
+/// l'appelant en donne une. Rien si le corps n'existe plus.
+std::optional<RayHit> hitOn(const PhysicsState& state, JPH::BodyID id,
+                            const JPH::SubShapeID& subShape, const glm::vec3& point, float distance,
+                            std::optional<glm::vec3> normal = std::nullopt)
+{
+    const JPH::BodyLockRead lock(state.system.GetBodyLockInterface(), id);
+    if (!lock.Succeeded())
+    {
+        return std::nullopt;
+    }
+    const JPH::Body& body = lock.GetBody();
+    return RayHit{
+        .entity = body.GetUserData(),
+        .point = point,
+        .normal = normal.value_or(toGlm(body.GetWorldSpaceSurfaceNormal(subShape, toJolt(point)))),
+        .distance = distance};
+}
+
+} // namespace
+
+std::optional<RayHit> raycast(const PhysicsWorld& world, const Ray& ray, LayerMask mask)
+{
+    const std::optional<glm::vec3> direction = directionOf(ray);
+    if (!direction)
+    {
+        return std::nullopt;
+    }
+    const PhysicsState& state = *world.state;
+    const JPH::RRayCast cast{toJolt(ray.origin), toJolt(*direction * ray.maxDistance)};
+    // Le `CastRay` simple de Jolt tient un convexe pour plein (un rayon parti de dedans le touche à
+    // 0) et voit les faces arrière des triangles (Shape.h, `RayCastSettings`). Ici, comme le
+    // `Physics.Raycast` d'Unity : seules les surfaces que le rayon traverse en entrant comptent. Le
+    // rayon lancé du centre du joueur ne touche pas le joueur, celui lancé sous le terrain ne
+    // touche pas le terrain.
+    JPH::RayCastSettings settings;
+    settings.SetBackFaceMode(JPH::EBackFaceMode::IgnoreBackFaces);
+    settings.mTreatConvexAsSolid = false;
+    JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
+    state.system.GetNarrowPhaseQuery().CastRay(cast, settings, collector, {}, MaskFilter{mask});
+    if (!collector.HadHit())
+    {
+        return std::nullopt;
+    }
+    const JPH::RayCastResult& result = collector.mHit;
+    const float distance = result.mFraction * ray.maxDistance;
+    return hitOn(state, result.mBodyID, result.mSubShapeID2, ray.origin + *direction * distance,
+                 distance);
+}
+
+std::optional<RayHit> sphereCast(const PhysicsWorld& world, const Ray& ray, float radius,
+                                 LayerMask mask)
+{
+    const std::optional<glm::vec3> direction = directionOf(ray);
+    if (!direction || !std::isfinite(radius) || radius <= 0.0f)
+    {
+        return std::nullopt;
+    }
+    const PhysicsState& state = *world.state;
+    JPH::SphereShape sphere(radius);
+    // Sur la pile : Jolt ne doit jamais la libérer s'il en prend une référence (Reference.h).
+    sphere.SetEmbedded();
+    const JPH::RShapeCast cast = JPH::RShapeCast::sFromWorldTransform(
+        &sphere, JPH::Vec3::sOne(), JPH::RMat44::sTranslation(toJolt(ray.origin)),
+        toJolt(*direction * ray.maxDistance));
+    JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+    state.system.GetNarrowPhaseQuery().CastShape(
+        cast, JPH::ShapeCastSettings{}, JPH::RVec3::sZero(), collector, {}, MaskFilter{mask});
+    if (!collector.HadHit())
+    {
+        return std::nullopt;
+    }
+    // La normale du contact, et non celle de la face : sur l'arête d'une boîte, c'est elle qui dit
+    // où glisser (l'`ImpactNormal` d'Unreal). Jolt donne l'axe de pénétration, qui va de la sphère
+    // vers le corps touché.
+    const JPH::ShapeCastResult& hit = collector.mHit;
+    return hitOn(state, hit.mBodyID2, hit.mSubShapeID2, toGlm(hit.mContactPointOn2),
+                 hit.mFraction * ray.maxDistance, toGlm(-hit.mPenetrationAxis.Normalized()));
 }
 
 } // namespace levain::physics
