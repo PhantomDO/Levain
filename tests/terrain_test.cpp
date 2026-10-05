@@ -4,6 +4,8 @@
 
 #include <doctest/doctest.h>
 
+#include "levain/physics/physics_world.hpp"
+#include "levain/terrain/collision.hpp"
 #include "levain/terrain/heightmap.hpp"
 #include "levain/terrain/layers.hpp"
 #include "levain/terrain/patches.hpp"
@@ -169,4 +171,32 @@ TEST_CASE("la grille d'une parcelle et sa jupe : chaque bord doublé en dessous,
     };
     const glm::vec3 normal = glm::cross(at(1) - at(0), at(2) - at(0));
     CHECK(normal.y > 0.0f);
+}
+
+TEST_CASE("un corps lâché sur la vallée tombe sur le terrain et s'y arrête (critère de #175)")
+{
+    const levain::terrain::Heightmap valley = levain::terrain::valleyOf({});
+    levain::physics::PhysicsWorld world = levain::physics::createPhysicsWorld();
+    levain::physics::createBody(world, levain::terrain::colliderOf(valley), nullptr, {}, 1);
+
+    // Au fond plat de la vallée, loin du lac : une boule qui ne roule pas loin.
+    const glm::vec2 spot{180.0f, 200.0f};
+    const float ground = levain::terrain::heightAt(valley, spot);
+    const levain::physics::RigidBody body;
+    const auto ball = levain::physics::createBody(
+        world, levain::physics::Collider{.shape = levain::physics::Sphere{.radius = 0.5f}}, &body,
+        {.position = {spot.x, ground + 20.0f, spot.y}}, 2);
+    for (int i = 0; i < 240; ++i) // 4 s : la chute de 20 m en prend 2
+    {
+        levain::physics::stepPhysics(world, 1.0f / 60.0f);
+    }
+    const glm::vec3 position = levain::physics::bodyPose(world, ball).position;
+    CAPTURE(position.x);
+    CAPTURE(position.y);
+    CAPTURE(position.z);
+    // Sur le terrain, là où il est, et non dessous : la surface sous la boule, plus son rayon, à
+    // 2 cm près (la penetration slop de Jolt) et à la pente près.
+    const float surface = levain::terrain::heightAt(valley, {position.x, position.z});
+    CHECK(position.y > surface + 0.4f);
+    CHECK(position.y < surface + 0.6f);
 }
