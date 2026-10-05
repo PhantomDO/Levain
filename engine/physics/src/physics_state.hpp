@@ -12,12 +12,14 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 // Jolt.h d'abord : il définit les macros que tous les autres en-têtes attendent
 // (https://jrouwe.github.io/JoltPhysics/, « Getting started »).
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/JobSystem.h>
 #include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <glm/glm.hpp>
@@ -244,7 +246,31 @@ struct PhysicsState
     };
 
     std::unordered_map<const void*, SharedShape> sharedShapes;
+
+    /// Un personnage (ADR-0028) et les réglages de son `ExtendedUpdate` : ses marches et son
+    /// collage au sol, que Jolt ne garde pas dans le `CharacterVirtual`.
+    struct Character
+    {
+        JPH::Ref<JPH::CharacterVirtual> jolt;
+        JPH::CharacterVirtual::ExtendedUpdateSettings update;
+    };
+
+    /// Après le système : un personnage retire son corps intérieur en mourant, le système doit
+    /// encore vivre. Une case vide est libre, et resservira (`freeCharacters`).
+    std::vector<Character> characters;
+    std::vector<std::uint32_t> freeCharacters;
 };
+
+/// Oublie les paires de contact d'un corps qui part, désigné par son `BodyID` (sa valeur brute) :
+/// Jolt signale parfois leur retrait au pas suivant, quand le `BodyID` a pu être repris par un
+/// autre corps. Pour un corps, et pour le corps intérieur d'un personnage.
+inline void forgetContactsOf(ContactBook& contacts, std::uint32_t body)
+{
+    const std::scoped_lock lock(contacts.mutex);
+    contacts.sensors.erase(body);
+    std::erase_if(contacts.overlaps, [body](const auto& entry)
+                  { return entry.first.first == body || entry.first.second == body; });
+}
 
 /// La forme de Jolt d'un `Collider`, ou rien si Jolt la refuse. Les formes sont comptées par
 /// référence : le corps garde la sienne, il n'y a rien à libérer ici.

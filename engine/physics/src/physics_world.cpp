@@ -348,16 +348,7 @@ void destroyBody(PhysicsWorld& world, BodyHandle handle)
         return;
     }
     LEVAIN_ASSERT(!world.state->stepping, "un corps se détruit hors du pas de physique");
-    // Ses paires de contact partent avec lui : Jolt signale parfois leur retrait au pas suivant,
-    // quand le BodyID a pu être repris par un autre corps.
-    {
-        ContactBook& contacts = world.state->contacts;
-        const std::scoped_lock lock(contacts.mutex);
-        contacts.sensors.erase(handle.value);
-        std::erase_if(
-            contacts.overlaps, [&handle](const auto& entry)
-            { return entry.first.first == handle.value || entry.first.second == handle.value; });
-    }
+    forgetContactsOf(world.state->contacts, handle.value);
     JPH::BodyInterface& bodies = world.state->system.GetBodyInterface();
     bodies.RemoveBody(toJolt(handle));
     bodies.DestroyBody(toJolt(handle));
