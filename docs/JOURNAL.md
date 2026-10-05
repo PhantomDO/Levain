@@ -30,6 +30,63 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-05 — M6.1 — Clôture : Jolt derrière nos types, et 1 000 caisses qui tombent
+
+- **Temps Donnovan : à relever** (estimé 1,75 h). Premier milestone du mode autonome (04/10) : Donnovan a
+  répondu aux sondages, un subagent a relu chaque PR, l'agent a fusionné après la CI verte. Sa relecture
+  a posteriori, et son temps, viendront à son retour. Les estimations de relecture des sept PR font déjà
+  2,1 h : le ratio passera vraisemblablement au-dessus de 1.
+- Sessions Claude Code : 1 (interrompue deux fois par une limite de l'API, reprise sans perte)
+- Fait, en 7 PR (#261 à #267) :
+  - **l'ADR-0026** (#261) : un corps se déclare par un `Collider` et un `RigidBody`, comme dans Unity ; Jolt
+    fait autorité sur les corps dynamiques, flecs recopie ; une table de couches fixe ; le pool de threads de
+    Jolt en natif, un seul thread dans le navigateur ;
+  - **des phases de simulation ordonnées** (#262) : `Simulation` (le gameplay), `Physics`, `PostPhysics`, dans
+    le pipeline du pas fixe, et non dans le pipeline par défaut de flecs ;
+  - **le monde Jolt derrière nos types** (#263) : `PhysicsWorld` opaque et des fonctions libres, les couches
+    fixes, des pas déterministes (même état au bit près sur un thread ou sur trois), les entrées refusées
+    bruyamment avant que Jolt n'en fasse des NaN en Release, où ses assertions n'existent pas ;
+  - **la glu flecs** (#264) : les corps suivent les entités (création, retrait, téléportation, refus
+    réversible), un point de synchronisation avant le pas pour les écritures différées du gameplay ;
+  - **des instances qui tournent** (#265) : une position et un quaternion par instance, lus par les passes
+    des meshes et des ombres ;
+  - **un correctif intercalé** (#266) : un « ; » dans le nom d'un cas coupait un test de #263 en deux entrées
+    ctest qui n'exécutaient rien ; une entrée vide échoue désormais. Le garde-fou en a aussitôt trouvé deux
+    autres dans la pile de M6.2, avant leur fusion ;
+  - **la démo et le banc** (#267) : 1 000 caisses lâchées dans `levain_sandbox --view physics`, sur les trois
+    presets et les deux backends en CI.
+- Mesures (Release, Ryzen 7 7800X3D, 15 threads de travail, `./build/linux-release/tests/levain_physics_bench`,
+  600 pas, trois lancements) :
+  - **critère de M6.1, aucun pas au-dessus de 4 ms : 0,52 ms par pas en moyenne, 1,1 à 2,4 ms au pire** ; le
+    pire pas est bruité : une contre-mesure de la relecture atteint 2,6 ms une fois sur trois ;
+  - sur un seul thread, le réglage du navigateur, 1,7 ms et 3,3 à 3,6 ms au pire (`levain_physics_bench 0`),
+    en natif : le pas n'est pas mesuré en WebAssembly, où il sera vraisemblablement plus lent ;
+  - le pas qui construit les 1 001 corps : 1,4 ms (2,5 sur un thread) ;
+  - la vue physics dans Firefox, en WebGPU : 61 images/s (`tools/web-smoke.sh`), sans doute plafonnées par
+    l'affichage : le chiffre ne dit rien du pas ;
+  - tests : 194 en natif (196 en Release), 114 en WebAssembly (`ctest`, CI de #267).
+- Décisions de Donnovan, par sondage : `Collider` et `RigidBody` ; Jolt fait autorité ; couches fixes ; threads
+  de Jolt en natif, un seul dans le navigateur ; l'agent fusionne après relecture par un subagent et CI verte ;
+  le sandbox web publié en Artifact privé claude.ai. ADR-0026.
+- Écarts et problèmes :
+  - réinstaller l'état global de Jolt plantait en WebAssembly (`Factory::Register`) : installé une fois par
+    processus ;
+  - une relecture a trouvé l'absence du point de synchronisation : un `set` différé du gameplay arrivait après
+    le pas. Contre-test fait (x = 0 au lieu de 10 sans lui) ;
+  - une relecture a trouvé que `destroyBody` sur le corps invalide lisait hors du tableau de Jolt en Release :
+    garde ajoutée ;
+  - une première version de l'entrée GOTCHA disait Jolt sans assertions même en Debug : faux, corrigé après
+    vérification (`nm` sur les deux bibliothèques) ;
+  - trois PR dépassent les 400 lignes, hors de l'exception Vulkan : #263 (971, dont les tests du monde), #264
+    (819, la glu et ses tests flecs) et #267 (432, le banc et sa scène). Signalé dans chaque PR, sans découpe
+    naturelle trouvée ;
+  - pièges ajoutés à `build/GOTCHA.md` : LLVM 23 dans la distrobox contre 22 en CI, Firefox en Flatpak pour
+    `tools/web-smoke.sh`, le « ; » dans un nom de cas, LeakSanitizer avec lavapipe ;
+  - le jeton `gh` a perdu le scope `read:project` : le board n'a pas pu être mis à jour (à rafraîchir par
+    Donnovan, `gh auth refresh -s read:project,project`).
+- Prochaine étape : M6.2, déjà écrite et relue (neuf PR empilées : ADR-0027, grandes formes, collision du
+  terrain, requêtes, lignes de debug, contours, sélection, volumes, démo du lac).
+
 ## 2026-10-03 — M5.7 — Clôture : l'eau et l'herbe, et la fin de la phase 5
 
 - **Temps Donnovan : 2,0 h** (estimé 1,75 h). Réparti au prorata des estimations : #136 0,55 h, #137 1,0 h,

@@ -311,7 +311,7 @@ profondeur) ; de l'herbe dense instanciée sur GPU, répartie par une carte de d
 
 | Milestone | Heures D. | Sessions | Échéance |
 |---|---:|---:|---|
-| M6.1 Intégration Jolt | 1,75 | 2 | 07/02/2027 |
+| M6.1 Intégration Jolt | à relever (1,75 estimées) | 1 | fini le 05/10/2026 |
 | M6.2 Colliders, requêtes, debug draw | 1,5 | 1 | 14/02/2027 |
 | M6.3 Character controller | 1,65 | 1 | 21/02/2027 |
 | M6.4 Caméra à la troisième personne | 1,0 | 1 | 28/02/2027 |
