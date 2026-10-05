@@ -109,6 +109,24 @@ constexpr bool isWalking(const CharacterGround& ground)
     return ground.state == GroundState::OnGround;
 }
 
+/// La vitesse que le gameplay veut donner au personnage, **chute comprise** : le moteur ne lui
+/// applique pas la gravité (ADR-0028). Elle **persiste** d'un pas à l'autre, comme le `velocity` de
+/// Godot : non reposée, il continue à la même vitesse. Une téléportation la remet à zéro. Sans
+/// elle, le personnage ne bouge pas.
+struct CharacterVelocity
+{
+    glm::vec3 value{0.0f};
+};
+
+/// Ce que le module a trouvé au dernier pas, **posé par lui**, en lecture seule : le sol (sa
+/// vitesse relue après le pas, pour une plateforme), et la vitesse effective, celle qu'il faut
+/// animer.
+struct CharacterState
+{
+    CharacterGround ground;
+    glm::vec3 velocity{0.0f};
+};
+
 /// Crée un personnage à `pose` (ses pieds), avec un corps intérieur sur la couche `Character` que
 /// les volumes déclencheurs et les rayons voient, et qui rend `entity` (ADR-0028). Des réglages
 /// refusés (`whyNotThisCharacter`) : une erreur au journal, une assertion

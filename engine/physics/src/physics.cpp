@@ -5,9 +5,12 @@
 #include <iterator>
 #include <utility>
 
+#include "character_sync.hpp"
+
 #include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
 #include "levain/physics/body_rules.hpp"
+#include "levain/physics/character.hpp"
 #include "levain/physics/components.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/scene.hpp"
@@ -207,6 +210,8 @@ PhysicsModule::PhysicsModule(flecs::world& world)
     // Ce que la physique déplace est interpolé par le rendu, comme ce qui a une Velocity
     // (ADR-0016) : le trait With lui attache l'état du pas précédent.
     world.component<RigidBody>().add(flecs::With, world.component<scene::PreviousTransform>());
+    world.component<CharacterController>().add(flecs::With,
+                                               world.component<scene::PreviousTransform>());
 
     // La glu : une instruction par observateur et par système (ADR-0011).
     //
@@ -267,8 +272,50 @@ PhysicsModule::PhysicsModule(flecs::world& world)
         .event(flecs::OnRemove)
         .each([](flecs::entity entity, const flecs::Parent&) { markDirty(entity); });
 
+    // Le personnage (ADR-0028), comme un corps : un CharacterController qui arrive ou change le
+    // fait reconstruire au pas suivant ; qui part, ou le Transform avec lui, retire son
+    // CharacterHandle, seul endroit où il est détruit ; un Transform posé le téléporte.
+    world.observer<const CharacterController>("MarkCharacterDirty")
+        .event(flecs::OnAdd)
+        .event(flecs::OnSet)
+        .each([](flecs::entity entity, const CharacterController&)
+              { entity.add<CharacterDirty>(); });
+    world.observer<const CharacterController>("RemoveCharacterWithController")
+        .event(flecs::OnRemove)
+        .each([](flecs::entity entity, const CharacterController&) { forgetCharacter(entity); });
+    world.observer<const scene::Transform>("RemoveCharacterWithTransform")
+        .with<CharacterHandle>()
+        .event(flecs::OnRemove)
+        .each([](flecs::entity entity, const scene::Transform&)
+              { entity.remove<CharacterHandle>(); });
+    world.observer<const CharacterHandle>("DestroyCharacter")
+        .event(flecs::OnRemove)
+        .each([](flecs::iter& it, std::size_t, const CharacterHandle& handle)
+              { destroyCharacterUnlessWorldClosing(it.world().c_ptr(), handle); });
+    world.observer<const scene::Transform, const CharacterHandle>("TeleportCharacter")
+        .event(flecs::OnSet)
+        .term_at(1)
+        .filter()
+        .each(
+            [](flecs::iter& it, std::size_t row, const scene::Transform& transform,
+               const CharacterHandle& handle)
+            {
+                teleportOrRebuildCharacter(it.world().get_mut<PhysicsWorld>(), it.entity(row),
+                                           handle, transform);
+            });
+    world.observer<const scene::Transform>("RecheckRefusedCharacter")
+        .with<CharacterController>()
+        .without<CharacterHandle>()
+        .event(flecs::OnSet)
+        .each([](flecs::entity entity, const scene::Transform&) { entity.add<CharacterDirty>(); });
+    world.observer<const flecs::Parent>("RecheckCharacterOnReparent")
+        .with<CharacterController>()
+        .event(flecs::OnSet)
+        .event(flecs::OnRemove)
+        .each([](flecs::entity entity, const flecs::Parent&) { entity.add<CharacterDirty>(); });
+
     // Le pas, dans la phase Physics : après le gameplay, avant ce qui lit son résultat (ADR-0026).
-    // Quatre systèmes, exécutés dans l'ordre de leur déclaration.
+    // Sept systèmes, exécutés dans l'ordre de leur déclaration.
     //
     // D'abord un point de synchronisation. Un `set` fait par le gameplay pendant la simulation
     // écrit la valeur tout de suite, mais son OnSet attend la fusion des commandes, et flecs n'en
@@ -300,9 +347,40 @@ PhysicsModule::PhysicsModule(flecs::world& world)
                 pushIfKinematic(it.world().get_mut<PhysicsWorld>(), transform, body, handle,
                                 it.delta_time());
             });
+    world.system<const CharacterController, const scene::Transform>("BuildCharacters")
+        .with<CharacterDirty>()
+        // Comme BuildBodies : les CharacterHandle, CharacterVelocity et CharacterState posés ici
+        // sont fusionnés avant MoveCharacters, qui fait bouger dès ce pas un personnage qui vient
+        // de naître.
+        .write<CharacterHandle>()
+        .kind<scene::Physics>()
+        .each(
+            [](flecs::iter& it, std::size_t row, const CharacterController& controller,
+               const scene::Transform& transform)
+            {
+                rebuildCharacter(it.world().get_mut<PhysicsWorld>(), it.entity(row), controller,
+                                 transform);
+            });
+    // Le personnage avance avant le pas de Jolt, comme dans ses exemples : les caisses qu'il pousse
+    // reçoivent leur impulsion dans ce pas (ADR-0028).
+    world
+        .system<scene::Transform, const CharacterVelocity*, const CharacterHandle>("MoveCharacters")
+        .kind<scene::Physics>()
+        .each(
+            [](flecs::iter& it, std::size_t, scene::Transform& transform,
+               const CharacterVelocity* velocity, const CharacterHandle& handle)
+            {
+                advanceCharacter(it.world().get_mut<PhysicsWorld>(), transform, velocity, handle,
+                                 it.delta_time());
+            });
     world.system("StepPhysics")
         .kind<scene::Physics>()
         .run([](flecs::iter& it) { stepAndCopyBack(it.world(), it.delta_time()); });
+
+    world.system<CharacterState, const CharacterHandle>("RefreshCharacters")
+        .kind<scene::Physics>()
+        .each([](flecs::iter& it, std::size_t, CharacterState& state, const CharacterHandle& handle)
+              { refreshCharacterState(it.world().get_mut<PhysicsWorld>(), handle, state); });
 
     // Après le pas : qui est entré dans un volume, qui en est sorti (ADR-0027).
     world.system("ApplyOverlaps")

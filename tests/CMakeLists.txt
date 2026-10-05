@@ -7,6 +7,7 @@ set(cpuTests
     animation_test.cpp
     asset_ref_test.cpp
     assert_test.cpp
+    character_ecs_test.cpp
     character_test.cpp
     cooked_test.cpp
     cooked_texture_test.cpp
