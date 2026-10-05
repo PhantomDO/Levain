@@ -104,6 +104,20 @@ std::optional<std::uint16_t> padAxisCodeFromName(const std::string& name)
     return codeOf(SDL_GetGamepadAxisFromString(name.c_str()), SDL_GAMEPAD_AXIS_INVALID);
 }
 
+CursorPosition cursorPosition(const Window& window)
+{
+    CursorPosition position;
+    SDL_GetMouseState(&position.x, &position.y);
+    const float density = SDL_GetWindowPixelDensity(window.handle.get());
+    // 0 : SDL n'a pas su la lire (la fenêtre n'existe pas encore). On garde les coordonnées telles.
+    if (density > 0.0f)
+    {
+        position.x *= density;
+        position.y *= density;
+    }
+    return position;
+}
+
 void setMouseCaptured(const Window& window, bool captured)
 {
     if (!SDL_SetWindowRelativeMouseMode(window.handle.get(), captured))

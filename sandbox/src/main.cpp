@@ -50,11 +50,14 @@
 #include "levain/input/bindings.hpp"
 #include "levain/input/state.hpp"
 #include "levain/physics/components.hpp"
+#include "levain/physics/outlines.hpp"
 #include "levain/physics/physics.hpp"
 #include "levain/physics/physics_world.hpp"
+#include "levain/physics/queries.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/camera.hpp"
 #include "levain/render/culling.hpp"
+#include "levain/render/debug_lines.hpp"
 #include "levain/render/gpu_timer.hpp"
 #include "levain/render/light_clusters.hpp"
 #include "levain/render/mesh.hpp"
@@ -277,6 +280,10 @@ struct DemoScene
     /// elles seules. Un drapeau à part, et non `!spinCubes` : les vues khronos et terrain gardent
     /// leurs 10 000 cubes sans les dessiner, et paieraient la rotation pour rien.
     bool cubesTurn = false;
+    /// La sélection à la souris (M6.2) : le corps visé par le dernier clic, et la passe qui dessine
+    /// son contour. Vide tant que rien n'est sélectionné, ou sans physique.
+    flecs::entity selected{};
+    std::optional<levain::render::DebugLinesPass> debugLines{};
     /// La vallée de `--view terrain` (M5.6), et ce que ses dessins ont soumis et écarté.
     std::optional<levain::terrain::Heightmap> heightmap;
     std::optional<levain::terrain::TerrainPass> terrain;
@@ -339,6 +346,7 @@ struct CameraActions
     int lookUp = 0;
     int lookEnable = 0;
     int sprint = 0;
+    int select = 0; ///< Le clic qui sélectionne un corps (M6.2).
 };
 
 /// Les indices des actions et des axes dont la caméra a besoin, résolus **une fois**. Un nom absent
@@ -363,8 +371,9 @@ cameraActionsOf(const levain::input::Bindings& bindings)
         }
         *index = found.value_or(-1);
     }
-    const std::array<std::pair<const char*, int*>, 2> buttons{
-        {{"look_enable", &actions.lookEnable}, {"sprint", &actions.sprint}}};
+    const std::array<std::pair<const char*, int*>, 3> buttons{{{"look_enable", &actions.lookEnable},
+                                                               {"sprint", &actions.sprint},
+                                                               {"select", &actions.select}}};
     for (const auto& [name, index] : buttons)
     {
         const auto found = levain::input::actionIndex(bindings, name);
@@ -1374,6 +1383,63 @@ void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum
         });
 }
 
+/// La sélection à la souris, le critère de M6.2 : le rayon de la caméra par le pixel visé, puis le
+/// premier corps qu'il touche (ADR-0027). Le rayon voit le monde du dernier pas, pas la pose
+/// interpolée qu'on voit : un écart de quelques centimètres sur un corps qui tombe. `false` si la
+/// vue n'a pas de physique : il n'y avait rien à viser.
+bool selectAt(DemoScene& scene, levain::platform::PixelSize size, glm::vec2 pixel)
+{
+    const auto* physics = scene.world.try_get<levain::physics::PhysicsWorld>();
+    if (physics == nullptr || size.width <= 0 || size.height <= 0)
+    {
+        return false;
+    }
+    const auto width = static_cast<float>(size.width);
+    const auto height = static_cast<float>(size.height);
+    const levain::render::CameraRay ray = levain::render::rayThrough(
+        scene.camera, width / height, levain::render::ndcOfPixel(pixel, width, height));
+    const std::optional<levain::physics::RayHit> hit = levain::physics::raycast(
+        *physics, {.origin = ray.origin, .direction = ray.direction, .maxDistance = ray.length});
+    scene.selected = hit ? scene.world.entity(hit->entity) : flecs::entity{};
+    levain::core::log("sandbox", levain::core::LogLevel::Info, "sélection : {} à {:.1f} m",
+                      scene.selected ? scene.selected.path().c_str() : "rien",
+                      hit ? hit->distance : 0.0f);
+    return true;
+}
+
+/// Le contour du corps sélectionné, en jaune, à sa pose interpolée, celle qu'on voit.
+void drawSelection(const DemoScene& scene, const levain::render::StageContext& context)
+{
+    if (!scene.debugLines || !scene.selected || !scene.selected.is_alive())
+    {
+        return;
+    }
+    const auto* collider = scene.selected.try_get<levain::physics::Collider>();
+    const auto* world = scene.selected.try_get<levain::scene::WorldTransform>();
+    if (collider == nullptr || world == nullptr)
+    {
+        return;
+    }
+    std::vector<levain::physics::Segment> segments;
+    levain::physics::appendOutline(*collider,
+                                   {.position = levain::scene::worldPosition(*world),
+                                    .rotation = levain::scene::worldRotation(*world)},
+                                   segments);
+    std::vector<levain::render::DebugLine> lines;
+    lines.reserve(segments.size());
+    for (const levain::physics::Segment& segment : segments)
+    {
+        // Un jaune vif en lumière linéaire, avant le tonemapping.
+        lines.push_back({.from = segment.from, .to = segment.to, .color = {6.0f, 5.0f, 0.0f}});
+    }
+    // Par-dessus ce qui est déjà dessiné : ses arêtes sont sur les faces mêmes du corps, et le test
+    // de profondeur les rejetterait à égalité. Le terrain et l'herbe, inscrits après la démo dans
+    // l'étape Opaque, le couvrent encore là où ils sont devant.
+    levain::render::drawDebugLines(context.commandList, *scene.debugLines, context.target,
+                                   context.viewProjection, lines,
+                                   levain::render::DebugDepth::OnTop);
+}
+
 /// Inscrit les dessins de la démo dans les étapes du renderer (ADR-0025), comme le ferait un plugin
 /// : les cubes, le sol et les modèles projettent leur ombre, puis se dessinent parmi les opaques.
 /// La scène doit être à sa place définitive : les fonctions la gardent par référence.
@@ -1410,6 +1476,12 @@ void addDemoStages(DemoScene& scene)
                                 {.viewProjection = context.viewProjection, .model = model});
                         });
         });
+    if (scene.debugLines)
+    {
+        levain::render::addStageFunction(scene.renderer.stages, RenderStage::Opaque, "sélection",
+                                         [&scene](const StageContext& context)
+                                         { drawSelection(scene, context); });
+    }
     if (scene.terrain && scene.heightmap)
     {
         levain::terrain::addTerrainPasses(scene.renderer.stages, *scene.terrain, *scene.heightmap,
@@ -1637,6 +1709,10 @@ struct SandboxOptions
     /// `--camera x,y,z` : la caméra à cette position, face à −Z. Celle du glTF Sample Viewer, que
     /// tools/khronos-compare.sh relit dans sa page.
     std::optional<glm::vec3> cameraPosition;
+    /// `--pick x,y` : à la fin de la boucle, avant la capture, sélectionne ce que vise ce pixel,
+    /// compté depuis le coin haut gauche. Le clic de la souris, sans souris : pour la CI et les
+    /// captures à distance (critère de M6.2).
+    std::optional<glm::vec2> pickPixel;
     /// `--sun x,y,z` : un soleil blanc d'intensité 1, venant de cette direction. La lumière
     /// principale du glTF Sample Viewer sans IBL (#125).
     std::optional<glm::vec3> sunDirection;
@@ -1712,6 +1788,17 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
                 return std::nullopt;
             }
             options.tonemapper = found->second;
+            continue;
+        }
+        if (name == "--pick")
+        {
+            const std::optional<glm::vec3> pixel =
+                parseVector(std::string{arguments[i + 1]} + ",0");
+            if (!pixel)
+            {
+                return std::nullopt;
+            }
+            options.pickPixel = glm::vec2{pixel->x, pixel->y};
             continue;
         }
         if (name == "--camera" || name == "--sun")
@@ -1913,6 +2000,21 @@ Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, Sa
                double loopSeconds, std::optional<double> frozenSeconds)
 {
     DemoScene& scene = sandbox.scene;
+    if (scene.world.has<levain::physics::PhysicsWorld>())
+    {
+        // Une vue avec physique : de quoi dessiner le contour de la sélection.
+        auto lines =
+            levain::render::createDebugLinesPass(*gpu.nvrhi, levain::render::sceneTargetInfo());
+        if (lines)
+        {
+            scene.debugLines = std::move(*lines);
+        }
+        else
+        {
+            levain::core::log("sandbox", levain::core::LogLevel::Error,
+                              "pas de lignes de debug : {}", lines.error().message);
+        }
+    }
     addDemoStages(scene);
     const Clock::time_point now = Clock::now();
     return Loop{.window = window,
@@ -1994,6 +2096,13 @@ bool runFrame(Loop& loop)
             levain::platform::setMouseCaptured(loop.window, looking);
             loop.mouseCaptured = looking;
         }
+        // Un clic gauche hors du regard sélectionne le corps visé (M6.2).
+        if (!looking && levain::input::actionPressed(loop.input, loop.actions.select))
+        {
+            const levain::platform::CursorPosition cursor =
+                levain::platform::cursorPosition(loop.window);
+            selectAt(scene, levain::platform::windowPixelSize(loop.window), {cursor.x, cursor.y});
+        }
         // Ce que le joueur demande, posé pour le prochain pas de simulation.
         scene.world.set<levain::scene::FpsInput>(fpsInputFrom(loop.input, loop.actions));
     }
@@ -2054,8 +2163,18 @@ bool runFrame(Loop& loop)
 }
 
 /// Le bilan de la boucle, puis la capture demandée ; `false` si elle a échoué.
-bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& capturePath)
+bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& capturePath,
+                const std::optional<glm::vec2>& pickPixel)
 {
+    // Demandé sur une vue sans physique, `--pick` ne vérifierait rien : la boucle échoue (règle
+    // n°7).
+    if (pickPixel &&
+        !selectAt(loop.scene, levain::platform::windowPixelSize(loop.window), *pickPixel))
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Error,
+                          "--pick : cette vue n'a pas de physique, rien à sélectionner");
+        return false;
+    }
     // Lu par la CI, qui échoue si la boucle a tourné moins d'une seconde : un démarrage lent
     // (lavapipe, validation, sanitizers) peut sinon manger tout le délai sans que rien ne rougisse.
     levain::core::log(
@@ -2169,7 +2288,7 @@ void runWebFrame()
     WebSandbox& web = webSandbox();
     if (!runFrame(*web.loop))
     {
-        std::ignore = finishLoop(*web.loop, std::nullopt);
+        std::ignore = finishLoop(*web.loop, std::nullopt, std::nullopt);
         emscripten_cancel_main_loop();
     }
 }
@@ -2217,7 +2336,7 @@ int main(int argc, char** argv)
                                  "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
                                  "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
                                  "fichier.hdr|none] [--view demo|khronos|terrain|physics] "
-                                 "[--camera x,y,z] [--sun x,y,z]");
+                                 "[--camera x,y,z] [--sun x,y,z] [--pick x,y]");
             return 2;
         }
 
@@ -2268,7 +2387,7 @@ int main(int argc, char** argv)
         while (runFrame(loop))
         {
         }
-        if (!finishLoop(loop, options->capturePath))
+        if (!finishLoop(loop, options->capturePath, options->pickPixel))
         {
             return 1;
         }

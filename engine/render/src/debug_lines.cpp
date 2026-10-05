@@ -90,6 +90,8 @@ core::Result<DebugLinesPass> createDebugLinesPass(nvrhi::IDevice& device,
     pipelineDesc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::LessOrEqual;
     pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
     pass.pipeline = device.createGraphicsPipeline(pipelineDesc, target);
+    pipelineDesc.renderState.depthStencilState.depthTestEnable = false;
+    pass.onTopPipeline = device.createGraphicsPipeline(pipelineDesc, target);
     pass.constants = device.createBuffer(nvrhi::BufferDesc()
                                              .setByteSize(sizeof(glm::mat4))
                                              .setIsConstantBuffer(true)
@@ -102,7 +104,8 @@ core::Result<DebugLinesPass> createDebugLinesPass(nvrhi::IDevice& device,
                                             .setInitialState(nvrhi::ResourceStates::VertexBuffer)
                                             .setKeepInitialState(true)
                                             .setDebugName("lignes de debug"));
-    if (!pass.inputLayout || !pass.layout || !pass.pipeline || !pass.constants || !pass.vertices)
+    if (!pass.inputLayout || !pass.layout || !pass.pipeline || !pass.onTopPipeline ||
+        !pass.constants || !pass.vertices)
     {
         return core::makeError(core::ErrorCode::InvalidData,
                                "passe des lignes de debug refusée par NVRHI");
@@ -115,7 +118,7 @@ core::Result<DebugLinesPass> createDebugLinesPass(nvrhi::IDevice& device,
 
 void drawDebugLines(nvrhi::ICommandList& commandList, const DebugLinesPass& pass,
                     nvrhi::IFramebuffer& target, const glm::mat4& viewProjection,
-                    std::span<const DebugLine> lines)
+                    std::span<const DebugLine> lines, DebugDepth depth)
 {
     if (lines.empty())
     {
@@ -138,7 +141,7 @@ void drawDebugLines(nvrhi::ICommandList& commandList, const DebugLinesPass& pass
     commandList.writeBuffer(pass.vertices, vertices.data(), vertices.size() * sizeof(DebugVertex));
     commandList.writeBuffer(pass.constants, &viewProjection, sizeof(viewProjection));
     nvrhi::GraphicsState state;
-    state.pipeline = pass.pipeline;
+    state.pipeline = depth == DebugDepth::OnTop ? pass.onTopPipeline : pass.pipeline;
     state.framebuffer = &target;
     state.viewport.addViewportAndScissorRect(target.getFramebufferInfo().getViewport());
     state.addBindingSet(pass.bindings);
