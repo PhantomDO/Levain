@@ -22,11 +22,28 @@ Références pour NVRHI : Donut et Donut-Samples (NVIDIA, MIT), à lire et adapt
   son attention compte. Il est développeur C++ expérimenté (Unreal, Unity) : pas besoin d'expliquer le C++, mais
   il faut expliquer les concepts moteur. Les détails de Vulkan ne l'intéressent pas : expliquer ce que NVRHI fait
   pour nous, pas l'API qu'il y a en dessous, sauf s'il le demande.
+- **Le mode autonome** (décidé par Donnovan le 2026-10-04) : un subagent relit chaque PR à sa place ; l'agent
+  fusionne après corrections et CI verte, ADR compris. Donnovan pose ses choix par sondage, et son choix vaut
+  validation de l'ADR (règle n°3) ; il relit après coup.
 
 ## Règles non négociables
 
 1. **Une seule PR ouverte à la fois.** Ne pas commencer une nouvelle tâche tant que la PR précédente n'est pas
-   relue et fusionnée par Donnovan.
+   relue et fusionnée.
+   Exception décidée par Donnovan (2026-10-05) : les PR d'un même milestone, déjà relues, s'ouvrent ensemble,
+   **empilées** (chacune a pour base la branche de la précédente). Leurs CI tournent en parallèle ; elles
+   fusionnent ensuite dans l'ordre, en **merge commit** : la PR suivante garde ainsi son SHA et sa CI, là où un
+   squash l'obligerait à se rebaser et à repasser la CI. Chaque commit de `main` reste vérifié, sans attendre
+   la CI d'une PR pour ouvrir la suivante. Trois pièges :
+   - fusionner avec `gh pr merge --merge --delete-branch` : c'est la suppression de la branche qui fait passer
+     la base de la PR suivante à `main` ; sinon, celle-ci fusionnerait dans la branche de la précédente. GitHub
+     le fait avec un temps de retard : vérifier avant chaque fusion,
+     `[ "$(gh pr view <N> --json baseRefName -q .baseRefName)" = main ] || exit 1` (et `--delete-branch` supprime
+     aussi la branche locale, `session/GOTCHA.md`) ;
+   - si `main` a bougé hors de la pile, intégrer `main` au bas de la pile et laisser la CI repasser ;
+   - une correction au milieu de la pile se propage aux PR suivantes, dont la CI repasse avant la fusion.
+   La protection de `main` doit garder `strict: false` (pas d'obligation d'être à jour), sans quoi chaque
+   fusion invaliderait la CI de la suivante.
 2. **Une PR se relit en 30 minutes au plus** (environ 400 lignes hors tiers et généré). Sinon, découper.
    Exception admise par Donnovan (2026-09-21) : du code Vulkan qui forme un bloc peut dépasser, **s'il reste
    lisible et que l'écart est signalé** dans la PR avec sa raison.

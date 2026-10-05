@@ -12,6 +12,30 @@ Réponse courte, puis détails. Références : fichier:ligne, ADR, source extern
 
 ---
 
+### Est-ce qu'on est obligés de faire la CI à chaque PR ? (2026-10-05, M6.2)
+
+**Pas obligés, mais chaque PR fusionnée devient un commit de `main`, et c'est la CI qui dit qu'il marche.** Ne la
+lancer qu'à la dernière PR d'une feature laisserait des commits jamais vérifiés seuls : dans la pile de M6.2, la
+PR des grandes formes, découpée après coup, n'a jamais été compilée sans celle du terrain. Un `main` cassé entre
+deux rend aussi `git bisect` inutilisable.
+
+**Ce qui coûtait, c'était l'attente en série**, pas la CI : les quatre jobs tournent en parallèle, 8 à 10 minutes
+en tout (7 min 55 à 8 min 46 sur `main`), sur des runners gratuits (dépôt public). Mais une PR à la fois, c'était
+« ouvrir, attendre, fusionner, ouvrir la suivante » : environ 1 h 30 estimées pour les neuf PR de M6.2.
+
+**Décidé par sondage** : les PR d'un milestone, déjà relues, s'ouvrent ensemble, empilées ; leurs CI tournent en
+même temps ; elles fusionnent ensuite dans l'ordre en merge commit. Un squash ne casserait pas la vérification de
+la PR fusionnée, dont l'arbre est le même ; il casserait celle de la suivante, qui devrait se rebaser, changer de
+SHA et repasser la CI. Et la cuisson des assets de test, 2 min 30 à 4 min du job Release, passe en cache.
+
+**Les autres projets** : c'est le flux des « stacked diffs » (Phabricator chez Meta, Graphite, `git town`), qui
+fusionnent d'ordinaire par squash ou rebase puis réempilent ; le merge commit est notre choix. Godot fait tourner
+le même workflow complet sur chaque PR et dans sa file de fusion GitHub (`merge_group`, **documenté** :
+`.github/workflows/runner.yml`). Unreal a Horde et ses *preflights*, un build lancé avant la soumission d'un
+changement (**documenté** pour l'outil ; **supposé** pour l'usage chez Epic).
+
+Références : `AGENTS.md`, règle n°1 et son exception ; `.github/workflows/ci.yml`, « Cache des assets cuits ».
+
 ### Pourquoi fastgltf plutôt que tinygltf, maintenant que gltf2ozz existe ? (2026-09-25, M4.5)
 
 **gltf2ozz ne nous aurait presque rien épargné, parce que ce n'est pas une bibliothèque.** C'est un
