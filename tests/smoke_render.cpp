@@ -36,6 +36,7 @@
 #include "levain/gpu/webgpu.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/camera.hpp"
+#include "levain/render/debug_lines.hpp"
 #include "levain/render/mesh.hpp"
 #include "levain/render/mesh_pass.hpp"
 #include "levain/render/readback.hpp"
@@ -57,10 +58,16 @@ constexpr int ChannelTolerance = 2;
 
 /// Les pixels qui peuvent différer, par scène. Le bord d'une ombre est là où la profondeur comparée
 /// hésite d'un texel : 8 pixels sur 4 096 diffèrent entre RADV et lavapipe (la CI), sur Vulkan
-/// comme sur WebGPU. Une ombre absente ou décalée en change des centaines.
+/// comme sur WebGPU. Une ombre absente ou décalée en change des centaines. Vulkan ne fixe pas le
+/// tracé exact d'une ligne (ses extrémités) : 1 pixel diffère entre RADV et lavapipe (Mesa 26.2),
+/// alors qu'une ligne que le cube ne cache plus en change 23.
 int allowedDifferentPixels(std::string_view scene)
 {
-    return scene == "shadow" ? 16 : 0;
+    if (scene == "shadow")
+    {
+        return 16;
+    }
+    return scene == "lines" ? 4 : 0;
 }
 
 struct Image
@@ -269,6 +276,26 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
             commandList, *meshPass, *frame, framebuffer, ground, instances, *material,
             {.viewProjection = constants.viewProjection, .model = glm::mat4{1.0f}});
     }
+    // « lines » : le cube de « cube », une ligne rouge devant lui, entière, et une verte derrière,
+    // coupée là où le cube la cache. Les couleurs sont fortes : l'image HDR passe ensuite par le
+    // tonemapping.
+    if (scene == "lines")
+    {
+        auto lines = levain::render::createDebugLinesPass(device, framebuffer.getFramebufferInfo());
+        if (!lines)
+        {
+            return std::unexpected(lines.error());
+        }
+        const std::array<levain::render::DebugLine, 3> segments{{
+            {.from = {-1.2f, 0.3f, 1.0f}, .to = {1.2f, 0.3f, 1.0f}, .color = {8.0f, 0.0f, 0.0f}},
+            {.from = {-1.2f, -0.3f, -1.0f},
+             .to = {1.2f, -0.3f, -1.0f},
+             .color = {0.0f, 8.0f, 0.0f}},
+            {.from = {0.0f, -1.2f, 1.0f}, .to = {0.0f, 1.2f, 1.0f}, .color = {0.0f, 0.0f, 8.0f}},
+        }};
+        levain::render::drawDebugLines(commandList, *lines, framebuffer, constants.viewProjection,
+                                       segments);
+    }
     return {};
 }
 
@@ -413,12 +440,12 @@ int main(int argc, char** argv)
             (std::string_view{arguments[1]} != "triangle" &&
              std::string_view{arguments[1]} != "cube" &&
              std::string_view{arguments[1]} != "cube-instance" &&
+             std::string_view{arguments[1]} != "lines" &&
              std::string_view{arguments[1]} != "shadow") ||
             (backend != "vulkan" && backend != "webgpu"))
         {
-            std::println(
-                stderr,
-                "usage : levain_smoke_render triangle|cube|cube-instance|shadow [vulkan|webgpu]");
+            std::println(stderr, "usage : levain_smoke_render "
+                                 "triangle|cube|cube-instance|lines|shadow [vulkan|webgpu]");
             return 2;
         }
         return runSmokeTest(arguments[1], backend);

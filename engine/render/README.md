@@ -41,6 +41,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/sky.hpp`](include/levain/render/sky.hpp) | `createSkyPass`, `drawSky` — le ciel de l'environnement en fond, là où aucun mesh n'est dessiné |
 | [`include/levain/render/tonemap.hpp`](include/levain/render/tonemap.hpp) | `HdrFormat`, `createTonemapPass`, `ensureHdrTarget`, `tonemap` — l'image HDR et sa passe vers la swapchain |
 | [`include/levain/render/skinning.hpp`](include/levain/render/skinning.hpp) | `SkinnedVertex`, `createSkinningPass`, `createSkinnedMesh`, `skinMesh` — le skinning en compute |
+| [`include/levain/render/debug_lines.hpp`](include/levain/render/debug_lines.hpp) | `DebugLine`, `DebugLinesPass`, `createDebugLinesPass`, `drawDebugLines`, `MaxDebugLines` — des segments colorés dans le monde, un appel par command list |
 | [`include/levain/render/light_clusters.hpp`](include/levain/render/light_clusters.hpp) | `PointLight`, `ClusterGrid`, `createLightClusterPass`, `assignLightsToClusters` — le tri des lumières ponctuelles en clusters (forward+) ; `lightsPerClusterOf`, sa référence CPU |
 
 ## Ce qu'il faut pour dessiner un triangle avec NVRHI
@@ -304,6 +305,18 @@ cible, les ressources de l'image (`FrameBindings`), la matrice vue-projection de
 culling. Le sandbox inscrit ainsi ses cubes, son sol et ses modèles (`addDemoStages`), et donne l'ordre réel au
 démarrage (« étapes du rendu : ombres : démo ; opaques : démo ; transparents : aucune »). Le temps GPU de chaque
 passe est mesuré par le renderer (`passTimes`) ; une étape vide n'est pas chronométrée.
+
+## Les lignes de debug
+
+`DebugLinesPass` (M6.2, ADR-0027) dessine des segments colorés dans le monde (`DebugLine`), en un seul appel
+`LineList`, avec le test de profondeur mais sans écrire la profondeur : une ligne cachée par un mur l'est
+aussi à l'écran, et une ligne ne cache rien. Les couleurs sont en lumière linéaire, avant le tonemapping.
+Qui veut en dessiner remplit une liste à chaque image ; au-delà de `MaxDebugLines`, le reste est perdu et le
+journal le dit une fois. **Un seul appel par command list** : les sommets sont réécrits à chaque appel, et
+WebGPU les écrit avant toute la command list ; plusieurs systèmes réunissent leurs lignes en une liste. Le
+test de fumée `lines` en dessine trois autour du cube, dont une en partie cachée ; il admet 4 pixels d'écart,
+car Vulkan ne fixe pas le tracé exact d'une ligne. Le `DrawDebugLine` d'Unreal, le `Debug.DrawLine` d'Unity ;
+Godot n'en a pas d'intégré, on y dessine des lignes par un `ImmediateMesh`.
 
 ## Le frustum culling
 
