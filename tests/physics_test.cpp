@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
+#include <memory>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -217,6 +219,161 @@ TEST_CASE("une caisse Debris traverse une dalle Debris et s'arrête sur le sol")
         levain::physics::stepPhysics(world, Step);
     }
     CHECK(restsOn(levain::physics::bodyPose(world, crate).position.y, 0.0f, 0.5f));
+}
+
+namespace
+{
+
+/// Un plan incliné en grille de hauteurs : 9 × 9 échantillons d'un mètre, qui montent de 0,1 m par
+/// mètre le long de x.
+std::shared_ptr<const levain::physics::HeightField> slope()
+{
+    auto field = std::make_shared<levain::physics::HeightField>();
+    field->size = 9;
+    field->spacing = 1.0f;
+    for (std::uint32_t z = 0; z < 9; ++z)
+    {
+        for (std::uint32_t x = 0; x < 9; ++x)
+        {
+            field->heights.push_back(0.1f * static_cast<float>(x));
+        }
+    }
+    return field;
+}
+
+/// Un sol de deux triangles, 10 m de côté, à y = 0, face vers le haut.
+std::shared_ptr<const levain::physics::TriangleMesh> floorMesh()
+{
+    return std::make_shared<const levain::physics::TriangleMesh>(levain::physics::TriangleMesh{
+        .vertices =
+            {{-5.0f, 0.0f, -5.0f}, {5.0f, 0.0f, -5.0f}, {5.0f, 0.0f, 5.0f}, {-5.0f, 0.0f, 5.0f}},
+        .indices = {0, 2, 1, 0, 3, 2}});
+}
+
+} // namespace
+
+TEST_CASE("une grande forme vide, trouée, dynamique, mobile ou en capteur est refusée")
+{
+    using levain::physics::whyNotThisShape;
+    const RigidBody dynamic;
+    const RigidBody kinematic{.motion = Motion::Kinematic};
+    CHECK_FALSE(
+        whyNotThisShape(Collider{.shape = levain::physics::HeightFieldShape{slope()}}, nullptr)
+            .has_value());
+    CHECK_FALSE(
+        whyNotThisShape(Collider{.shape = levain::physics::MeshShape{floorMesh()}}, &kinematic)
+            .has_value());
+    CHECK(whyNotThisShape(Collider{.shape = levain::physics::MeshShape{floorMesh()}}, &dynamic)
+              .has_value());
+    CHECK(whyNotThisShape(Collider{.shape = levain::physics::MeshShape{nullptr}}, nullptr)
+              .has_value());
+    CHECK(whyNotThisShape(Collider{.shape = levain::physics::HeightFieldShape{slope()}}, &kinematic)
+              .has_value());
+    CHECK(whyNotThisShape(
+              Collider{.shape = levain::physics::MeshShape{floorMesh()}, .layer = Layer::Sensor},
+              nullptr)
+              .has_value());
+    auto holed = std::make_shared<levain::physics::TriangleMesh>(*floorMesh());
+    holed->indices.back() = 99; // un sommet qui n'existe pas
+    CHECK(
+        whyNotThisShape(Collider{.shape = levain::physics::MeshShape{holed}}, nullptr).has_value());
+    auto broken = std::make_shared<levain::physics::HeightField>(*slope());
+    broken->heights.pop_back(); // size × size hauteurs, moins une
+    CHECK(whyNotThisShape(Collider{.shape = levain::physics::HeightFieldShape{broken}}, nullptr)
+              .has_value());
+    // Ce que Jolt accepterait, puis dont il ferait une forme fausse ou qu'il refuserait plus tard.
+    auto lost = std::make_shared<levain::physics::TriangleMesh>(*floorMesh());
+    lost->vertices[1].x = std::numeric_limits<float>::quiet_NaN();
+    CHECK(
+        whyNotThisShape(Collider{.shape = levain::physics::MeshShape{lost}}, nullptr).has_value());
+    const auto tiny =
+        std::make_shared<const levain::physics::HeightField>(levain::physics::HeightField{
+            .size = 2, .spacing = 1.0f, .heights = {0.0f, 0.0f, 0.0f, 0.0f}});
+    CHECK(whyNotThisShape(Collider{.shape = levain::physics::HeightFieldShape{tiny}}, nullptr)
+              .has_value());
+    auto pierced = std::make_shared<levain::physics::HeightField>(*slope());
+    pierced->heights[10] = std::numeric_limits<float>::max(); // le trou de Jolt
+    CHECK(whyNotThisShape(Collider{.shape = levain::physics::HeightFieldShape{pierced}}, nullptr)
+              .has_value());
+    CHECK(whyNotThisShape(
+              Collider{.shape = levain::physics::HeightFieldShape{slope()}, .layer = Layer::Sensor},
+              nullptr)
+              .has_value());
+}
+
+TEST_CASE("une caisse posée sur une grille de hauteurs s'arrête à la hauteur de la grille")
+{
+    PhysicsWorld world = levain::physics::createPhysicsWorld();
+    levain::physics::createBody(
+        world, Collider{.shape = levain::physics::HeightFieldShape{slope()}}, nullptr, {}, 1);
+    const RigidBody body;
+    // Une caisse, que son frottement (0,5) retient sur cette pente de 0,1 : posée à plat sur la
+    // pente, son centre est à 0,5 / cos θ au-dessus de la surface, verticalement. En x ≠ z : des
+    // axes inversés la poseraient à 0,2 au lieu de 0,6.
+    const auto crate = levain::physics::createBody(world, crateCollider(), &body,
+                                                   {.position = {6.0f, 2.0f, 2.0f}}, 2);
+    for (int i = 0; i < 120; ++i)
+    {
+        levain::physics::stepPhysics(world, Step);
+    }
+    const glm::vec3 position = levain::physics::bodyPose(world, crate).position;
+    CAPTURE(position.x);
+    CAPTURE(position.y);
+    CHECK(position.x == doctest::Approx(6.0f).epsilon(0.05));
+    CHECK(restsOn(position.y, 0.1f * position.x, 0.5f / std::cos(std::atan(0.1f))));
+}
+
+TEST_CASE("une caisse tombe sur un sol en maillage et s'y arrête, et deux corps partagent sa forme")
+{
+    PhysicsWorld world = levain::physics::createPhysicsWorld();
+    auto mesh = floorMesh();
+    levain::physics::createBody(world, Collider{.shape = levain::physics::MeshShape{mesh}}, nullptr,
+                                {}, 1);
+    levain::physics::createBody(world, Collider{.shape = levain::physics::MeshShape{mesh}}, nullptr,
+                                {.position = {20.0f, 0.0f, 0.0f}}, 2);
+    CHECK(levain::physics::sharedShapeCount(world) == 1);
+    const RigidBody body;
+    const auto crate = levain::physics::createBody(world, crateCollider(), &body,
+                                                   {.position = {0.0f, 3.0f, 0.0f}}, 3);
+    const auto other = levain::physics::createBody(world, crateCollider(), &body,
+                                                   {.position = {20.0f, 3.0f, 0.0f}}, 4);
+    for (int i = 0; i < 120; ++i)
+    {
+        levain::physics::stepPhysics(world, Step);
+    }
+    CHECK(restsOn(levain::physics::bodyPose(world, crate).position.y, 0.0f, 0.5f));
+    CHECK(restsOn(levain::physics::bodyPose(world, other).position.y, 0.0f, 0.5f));
+
+    // Les corps gardent leur forme ; la donnée relâchée, le module oublie la sienne au pas suivant,
+    // et une nouvelle donnée a sa propre forme, même si elle reprend l'adresse de l'ancienne.
+    mesh.reset();
+    levain::physics::stepPhysics(world, Step);
+    CHECK(levain::physics::sharedShapeCount(world) == 0);
+    CHECK(restsOn(levain::physics::bodyPose(world, crate).position.y, 0.0f, 0.5f));
+    levain::physics::createBody(world, Collider{.shape = levain::physics::MeshShape{floorMesh()}},
+                                nullptr, {.position = {40.0f, 0.0f, 0.0f}}, 5);
+    CHECK(levain::physics::sharedShapeCount(world) == 1);
+}
+
+TEST_CASE("un sol en maillage cinématique soulève la caisse posée dessus")
+{
+    PhysicsWorld world = levain::physics::createPhysicsWorld();
+    const RigidBody platform{.motion = Motion::Kinematic};
+    // Jolt ne sait pas la masse d'un maillage : sans celle que donne le module, ce corps arrête le
+    // test sur une assertion de Jolt en Debug.
+    const auto floor = levain::physics::createBody(
+        world, Collider{.shape = levain::physics::MeshShape{floorMesh()}}, &platform, {}, 1);
+    REQUIRE(floor.value != levain::physics::BodyHandle::None);
+    const RigidBody body;
+    const auto crate = levain::physics::createBody(world, crateCollider(), &body,
+                                                   {.position = {0.0f, 0.5f, 0.0f}}, 2);
+    for (int i = 1; i <= 60; ++i)
+    {
+        levain::physics::moveKinematic(
+            world, floor, {.position = {0.0f, static_cast<float>(i) / 60.0f, 0.0f}}, Step);
+        levain::physics::stepPhysics(world, Step);
+    }
+    CHECK(restsOn(levain::physics::bodyPose(world, crate).position.y, 1.0f, 0.5f));
 }
 
 TEST_CASE("un corps est une racine sans échelle")
