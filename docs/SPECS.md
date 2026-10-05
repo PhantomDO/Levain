@@ -102,6 +102,7 @@ consoles, mobile, macOS (NVRHI n'a pas de backend Metal), VR.
 | Maths | GLM | Conventions proches de celles des shaders |
 | Import glTF | fastgltf | Rapide, C++ moderne |
 | Images | stb_image, puis libktx (KTX2) | Simple d'abord, format GPU compressé ensuite |
+| Simplification de maillages | meshoptimizer | La collision du décor, simplifiée à la cuisson ([ADR-0028](adr/0028-personnage.md)) |
 | Physique | Jolt Physics | Utilisé par Horizon Forbidden West et Death Stranding 2, intégré à Godot 4.4 |
 | Audio | miniaudio | Multiplateforme, spatialisation incluse |
 | UI de l'éditeur | Dear ImGui (branche docking) + ImGuizmo | Standard des outils internes ; Donut fournit un renderer ImGui pour NVRHI |
@@ -126,7 +127,7 @@ engine/
 ├── input/      actions et axes au-dessus de platform
 └── app/        boucle principale, cycle de vie
 editor/         bibliothèque de l'éditeur ; l'exécutable est construit par le jeu (ADR-0018)
-plugins/        plugins moteur (level design) : terrain, eau, végétation (ADR-0018)
+plugins/        plugins moteur : terrain, eau, végétation, marche du personnage (ADR-0018, ADR-0028)
 sandbox/        une démo par milestone
 shaders/        sources Slang
 tests/          tests unitaires et benchmarks
@@ -155,7 +156,7 @@ Visibilité des bibliothèques :
 - flecs : c'est l'API du modèle objet, visible dans `scene/` et tout ce qui est au-dessus ; jamais dans `core/`,
   `platform/` ni `gpu/`.
 - Jolt : uniquement dans `physics/`.
-- fastgltf et libktx : uniquement dans `assets/src/`, et fastgltf aussi dans `animation/src/` pour la passerelle
+- fastgltf, libktx et meshoptimizer : uniquement dans `assets/src/`, et fastgltf aussi dans `animation/src/` pour la passerelle
   glTF (contrôlé par `deps.asset-libraries-visibility`).
 - ozz-animation : uniquement dans `animation/src/` (ADR-0022).
 

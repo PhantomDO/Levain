@@ -1,6 +1,7 @@
 # ADR-0018 — Moteur, plugins et jeu : deux dépôts, trois niveaux
 
-- **Statut** : accepté le 2026-09-23 (validé par Donnovan, classement conservé tel quel)
+- **Statut** : accepté le 2026-09-23 (validé par Donnovan, classement conservé tel quel) ; amendé par
+  l'ADR-0028 (2026-10-05) : la marche du personnage est un plugin moteur
 - **Date** : 2026-09-23
 - **Milestone** : M3.6
 
@@ -66,6 +67,7 @@ Classement proposé par Claude selon la règle de Donnovan, validé par lui sans
 |---|---|---|---|
 | Animation squelettique (M4.5) | **Moteur** | Tout jeu avec des personnages en a besoin ; elle touche l'import glTF et le rendu (skinning) | Un jeu sans personnage la compile pour rien |
 | Character controller (M6.3) | **Moteur** | C'est une brique de `physics` (le `CharacterVirtual` de Jolt) ; le *CharacterMovementComponent* d'Unreal est dans son cœur | Chaque jeu le règle différemment : les réglages restent des données |
+| La marche : gravité, saut, accélération (M6.3, ajoutée par l'[ADR-0028](0028-personnage.md)) | **Plugin moteur** | Réutilisée par le sandbox et par *Rando* ; un jeu qui marche autrement s'en passe | Un plugin moteur qui n'est pas du level design : la catégorie s'élargit aux briques de gameplay réutilisables |
 | Volumes déclencheurs (M6.2) | **Moteur** | Toute logique de niveau en a besoin : portes, pièges, points de contrôle | — |
 | ImGui (M7.1), sons 3D (M8.1) | **Moteur** | Communs à tous les jeux et à l'éditeur | — |
 | Terrain : rendu, LOD, collision (M5.6, M6.2) | **Plugin moteur** | Du level design ; un jeu en intérieur s'en passe | Il faut que `render` accepte des passes venues d'un plugin ; le Landscape d'Unreal est dans son **cœur** |

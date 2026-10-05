@@ -422,6 +422,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0025 | Des passes de rendu venues d'un plugin (registre par étape, éclairage partagé) | M5.6 |
 | 0026 | Intégrer Jolt (Collider et RigidBody, autorité de Jolt, phases de simulation, couches fixes) | M6.1 |
 | 0027 | Volumes déclencheurs (relation `InsideOf` sur le corps), requêtes, grandes formes partagées, lignes de debug | M6.2 |
+| 0028 | Le personnage : `CharacterVirtual` dans le moteur, la marche dans un plugin, la collision du décor simplifiée et cuite | M6.3 |
 | 0013 | Réflexion des composants (addon meta de flecs) | M7.2 |
 
 ## Numérotation des ADR
