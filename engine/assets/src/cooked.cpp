@@ -1,5 +1,6 @@
 #include "levain/assets/cooked.hpp"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstring>
@@ -235,6 +236,21 @@ bool readBody(Reader& reader, Model& model)
 
 } // namespace
 
+/// Écrit les octets d'un fichier cuit, en créant son dossier `.cooked/` au besoin.
+core::Result<void> save(const std::filesystem::path& path, const Writer& writer)
+{
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    std::ofstream file{path, std::ios::binary};
+    file.write(reinterpret_cast<const char*>(writer.bytes().data()),
+               static_cast<std::streamsize>(writer.bytes().size()));
+    if (!file)
+    {
+        return cookedError(path, "écriture impossible");
+    }
+    return {};
+}
+
 core::Result<void> writeCookedModel(const std::filesystem::path& path, const Model& model,
                                     std::uint64_t sourceHash)
 {
@@ -291,16 +307,7 @@ core::Result<void> writeCookedModel(const std::filesystem::path& path, const Mod
         writer.array(std::span{image.rgba});
     }
 
-    std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
-    std::ofstream file{path, std::ios::binary};
-    file.write(reinterpret_cast<const char*>(writer.bytes().data()),
-               static_cast<std::streamsize>(writer.bytes().size()));
-    if (!file)
-    {
-        return cookedError(path, "écriture impossible");
-    }
-    return {};
+    return save(path, writer);
 }
 
 core::Result<Model> readCookedModel(const std::filesystem::path& path, std::uint64_t sourceHash)
@@ -342,6 +349,73 @@ core::Result<Model> readCookedModel(const std::filesystem::path& path, std::uint
         return cookedError(path, *reason);
     }
     return model;
+}
+
+namespace
+{
+
+constexpr std::array<char, 4> CollisionSignature{'L', 'V', 'C', 'O'};
+constexpr std::uint32_t CollisionFormatVersion = 1;
+
+} // namespace
+
+core::Result<void> writeCookedCollision(const std::filesystem::path& path,
+                                        const CollisionMesh& mesh, std::uint64_t sourceHash,
+                                        float maxError)
+{
+    Writer writer;
+    writer.value(CollisionSignature);
+    writer.value(CollisionFormatVersion);
+    writer.value(CookerVersion);
+    writer.value(sourceHash);
+    writer.value(maxError);
+    writer.array(std::span{mesh.vertices});
+    writer.array(std::span{mesh.indices});
+    return save(path, writer);
+}
+
+core::Result<CollisionMesh> readCookedCollision(const std::filesystem::path& path,
+                                                std::uint64_t sourceHash, float maxError)
+{
+    auto bytes = core::readFile(path);
+    if (!bytes)
+    {
+        return std::unexpected(bytes.error());
+    }
+    Reader reader{*bytes};
+    std::array<char, 4> signature{};
+    std::uint32_t formatVersion = 0;
+    std::uint32_t cookerVersion = 0;
+    std::uint64_t cookedFrom = 0;
+    float cookedTolerance = 0.0f;
+    if (!reader.value(signature) || signature != CollisionSignature ||
+        !reader.value(formatVersion) || !reader.value(cookerVersion) || !reader.value(cookedFrom) ||
+        !reader.value(cookedTolerance))
+    {
+        return cookedError(path, "pas un .lvcol");
+    }
+    if (formatVersion != CollisionFormatVersion)
+    {
+        return cookedError(path, std::format("format {} inconnu", formatVersion));
+    }
+    // La tolérance aussi : simplifiée autrement, la collision ne serait plus celle demandée.
+    if (cookerVersion != CookerVersion || cookedFrom != sourceHash || cookedTolerance != maxError)
+    {
+        return cookedError(path, "périmé : la source, le cuiseur ou la tolérance ont changé");
+    }
+    CollisionMesh mesh;
+    if (!reader.array(mesh.vertices) || !reader.array(mesh.indices) || !reader.finished())
+    {
+        return cookedError(path, "tronqué ou corrompu");
+    }
+    // Ce que Jolt recevra : il ne le vérifie qu'en Debug (whyNotAValidModel, build/GOTCHA.md).
+    if (mesh.indices.size() % 3 != 0 ||
+        std::ranges::any_of(mesh.indices,
+                            [&mesh](std::uint32_t index) { return index >= mesh.vertices.size(); }))
+    {
+        return cookedError(path, "des indices hors de ses sommets");
+    }
+    return mesh;
 }
 
 } // namespace levain::assets

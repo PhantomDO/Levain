@@ -174,3 +174,31 @@ TEST_CASE("loadModel prend la version cuite quand elle est à jour")
     CHECK(model.has_value());
     fs::remove_all(root);
 }
+
+TEST_CASE("un .lvcol relu rend la même collision, et périme avec sa source ou sa tolérance")
+{
+    const fs::path directory = freshDirectory();
+    const fs::path path = directory / "m.lvcol";
+    const levain::assets::CollisionMesh mesh{
+        .vertices = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+        .indices = {0, 2, 1}};
+    REQUIRE(levain::assets::writeCookedCollision(path, mesh, SourceHash, 0.02f).has_value());
+
+    const auto read = levain::assets::readCookedCollision(path, SourceHash, 0.02f);
+    INFO("message d'erreur : " << (read ? std::string{} : read.error().message));
+    REQUIRE(read.has_value());
+    CHECK(read->vertices == mesh.vertices);
+    CHECK(read->indices == mesh.indices);
+
+    CHECK_FALSE(levain::assets::readCookedCollision(path, SourceHash + 1, 0.02f).has_value());
+    // Simplifiée à une autre tolérance, ce n'est plus la collision demandée.
+    CHECK_FALSE(levain::assets::readCookedCollision(path, SourceHash, 0.05f).has_value());
+
+    // Un indice au-delà des sommets : Jolt ne le vérifierait qu'en Debug.
+    const levain::assets::CollisionMesh broken{.vertices = mesh.vertices, .indices = {0, 2, 7}};
+    REQUIRE(levain::assets::writeCookedCollision(path, broken, SourceHash, 0.02f).has_value());
+    const auto refused = levain::assets::readCookedCollision(path, SourceHash, 0.02f);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("indices") != std::string::npos);
+    fs::remove_all(directory);
+}
