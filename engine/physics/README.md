@@ -9,7 +9,8 @@ calcul ; ce module est la frontière entre Jolt et le reste du moteur.
 **État en M6.3 (en cours)** : des boîtes, des sphères et des capsules, statiques, dynamiques ou cinématiques,
 sur cinq couches fixes ; des maillages et des grilles de hauteurs partagés, pour le décor ; des rayons et des
 sphères lancés ; des volumes déclencheurs (ADR-0027). Le personnage (ADR-0028) existe au niveau du monde
-physique : il tombe, monte des marches et des pentes ; sa glu flecs vient ensuite.
+physique : il tombe, monte des marches et des pentes, pousse les caisses légères et suit une plateforme ; sa
+glu flecs vient ensuite.
 
 ## Invariants
 
@@ -66,6 +67,15 @@ physique : il tombe, monte des marches et des pentes ; sa glu flecs vient ensuit
     ne déclenche rien (la matrice des couches) : un rocher de décor ne fait pas de remous. **La relation
     appartient au module** : la retirer à la main désaccorde le module, qui ne la reposera pas.
 
+12. **Le personnage** (`character.hpp`, ADR-0028) :
+    - **ses pieds sont son origine** : la capsule est décalée vers le haut dans sa forme ;
+    - **sa position appartient à Jolt, sa rotation au gameplay**, autour de Y seulement (`uprightOf`) ;
+    - **l'ordre d'un pas** : `moveCharacter` avant `stepPhysics`, comme les exemples de Jolt, puis
+      `refreshCharacterGround` après, pour la vitesse d'une plateforme que le pas a déplacée ;
+    - **son corps intérieur fait 90 % de sa capsule** (`innerShapeOf`) : de sa taille, il pousserait les caisses
+      sans la limite de `maxPushForce` ;
+    - **il ignore les volumes déclencheurs** (`characterSees`) : c'est son corps intérieur qu'ils voient.
+
 ## Les volumes déclencheurs, par l'exemple
 
 Le gameplay parle du point de vue du volume (choix de Donnovan, ADR-0027) :
@@ -112,8 +122,9 @@ Quatre choses à savoir :
 - **Supprimer un corps qui est dans un volume est une sortie** : `onExit` l'appelle, le corps encore vivant
   avec tous ses composants (flecs émet `OnRemove` avant de le détruire). Le rappel ne distingue pas une
   sortie d'une suppression.
-- **Un volume ne voit pas le personnage de Jolt** (`CharacterVirtual`, M6.3) : son corps intérieur
-  (`mInnerBodyShape`) le rendra visible aux volumes et aux rayons.
+- **Un volume voit le personnage par son corps intérieur** (`mInnerBodyShape`, ADR-0028) : le
+  `CharacterVirtual` de Jolt n'est pas un corps, son corps intérieur, cinématique, porte l'entité du joueur.
+  La nage de M6.5 le verra entrer dans le lac.
 
 ## Mesures
 
@@ -136,6 +147,10 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 - **Réinstaller Jolt plante en WebAssembly** : `UnregisterTypes` puis `RegisterTypes` finit en accès mémoire
   hors limites dans `Factory::Register`, sous Node ; en natif, ça passait. D'où l'installation unique
   (`installJoltOnce`), vue par le test de déterminisme, qui crée deux mondes l'un après l'autre.
+- **Le personnage pousse jusqu'à deux fois sa force** contre un obstacle plus haut qu'une marche :
+  `ExtendedUpdate` le déplace deux fois par pas (son déplacement, puis l'essai de monter la marche), et la
+  caisse reçoit chaque fois sa poussée. Avec 100 N, le seuil est vers 20 kg sans hauteur de marche, vers
+  40 kg avec ; les tests encadrent les deux.
 - **Un corps endormi n'est pas recopié**, mais un corps dynamique endormi paie quand même son
   `PreviousTransform` (environ 20 ns par pas et par image, ADR-0016). Seul le décor statique ne coûte rien.
 
@@ -148,7 +163,7 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | [`include/levain/physics/physics_world.hpp`](include/levain/physics/physics_world.hpp) | `PhysicsWorld`, `createPhysicsWorld`, `createBody`, `teleportBody`, `moveKinematic`, `stepPhysics`, `collectMovedBodies`, `sharedShapeCount` : la logique, sans flecs |
 | [`include/levain/physics/queries.hpp`](include/levain/physics/queries.hpp) | `Ray`, `RayHit`, `LayerMask`, `maskOf`, `SolidLayers`, `raycast`, `sphereCast` |
 | [`include/levain/physics/outlines.hpp`](include/levain/physics/outlines.hpp) | `Segment`, `CircleSegments`, `appendOutline` — les arêtes de chaque forme, pour les lignes de debug de `render` ; sans Jolt |
-| [`include/levain/physics/character.hpp`](include/levain/physics/character.hpp) | `CharacterController`, `whyNotThisCharacter`, `GroundState`, `CharacterGround`, `isWalking`, `createCharacter`, `moveCharacter`, `characterGround` : le personnage, un `CharacterVirtual` de Jolt (ADR-0028), sans flecs |
+| [`include/levain/physics/character.hpp`](include/levain/physics/character.hpp) | `CharacterController`, `whyNotThisCharacter`, `GroundState`, `CharacterGround`, `isWalking`, `createCharacter`, `moveCharacter`, `teleportCharacter`, `turnCharacter`, `refreshCharacterGround`, `characterVelocity`, `characterGround` : le personnage, un `CharacterVirtual` de Jolt (ADR-0028), sans flecs |
 | [`include/levain/physics/body_rules.hpp`](include/levain/physics/body_rules.hpp) | `whyNotABody`, `whyNotThisLayer`, `poseOf` |
 | [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs |
 | [`src/physics_world.cpp`](src/physics_world.cpp) | Jolt : les couches, le job system, les corps, le pas |

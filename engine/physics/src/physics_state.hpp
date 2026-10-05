@@ -253,6 +253,8 @@ struct PhysicsState
     {
         JPH::Ref<JPH::CharacterVirtual> jolt;
         JPH::CharacterVirtual::ExtendedUpdateSettings update;
+        /// Le déplacement du dernier `moveCharacter`, divisé par sa durée (`characterVelocity`).
+        JPH::Vec3 moved = JPH::Vec3::sZero();
     };
 
     /// Après le système : un personnage retire son corps intérieur en mourant, le système doit

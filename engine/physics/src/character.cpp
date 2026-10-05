@@ -1,10 +1,12 @@
 #include "levain/physics/character.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <string_view>
 #include <utility>
 
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 // L'état de Jolt d'abord : il inclut Jolt.h, que tous les autres en-têtes de Jolt attendent.
 #include "physics_state.hpp"
@@ -100,6 +102,23 @@ const PhysicsState::Character& characterOf(const PhysicsState& state, CharacterH
     return state.characters[handle.value];
 }
 
+/// La rotation du personnage, **autour de Y seulement** (ADR-0028) : le lacet de `rotation`. Une
+/// capsule penchée par une rotation de gameplay qui aurait pris du tangage traverserait le sol d'un
+/// côté et décollerait de l'autre. Une rotation qui regarde à la verticale n'a pas de lacet : elle
+/// garde celui de son axe droit : sans ça, regarder ses pieds ferait faire volte-face au
+/// personnage.
+glm::quat uprightOf(const glm::quat& rotation)
+{
+    const glm::vec3 forward = rotation * glm::vec3{0.0f, 0.0f, -1.0f};
+    if (glm::length(glm::vec2{forward.x, forward.z}) > 1e-4f)
+    {
+        return glm::angleAxis(std::atan2(-forward.x, -forward.z), glm::vec3{0.0f, 1.0f, 0.0f});
+    }
+    // L'axe droit, (1, 0, 0) sans rotation, donne le lacet par le même calcul tourné d'un quart.
+    const glm::vec3 right = rotation * glm::vec3{1.0f, 0.0f, 0.0f};
+    return glm::angleAxis(std::atan2(-right.z, right.x), glm::vec3{0.0f, 1.0f, 0.0f});
+}
+
 GroundState groundStateOf(JPH::CharacterBase::EGroundState state)
 {
     switch (state)
@@ -147,7 +166,8 @@ CharacterHandle createCharacter(PhysicsWorld& world, const CharacterController& 
 
     PhysicsState::Character character{
         .jolt = new JPH::CharacterVirtual(&settings, toJolt(pose.position),
-                                          toJoltRotation(pose.rotation), entity, &state.system),
+                                          toJoltRotation(uprightOf(pose.rotation)), entity,
+                                          &state.system),
         .update = {}};
     character.update.mWalkStairsStepUp = JPH::Vec3(0.0f, controller.stepHeight, 0.0f);
     character.update.mStickToFloorStepDown =
@@ -182,12 +202,29 @@ void destroyCharacter(PhysicsWorld& world, CharacterHandle handle)
     state.freeCharacters.push_back(handle.value);
 }
 
+void teleportCharacter(PhysicsWorld& world, CharacterHandle handle, const BodyPose& pose)
+{
+    PhysicsState& state = *world.state;
+    LEVAIN_ASSERT(!state.stepping, "un personnage se téléporte hors du pas de physique");
+    PhysicsState::Character& stored = characterOf(state, handle);
+    JPH::CharacterVirtual& character = *stored.jolt;
+    character.SetPosition(toJolt(pose.position));
+    character.SetRotation(toJoltRotation(uprightOf(pose.rotation)));
+    character.SetLinearVelocity(JPH::Vec3::sZero());
+    stored.moved = JPH::Vec3::sZero();
+    // Ses contacts et son sol sont ceux de l'ancienne place : relus à la nouvelle.
+    const CharacterBroadPhaseFilter broadPhase;
+    const CharacterLayerFilter layers;
+    character.RefreshContacts(broadPhase, layers, {}, {}, state.tempAllocator);
+}
+
 void moveCharacter(PhysicsWorld& world, CharacterHandle handle, const glm::vec3& velocity,
                    float seconds)
 {
     PhysicsState& state = *world.state;
     LEVAIN_ASSERT(!state.stepping, "un personnage se déplace hors du pas de physique");
     PhysicsState::Character& character = characterOf(state, handle);
+    const JPH::RVec3 before = character.jolt->GetPosition();
     character.jolt->SetLinearVelocity(toJolt(velocity));
     const CharacterBroadPhaseFilter broadPhase;
     const CharacterLayerFilter layers;
@@ -195,12 +232,32 @@ void moveCharacter(PhysicsWorld& world, CharacterHandle handle, const glm::vec3&
     // porte (en-tête de `CharacterVirtual::Update`).
     character.jolt->ExtendedUpdate(seconds, state.system.GetGravity(), character.update, broadPhase,
                                    layers, {}, {}, state.tempAllocator);
+    character.moved = seconds > 0.0f ? JPH::Vec3(character.jolt->GetPosition() - before) / seconds
+                                     : JPH::Vec3::sZero();
+}
+
+void turnCharacter(PhysicsWorld& world, CharacterHandle handle, const glm::quat& rotation)
+{
+    LEVAIN_ASSERT(!world.state->stepping, "un personnage tourne hors du pas de physique");
+    characterOf(*world.state, handle).jolt->SetRotation(toJoltRotation(uprightOf(rotation)));
+}
+
+void refreshCharacterGround(PhysicsWorld& world, CharacterHandle handle)
+{
+    LEVAIN_ASSERT(!world.state->stepping,
+                  "le sol d'un personnage se relit hors du pas de physique");
+    characterOf(*world.state, handle).jolt->UpdateGroundVelocity();
 }
 
 BodyPose characterPose(const PhysicsWorld& world, CharacterHandle handle)
 {
     const JPH::CharacterVirtual& character = *characterOf(std::as_const(*world.state), handle).jolt;
     return {.position = toGlm(character.GetPosition()), .rotation = toGlm(character.GetRotation())};
+}
+
+glm::vec3 characterVelocity(const PhysicsWorld& world, CharacterHandle handle)
+{
+    return toGlm(characterOf(std::as_const(*world.state), handle).moved);
 }
 
 CharacterGround characterGround(const PhysicsWorld& world, CharacterHandle handle)

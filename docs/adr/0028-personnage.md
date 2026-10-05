@@ -164,7 +164,10 @@ demande donc d'en poser un.
      (`mMaxStrength`, 100 N par défaut). C'est **un seuil** : une caisse ne bouge que si cette force dépasse
      son frottement, m < F / (μ·g). Avec 100 N et le frottement de 0,5 de nos corps, la limite est vers
      **20 kg** : en dessous, la caisse accélère, d'autant plus lentement qu'elle pèse, puis suit au pas ; au
-     dessus, elle ne bouge pas. Les caisses de la démo pèsent 10 kg, et une de 50 kg montre la différence ;
+     dessus, elle ne bouge pas. Contre une caisse plus haute qu'une marche, `ExtendedUpdate` déplace le
+     personnage deux fois par pas (son déplacement, puis l'essai de monter la marche) : la caisse reçoit deux
+     poussées, et le seuil double, vers **40 kg** avec une hauteur de marche (mesuré à la relecture du code,
+     encadré par un test). Les caisses de la démo pèsent 10 kg, et une de 50 kg montre la différence ;
    - **la masse du personnage** (`mMass`) ne sert qu'à peser sur ce qui le porte ;
    - **le personnage est poussé**, par la vitesse du point de contact : une plateforme ou un rocher qui roule
      l'emmène (`mCanPushCharacter`, gardé à son défaut). Il n'y a pas d'échange de quantité de mouvement : une
