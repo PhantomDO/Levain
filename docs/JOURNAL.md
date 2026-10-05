@@ -32,9 +32,15 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ## 2026-10-05 — M6.2 — Clôture : des volumes, des rayons, un contour à la souris, et la vallée qui collisionne
 
-- **Temps Donnovan : à relever** (estimé 1,5 h). Mode autonome : deux sondages du matin (l'ADR-0027, puis le flux
-  de CI et le cache des assets cuits) et deux questions, archivées dans `docs/QA.md`. Les estimations de
-  relecture des dix PR font 2,2 h : le ratio passera vraisemblablement au-dessus de 1.
+- **Temps Donnovan : 2,54 h** (estimé 1,5 h), ratio 1,69. Le 05/10, Donnovan a donné « environ 5 à 6 h en
+  tout » pour M6.1 et M6.2 ensemble. On retient 5,5 h, réparties entre les deux milestones au prorata de leurs
+  estimations, puis entre les issues (#175 et #176 : 1,27 h chacune) : le ratio est donc le même pour les deux.
+  Mode autonome : deux sondages du matin (l'ADR-0027, puis le flux de CI et le cache des assets cuits) et deux
+  questions, archivées dans `docs/QA.md`. À elles seules, les estimations de relecture des dix PR (2,2 h)
+  dépassaient déjà l'estimé.
+- Phase 6 à ce stade : 5,5 h passées pour 3,25 h estimées (M6.1 et M6.2), ratio 1,69 (1,54 à 1,85 selon les 5 à
+  6 h données), au-dessus de la fourchette 0,8–1,25. Chiffre provisoire : le recalibrage se décide à la clôture
+  de la phase (GOTCHA de `session`, « ne pas tirer de conclusion de phase sur des chiffres provisoires »).
 - Sessions Claude Code : 1 (la même que M6.1)
 - Fait, en 10 PR (#269 à #278, dont #270 pour la méthode) :
   - **l'ADR-0027** (#269) : les volumes posent une relation `(InsideOf, volume)` sur le corps, mais l'API parle du
@@ -90,10 +96,11 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ## 2026-10-05 — M6.1 — Clôture : Jolt derrière nos types, et 1 000 caisses qui tombent
 
-- **Temps Donnovan : à relever** (estimé 1,75 h). Premier milestone du mode autonome (04/10) : Donnovan a
-  répondu aux sondages, un subagent a relu chaque PR, l'agent a fusionné après la CI verte. Sa relecture
-  a posteriori, et son temps, viendront à son retour. Les estimations de relecture des sept PR font déjà
-  2,1 h : le ratio passera vraisemblablement au-dessus de 1.
+- **Temps Donnovan : 2,96 h** (estimé 1,75 h), ratio 1,69 : la part de M6.1 dans les 5,5 h retenues (Donnovan
+  a donné « environ 5 à 6 h en tout » le 05/10 pour M6.1 et M6.2), réparties au prorata des estimations (#173 :
+  0,42 h, #174 : 2,54 h). Premier milestone du mode autonome (04/10) : Donnovan a répondu aux sondages, un
+  subagent a relu chaque PR, l'agent a fusionné après la CI verte. À elles seules, les estimations de relecture
+  des sept PR (2,1 h) dépassaient déjà l'estimé.
 - Sessions Claude Code : 1 (interrompue deux fois par une limite de l'API, reprise sans perte)
 - Fait, en 7 PR (#261 à #267) :
   - **l'ADR-0026** (#261) : un corps se déclare par un `Collider` et un `RigidBody`, comme dans Unity ; Jolt
@@ -141,7 +148,7 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   - pièges ajoutés à `build/GOTCHA.md` : LLVM 23 dans la distrobox contre 22 en CI, Firefox en Flatpak pour
     `tools/web-smoke.sh`, le « ; » dans un nom de cas, LeakSanitizer avec lavapipe ;
   - le jeton `gh` a perdu le scope `read:project` : le board n'a pas pu être mis à jour (à rafraîchir par
-    Donnovan, `gh auth refresh -s read:project,project`).
+    Donnovan, `gh auth refresh -s read:project,project`) ; rafraîchi depuis, board à jour le 05/10.
 - Prochaine étape : M6.2, déjà écrite et relue (neuf PR empilées : ADR-0027, grandes formes, collision du
   terrain, requêtes, lignes de debug, contours, sélection, volumes, démo du lac).
 
