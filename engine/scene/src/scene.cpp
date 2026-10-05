@@ -128,10 +128,17 @@ SceneModule::SceneModule(flecs::world& world)
     world.component<Simulation>().add<SimulationPhase>();
     world.component<Physics>().add<SimulationPhase>().depends_on(world.component<Simulation>());
     world.component<PostPhysics>().add<SimulationPhase>().depends_on(world.component<Physics>());
+    // Les deux derniers termes sont ceux du pipeline intégré de flecs : une phase désactivée
+    // (`world.component<Physics>().disable()`) met ses systèmes en pause, un module désactivé
+    // aussi.
     world.set<SimulationPipeline>({.pipeline = world.pipeline()
                                                    .with(flecs::System)
                                                    .with<SimulationPhase>()
                                                    .cascade(flecs::DependsOn)
+                                                   .without(flecs::Disabled)
+                                                   .up(flecs::DependsOn)
+                                                   .without(flecs::Disabled)
+                                                   .up(flecs::ChildOf)
                                                    .build()});
 
     // Ce que la simulation déplace garde son état précédent, et rien d'autre : le décor immobile ne

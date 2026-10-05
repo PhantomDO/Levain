@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -28,6 +29,13 @@ struct BodyPose
     glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
 };
 
+/// Un corps que le dernier pas a déplacé, et l'entité qu'il représente.
+struct MovedBody
+{
+    std::uint64_t entity = 0;
+    BodyPose pose;
+};
+
 /// L'état de Jolt (son `PhysicsSystem`, ses couches, son allocateur et ses threads), caché ici :
 /// aucun en-tête de Jolt ne sort de `physics/src` (ADR-0026, SPECS §7).
 struct PhysicsState;
@@ -48,16 +56,32 @@ struct PhysicsWorld
 PhysicsWorld createPhysicsWorld(const PhysicsSettings& settings = {});
 
 /// Crée un corps et l'ajoute au monde. `body` nul : un corps statique. `entity` est gardé par le
-/// corps, pour retrouver l'entité qui le porte. Une forme, une masse ou une couche invalide
-/// (`whyNotThisShape`, `whyNotThisLayer`), ou le plafond de corps atteint : une erreur au journal,
-/// une assertion en Debug, et `BodyHandle::None`.
+/// corps, et rendu par `collectMovedBodies` pour retrouver l'entité qui le porte. Une forme, une
+/// masse ou une couche invalide (`whyNotThisShape`, `whyNotThisLayer`), ou le plafond de corps
+/// atteint : une erreur au journal, une assertion en Debug, et `BodyHandle::None`.
 BodyHandle createBody(PhysicsWorld& world, const Collider& collider, const RigidBody* body,
                       const BodyPose& pose, std::uint64_t entity);
 
 void destroyBody(PhysicsWorld& world, BodyHandle handle);
 
+/// Place un corps sans le faire traverser l'espace entre les deux : un corps qu'on y aurait laissé
+/// est simplement dépassé. Le corps est réveillé, sauf s'il est statique.
+void teleportBody(PhysicsWorld& world, BodyHandle handle, const BodyPose& pose);
+
+/// Donne à un corps cinématique la vitesse qui l'amène en `target` au bout de `seconds` : ce qu'il
+/// rencontre en chemin est poussé, ce que `teleportBody` ne ferait pas.
+void moveKinematic(PhysicsWorld& world, BodyHandle handle, const BodyPose& target, float seconds);
+
 /// Avance la simulation d'un pas : une étape de collision, la recommandation de Jolt à 60 Hz.
 void stepPhysics(PhysicsWorld& world, float seconds);
+
+/// Les corps dynamiques que Jolt n'a pas endormis, avec leur pose : ce qu'il faut recopier dans les
+/// `Transform`. Pas les cinématiques, que le jeu place lui-même. `out` est vidé puis rempli ; le
+/// garder d'un pas à l'autre évite d'allouer.
+///
+/// L'ordre n'est pas déterministe (Jolt réveille les corps depuis plusieurs threads) : chacun
+/// désigne sa propre entité, le résultat de la recopie n'en dépend pas.
+void collectMovedBodies(const PhysicsWorld& world, std::vector<MovedBody>& out);
 
 BodyPose bodyPose(const PhysicsWorld& world, BodyHandle handle);
 std::uint32_t bodyCount(const PhysicsWorld& world);

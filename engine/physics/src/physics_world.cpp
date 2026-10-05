@@ -22,6 +22,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/TransformedShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
 
@@ -115,6 +116,17 @@ void traceToLog(const char* format, ...)
     core::log(LogCategory, core::LogLevel::Warning, "{}", buffer.data());
 }
 
+#ifdef JPH_ENABLE_ASSERTS
+/// Une assertion de Jolt (en Debug seulement : `JPH_DEBUG` suit `NDEBUG`), dans notre journal, puis
+/// l'arrêt dans le débogueur, comme `LEVAIN_ASSERT` : rendre vrai demande à Jolt de s'y arrêter.
+bool assertToLog(const char* expression, const char* message, const char* file, JPH::uint line)
+{
+    core::log(LogCategory, core::LogLevel::Critical, "assertion de Jolt : {} ({}) à {}:{}",
+              expression, message != nullptr ? message : "", file, line);
+    return true;
+}
+#endif
+
 /// Jolt garde des globales : l'allocateur, la fabrique des types et leur enregistrement. Elles
 /// appartiennent au processus, pas à un monde : installées au premier monde, **jamais
 /// désinstallées**. Les réinstaller après `UnregisterTypes` plante dans `Factory::Register` en
@@ -129,6 +141,9 @@ void installJoltOnce()
     {
         JPH::RegisterDefaultAllocator();
         JPH::Trace = traceToLog;
+#ifdef JPH_ENABLE_ASSERTS
+        JPH::AssertFailed = assertToLog;
+#endif
         // Jolt compilé avec d'autres options que le moteur (ses `JPH_*`) donne des structures de
         // tailles différentes des deux côtés : la mémoire se corrompt sans prévenir. On s'arrête
         // net (règle n°7), avec un message dans notre journal, ce que `RegisterTypes` ne ferait
@@ -150,9 +165,9 @@ JPH::Vec3 toJolt(const glm::vec3& vector)
     return {vector.x, vector.y, vector.z};
 }
 
-/// Un quaternion pour Jolt, **renormalisé** : Jolt suppose une rotation unitaire sans le vérifier
-/// (ses assertions sont absentes de notre build), et un quaternion de longueur 1,01 déforme le
-/// corps qu'il tourne. Le constructeur de glm prend w en premier, celui de Jolt en dernier.
+/// Un quaternion pour Jolt, **renormalisé** : Jolt suppose une rotation unitaire, ne le vérifie
+/// qu'en Debug, et un quaternion de longueur 1,01 déforme le corps qu'il tourne. Le constructeur de
+/// glm prend w en premier, celui de Jolt en dernier.
 JPH::Quat toJoltRotation(const glm::quat& rotation)
 {
     const glm::quat unit = glm::normalize(rotation);
@@ -240,6 +255,8 @@ struct PhysicsState
     JPH::TempAllocatorImpl tempAllocator{std::size_t{10} * 1024 * 1024};
     std::unique_ptr<JPH::JobSystem> jobSystem;
     JPH::PhysicsSystem system;
+    JPH::BodyIDVector activeBodies; ///< Gardé d'un pas à l'autre : la liste ne réalloue pas.
+    std::uint32_t bodiesAddedSinceStep = 0; ///< Pour `optimizeAfterLoading`.
 };
 
 PhysicsWorld::PhysicsWorld() = default;
@@ -300,6 +317,7 @@ BodyHandle createBody(PhysicsWorld& world, const Collider& collider, const Rigid
     const JPH::EActivation activation =
         body != nullptr ? JPH::EActivation::Activate : JPH::EActivation::DontActivate;
     const JPH::BodyID id = bodies.CreateAndAddBody(settings, activation);
+    ++world.state->bodiesAddedSinceStep;
     if (id.IsInvalid())
     {
         // Le plafond `maxBodies` est atteint : un corps manquant est un bug de gameplay invisible.
@@ -313,8 +331,9 @@ BodyHandle createBody(PhysicsWorld& world, const Collider& collider, const Rigid
 
 void destroyBody(PhysicsWorld& world, BodyHandle handle)
 {
-    // Un corps refusé ou jamais créé n'a rien à détruire. Jolt ne le vérifie pas : retirer le
-    // BodyID invalide lit hors de son tableau de corps et décompte un corps de trop.
+    // Un corps refusé ou jamais créé n'a rien à détruire. Jolt ne le vérifie qu'en Debug : en
+    // Release, retirer le BodyID invalide lit hors de son tableau de corps et décompte un corps de
+    // trop.
     if (handle.value == BodyHandle::None)
     {
         return;
@@ -324,9 +343,70 @@ void destroyBody(PhysicsWorld& world, BodyHandle handle)
     bodies.DestroyBody(toJolt(handle));
 }
 
+void teleportBody(PhysicsWorld& world, BodyHandle handle, const BodyPose& pose)
+{
+    JPH::BodyInterface& bodies = world.state->system.GetBodyInterface();
+    const JPH::BodyID id = toJolt(handle);
+    if (bodies.GetMotionType(id) != JPH::EMotionType::Static)
+    {
+        bodies.SetPositionAndRotation(id, toJolt(pose.position), toJoltRotation(pose.rotation),
+                                      JPH::EActivation::Activate);
+        return;
+    }
+    // Un corps statique déplacé laisse dormir ce qui reposait dessus, et ce qu'il vient recouvrir :
+    // Jolt ne réveille pas les voisins d'un statique (Architecture.md, « Sleeping »). Une caisse
+    // resterait suspendue en l'air là où était le sol. On réveille tout ce qui touche l'ancienne
+    // place et la nouvelle.
+    const JPH::AABox before = bodies.GetTransformedShape(id).GetWorldSpaceBounds();
+    bodies.SetPositionAndRotation(id, toJolt(pose.position), toJoltRotation(pose.rotation),
+                                  JPH::EActivation::DontActivate);
+    const JPH::AABox after = bodies.GetTransformedShape(id).GetWorldSpaceBounds();
+    const JPH::BroadPhaseLayerFilter everyBroadPhase;
+    const JPH::ObjectLayerFilter everyLayer;
+    bodies.ActivateBodiesInAABox(before, everyBroadPhase, everyLayer);
+    bodies.ActivateBodiesInAABox(after, everyBroadPhase, everyLayer);
+}
+
+void moveKinematic(PhysicsWorld& world, BodyHandle handle, const BodyPose& target, float seconds)
+{
+    // Seul un cinématique se déplace ainsi : Jolt, sans ses assertions en Release, déplacerait
+    // aussi un corps statique sans prévenir. Le cas arrive un instant, quand le RigidBody vient de
+    // changer et que son corps attend d'être reconstruit au pas suivant.
+    if (world.state->system.GetBodyInterface().GetMotionType(toJolt(handle)) !=
+        JPH::EMotionType::Kinematic)
+    {
+        return;
+    }
+    world.state->system.GetBodyInterface().MoveKinematic(toJolt(handle), toJolt(target.position),
+                                                         toJoltRotation(target.rotation), seconds);
+}
+
+namespace
+{
+
+/// Au-delà, le pas qui suit un ajout de corps commence par réorganiser la broad phase.
+constexpr std::uint32_t LoadingBodies = 256;
+
+/// Réorganise l'arbre de la broad phase après un gros chargement : des corps ajoutés un par un y
+/// sont mal rangés. Mesuré sur les 1 001 caisses de M6.1, sur un thread : le pas qui les construit
+/// passe de 5,0 à 2,5 ms, et celui qui le suit, le pire des 600 (3,9 ms), redevient ordinaire.
+/// Jolt le recommande après avoir ajouté beaucoup de corps, jamais à chaque pas, qu'il ralentirait
+/// (`PhysicsSystem::OptimizeBroadPhase`).
+void optimizeAfterLoading(PhysicsState& state)
+{
+    if (state.bodiesAddedSinceStep > LoadingBodies)
+    {
+        state.system.OptimizeBroadPhase();
+    }
+    state.bodiesAddedSinceStep = 0;
+}
+
+} // namespace
+
 void stepPhysics(PhysicsWorld& world, float seconds)
 {
     PhysicsState& state = *world.state;
+    optimizeAfterLoading(state);
     const JPH::EPhysicsUpdateError error =
         state.system.Update(seconds, 1, &state.tempAllocator, state.jobSystem.get());
     if (error != JPH::EPhysicsUpdateError::None)
@@ -336,6 +416,29 @@ void stepPhysics(PhysicsWorld& world, float seconds)
                   "pas de physique incomplet (code {}) : augmenter les plafonds du monde",
                   static_cast<unsigned>(error));
         LEVAIN_ASSERT(false, "pas de physique incomplet");
+    }
+}
+
+void collectMovedBodies(const PhysicsWorld& world, std::vector<MovedBody>& out)
+{
+    PhysicsState& state = *world.state;
+    out.clear();
+    state.system.GetActiveBodies(JPH::EBodyType::RigidBody, state.activeBodies);
+    // Sans verrou : le pas est fini, aucun thread de Jolt ne touche plus aux corps.
+    const JPH::BodyInterface& bodies = state.system.GetBodyInterfaceNoLock();
+    for (const JPH::BodyID id : state.activeBodies)
+    {
+        // Un cinématique est actif tant qu'il bouge, mais c'est le jeu qui le place : lui recopier
+        // la pose que Jolt a intégrée ferait dériver son Transform de quelques ulps à chaque pas.
+        if (bodies.GetMotionType(id) != JPH::EMotionType::Dynamic)
+        {
+            continue;
+        }
+        JPH::RVec3 position;
+        JPH::Quat rotation;
+        bodies.GetPositionAndRotation(id, position, rotation);
+        out.push_back({.entity = bodies.GetUserData(id),
+                       .pose = {.position = toGlm(position), .rotation = toGlm(rotation)}});
     }
 }
 

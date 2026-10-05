@@ -6,15 +6,48 @@
 #include <type_traits>
 #include <variant>
 
+#include <glm/gtc/quaternion.hpp>
+
 #include "levain/physics/components.hpp"
+#include "levain/physics/physics_world.hpp"
+#include "levain/scene/components.hpp"
 
 namespace levain::physics
 {
 
+/// Pourquoi une entité ne peut pas porter de corps physique, ou rien si elle le peut (ADR-0026).
+///
+/// - **Un corps est une racine** : Jolt place ses corps dans le monde, le `Transform` d'un enfant
+///   est dans le repère de son parent. Convertir à chaque pas est la source classique des objets
+///   qui tremblent ; un enfant d'un corps le suit, lui, par la hiérarchie.
+/// - **Un corps n'a pas d'échelle** : la taille est dans la forme. Une échelle non uniforme
+///   déformerait une sphère en ellipsoïde, que Jolt ne sait pas simuler ; Godot demande la même
+///   chose de ses formes.
+inline std::optional<std::string_view> whyNotABody(const scene::Transform& transform,
+                                                   bool hasParent)
+{
+    if (hasParent)
+    {
+        return "un corps physique doit être une entité racine, sans parent";
+    }
+    if (transform.scale != glm::vec3(1.0f))
+    {
+        return "un corps physique n'a pas d'échelle : la taille se donne dans la forme du Collider";
+    }
+    // Une rotation nulle ou faite de NaN : la renormaliser en ferait l'identité, ou des NaN, sans
+    // un mot. Une rotation seulement un peu longue est, elle, renormalisée (`toJoltRotation`).
+    const float length = glm::length(transform.rotation);
+    if (!std::isfinite(length) || length < 1e-6f)
+    {
+        return "un corps physique a une rotation finie et non nulle";
+    }
+    return std::nullopt;
+}
+
 /// Pourquoi une forme ou une masse ne peut pas donner de corps, ou rien. Jolt les accepterait sans
-/// un mot : le port vcpkg le compile **sans ses assertions**, même en Debug, et une masse nulle
-/// devient une masse inverse infinie, puis des NaN qui se propagent à tout ce qui touche le corps
-/// (règle n°7).
+/// un mot en Release, où ses assertions n'existent pas (`JPH_DEBUG` suit `NDEBUG`) : une masse
+/// nulle y devient une masse inverse infinie, puis des NaN qui se propagent à tout ce qui touche le
+/// corps (règle n°7).
 inline std::optional<std::string_view> whyNotThisShape(const Collider& collider,
                                                        const RigidBody* body)
 {
@@ -62,6 +95,11 @@ inline std::optional<std::string_view> whyNotThisLayer(const Collider& collider,
         return "un corps mobile ne peut pas être sur la couche Static : il traverserait le décor";
     }
     return std::nullopt;
+}
+
+inline BodyPose poseOf(const scene::Transform& transform)
+{
+    return {.position = transform.position, .rotation = transform.rotation};
 }
 
 } // namespace levain::physics
