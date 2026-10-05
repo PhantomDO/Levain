@@ -36,6 +36,34 @@ changement (**documenté** pour l'outil ; **supposé** pour l'usage chez Epic).
 
 Références : `AGENTS.md`, règle n°1 et son exception ; `.github/workflows/ci.yml`, « Cache des assets cuits ».
 
+### Ce n'est pas plutôt le volume qui doit savoir qui est en lui ? (2026-10-05, M6.2)
+
+**Si, et c'est lui qui pose la question ; la réponse est seulement rangée ailleurs.** Dans un ECS à archetypes
+comme flecs, les composants d'une entité déterminent sa table. Si le lac portait la liste de ses occupants
+(`(Overlaps, caisse_12)`, `(Overlaps, joueur)`…), chaque ensemble d'occupants différent serait une table
+nouvelle : un essai de la relecture de l'ADR-0027 (non versionné, un ordre de grandeur) en a compté 20 000 créées
+et jamais libérées pour 20 000 entrées et sorties, à 141 µs l'une. Rangée sur le corps, `(InsideOf, lac)`,
+l'information ne change la table du corps qu'à l'entrée et à la sortie, avec un nombre de combinaisons borné :
+0,18 µs dans le même essai. Et flecs **indexe une paire par sa cible** : il trouve directement les tables qui
+portent `(InsideOf, lac)`, sans parcourir les autres.
+
+L'API cache ce rangement et parle du point de vue du volume : `onEnter(lac, …)`, `onExit(lac, …)`,
+`occupantsOf(lac)`. Le corps peut aussi demander `has<InsideOf>(lac)` quand c'est lui qui a besoin de savoir,
+comme le joueur qui nage.
+
+**Et le parallélisme ?** La détection des contacts tourne déjà sur les threads de Jolt. Côté flecs, ce qui se
+parallélise, ce sont les requêtes sur des données (`.multi_threaded()` sur un système qui vise les lacs par une
+variable, `with<InsideOf>("$volume").with<Lake>().src("$volume")`, et non ce lac-ci, qu'il empêcherait de
+supprimer) ;
+les observateurs, eux, tournent l'un après l'autre à la fusion des commandes, et poser ou retirer une paire est
+un changement de structure, appliqué sur un seul thread, quelle que soit l'option.
+
+**Les autres moteurs** : chez Unity, `OnTriggerEnter` est envoyé aux deux objets ; chez Unreal, les deux
+reçoivent leur événement de chevauchement quand ils ont « Generate Overlap Events » ; chez Godot, c'est
+l'`Area3D` qui signale `body_entered` et qui liste ses occupants (**documenté**, sources de l'ADR-0027).
+
+Références : [ADR-0027](adr/0027-volumes-requetes-formes.md), option A' et décision 1.
+
 ### Pourquoi fastgltf plutôt que tinygltf, maintenant que gltf2ozz existe ? (2026-09-25, M4.5)
 
 **gltf2ozz ne nous aurait presque rien épargné, parce que ce n'est pas une bibliothèque.** C'est un
