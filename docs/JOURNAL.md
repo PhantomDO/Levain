@@ -30,6 +30,64 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-05 — M6.2 — Clôture : des volumes, des rayons, un contour à la souris, et la vallée qui collisionne
+
+- **Temps Donnovan : à relever** (estimé 1,5 h). Mode autonome : deux sondages du matin (l'ADR-0027, puis le flux
+  de CI et le cache des assets cuits) et deux questions, archivées dans `docs/QA.md`. Les estimations de
+  relecture des dix PR font 2,2 h : le ratio passera vraisemblablement au-dessus de 1.
+- Sessions Claude Code : 1 (la même que M6.1)
+- Fait, en 10 PR (#269 à #278, dont #270 pour la méthode) :
+  - **l'ADR-0027** (#269) : les volumes posent une relation `(InsideOf, volume)` sur le corps, mais l'API parle du
+    point de vue du volume (choix de Donnovan) ; des capteurs rendus cinématiques par le moteur (son choix) ;
+    les requêtes ;
+    les grandes formes partagées ; les lignes de debug ;
+  - **les grandes formes** (#271) et **la collision de la vallée** (#272) : maillages et grilles de hauteurs
+    partagés, construits une fois par donnée ; le terrain donne sa heightmap à Jolt ;
+  - **les requêtes** (#273) : un rayon qui ne voit que les surfaces qu'il traverse en entrant, comme celui d'Unity,
+    et une sphère lancée qui rend la normale du contact ;
+  - **les lignes de debug** (#274) dans `render`, et **les contours** des formes (#275), en fonctions pures ;
+  - **la sélection à la souris** (#276), le critère du milestone ;
+  - **les volumes déclencheurs** (#277) et **la démo du lac** (#278), vérifiée par un test sans GPU ;
+  - **la méthode** (#270, sur une question de Donnovan) : les PR d'un milestone empilées, leurs CI en
+    parallèle, fusionnées en merge commit ; les assets cuits en cache dans la CI.
+- Mesures :
+  - **critère de M6.2, sélectionner un objet à la souris par raycast** : en CI, sur les trois presets et les deux
+    backends, `levain_sandbox --view physics --pick 960,540` sélectionne une caisse (CI de #278) ; le pixel touche
+    une caisse de 0,1 à 8 s, grille de départ, chute et tas compris (`--seconds N --pick 960,540`, 11 durées) ;
+  - les volumes : la démo du lac, simulée 10 s sans GPU, met 64 caisses sur 64 dans le lac (`ctest -R "rive est"`,
+    seuil 32) ;
+  - le critère de M6.1 avec le `ContactListener` branché : 0,54 à 0,59 ms par pas en moyenne, 1,3 à 1,9 ms au pire,
+    trois lancements (`levain_physics_bench`, Release, Ryzen 7 7800X3D) ; 1,74 ms et 3,3 ms sur un thread ;
+  - la scène de fumée `lines` : 1 pixel sur 4 096 diffère entre RADV et lavapipe, 23 si le test de profondeur est
+    coupé (`levain_smoke_render lines [webgpu]`, `VK_DRIVER_FILES` sur lavapipe) : 4 admis ;
+  - tests : 218 en natif (220 en Release), 133 en WebAssembly (`ctest`, CI de #278) ;
+  - la CI des neuf PR empilées : **18 min 24 pour la première vague**, toutes en parallèle (de 09:40:55 à 09:59:19,
+    `gh run list --workflow ci.yml`), au lieu d'environ 1 h 30 estimées en série ; puis 10 min pour les deux
+    corrigées, et 10 pour #271 rouverte.
+- Décisions de Donnovan, par sondage : l'API des volumes côté volume ; les capteurs cinématiques ; les PR empilées
+  et leur CI en parallèle ; le cache des assets cuits. ADR-0027 ; règle n°1 amendée (AGENTS.md).
+- Écarts et problèmes :
+  - dix relectures, dont trois ont trouvé un bloquant avant fusion : un maillage cinématique arrêtait Jolt en
+    Debug (masse nulle), la référence des lignes aurait échoué sur lavapipe (lavapipe installé dans la distrobox
+    pour le voir), et le premier cache des assets cuits n'aurait jamais servi (des GUID tirés au hasard à chaque
+    run) ;
+  - deux PR dépassent les 400 lignes : les grandes formes (454, dont 157 de tests) et les volumes (577, dont 200
+    de tests et 59 de README ; `gh pr view <N> --json additions`), signalées ; trois découpes à la relecture (la
+    collision du terrain sortie des formes, la sélection des contours, la démo du lac des volumes) ;
+  - quatre images de tests de fumée en échec avaient été commitées par un `git add -A` : retirées, et
+    `*.actual.ppm` ignoré ;
+  - la CI empilée a trouvé deux échecs du sommet que la vérification locale avait manqués : `set_threads` avorte en
+    WebAssembly, et un contrôle de la vue terrain ignorait l'étape de sélection ;
+  - supprimer la branche fusionnée a **fermé** la PR suivante au lieu de la rediriger vers `main` (#271, rouverte
+    et relancée) : `tools/merge-stack.sh` fusionne désormais une pile dans le bon ordre (GOTCHA de `session`) ;
+  - le cache des assets cuits sert dès la première vague : quatre PR (lignes de debug, contours, sélection,
+    volumes) l'ont restauré et cuit en 1 s ; cinq, lancées avant que celui de `main` existe (09:48:55), ont cuit
+    en 2 min 29 à 4 min 11 et enregistré chacune le leur (160 Mo). Sur `main` après la pile : restauré en 3 s,
+    cuisson en 1 s (run 37295565127). Le cache Actions du dépôt est à 9,8 Gio pour 10
+    (`gh api repos/PhantomDO/Levain/actions/cache/usage`) : les caches des PR fusionnées sont à supprimer.
+- Prochaine étape : M6.3, le character controller (`CharacterVirtual` de Jolt, et son corps intérieur sur la
+  couche `Character`, que les volumes verront déjà).
+
 ## 2026-10-05 — M6.1 — Clôture : Jolt derrière nos types, et 1 000 caisses qui tombent
 
 - **Temps Donnovan : à relever** (estimé 1,75 h). Premier milestone du mode autonome (04/10) : Donnovan a

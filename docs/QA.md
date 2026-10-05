@@ -16,7 +16,9 @@ Réponse courte, puis détails. Références : fichier:ligne, ADR, source extern
 
 **Pas obligés, mais chaque PR fusionnée devient un commit de `main`, et c'est la CI qui dit qu'il marche.** Ne la
 lancer qu'à la dernière PR d'une feature laisserait des commits jamais vérifiés seuls : dans la pile de M6.2, la
-PR des grandes formes, découpée après coup, n'a jamais été compilée sans celle du terrain. Un `main` cassé entre
+PR des grandes formes, découpée après coup, n'avait jamais été compilée sans celle du terrain avant sa propre CI ;
+et c'est la CI des PR empilées qui a trouvé deux échecs du sommet (un test multi-thread en WebAssembly, un contrôle
+de la vue terrain), avant toute fusion. Un `main` cassé entre
 deux rend aussi `git bisect` inutilisable.
 
 **Ce qui coûtait, c'était l'attente en série**, pas la CI : les quatre jobs tournent en parallèle, 8 à 10 minutes

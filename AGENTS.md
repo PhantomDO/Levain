@@ -35,11 +35,10 @@ Références pour NVRHI : Donut et Donut-Samples (NVIDIA, MIT), à lire et adapt
    fusionnent ensuite dans l'ordre, en **merge commit** : la PR suivante garde ainsi son SHA et sa CI, là où un
    squash l'obligerait à se rebaser et à repasser la CI. Chaque commit de `main` reste vérifié, sans attendre
    la CI d'une PR pour ouvrir la suivante. Trois pièges :
-   - fusionner avec `gh pr merge --merge --delete-branch` : c'est la suppression de la branche qui fait passer
-     la base de la PR suivante à `main` ; sinon, celle-ci fusionnerait dans la branche de la précédente. GitHub
-     le fait avec un temps de retard : vérifier avant chaque fusion,
-     `[ "$(gh pr view <N> --json baseRefName -q .baseRefName)" = main ] || exit 1` (et `--delete-branch` supprime
-     aussi la branche locale, `session/GOTCHA.md`) ;
+   - fusionner avec `tools/merge-stack.sh <N> <N+1> …` : chaque PR fusionne sans supprimer sa branche, la base
+     de la suivante passe à `main`, puis la branche est supprimée. Supprimer la branche d'abord **ferme** la PR
+     suivante au lieu de la rediriger (vu avec #271), et ne rien faire la laisserait fusionner dans la branche
+     de la précédente, sans check requis ;
    - si `main` a bougé hors de la pile, intégrer `main` au bas de la pile et laisser la CI repasser ;
    - une correction au milieu de la pile se propage aux PR suivantes, dont la CI repasse avant la fusion.
    La protection de `main` doit garder `strict: false` (pas d'obligation d'être à jour), sans quoi chaque
