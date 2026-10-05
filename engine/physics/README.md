@@ -8,7 +8,7 @@ calcul ; ce module est la frontière entre Jolt et le reste du moteur.
 
 **État en M6.2 (en cours)** : des boîtes, des sphères et des capsules, statiques, dynamiques ou cinématiques,
 sur cinq couches fixes ; des maillages et des grilles de hauteurs partagés, pour le décor ; des rayons et des
-sphères lancés (ADR-0027). Les volumes déclencheurs suivent, le personnage en M6.3.
+sphères lancés ; des volumes déclencheurs (ADR-0027). Le personnage vient en M6.3.
 
 ## Invariants
 
@@ -57,6 +57,63 @@ sphères lancés (ADR-0027). Les volumes déclencheurs suivent, le personnage en
     traverse en entrant (rien du corps d'où il part, rien du dessous d'un terrain), comme celui d'Unity ; une
     sphère qui touche déjà un corps le touche à 0 en avançant vers lui, et ne le voit pas en s'en éloignant.
 
+11. **Les volumes déclencheurs posent `(InsideOf, volume)` sur ce qu'ils contiennent** (ADR-0027). Un
+    `Collider` de la couche `Sensor` en fait un volume, rendu cinématique et toujours éveillé par le module :
+    il voit aussi les corps qui s'endorment en lui. Les contacts sont relevés sur les threads de Jolt, puis
+    ramenés aux entités et triés ; la relation est mise à jour dans la phase `PostPhysics`, au pas où un
+    corps entre ou sort. Un corps reconstruit au même pas ne sort ni ne rentre. Un corps de la couche `Debris`
+    ne déclenche rien (la matrice des couches) : un rocher de décor ne fait pas de remous. **La relation
+    appartient au module** : la retirer à la main désaccorde le module, qui ne la reposera pas.
+
+## Les volumes déclencheurs, par l'exemple
+
+Le gameplay parle du point de vue du volume (choix de Donnovan, ADR-0027) :
+
+```cpp
+// Un volume : un Collider sur la couche Sensor. Rien d'autre à poser.
+const flecs::entity trap = world.entity("Piège")
+    .set(levain::scene::Transform{.position = {12.0f, 0.5f, 4.0f}})
+    .set(levain::physics::Collider{.shape = levain::physics::Box{{1.0f, 0.5f, 1.0f}},
+                                   .layer = levain::physics::Layer::Sensor});
+
+// Ce qui entre, ce qui sort : le BeginOverlap / EndOverlap d'Unreal, l'OnTriggerEnter / Exit d'Unity.
+levain::physics::onEnter(world, trap, [](flecs::entity body) { hurt(body); });
+levain::physics::onExit(world, trap, [](flecs::entity body) { stopBleeding(body); });
+
+// Qui est dedans, maintenant (une requête construite à l'appel).
+for (const flecs::entity body : levain::physics::occupantsOf(world, lake)) { … }
+
+// À chaque pas : un système, moins cher, et parallélisable puisque ce sont des données. Il vise
+// « un volume qui est un lac » par une variable de requête, `$volume`, et non ce lac-ci.
+world.system<Stamina>()
+    .with<levain::physics::InsideOf>("$volume")
+    .with<Lake>().src("$volume")
+    .kind<levain::scene::Simulation>()
+    .multi_threaded()
+    .each([](Stamina& stamina) { stamina.value -= drain; });
+
+// Et du point de vue du corps, quand c'est lui qui a besoin de savoir.
+const bool swimming = player.has<levain::physics::InsideOf>(lake);
+```
+
+Quatre choses à savoir :
+
+- **La relation est rangée sur le corps**, pas sur le volume : la liste changeante des occupants ferait du
+  volume une nouvelle table flecs à chaque entrée (un essai de la relecture, non versionné : 141 µs et une table
+  jamais libérée par changement, contre 0,18 µs ici). flecs indexe la paire par sa cible : il trouve directement
+  ce qui est dans le lac.
+- **Les observateurs de `onEnter` et `onExit` sont des enfants du volume** et partent avec lui : flecs refuse
+  de supprimer une entité qu'un observateur vise encore (une assertion, en Debug seulement). Ils peuvent voir
+  ou non la sortie de ce que contenait un volume qu'on supprime, selon l'ordre de création des tables de flecs :
+  ne pas s'y fier ; les corps, eux, perdent bien leur `InsideOf`. **Une requête ou un système qui
+  nomme le volume** (`with<InsideOf>(lake)`) l'empêche de même d'être supprimé (une assertion de flecs) : un
+  système vise les volumes par une variable, comme plus haut ; `occupantsOf` ne garde pas sa requête.
+- **Supprimer un corps qui est dans un volume est une sortie** : `onExit` l'appelle, le corps encore vivant
+  avec tous ses composants (flecs émet `OnRemove` avant de le détruire). Le rappel ne distingue pas une
+  sortie d'une suppression.
+- **Un volume ne voit pas le personnage de Jolt** (`CharacterVirtual`, M6.3) : son corps intérieur
+  (`mInnerBodyShape`) le rendra visible aux volumes et aux rayons.
+
 ## Mesures
 
 Critère de M6.1, 1 000 caisses en chute libre sans un pas au-dessus de 4 ms (Release, machine de référence,
@@ -91,7 +148,7 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | [`include/levain/physics/queries.hpp`](include/levain/physics/queries.hpp) | `Ray`, `RayHit`, `LayerMask`, `maskOf`, `SolidLayers`, `raycast`, `sphereCast` |
 | [`include/levain/physics/outlines.hpp`](include/levain/physics/outlines.hpp) | `Segment`, `CircleSegments`, `appendOutline` — les arêtes de chaque forme, pour les lignes de debug de `render` ; sans Jolt |
 | [`include/levain/physics/body_rules.hpp`](include/levain/physics/body_rules.hpp) | `whyNotABody`, `whyNotThisLayer`, `poseOf` |
-| [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` |
+| [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs |
 | [`src/physics_world.cpp`](src/physics_world.cpp) | Jolt : les couches, le job system, les corps, le pas |
 | [`src/physics.cpp`](src/physics.cpp) | La glu flecs : observateurs et systèmes de la phase `Physics` |
 

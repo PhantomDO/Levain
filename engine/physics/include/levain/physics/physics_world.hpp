@@ -84,6 +84,20 @@ void stepPhysics(PhysicsWorld& world, float seconds);
 /// désigne sa propre entité, le résultat de la recopie n'en dépend pas.
 void collectMovedBodies(const PhysicsWorld& world, std::vector<MovedBody>& out);
 
+/// Un corps dans un volume déclencheur : les entités du volume et du corps.
+struct Overlap
+{
+    std::uint64_t volume = 0;
+    std::uint64_t body = 0;
+    auto operator<=>(const Overlap&) const = default;
+};
+
+/// Ce qui est dans les volumes déclencheurs après le dernier pas, trié et sans doublon : la base de
+/// la relation `InsideOf` (ADR-0027). Jolt signale ses contacts par paire de sous-formes et de
+/// `BodyID` ; ici, ils sont ramenés aux entités. Un corps reconstruit au même pas (un nouveau
+/// `BodyID`) garde donc sa place, sans sortie ni entrée fantômes.
+void collectOverlaps(const PhysicsWorld& world, std::vector<Overlap>& out);
+
 BodyPose bodyPose(const PhysicsWorld& world, BodyHandle handle);
 std::uint32_t bodyCount(const PhysicsWorld& world);
 /// Les grandes formes que Jolt garde construites : une par donnée partagée, quel que soit le nombre

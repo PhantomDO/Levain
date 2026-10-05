@@ -1,6 +1,9 @@
 #include "levain/physics/physics.hpp"
 
+#include <algorithm>
 #include <cstddef>
+#include <iterator>
+#include <utility>
 
 #include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
@@ -114,7 +117,81 @@ void stepAndCopyBack(flecs::world world, float seconds)
     copyMovedBodies(world, moved);
 }
 
+/// Pose et retire les relations `InsideOf` selon les volumes du dernier pas : seulement ce qui a
+/// changé, dans l'ordre trié des entités, pour un résultat déterministe (ADR-0027). Une entité qui
+/// n'existe plus est ignorée : flecs a déjà retiré ses paires, et émis leurs `OnRemove`.
+void applyOverlaps(const flecs::world& world, const PhysicsWorld& physics, OverlapState& state)
+{
+    collectOverlaps(physics, state.next);
+    std::vector<Overlap>& changed = state.changed;
+    changed.clear();
+    std::ranges::set_difference(state.current, state.next, std::back_inserter(changed));
+    for (const Overlap& left : changed)
+    {
+        const flecs::entity body = world.entity(left.body);
+        const flecs::entity volume = world.entity(left.volume);
+        if (body.is_alive() && volume.is_alive())
+        {
+            body.remove<InsideOf>(volume);
+        }
+    }
+    changed.clear();
+    std::ranges::set_difference(state.next, state.current, std::back_inserter(changed));
+    for (const Overlap& entered : changed)
+    {
+        const flecs::entity body = world.entity(entered.body);
+        const flecs::entity volume = world.entity(entered.volume);
+        if (body.is_alive() && volume.is_alive())
+        {
+            body.add<InsideOf>(volume);
+        }
+    }
+    std::swap(state.current, state.next);
+}
+
 } // namespace
+
+namespace
+{
+
+/// L'observateur devient un enfant du volume, et part avec lui. Sans ça, flecs refuse de supprimer
+/// une entité qu'un observateur désigne dans une paire (« still in use by queries ») : une
+/// assertion en Debug, et en Release, un observateur qui viserait une entité morte.
+flecs::observer ownedBy(flecs::observer observer, flecs::entity volume)
+{
+    observer.child_of(volume);
+    return observer;
+}
+
+} // namespace
+
+flecs::observer onEnter(flecs::world& world, flecs::entity volume,
+                        std::function<void(flecs::entity body)> react)
+{
+    return ownedBy(world.observer()
+                       .with<InsideOf>(volume)
+                       .event(flecs::OnAdd)
+                       .each([react = std::move(react)](flecs::entity body) { react(body); }),
+                   volume);
+}
+
+flecs::observer onExit(flecs::world& world, flecs::entity volume,
+                       std::function<void(flecs::entity body)> react)
+{
+    return ownedBy(world.observer()
+                       .with<InsideOf>(volume)
+                       .event(flecs::OnRemove)
+                       .each([react = std::move(react)](flecs::entity body) { react(body); }),
+                   volume);
+}
+
+std::vector<flecs::entity> occupantsOf(const flecs::world& world, flecs::entity volume)
+{
+    std::vector<flecs::entity> occupants;
+    world.query_builder().with<InsideOf>(volume).build().each([&occupants](flecs::entity body)
+                                                              { occupants.push_back(body); });
+    return occupants;
+}
 
 PhysicsModule::PhysicsModule(flecs::world& world)
 {
@@ -125,6 +202,7 @@ PhysicsModule::PhysicsModule(flecs::world& world)
     world.set<PhysicsWorld>(
         createPhysicsWorld(settings != nullptr ? *settings : PhysicsSettings{}));
     world.set<MovedBodyBuffer>({});
+    world.set<OverlapState>({});
 
     // Ce que la physique déplace est interpolé par le rendu, comme ce qui a une Velocity
     // (ADR-0016) : le trait With lui attache l'état du pas précédent.
@@ -225,6 +303,16 @@ PhysicsModule::PhysicsModule(flecs::world& world)
     world.system("StepPhysics")
         .kind<scene::Physics>()
         .run([](flecs::iter& it) { stepAndCopyBack(it.world(), it.delta_time()); });
+
+    // Après le pas : qui est entré dans un volume, qui en est sorti (ADR-0027).
+    world.system("ApplyOverlaps")
+        .kind<scene::PostPhysics>()
+        .run(
+            [](flecs::iter& it)
+            {
+                applyOverlaps(it.world(), it.world().get<PhysicsWorld>(),
+                              it.world().get_mut<OverlapState>());
+            });
 }
 
 } // namespace levain::physics

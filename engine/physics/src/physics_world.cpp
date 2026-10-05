@@ -7,12 +7,15 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string_view>
 #include <thread>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 
@@ -27,6 +30,7 @@
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -60,7 +64,8 @@ constexpr JPH::uint BroadPhaseCount = 2;
 
 JPH::BroadPhaseLayer broadPhaseOf(Layer layer)
 {
-    // Les volumes déclencheurs sont du décor qui ne bouge pas : ils vont avec lui.
+    // Les volumes déclencheurs sont cinématiques pour voir les corps endormis (ADR-0027), mais ne
+    // bougent presque jamais : ils vont avec le décor.
     return layer == Layer::Static || layer == Layer::Sensor ? NonMovingBroadPhase
                                                             : MovingBroadPhase;
 }
@@ -233,6 +238,98 @@ std::unique_ptr<JPH::JobSystem> createJobSystem([[maybe_unused]] int workerThrea
 
 } // namespace
 
+namespace
+{
+
+/// Une paire de `BodyID` en contact, un capteur et l'autre corps : combien de paires de sous-formes
+/// la tiennent, et les entités, relevées à l'ajout (Jolt ne laisse pas lire les corps au retrait).
+struct CountedOverlap
+{
+    int contacts = 0;
+    Overlap entities;
+};
+
+/// Ce que les rappels de contact écrivent, depuis les threads de Jolt : les paires, sous le mutex.
+/// La table des capteurs, elle, ne change que hors du pas (`createBody`, `destroyBody`, vérifié par
+/// `PhysicsState::stepping`) : les threads de Jolt la lisent donc sans verrou pendant le pas.
+struct ContactBook
+{
+    std::unordered_set<std::uint32_t> sensors;
+    std::mutex mutex;
+    std::map<std::pair<std::uint32_t, std::uint32_t>, CountedOverlap> overlaps;
+};
+
+/// Les contacts des volumes déclencheurs. Jolt les signale par paire de sous-formes, les deux corps
+/// rangés par `BodyID` et non capteur en premier ; la plupart (les caisses entre elles) ne
+/// concernent aucun capteur et repartent avant le verrou.
+class SensorContactListener final : public JPH::ContactListener
+{
+public:
+    explicit SensorContactListener(ContactBook& book) : m_book(book) {}
+
+    void OnContactAdded(const JPH::Body& first, const JPH::Body& second,
+                        const JPH::ContactManifold&, JPH::ContactSettings&) override
+    {
+        const auto [sensor, other] = sensorFirst(first, second);
+        if (sensor == nullptr)
+        {
+            return;
+        }
+        const std::scoped_lock lock(m_book.mutex);
+        CountedOverlap& overlap = m_book.overlaps[keyOf(sensor->GetID(), other->GetID())];
+        overlap.entities = {.volume = sensor->GetUserData(), .body = other->GetUserData()};
+        ++overlap.contacts;
+    }
+
+    void OnContactRemoved(const JPH::SubShapeIDPair& pair) override
+    {
+        const JPH::BodyID first = pair.GetBody1ID();
+        const JPH::BodyID second = pair.GetBody2ID();
+        const bool firstIsSensor = isSensor(first);
+        if (!firstIsSensor && !isSensor(second))
+        {
+            return;
+        }
+        const std::scoped_lock lock(m_book.mutex);
+        const auto found =
+            m_book.overlaps.find(firstIsSensor ? keyOf(first, second) : keyOf(second, first));
+        // Absente : le corps a été détruit entre-temps, et ses paires effacées avec lui.
+        if (found != m_book.overlaps.end() && --found->second.contacts <= 0)
+        {
+            m_book.overlaps.erase(found);
+        }
+    }
+
+private:
+    static std::pair<std::uint32_t, std::uint32_t> keyOf(JPH::BodyID sensor, JPH::BodyID other)
+    {
+        return {sensor.GetIndexAndSequenceNumber(), other.GetIndexAndSequenceNumber()};
+    }
+
+    bool isSensor(JPH::BodyID id) const
+    {
+        return m_book.sensors.contains(id.GetIndexAndSequenceNumber());
+    }
+
+    std::pair<const JPH::Body*, const JPH::Body*> sensorFirst(const JPH::Body& first,
+                                                              const JPH::Body& second) const
+    {
+        if (isSensor(first.GetID()))
+        {
+            return {&first, &second};
+        }
+        if (isSensor(second.GetID()))
+        {
+            return {&second, &first};
+        }
+        return {nullptr, nullptr};
+    }
+
+    ContactBook& m_book;
+};
+
+} // namespace
+
 struct PhysicsState
 {
     // Les couches d'abord : le `PhysicsSystem` garde des références vers elles, elles doivent
@@ -243,9 +340,13 @@ struct PhysicsState
     /// 10 Mio, la taille des exemples de Jolt : la mémoire de travail d'un pas, sans allocation.
     JPH::TempAllocatorImpl tempAllocator{std::size_t{10} * 1024 * 1024};
     std::unique_ptr<JPH::JobSystem> jobSystem;
+    // Avant le système, comme les couches : il garde un pointeur vers l'écouteur.
+    ContactBook contacts;
+    SensorContactListener contactListener{contacts};
     JPH::PhysicsSystem system;
     JPH::BodyIDVector activeBodies; ///< Gardé d'un pas à l'autre : la liste ne réalloue pas.
     std::uint32_t bodiesAddedSinceStep = 0; ///< Pour `optimizeAfterLoading`.
+    bool stepping = false; ///< Pendant `Update` : la table des capteurs ne doit pas changer.
 
     /// La forme Jolt de chaque grande forme partagée, par l'adresse de sa donnée. Le `weak_ptr` dit
     /// si la donnée vit encore : une nouvelle donnée allouée à la même adresse ne reprend pas la
@@ -387,6 +488,7 @@ PhysicsWorld createPhysicsWorld(const PhysicsSettings& settings)
     state.system.Init(settings.maxBodies, 0, MaxBodyPairs, MaxContactConstraints,
                       state.broadPhaseLayers, state.objectVsBroadPhase, state.objectLayerPairs);
     state.system.SetGravity(toJolt(settings.gravity));
+    state.system.SetContactListener(&state.contactListener);
     return world;
 }
 
@@ -394,6 +496,7 @@ BodyHandle createBody(PhysicsWorld& world, const Collider& collider, const Rigid
                       const BodyPose& pose, std::uint64_t entity)
 {
     LEVAIN_ASSERT(world.state != nullptr, "monde physique vide : createPhysicsWorld d'abord");
+    LEVAIN_ASSERT(!world.state->stepping, "un corps se crée hors du pas de physique");
     const auto refusal =
         whyNotThisShape(collider, body).or_else([&] { return whyNotThisLayer(collider, body); });
     if (refusal.has_value())
@@ -409,10 +512,15 @@ BodyHandle createBody(PhysicsWorld& world, const Collider& collider, const Rigid
         return {};
     }
     const Layer layer = effectiveLayer(collider, body);
+    // Un volume déclencheur est cinématique d'office, et ne s'endort jamais : un capteur statique
+    // perdrait le contact d'un corps qui s'endort en lui (ADR-0027).
+    const bool sensor = layer == Layer::Sensor;
     JPH::BodyCreationSettings settings(shape, toJolt(pose.position), toJoltRotation(pose.rotation),
-                                       motionOf(body), static_cast<JPH::ObjectLayer>(layer));
+                                       sensor ? JPH::EMotionType::Kinematic : motionOf(body),
+                                       static_cast<JPH::ObjectLayer>(layer));
     settings.mUserData = entity;
-    settings.mIsSensor = layer == Layer::Sensor;
+    settings.mIsSensor = sensor;
+    settings.mAllowSleeping = !sensor;
     // Le décor aussi : laissé au 0,2 de Jolt, il ferait glisser ce qu'on y pose.
     settings.mFriction = body != nullptr ? body->friction : DefaultFriction;
     if (body != nullptr)
@@ -438,9 +546,13 @@ BodyHandle createBody(PhysicsWorld& world, const Collider& collider, const Rigid
     JPH::BodyInterface& bodies = world.state->system.GetBodyInterface();
     // Un corps statique n'a rien à simuler : l'activer ne ferait que le réveiller pour rien.
     const JPH::EActivation activation =
-        body != nullptr ? JPH::EActivation::Activate : JPH::EActivation::DontActivate;
+        body != nullptr || sensor ? JPH::EActivation::Activate : JPH::EActivation::DontActivate;
     const JPH::BodyID id = bodies.CreateAndAddBody(settings, activation);
     ++world.state->bodiesAddedSinceStep;
+    if (sensor && !id.IsInvalid())
+    {
+        world.state->contacts.sensors.insert(id.GetIndexAndSequenceNumber());
+    }
     if (id.IsInvalid())
     {
         // Le plafond `maxBodies` est atteint : un corps manquant est un bug de gameplay invisible.
@@ -460,6 +572,17 @@ void destroyBody(PhysicsWorld& world, BodyHandle handle)
     if (handle.value == BodyHandle::None)
     {
         return;
+    }
+    LEVAIN_ASSERT(!world.state->stepping, "un corps se détruit hors du pas de physique");
+    // Ses paires de contact partent avec lui : Jolt signale parfois leur retrait au pas suivant,
+    // quand le BodyID a pu être repris par un autre corps.
+    {
+        ContactBook& contacts = world.state->contacts;
+        const std::scoped_lock lock(contacts.mutex);
+        contacts.sensors.erase(handle.value);
+        std::erase_if(
+            contacts.overlaps, [&handle](const auto& entry)
+            { return entry.first.first == handle.value || entry.first.second == handle.value; });
     }
     JPH::BodyInterface& bodies = world.state->system.GetBodyInterface();
     bodies.RemoveBody(toJolt(handle));
@@ -531,8 +654,10 @@ void stepPhysics(PhysicsWorld& world, float seconds)
     PhysicsState& state = *world.state;
     optimizeAfterLoading(state);
     forgetDeadShapes(state);
+    state.stepping = true;
     const JPH::EPhysicsUpdateError error =
         state.system.Update(seconds, 1, &state.tempAllocator, state.jobSystem.get());
+    state.stepping = false;
     if (error != JPH::EPhysicsUpdateError::None)
     {
         // Un cache plein : des contacts ont été ignorés, des objets vont se traverser.
@@ -564,6 +689,24 @@ void collectMovedBodies(const PhysicsWorld& world, std::vector<MovedBody>& out)
         out.push_back({.entity = bodies.GetUserData(id),
                        .pose = {.position = toGlm(position), .rotation = toGlm(rotation)}});
     }
+}
+
+void collectOverlaps(const PhysicsWorld& world, std::vector<Overlap>& out)
+{
+    out.clear();
+    ContactBook& contacts = world.state->contacts;
+    {
+        const std::scoped_lock lock(contacts.mutex);
+        for (const auto& [key, overlap] : contacts.overlaps)
+        {
+            out.push_back(overlap.entities);
+        }
+    }
+    // Triées, pour un résultat qui ne dépende pas de l'ordre des threads. Sans doublon par
+    // garde-fou : deux paires de BodyID pour les mêmes entités ne devraient pas exister,
+    // `destroyBody` effaçant celles d'un corps reconstruit.
+    std::ranges::sort(out);
+    out.erase(std::ranges::unique(out).begin(), out.end());
 }
 
 BodyPose bodyPose(const PhysicsWorld& world, BodyHandle handle)
