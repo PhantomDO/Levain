@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -906,3 +907,202 @@ TEST_CASE("un corps refusé n'existe pas : enfant, ou avec une échelle")
     CHECK(crate.has<levain::physics::BodyHandle>());
 }
 #endif
+
+namespace
+{
+
+/// Un volume déclencheur de 4 m de côté, centré à `center`.
+flecs::entity triggerVolume(flecs::world& world, glm::vec3 center)
+{
+    return world.entity("Volume")
+        .set(Transform{.position = center})
+        .set(Collider{.shape = Box{{2.0f, 2.0f, 2.0f}}, .layer = Layer::Sensor});
+}
+
+} // namespace
+
+TEST_CASE(
+    "un volume signale l'entrée puis la sortie d'une caisse qui le traverse (critère de #175)")
+{
+    flecs::world world = physicsWorld();
+    // Un volume en l'air, entre 3 et 7 m : la caisse lâchée de 12 m y entre, puis en sort par le
+    // bas.
+    const flecs::entity volume = triggerVolume(world, {0.0f, 5.0f, 0.0f});
+    const flecs::entity crate = world.entity("Crate")
+                                    .set(Transform{.position = {0.0f, 12.0f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    int entered = 0;
+    int left = 0;
+    levain::physics::onEnter(world, volume, [&](flecs::entity body) { entered += body == crate; });
+    levain::physics::onExit(world, volume, [&](flecs::entity body) { left += body == crate; });
+
+    bool sawInside = false;
+    for (int i = 0; i < 180 && left == 0; ++i)
+    {
+        advance(world, 1);
+        if (crate.has<levain::physics::InsideOf>(volume))
+        {
+            sawInside = true;
+            CHECK(levain::physics::occupantsOf(world, volume) == std::vector{crate});
+        }
+    }
+    CHECK(sawInside);
+    CHECK(entered == 1);
+    CHECK(left == 1);
+    CHECK_FALSE(crate.has<levain::physics::InsideOf>(volume));
+    CHECK(levain::physics::occupantsOf(world, volume).empty());
+}
+
+TEST_CASE("un corps qui s'endort dans un volume y reste, et reconstruit il ne sort ni ne rentre")
+{
+    flecs::world world = physicsWorld();
+    // Un volume posé sur le sol, autour d'une caisse qui y tombe et s'y endort.
+    const flecs::entity volume = triggerVolume(world, {0.0f, 1.0f, 0.0f});
+    const flecs::entity crate = world.entity("Crate")
+                                    .set(Transform{.position = {0.0f, 1.5f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    int events = 0;
+    levain::physics::onEnter(world, volume, [&](flecs::entity) { ++events; });
+    levain::physics::onExit(world, volume, [&](flecs::entity) { ++events; });
+
+    advance(world, 240); // 4 s : Jolt l'endort
+    std::vector<levain::physics::MovedBody> moved;
+    levain::physics::collectMovedBodies(world.get<PhysicsWorld>(), moved);
+    REQUIRE(moved.empty()); // endormie
+    CHECK(crate.has<levain::physics::InsideOf>(volume));
+    CHECK(events == 1); // l'entrée seule
+
+    // Un RigidBody reposé reconstruit le corps : un nouveau BodyID, la même entité.
+    crate.set(RigidBody{.mass = 2.0f});
+    advance(world, 2);
+    CHECK(crate.has<levain::physics::InsideOf>(volume));
+    CHECK(events == 1); // ni sortie ni entrée fantômes
+}
+
+TEST_CASE("supprimer le volume fait sortir ce qu'il contient, ses observateurs partis avec lui")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity volume = triggerVolume(world, {0.0f, 1.0f, 0.0f});
+    const flecs::entity crate = world.entity("Crate")
+                                    .set(Transform{.position = {0.0f, 1.5f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    int left = 0;
+    levain::physics::onExit(world, volume, [&](flecs::entity) { ++left; });
+    advance(world, 30);
+    REQUIRE(crate.has<levain::physics::InsideOf>(volume));
+
+    volume.destruct(); // flecs le refuserait si l'observateur de onExit vivait encore
+    CHECK(left == 0);  // parti avec son volume, avant la dernière sortie
+    CHECK_FALSE(crate.has<levain::physics::InsideOf>(flecs::Wildcard));
+    advance(world, 2); // et rien ne casse au pas suivant, où Jolt signale encore le contact retiré
+    CHECK_FALSE(crate.has<levain::physics::InsideOf>(flecs::Wildcard));
+}
+
+TEST_CASE("supprimer un corps dans le volume est une sortie, que onExit voit le corps vivant")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity volume = triggerVolume(world, {0.0f, 1.0f, 0.0f});
+    const flecs::entity crate = world.entity("Crate")
+                                    .set(Transform{.position = {0.0f, 1.5f, 0.0f}})
+                                    .set(crateCollider())
+                                    .set(RigidBody{});
+    int left = 0;
+    bool aliveWhenLeft = false;
+    levain::physics::onExit(world, volume,
+                            [&](flecs::entity body)
+                            {
+                                ++left;
+                                aliveWhenLeft = body.is_alive() && body.has<RigidBody>();
+                            });
+    advance(world, 30);
+    REQUIRE(crate.has<levain::physics::InsideOf>(volume));
+
+    crate.destruct();
+    CHECK(left == 1);
+    CHECK(aliveWhenLeft); // flecs émet OnRemove avant de détruire : rien ne la distingue
+    advance(world, 2);    // Jolt signale le contact retiré au pas suivant : pas de seconde sortie
+    CHECK(left == 1);
+    CHECK(levain::physics::occupantsOf(world, volume).empty());
+}
+
+namespace
+{
+
+struct Lake
+{
+};
+
+} // namespace
+
+TEST_CASE("un système qui vise les lacs par une variable voit leurs occupants, et laisse supprimer "
+          "un lac")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity lake = triggerVolume(world, {0.0f, 1.0f, 0.0f}).add<Lake>();
+    world.entity("Crate")
+        .set(Transform{.position = {0.0f, 1.5f, 0.0f}})
+        .set(crateCollider())
+        .set(RigidBody{});
+    // L'exemple du README, parallélisé comme lui : `$volume` est une variable de la requête, et non
+    // ce lac-ci. Le navigateur n'a qu'un thread (ADR-0026) : flecs y avorte si on lui en demande
+    // d'autres, et le système tourne sur le seul qu'il a.
+#ifndef __EMSCRIPTEN__
+    world.set_threads(2);
+#endif
+    std::atomic<int> swimmers = 0;
+    world.system()
+        .with<levain::physics::InsideOf>("$volume")
+        .with<Lake>()
+        .src("$volume")
+        .kind<levain::scene::Simulation>()
+        .multi_threaded()
+        .each([&](flecs::entity) { ++swimmers; });
+    advance(world, 30);
+    CHECK(swimmers > 0);
+
+    lake.destruct(); // flecs le refuserait si une requête visait ce lac par son nom
+    const int before = swimmers;
+    advance(world, 2);
+    CHECK(swimmers == before);
+}
+
+TEST_CASE("un cinématique qui traverse un volume y entre puis en sort, comme le fera le joueur")
+{
+    flecs::world world = physicsWorld();
+    const flecs::entity volume = triggerVolume(world, {0.0f, 5.0f, 0.0f});
+    // Sur la couche Character : celle du corps intérieur du personnage de M6.3. Jolt fait voir un
+    // cinématique à un capteur cinématique (Body.inl, `sFindCollidingPairsCanCollide`).
+    const flecs::entity mover = world.entity("Mover")
+                                    .set(Transform{.position = {-6.0f, 5.0f, 0.0f}})
+                                    .set(Collider{.shape = Box{}, .layer = Layer::Character})
+                                    .set(RigidBody{.motion = Motion::Kinematic});
+    int entered = 0;
+    int left = 0;
+    levain::physics::onEnter(world, volume, [&](flecs::entity) { ++entered; });
+    levain::physics::onExit(world, volume, [&](flecs::entity) { ++left; });
+    bool sawInside = false;
+    for (int i = 0; i <= 120; ++i) // de x = −6 à x = 6, à 6 m/s
+    {
+        mover.set(Transform{.position = {-6.0f + 0.1f * static_cast<float>(i), 5.0f, 0.0f}});
+        advance(world, 1);
+        sawInside = sawInside || mover.has<levain::physics::InsideOf>(volume);
+    }
+    CHECK(sawInside);
+    CHECK(entered == 1);
+    CHECK(left == 1);
+}
+
+TEST_CASE("un volume dynamique est refusé : le moteur le rend cinématique")
+{
+    const RigidBody dynamic;
+    CHECK(
+        levain::physics::whyNotThisLayer(Collider{.shape = Box{}, .layer = Layer::Sensor}, &dynamic)
+            .has_value());
+    const RigidBody kinematic{.motion = Motion::Kinematic};
+    CHECK_FALSE(levain::physics::whyNotThisLayer(Collider{.shape = Box{}, .layer = Layer::Sensor},
+                                                 &kinematic)
+                    .has_value());
+}

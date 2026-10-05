@@ -181,6 +181,13 @@ inline std::optional<std::string_view> whyNotThisLayer(const Collider& collider,
     {
         return "un corps mobile ne peut pas être sur la couche Static : il traverserait le décor";
     }
+    // Un volume déclencheur est rendu cinématique par le module (ADR-0027) : un RigidBody dynamique
+    // demanderait qu'il tombe, ce qu'un volume ne fait pas.
+    if (body != nullptr && body->motion == Motion::Dynamic &&
+        effectiveLayer(collider, body) == Layer::Sensor)
+    {
+        return "un volume déclencheur ne peut pas être dynamique : le moteur le rend cinématique";
+    }
     return std::nullopt;
 }
 
