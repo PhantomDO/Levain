@@ -8,6 +8,7 @@
 
 #include <flecs.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include "levain/animation/animator.hpp"
@@ -131,12 +132,20 @@ template <typename... Tags> void spawnCharacterDemo(flecs::world& world)
     spawnPushables<Tags...>(world);
 }
 
+/// L'orientation qui tourne l'avant d'un personnage (−z) vers +x : un quart de tour autour de Y,
+/// dans le sens horaire vu d'en haut, d'où le signe moins (le même angle que `yawOf` du plugin).
+inline glm::quat facingPlusX()
+{
+    return glm::angleAxis(-glm::half_pi<float>(), glm::vec3{0.0f, 1.0f, 0.0f});
+}
+
 /// Le joueur : une racine sans échelle, le personnage (ADR-0028). Le modèle du renard en sera un
-/// enfant, avec son échelle.
+/// enfant, avec son échelle. Il regarde vers +x, comme la caméra qui le suit : de dos, pas de
+/// profil, avant le premier pas.
 inline flecs::entity spawnPlayer(flecs::world& world, const glm::vec3& feet)
 {
     return world.entity("player")
-        .set(scene::Transform{.position = feet})
+        .set(scene::Transform{.position = feet, .rotation = facingPlusX()})
         .set(FoxController)
         .set(FoxWalker)
         .set(character::WalkInput{})

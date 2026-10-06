@@ -379,6 +379,33 @@ jobs:
             'BEGIN { exit !(y > -0.1 && y < 0.05 && x > 0.0 && z > -6.26 && z < -5.2) }' \
             || { echo "::error::le renard n'a pas monté l'escalier : $line"; exit 1; }
 
+      # Le renard dans la vallée (`--view hike`), la vue que montre la page web : Sponza ne peut pas y
+      # être publiée. Sur Vulkan et sur WebGPU, le backend du navigateur, avec le terrain, l'herbe et
+      # l'eau dessinés. Parti de (204, 280) sur le fond de la vallée, il doit avoir marché vers le lac,
+      # au sol, sans dévier : mesuré (206,91 ; −0,05 ; 280,02) sur les deux backends. 120 pas
+      # seulement : sous lavapipe, 200 pas prenaient 88 s par backend sur un CPU rapide.
+      - name: Lancer le sandbox avec le renard dans la vallée
+        if: matrix.preset == 'linux-debug'
+        env:
+          SDL_VIDEO_DRIVER: offscreen
+        run: |
+          set -euo pipefail
+          for gpu in vulkan webgpu; do
+            timeout --foreground --preserve-status -k 10 300 \
+              ./build/${{ matrix.preset }}/sandbox/levain_sandbox --gpu $gpu --view hike --walk 1,0 \
+              --steps 120 | tee hike-$gpu.log
+            grep -q "opaques : démo, sélection, terrain, herbe ; transparents : eau" hike-$gpu.log \
+              || { echo "::error::la vallée ne s'est pas inscrite dans le renderer ($gpu)"; exit 1; }
+            line=$(grep -o "personnage : pieds à ([-0-9., ]*), [^,]*" hike-$gpu.log) \
+              || { echo "::error::le sandbox n'a pas rendu compte du renard ($gpu)"; exit 1; }
+            echo "$line" | grep -q ", au sol" \
+              || { echo "::error::le renard n'est pas au sol : $line ($gpu)"; exit 1; }
+            feet=$(echo "$line" | grep -o "([-0-9., ]*)" | tr -d '()' | tr ',' ' ')
+            read -r x y z <<<"$feet"
+            awk -v x="$x" -v z="$z" 'BEGIN { exit !(x > 206.0 && x < 208.0 && z > 279.0 && z < 281.0) }' \
+              || { echo "::error::le renard n'a pas marché vers le lac : $line ($gpu)"; exit 1; }
+          done
+
       # Le cuiseur, sans GPU (ADR-0020), en Release seulement : l'encodage UASTC y est 5 fois plus
       # rapide qu'en Debug (1,0 s contre 5,1 s pour la texture du camion), et cuire Sponza en Debug
       # prendrait une dizaine de minutes. Debug et ASan chargent donc les sources, Release le cuit :

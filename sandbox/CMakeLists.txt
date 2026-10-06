@@ -14,8 +14,8 @@ set(defaultSky "HDRIs/kloofendal_48d_partly_cloudy_puresky")
 
 # Dans le navigateur (ADR-0023, #186) : une page HTML, et un système de fichiers préchargé. data/,
 # les shaders WGSL, les deux modèles de test que leur licence permet de publier (le renard et le
-# camion, tools/assets.lock) et le ciel, en CC0. Jamais Sponza, dont la licence interdit la
-# redistribution.
+# camion, tools/assets.lock), le ciel et les textures du terrain, en CC0. Jamais Sponza, dont la
+# licence interdit la redistribution.
 if(EMSCRIPTEN)
     set(testAssets "${PROJECT_SOURCE_DIR}/assets-cache")
     if(NOT EXISTS "${testAssets}/${defaultSky}_1k.hdr")
@@ -29,6 +29,18 @@ if(EMSCRIPTEN)
         endif()
         target_link_options(levain_sandbox PRIVATE
             "--preload-file=${testAssets}/Models/${model}@/assets-cache/Models/${model}")
+    endforeach()
+    # Les neuf textures du terrain (6 Mo) : sans elles, la vallée de la page d'accueil (le renard de
+    # --view hike, M6.3) n'aurait que les couleurs unies de secours.
+    foreach(layer grass_path_2 rocky_terrain_02 rock_face)
+        foreach(kind diff nor_gl rough)
+            set(texture "Textures/${layer}_${kind}_1k.jpg")
+            if(NOT EXISTS "${testAssets}/${texture}")
+                message(FATAL_ERROR "assets-cache/${texture} absent : lancer tools/fetch-assets.sh")
+            endif()
+            target_link_options(levain_sandbox PRIVATE
+                "--preload-file=${testAssets}/${texture}@/assets-cache/${texture}")
+        endforeach()
     endforeach()
     # LINK_DEPENDS : la page se régénère quand son modèle change, pas seulement le code.
     set_target_properties(levain_sandbox PROPERTIES SUFFIX ".html" LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html")

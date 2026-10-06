@@ -10,8 +10,9 @@
 #include "levain/terrain/collision.hpp"
 #include "levain/terrain/heightmap.hpp"
 
-/// La vallée de `levain_sandbox --view terrain` dans la physique (M6.2) : celle de la démo, et
-/// celle que vérifie `terrain_test.cpp`. Un seul endroit, pour que le test soit la démo.
+/// La vallée de `levain_sandbox --view terrain` et `--view hike` dans la physique (M6.2, M6.3) :
+/// celle de la démo, et celle que vérifie `terrain_test.cpp`. Un seul endroit, pour que le test
+/// soit la démo.
 namespace levain::sandbox
 {
 
@@ -50,6 +51,15 @@ void spawnLakeShoreCrates(flecs::world& world, const terrain::Heightmap& heightm
             (crate.add<Tags>(), ...);
         }
     }
+}
+
+/// Où le renard de `--view hike` commence (M6.3) : sur le fond plat de la vallée, 1,4 rayon à
+/// l'ouest du lac, face à lui (+x, le regard de la caméra qui le suit).
+inline glm::vec3 hikeStartOf(const terrain::Heightmap& heightmap,
+                             const terrain::ValleySettings& valley)
+{
+    const glm::vec2 spot = valley.lakeCenter - glm::vec2{valley.lakeRadius * 1.4f, 0.0f};
+    return {spot.x, terrain::heightAt(heightmap, spot), spot.y};
 }
 
 } // namespace levain::sandbox

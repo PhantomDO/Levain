@@ -59,9 +59,10 @@ Firefox headless au profil jetable (WebGPU activé, le profil de Donnovan n'est 
 `tests/data/cube.ppm`, rendue par Vulkan, et vérifie que le sandbox tourne. Il faut un GPU : pas en CI pour
 l'instant. Les captures restent dans `build/web/web-smoke.png` et `build/web/web-sandbox.png`.
 
-Le sandbox web (`build/web/sandbox/levain_sandbox.html`) précharge `data/`, les shaders WGSL, le renard et le
-camion (jamais Sponza, licence) : `tools/fetch-assets.sh` d'abord. Ses arguments passent par l'URL,
-`?args=--model%20/assets-cache/Models/CesiumMilkTruck/glTF/CesiumMilkTruck.gltf` ; le renard par défaut. Pour
+Le sandbox web (`build/web/sandbox/levain_sandbox.html`) précharge `data/`, les shaders WGSL, le renard, le
+camion et les textures du terrain (jamais Sponza, licence) : `tools/fetch-assets.sh` d'abord. Ses arguments
+passent par l'URL, `?args=--model%20/assets-cache/Models/CesiumMilkTruck/glTF/CesiumMilkTruck.gltf` ; par
+défaut, `--view hike`, le renard qu'on dirige dans la vallée. Pour
 le voir soi-même : `python3 -m http.server -d build/web/sandbox`, puis `http://localhost:8000/levain_sandbox.html`.
 
 `-pedantic-errors` (C++23 strict) et `-Wall -Wextra -Werror` sont dans le `CMakeLists.txt` racine : **ne jamais
