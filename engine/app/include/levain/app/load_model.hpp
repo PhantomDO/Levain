@@ -40,7 +40,9 @@ struct ModelLoad
 };
 
 /// Ce que le programme garde d'un modèle chargé : son entité racine, son GUID, et le modèle lu,
-/// dont il peut tirer autre chose (une collision de décor, ADR-0028).
+/// dont il peut tirer autre chose (une collision de décor, ADR-0028). `model` pointe dans le cache
+/// d'`App` : il n'est plus valide une fois le modèle déchargé, quand plus aucune entité ne s'en
+/// sert (ADR-0019).
 struct LoadedModel
 {
     flecs::entity root;
@@ -49,9 +51,10 @@ struct LoadedModel
 };
 
 /// Lit le modèle, l'envoie au GPU avec ses matériaux, puis l'instancie dans le monde, à sa place.
-/// `app` le dessine dès lors, comme toute entité qui porte un `MeshRef`. Les noms de clips se
-/// vérifient avant tout travail GPU : un échec plus tard aurait envoyé meshes et textures pour
-/// rien. Un modèle skinné déjà chargé est refusé : l'animation est rangée par asset (ADR-0029).
+/// `app` le dessine dès lors, dans l'étape « modèles ». Les noms de clips se vérifient avant tout
+/// travail GPU : un échec plus tard aurait envoyé meshes et textures pour rien. Un modèle déjà
+/// chargé s'instancie de nouveau, sur les mêmes données GPU ; sauf un modèle skinné, refusé :
+/// l'animation est rangée par asset (ADR-0029). Un nom d'entité déjà pris est refusé aussi.
 [[nodiscard]] core::Result<LoadedModel> loadModel(App& app, const ModelLoad& load);
 
 } // namespace levain::app

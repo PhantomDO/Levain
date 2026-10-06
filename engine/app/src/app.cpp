@@ -361,7 +361,22 @@ void forEachModelDraw(App& app, const render::Frustum& frustum, DrawCount& count
     app.modelParts.each(
         [&](const assets::MeshRef& part, const scene::WorldTransform& world)
         {
-            const ModelGpu& model = app.models.at(part.mesh.asset);
+            const auto found = app.models.find(part.mesh.asset);
+            if (found == app.models.end())
+            {
+                // Le contrat de l'étape : un modèle chargé par `loadModel`. Une entité instanciée
+                // sans lui n'a rien sur le GPU ; le dire une fois, plutôt que de lever au milieu
+                // d'une étape du rendu (règle n°7).
+                if (!app.warnedUnloadedModel)
+                {
+                    core::log("app", core::LogLevel::Error,
+                              "{} : son modèle n'a pas été chargé par loadModel, rien à dessiner",
+                              assets::toString(part.mesh.asset));
+                    app.warnedUnloadedModel = true;
+                }
+                return;
+            }
+            const ModelGpu& model = found->second;
             for (const ModelPrimitiveGpu& primitive : model.meshes[part.mesh.sub])
             {
                 if (const auto box =
@@ -499,6 +514,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .defaultMaterial = {},
             .modelsCamera = {},
             .modelsShadows = {},
+            .cameras = {},
             .sun = settings.sunDirection ? render::Sun{.direction = *settings.sunDirection,
                                                        .color = glm::vec3{1.0f},
                                                        .intensity = 1.0f}
@@ -517,6 +533,8 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
 #endif
     app->world.set<PlayerInput>(
         {.bindings = &app->bindings, .state = app->input, .pressesUntilNextStep = {}});
+    forgetPressesAtEachStep(app->world);
+    app->cameras = app->world.query<const CameraLens, const scene::WorldTransform>();
     prepareModels(*app);
     core::log("app", core::LogLevel::Info, "liaisons : {} actions et {} axes ({})",
               app->bindings.actions.size(), app->bindings.axes.size(),
@@ -730,11 +748,10 @@ bool runFrame(Loop& loop)
         // de rendu qui interpole et compose les matrices monde (ADR-0016). La durée passée est
         // celle de l'image précédente : celle-ci n'est pas encore finie.
         LEVAIN_PROFILE_SCOPE_NAMED("monde");
-        const int steps = scene::advanceWorld(
-            app.world, app.fixedStep,
-            settings.steps ? app.fixedStep.stepSeconds : static_cast<float>(loop.lastFrameSeconds));
-        forgetPressesAfterSteps(app.world.get_mut<PlayerInput>(), steps);
-        auto camera = renderCameraOf(app.world);
+        scene::advanceWorld(app.world, app.fixedStep,
+                            settings.steps ? app.fixedStep.stepSeconds
+                                           : static_cast<float>(loop.lastFrameSeconds));
+        auto camera = renderCameraOf(app.cameras);
         if (!camera)
         {
             core::log("app", core::LogLevel::Error, "{}", camera.error().message);
@@ -873,7 +890,7 @@ core::Result<std::unique_ptr<App>> startApp(platform::Window& window, gpu::GpuDe
     (*app)->hooks = std::move(*hooks);
     // Les matrices monde, avant la première image, et la caméra par laquelle elle se verra.
     scene::advanceWorld((*app)->world, (*app)->fixedStep, 0.0f);
-    auto camera = renderCameraOf((*app)->world);
+    auto camera = renderCameraOf((*app)->cameras);
     if (!camera)
     {
         return std::unexpected(camera.error());

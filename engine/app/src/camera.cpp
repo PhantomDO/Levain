@@ -1,7 +1,8 @@
 #include "levain/app/camera.hpp"
 
 #include <format>
-#include <vector>
+#include <optional>
+#include <string>
 
 #include "levain/scene/components.hpp"
 
@@ -18,31 +19,36 @@ render::Camera cameraFrom(const CameraLens& lens, const glm::mat4& world)
             .farPlane = lens.farPlane};
 }
 
-core::Result<render::Camera> renderCameraOf(const flecs::world& world)
+core::Result<render::Camera>
+renderCameraOf(const flecs::query<const CameraLens, const scene::WorldTransform>& cameras)
 {
-    std::vector<flecs::entity> cameras;
-    world.each([&cameras](flecs::entity entity, const CameraLens&, const scene::WorldTransform&)
-               { cameras.push_back(entity); });
-    if (cameras.size() == 1)
+    std::optional<render::Camera> found;
+    int count = 0;
+    cameras.each(
+        [&found, &count](const CameraLens& lens, const scene::WorldTransform& world)
+        {
+            found = cameraFrom(lens, world.matrix);
+            ++count;
+        });
+    if (count == 1)
     {
-        const flecs::entity camera = cameras.front();
-        return cameraFrom(camera.get<CameraLens>(), camera.get<scene::WorldTransform>().matrix);
+        return *found;
     }
-    if (cameras.empty())
+    if (count == 0)
     {
         return core::makeError(core::ErrorCode::InvalidData,
                                "aucune caméra : aucune entité ne porte de CameraLens et de "
                                "WorldTransform");
     }
+    // Plusieurs : le chemin rare, où l'on prend le temps de les nommer.
     std::string names;
-    for (const flecs::entity& camera : cameras)
-    {
-        names += std::format("{}{}", names.empty() ? "" : ", ", camera.path().c_str());
-    }
+    cameras.each(
+        [&names](flecs::entity camera, const CameraLens&, const scene::WorldTransform&)
+        { names += std::format("{}{}", names.empty() ? "" : ", ", camera.path().c_str()); });
     return core::makeError(core::ErrorCode::InvalidData,
                            std::format("{} caméras ({}) : une seule entité doit porter un "
                                        "CameraLens",
-                                       cameras.size(), names));
+                                       count, names));
 }
 
 } // namespace levain::app

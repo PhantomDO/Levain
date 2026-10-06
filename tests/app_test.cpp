@@ -7,6 +7,8 @@
 #include "levain/app/camera.hpp"
 #include "levain/app/player_input.hpp"
 #include "levain/scene/components.hpp"
+#include "levain/scene/fixed_step.hpp"
+#include "levain/scene/scene.hpp"
 
 TEST_CASE("la caméra du rendu regarde vers −Z de sa matrice monde, avec son objectif")
 {
@@ -26,34 +28,52 @@ TEST_CASE("la caméra du rendu regarde vers −Z de sa matrice monde, avec son o
 TEST_CASE("le rendu exige une seule caméra, et nomme celles qu'il trouve en trop")
 {
     flecs::world world;
-    CHECK_FALSE(levain::app::renderCameraOf(world).has_value());
+    const auto cameras =
+        world.query<const levain::app::CameraLens, const levain::scene::WorldTransform>();
+    CHECK_FALSE(levain::app::renderCameraOf(cameras).has_value());
     world.entity("vue").set(levain::app::CameraLens{}).set(levain::scene::WorldTransform{});
-    CHECK(levain::app::renderCameraOf(world).has_value());
+    CHECK(levain::app::renderCameraOf(cameras).has_value());
     world.entity("autre").set(levain::app::CameraLens{}).set(levain::scene::WorldTransform{});
-    const auto two = levain::app::renderCameraOf(world);
+    const auto two = levain::app::renderCameraOf(cameras);
     REQUIRE_FALSE(two.has_value());
     CHECK(two.error().message.find("vue") != std::string::npos);
     CHECK(two.error().message.find("autre") != std::string::npos);
 }
 
-TEST_CASE("un appui reste vu jusqu'au prochain pas de simulation, et une fois seulement")
+TEST_CASE("un appui est vu par un seul pas, même quand l'image en joue deux")
 {
-    levain::app::PlayerInput input;
+    flecs::world world;
+    world.import<levain::scene::SceneModule>();
+    world.set<levain::app::PlayerInput>({});
+    levain::app::forgetPressesAtEachStep(world);
+    // Un système du jeu, au pas fixe, qui compte les pas où il voit l'appui.
+    int seen = 0;
+    world.system("CountPresses")
+        .kind<levain::scene::Simulation>()
+        .run(
+            [&seen](flecs::iter& it)
+            {
+                if (levain::app::pressedSinceLastStep(it.world().get<levain::app::PlayerInput>(),
+                                                      0))
+                {
+                    ++seen;
+                }
+            });
+    levain::scene::FixedStep step;
     levain::input::InputState state;
     state.actionsHeld = {false};
     state.actionsHeldPreviously = {false};
-    levain::app::takeFrameInput(input, state);
-    CHECK_FALSE(levain::app::pressedSinceLastStep(input, 0));
+
     // L'image de l'appui ne joue aucun pas : l'appui attend.
     state.actionsHeld = {true};
-    levain::app::takeFrameInput(input, state);
-    levain::app::forgetPressesAfterSteps(input, 0);
-    // L'image suivante, l'action est toujours tenue mais n'est plus « appuyée » : l'appui reste.
+    levain::app::takeFrameInput(world.get_mut<levain::app::PlayerInput>(), state);
+    CHECK(levain::scene::advanceWorld(world, step, 0.0f) == 0);
+    CHECK(seen == 0);
+    // L'image suivante, l'action est tenue sans être « appuyée », et l'image joue deux pas : le
+    // premier voit l'appui, le second non.
     state.actionsHeldPreviously = {true};
-    levain::app::takeFrameInput(input, state);
-    CHECK(levain::app::pressedSinceLastStep(input, 0));
-    // Cette image joue deux pas : le premier voit l'appui, puis il est oublié.
-    levain::app::forgetPressesAfterSteps(input, 2);
-    CHECK_FALSE(levain::app::pressedSinceLastStep(input, 0));
-    CHECK_FALSE(levain::app::pressedSinceLastStep(input, 7)); // une action inconnue : non
+    levain::app::takeFrameInput(world.get_mut<levain::app::PlayerInput>(), state);
+    CHECK(levain::scene::advanceWorld(world, step, 2.0f * step.stepSeconds) == 2);
+    CHECK(seen == 1);
+    CHECK_FALSE(levain::app::pressedSinceLastStep(world.get<levain::app::PlayerInput>(), 7));
 }

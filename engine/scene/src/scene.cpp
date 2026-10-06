@@ -121,7 +121,8 @@ SceneModule::SceneModule(flecs::world& world)
     // tairait au lieu d'échouer (règle n°7). 1 : on affiche l'état simulé tel quel.
     world.set<RenderAlpha>({.value = 1.0f});
 
-    // Les phases de simulation, dans l'ordre : gameplay, physique, après la physique (ADR-0026).
+    // Les phases de simulation, dans l'ordre : gameplay, physique, après la physique (ADR-0026), et
+    // la fin du pas (ADR-0029).
     // `cascade(DependsOn)` range les systèmes par profondeur de leur phase dans cette chaîne, puis
     // dans l'ordre de leur déclaration : un plugin gameplay, qui importe la physique avant de
     // déclarer ses systèmes, tourne quand même avant le pas
@@ -129,6 +130,7 @@ SceneModule::SceneModule(flecs::world& world)
     world.component<Simulation>().add<SimulationPhase>();
     world.component<Physics>().add<SimulationPhase>().depends_on(world.component<Simulation>());
     world.component<PostPhysics>().add<SimulationPhase>().depends_on(world.component<Physics>());
+    world.component<EndOfStep>().add<SimulationPhase>().depends_on(world.component<PostPhysics>());
     // Les deux derniers termes sont ceux du pipeline intégré de flecs : une phase désactivée
     // (`world.component<Physics>().disable()`) met ses systèmes en pause, un module désactivé
     // aussi.

@@ -27,7 +27,6 @@
 #include "crates.hpp"
 #include "lake_shore.hpp"
 
-#include "levain/animation/animation_set.hpp"
 #include "levain/animation/animator.hpp"
 #include "levain/app/app.hpp"
 #include "levain/app/camera.hpp"
@@ -84,8 +83,6 @@ double secondsBetween(Clock::time_point start, Clock::time_point end)
 }
 
 // Les modèles sur le GPU, dans le module app (ADR-0029).
-using levain::app::ModelGpu;
-using levain::app::ModelPrimitiveGpu;
 using levain::app::textureLevelsOf;
 
 using levain::app::DrawCount;

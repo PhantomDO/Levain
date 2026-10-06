@@ -5,8 +5,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <format>
 #include <optional>
+#include <system_error>
 #include <utility>
 
 #include "levain/animation/animation_set.hpp"
@@ -104,6 +106,12 @@ core::Result<LoadedModel> loadModel(App& app, const ModelLoad& load)
 {
     using Clock = std::chrono::steady_clock;
     const Clock::time_point start = Clock::now();
+    std::error_code missing;
+    if (!std::filesystem::exists(load.path, missing))
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               std::format("{} absent", load.path.string()));
+    }
     const auto id = assets::idOf(app.registry, load.path);
     if (!id)
     {
@@ -111,13 +119,30 @@ core::Result<LoadedModel> loadModel(App& app, const ModelLoad& load)
             core::ErrorCode::InvalidData,
             std::format("{} : pas un asset d'une racine connue", load.path.string()));
     }
-    if (app.models.contains(*id))
+    // Le piège des homonymes : `instantiateModel` crée l'entité racine par son nom, et un nom déjà
+    // pris réutiliserait cette entité, dont il écraserait la place, sans que rien ne le dise.
+    if (app.world.lookup(load.name.c_str()))
     {
-        // Rangés par asset : un même modèle chargé deux fois n'aurait qu'un animateur.
-        return core::makeError(core::ErrorCode::InvalidData,
-                               std::format("{} chargé deux fois : un modèle ne se charge qu'une "
-                                           "fois (ADR-0029)",
-                                           load.path.string()));
+        return core::makeError(
+            core::ErrorCode::InvalidData,
+            std::format("{} : une entité « {} » existe déjà", load.path.string(), load.name));
+    }
+    if (const auto loaded = app.models.find(*id); loaded != app.models.end())
+    {
+        // Un modèle déjà sur le GPU s'instancie de nouveau, ses meshes et ses textures partagés.
+        // Sauf un modèle skinné : son animation est rangée par asset, et un second exemplaire
+        // n'aurait pas d'animateur à lui (ADR-0029).
+        if (loaded->second.animation)
+        {
+            return core::makeError(core::ErrorCode::InvalidData,
+                                   std::format("{} chargé deux fois : un modèle skinné ne "
+                                               "s'instancie qu'une fois (ADR-0029)",
+                                               load.path.string()));
+        }
+        const assets::Model& model = app.modelCache.models.at(*id);
+        const flecs::entity root =
+            assets::instantiateModel(app.world, model, *id, load.name).set(load.placement);
+        return LoadedModel{.root = root, .id = *id, .model = &model};
     }
     auto read = assets::loadModel(app.modelCache, app.registry, *id);
     if (!read)
@@ -125,13 +150,25 @@ core::Result<LoadedModel> loadModel(App& app, const ModelLoad& load)
         return std::unexpected(read.error());
     }
     const assets::Model& model = **read;
+    // Un modèle lu puis abandonné ne doit pas rester dans le cache, que rien ne déchargerait.
+    const auto forget = [&app, id](core::Error error) -> core::Result<LoadedModel>
+    {
+        app.modelCache.models.erase(*id);
+        return std::unexpected(std::move(error));
+    };
     std::optional<ModelAnimation> skeletal;
+    if (!isSkinned(model) && (load.clip || load.locomotion))
+    {
+        return forget({.code = core::ErrorCode::InvalidData,
+                       .message = std::format("{} n'est pas skinné : ni clip ni locomotion",
+                                              load.path.string())});
+    }
     if (isSkinned(model))
     {
         auto animated = animationOf(assets::pathOf(app.registry, *id).value_or(load.path), load);
         if (!animated)
         {
-            return std::unexpected(animated.error());
+            return forget(animated.error());
         }
         skeletal = std::move(*animated);
     }
@@ -146,7 +183,7 @@ core::Result<LoadedModel> loadModel(App& app, const ModelLoad& load)
     if (!uploaded)
     {
         submitAbandonedUpload(device, *upload);
-        return std::unexpected(uploaded.error());
+        return forget(uploaded.error());
     }
     // Les matériaux avant la fermeture de l'envoi : leurs constantes passent par lui.
     bindModelMaterials(device, *upload, app.renderer.meshPass, *app.sampler, model, *uploaded);

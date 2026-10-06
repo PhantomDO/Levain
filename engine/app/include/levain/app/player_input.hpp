@@ -5,6 +5,8 @@
 
 #include <vector>
 
+#include <flecs.h>
+
 #include "levain/input/bindings.hpp"
 #include "levain/input/state.hpp"
 
@@ -29,12 +31,18 @@ struct PlayerInput
 /// fixe ne le verrait jamais.
 void takeFrameInput(PlayerInput& input, const input::InputState& state);
 
-/// Oublie les appuis, après une image qui a joué au moins un pas : ils ont été vus. Sans ça, une
-/// image qui joue deux pas les verrait deux fois, et le joueur sauterait deux fois.
-void forgetPressesAfterSteps(PlayerInput& input, int stepsPlayed);
+/// Oublie les appuis : le pas qui vient de finir les a vus.
+void forgetPresses(PlayerInput& input);
+
+/// Inscrit l'oubli des appuis à la fin de **chaque** pas (`scene::EndOfStep`), après tous les
+/// systèmes du pas. Oublier après tous les pas de l'image ne suffirait pas : une image qui en joue
+/// deux ferait voir l'appui aux deux, et le joueur sauterait deux fois. `app` l'appelle à la
+/// création du monde.
+void forgetPressesAtEachStep(flecs::world& world);
 
 /// L'action a-t-elle été appuyée depuis le dernier pas joué ? Ce qu'un système du pas fixe lit au
-/// lieu de `input::actionPressed`, qui ne vaut que pour l'image.
+/// lieu de `input::actionPressed`, qui ne vaut que pour l'image. Les axes, eux, sont des vitesses
+/// (ADR-0017) : un système du pas les multiplie par la durée du pas, sans ce piège.
 [[nodiscard]] bool pressedSinceLastStep(const PlayerInput& input, int action);
 
 } // namespace levain::app

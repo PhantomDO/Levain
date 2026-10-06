@@ -36,8 +36,9 @@ lever la grille dans l'explorer lève les 10 000 cubes.
    `.kind<levain::scene::Simulation>()`. Son `delta_time` vaut alors toujours un pas — c'est ce qui rend son
    résultat reproductible. Un système déclaré dans une phase du pipeline par défaut tourne, lui, une fois par
    **image**, à cadence libre : c'est la place du rendu, pas celle du jeu.
-   Le pipeline de simulation a **trois phases, dans cet ordre** ([ADR-0026](../../docs/adr/0026-integration-de-jolt.md)) :
-   `Simulation` (le gameplay), `Physics` (le pas de physique), `PostPhysics` (ce qui lit son résultat). Dans
+   Le pipeline de simulation a **quatre phases, dans cet ordre** ([ADR-0026](../../docs/adr/0026-integration-de-jolt.md)) :
+   `Simulation` (le gameplay), `Physics` (le pas de physique), `PostPhysics` (ce qui lit son résultat), et
+   `EndOfStep`, la fin du pas, où le module `app` oublie les appuis que le pas vient de voir (ADR-0029). Dans
    une phase, l'ordre est celui des déclarations. Elles portent `SimulationPhase`, jamais `flecs::Phase` : le
    pipeline par défaut prend toute entité qui le porte, et rejouerait la simulation une fois par image.
 8. **L'application avance le monde par `advanceWorld`**, jamais par `world.progress` : `progress` seul ne

@@ -8,6 +8,7 @@
 
 #include "levain/core/error.hpp"
 #include "levain/render/camera.hpp"
+#include "levain/scene/components.hpp"
 
 namespace levain::app
 {
@@ -27,9 +28,11 @@ struct CameraLens
 /// regard dès que le rendu va plus vite que la simulation.
 [[nodiscard]] render::Camera cameraFrom(const CameraLens& lens, const glm::mat4& world);
 
-/// La caméra du rendu, celle de l'unique entité qui porte un `CameraLens` et une matrice monde.
-/// Aucune, ou plusieurs, est une erreur qui les nomme : le rendu ne choisit pas au hasard
-/// (règle n°7).
-[[nodiscard]] core::Result<render::Camera> renderCameraOf(const flecs::world& world);
+/// La caméra du rendu, celle de l'unique entité de `cameras` : celles qui portent un `CameraLens`
+/// et une matrice monde (un `Transform` la leur donne). Aucune, ou plusieurs, est une erreur qui
+/// les nomme : le rendu ne choisit pas au hasard (règle n°7). Une requête gardée : en créer une à
+/// chaque image coûterait à chaque image.
+[[nodiscard]] core::Result<render::Camera>
+renderCameraOf(const flecs::query<const CameraLens, const scene::WorldTransform>& cameras);
 
 } // namespace levain::app

@@ -34,6 +34,13 @@ struct PostPhysics
 {
 };
 
+/// La fin d'un pas, après tout le reste : ce qui doit passer entre deux pas, quand tous les
+/// systèmes du pas ont lu ce qu'ils avaient à lire. Le module `app` y oublie les appuis du joueur,
+/// que le pas vient de voir (ADR-0029). Un système de jeu n'a pas à s'y ranger.
+struct EndOfStep
+{
+};
+
 /// Le pipeline des systèmes de simulation, posé en singleton par le module pour qu'`advanceWorld`
 /// le retrouve.
 struct SimulationPipeline

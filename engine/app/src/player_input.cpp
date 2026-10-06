@@ -2,6 +2,8 @@
 
 #include <cstddef>
 
+#include "levain/scene/scene.hpp"
+
 namespace levain::app
 {
 
@@ -18,12 +20,16 @@ void takeFrameInput(PlayerInput& input, const input::InputState& state)
     }
 }
 
-void forgetPressesAfterSteps(PlayerInput& input, int stepsPlayed)
+void forgetPresses(PlayerInput& input)
 {
-    if (stepsPlayed > 0)
-    {
-        input.pressesUntilNextStep.assign(input.pressesUntilNextStep.size(), false);
-    }
+    input.pressesUntilNextStep.assign(input.pressesUntilNextStep.size(), false);
+}
+
+void forgetPressesAtEachStep(flecs::world& world)
+{
+    world.system("ForgetPresses")
+        .kind<scene::EndOfStep>()
+        .run([](flecs::iter& it) { forgetPresses(it.world().get_mut<PlayerInput>()); });
 }
 
 bool pressedSinceLastStep(const PlayerInput& input, int action)

@@ -18,6 +18,7 @@
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
 
+#include "levain/app/camera.hpp"
 #include "levain/app/models.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/gltf.hpp"
@@ -174,6 +175,11 @@ struct App
     nvrhi::BindingSetHandle defaultMaterial;
     DrawCount modelsCamera;  ///< Les dessins des modèles, par la caméra.
     DrawCount modelsShadows; ///< Et par les quatre cascades d'ombres ensemble.
+    /// Une entité à `MeshRef` dont le modèle n'a pas été chargé par `loadModel` : signalée une
+    /// fois.
+    bool warnedUnloadedModel = false;
+    /// Les entités qui portent un `CameraLens` : une requête gardée, relue à chaque image.
+    flecs::query<const CameraLens, const scene::WorldTransform> cameras;
 
     /// L'éclairage de l'image : le soleil (celui du ciel, ou celui des réglages), les lumières que
     /// le programme pose à chaque image, et le fond, là où rien n'est dessiné.

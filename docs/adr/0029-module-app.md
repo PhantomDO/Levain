@@ -100,7 +100,7 @@ dans le renderer qu'il crée, comme ils le font déjà dans celui du sandbox (AD
    - un pas du monde : les pas de simulation que l'image a mérités, l'interpolation, les matrices monde
      (ADR-0016) ;
    - la caméra, relue sur son entité ;
-   - `record`, l'animation des modèles skinnés, puis le rendu ;
+   - l'animation des modèles skinnés, `record`, puis le rendu ;
    - le déchargement des assets que plus rien n'utilise (ADR-0019) ;
    - le compte rendu : le titre, le calque de la page web, Tracy.
 
@@ -110,8 +110,9 @@ dans le renderer qu'il crée, comme ils le font déjà dans celui du sandbox (AD
    en boucle ; s'il a une locomotion, il joue le mouvement que lui donne le programme (`MotionOf`) : le
    joueur pour le renard, une vitesse de démonstration pour le modèle de `--locomotion`. Les vitesses de marche
    et de course de sa locomotion sont dans la requête : `app` ne lit pas les réglages du plugin `character`.
-   **Limite** : l'animation est rangée par asset. Un modèle skinné ne s'instancie qu'une fois, et une seconde
-   requête du même échoue (comme aujourd'hui) ; une animation par entité viendra avec un second personnage.
+   **Limite** : l'animation est rangée par asset. Un modèle **skinné** ne s'instancie qu'une fois, et une
+   seconde requête du même échoue (comme aujourd'hui) ; une animation par entité viendra avec un second
+   personnage. Un modèle statique, lui, s'instancie autant de fois qu'on le charge, sur les mêmes données GPU.
 
 7. **Le ciel** de l'HDRI, et son soleil (`loadSky`, M5.4), ou l'ambiance uniforme sans HDRI.
 
@@ -127,8 +128,9 @@ dans le renderer qu'il crée, comme ils le font déjà dans celui du sandbox (AD
    **Le piège des appuis entre deux pas**, `pressesUntilNextStep` : un appui (`actionPressed`) ne dure qu'une
    image. À 144 images/s, la plupart des images ne jouent aucun pas de simulation, et un système du pas fixe ne
    le verrait jamais ; une image qui joue deux pas le verrait deux fois. Le singleton **cumule** donc les appuis
-   jusqu'au prochain pas joué, et les oublie après lui ; les axes et les actions tenues, eux, sont l'état de
-   l'image. Le sandbox le faisait à la main pour le saut (`walk.jump = walk.jump || …`).
+   jusqu'au prochain pas joué, et les oublie à la fin de ce pas, dans une phase de simulation de plus,
+   `EndOfStep` (après le pas suivant de tous les pas de l'image, une image à deux pas le ferait voir deux fois) ;
+   les axes et les actions tenues, eux, sont l'état de l'image. Le sandbox le faisait à la main pour le saut (`walk.jump = walk.jump || …`).
 
 10. **Les options communes** de la ligne de commande, celles de la CI et des captures : `--seconds`,
     `--steps`, `--capture`, `--time`, `--gpu`, `--sky`, `--exposure`, `--tonemap`, `--anisotropy`. Le

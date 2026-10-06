@@ -20,6 +20,13 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 lock="$root/tools/assets.lock"
 dest="${1:-$root/assets-cache}"
 prefixes=("${@:2}")
+# Chaque préfixe doit désigner au moins un fichier du lock, vérifié avant tout téléchargement : un
+# préfixe vide prendrait tout, un préfixe mal écrit ne prendrait rien, sans rien dire.
+for prefix in ${prefixes[@]+"${prefixes[@]}"}; do
+    [[ -n "$prefix" ]] || { echo "préfixe vide" >&2; exit 1; }
+    awk -v p="$prefix" '$1 ~ /^[0-9a-f]{64}$/ && index($2, p) == 1 { found = 1 } END { exit !found }' \
+        "$lock" || { echo "aucun fichier pour « $prefix » dans $lock" >&2; exit 1; }
+done
 commit=$(awk '$1 == "commit" { print $2 }' "$lock")
 [[ -n "$commit" ]] || { echo "aucun commit dans $lock" >&2; exit 1; }
 
@@ -51,8 +58,5 @@ while read -r hash path url; do
     echo "téléchargé : $path"
 done < "$lock"
 
-[[ $count -gt 0 ]] || { echo "aucun fichier dans $lock pour : ${prefixes[*]:-tout}" >&2; exit 1; }
-for prefix in "${prefixes[@]}"; do
-    grep -qE "^[0-9a-f]{64} $prefix" "$lock" || { echo "aucun fichier pour « $prefix »" >&2; exit 1; }
-done
+[[ $count -gt 0 ]] || { echo "aucun fichier dans $lock" >&2; exit 1; }
 echo "$count fichiers à jour dans $dest"
