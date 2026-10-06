@@ -1046,16 +1046,18 @@ levain::core::Result<LoadedModel> loadSandboxModel(const ModelRequest& request,
 }
 
 /// La collision d'un décor (ADR-0028) : son maillage affiché, sans feuillage, simplifié, dans un
-/// corps statique à la place du modèle. Construite au chargement tant que le cuiseur ne l'écrit
-/// pas.
-void addDecorCollision(flecs::world& world, const levain::assets::Model& model,
-                       const std::string& name, const levain::scene::Transform& placement)
+/// corps statique à la place du modèle. Cuite par `levain_cook`, sinon simplifiée ici, et le
+/// journal le dit.
+void addDecorCollision(flecs::world& world, const levain::assets::AssetRegistry& registry,
+                       const LoadedModel& loaded)
 {
     const Clock::time_point start = Clock::now();
-    levain::assets::CollisionMesh collision = levain::assets::collisionMeshOf(model);
+    levain::assets::CollisionMesh collision =
+        levain::assets::loadCollision(registry, loaded.id, *loaded.model);
     auto mesh = std::make_shared<levain::physics::TriangleMesh>();
     mesh->vertices = std::move(collision.vertices);
     mesh->indices = std::move(collision.indices);
+    const levain::scene::Transform& placement = loaded.request.placement;
     // L'échelle dans les sommets : un corps de Jolt n'en a pas, sa pose n'est qu'une position et
     // une rotation. Sans elle, un décor agrandi aurait la collision de sa taille d'origine.
     for (glm::vec3& vertex : mesh->vertices)
@@ -1063,9 +1065,9 @@ void addDecorCollision(flecs::world& world, const levain::assets::Model& model,
         vertex *= placement.scale;
     }
     levain::core::log("sandbox", levain::core::LogLevel::Info,
-                      "collision de {} : {} triangles, simplifiés en {:.0f} ms", name,
+                      "collision de {} : {} triangles, chargés en {:.0f} ms", loaded.request.name,
                       mesh->indices.size() / 3, secondsBetween(start, Clock::now()) * 1000.0);
-    world.entity(std::format("{}_collision", name).c_str())
+    world.entity(std::format("{}_collision", loaded.request.name).c_str())
         .set(levain::scene::Transform{.position = placement.position,
                                       .rotation = placement.rotation})
         .set(levain::physics::Collider{.shape = levain::physics::MeshShape{std::move(mesh)}});
@@ -1206,7 +1208,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         }
         if (loaded.request.collides)
         {
-            addDecorCollision(world, *loaded.model, loaded.request.name, loaded.request.placement);
+            addDecorCollision(world, registry, loaded);
         }
     }
     // La caméra est une entité comme les autres : basse, sur le côté de la grille, et visant loin

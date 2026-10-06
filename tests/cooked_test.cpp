@@ -174,3 +174,79 @@ TEST_CASE("loadModel prend la version cuite quand elle est à jour")
     CHECK(model.has_value());
     fs::remove_all(root);
 }
+
+TEST_CASE("un .lvcol relu rend la même collision, et périme avec sa source ou sa tolérance")
+{
+    const fs::path directory = freshDirectory();
+    const fs::path path = directory / "m.lvcol";
+    const levain::assets::CollisionMesh mesh{
+        .vertices = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+        .indices = {0, 2, 1}};
+    REQUIRE(levain::assets::writeCookedCollision(path, mesh, SourceHash, 0.02f).has_value());
+
+    const auto read = levain::assets::readCookedCollision(path, SourceHash, 0.02f);
+    INFO("message d'erreur : " << (read ? std::string{} : read.error().message));
+    REQUIRE(read.has_value());
+    CHECK(read->vertices == mesh.vertices);
+    CHECK(read->indices == mesh.indices);
+
+    CHECK_FALSE(levain::assets::readCookedCollision(path, SourceHash + 1, 0.02f).has_value());
+    // Simplifiée à une autre tolérance, ce n'est plus la collision demandée.
+    CHECK_FALSE(levain::assets::readCookedCollision(path, SourceHash, 0.05f).has_value());
+
+    // Cuite par un autre algorithme (`CollisionMeshVersion`, après signature et format, 4 + 4
+    // octets) : périmée, bien que la source, le cuiseur et la tolérance soient les mêmes.
+    auto bytes = levain::core::readFile(path);
+    REQUIRE(bytes.has_value());
+    std::vector<std::byte> olderAlgorithm = *bytes;
+    olderAlgorithm[8] =
+        std::byte{static_cast<unsigned char>(levain::assets::CollisionMeshVersion + 1)};
+    std::ofstream{path, std::ios::binary}.write(
+        reinterpret_cast<const char*>(olderAlgorithm.data()),
+        static_cast<std::streamsize>(olderAlgorithm.size()));
+    CHECK_FALSE(levain::assets::readCookedCollision(path, SourceHash, 0.02f).has_value());
+
+    // Un indice au-delà des sommets : Jolt ne le vérifierait qu'en Debug.
+    const levain::assets::CollisionMesh broken{.vertices = mesh.vertices, .indices = {0, 2, 7}};
+    REQUIRE(levain::assets::writeCookedCollision(path, broken, SourceHash, 0.02f).has_value());
+    const auto refused = levain::assets::readCookedCollision(path, SourceHash, 0.02f);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("indices") != std::string::npos);
+    fs::remove_all(directory);
+}
+
+TEST_CASE(
+    "loadCollision relit le .lvcol à jour, et simplifie au chargement s'il manque ou a périmé")
+{
+    const fs::path root = freshDirectory();
+    fs::copy_file(fs::path{LEVAIN_TEST_DATA_DIR} / "two-nodes.gltf", root / "two-nodes.gltf");
+    levain::assets::AssetRegistry registry;
+    REQUIRE(levain::assets::scanAssets(root, registry).has_value());
+    const auto& [id, entry] = *registry.entries.begin();
+    const auto model = levain::assets::loadGltf(entry.file, id, registry);
+    REQUIRE(model.has_value());
+    const levain::assets::CollisionMesh simplified = levain::assets::collisionMeshOf(*model);
+    REQUIRE_FALSE(simplified.indices.empty());
+
+    // Pas de .lvcol : la simplification, comme sans cuiseur.
+    CHECK(levain::assets::loadCollision(registry, id, *model).indices == simplified.indices);
+
+    // Un .lvcol à jour, reconnaissable : un seul triangle, que la simplification ne rendrait pas.
+    const auto cooked = levain::assets::cookedPathOf(registry, id, ".lvcol");
+    REQUIRE(cooked.has_value());
+    const levain::assets::CollisionMesh marker{
+        .vertices = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+        .indices = {0, 2, 1}};
+    REQUIRE(levain::assets::writeCookedCollision(cooked.value_or(fs::path{}), marker, entry.hash,
+                                                 levain::assets::DefaultCollisionError)
+                .has_value());
+    CHECK(levain::assets::loadCollision(registry, id, *model).indices == marker.indices);
+
+    // Périmé (cuit d'une autre source) : de nouveau la simplification.
+    REQUIRE(levain::assets::writeCookedCollision(cooked.value_or(fs::path{}), marker,
+                                                 entry.hash + 1,
+                                                 levain::assets::DefaultCollisionError)
+                .has_value());
+    CHECK(levain::assets::loadCollision(registry, id, *model).indices == simplified.indices);
+    fs::remove_all(root);
+}

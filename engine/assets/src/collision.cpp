@@ -3,11 +3,14 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <vector>
 
 #include <meshoptimizer.h>
 
+#include "levain/assets/cooked.hpp"
 #include "levain/core/assert.hpp"
+#include "levain/core/log.hpp"
 #include "levain/scene/transform.hpp"
 
 namespace levain::assets
@@ -132,6 +135,30 @@ CollisionMesh collisionMeshOf(const Model& model, float maxError)
     weldByPosition(mesh);
     simplifyInModelUnits(mesh, maxError);
     return mesh;
+}
+
+CollisionMesh loadCollision(const AssetRegistry& registry, AssetId asset, const Model& model,
+                            float maxError)
+{
+    const auto cooked = cookedPathOf(registry, asset, ".lvcol");
+    const auto entry = registry.entries.find(asset);
+    if (cooked && entry != registry.entries.end() && std::filesystem::exists(*cooked))
+    {
+        auto read = readCookedCollision(*cooked, entry->second.hash, maxError);
+        if (read)
+        {
+            return std::move(*read);
+        }
+        core::log("assets", core::LogLevel::Warning, "{} ; collision simplifiée au chargement",
+                  read.error().message);
+    }
+    else
+    {
+        core::log("assets", core::LogLevel::Warning,
+                  "collision de {} pas cuite : simplifiée au chargement (lancer levain_cook)",
+                  entry != registry.entries.end() ? entry->second.file.string() : toString(asset));
+    }
+    return collisionMeshOf(model, maxError);
 }
 
 } // namespace levain::assets

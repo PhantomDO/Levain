@@ -5,7 +5,9 @@
 
 #include <glm/glm.hpp>
 
+#include "levain/assets/asset_id.hpp"
 #include "levain/assets/gltf.hpp"
+#include "levain/assets/registry.hpp"
 
 namespace levain::assets
 {
@@ -21,10 +23,16 @@ struct CollisionMesh
 
 /// L'écart toléré entre la collision et le modèle affiché, **dans les unités du modèle** : 2 cm
 /// pour un modèle en mètres (ADR-0028). Du même ordre que la marge que le personnage garde à la
-/// géométrie. Sur Sponza sans son feuillage (230 831 triangles), il en laisse 34 016, et un pas du
-/// personnage passe de 440 µs à 47 µs en médiane (une sonde non versionnée de l'ADR : des ordres de
-/// grandeur).
+/// géométrie. Sponza passe de 262 267 à 32 073 triangles (`levain_cook`, sans ses matériaux en
+/// `MASK`), et un pas du personnage de 850 µs à environ 47 µs en médiane (la sonde de l'ADR, non
+/// versionnée : un ordre de grandeur).
 inline constexpr float DefaultCollisionError = 0.02f;
+
+/// La version de ce que rend `collisionMeshOf`, écrite dans chaque `.lvcol`. **Le piège de la
+/// collision périmée** : à incrémenter à chaque changement de l'algorithme (un filtre, la soudure,
+/// la simplification). Sans quoi un `.lvcol` cuit par l'ancien resterait « à jour », puisque ni la
+/// source, ni le cuiseur, ni la tolérance n'ont changé.
+inline constexpr std::uint32_t CollisionMeshVersion = 1;
 
 /// La collision d'un modèle, tirée de son maillage affiché (ADR-0028) :
 ///
@@ -48,5 +56,13 @@ inline constexpr float DefaultCollisionError = 0.02f;
 /// eux, sont à mettre à l'échelle par l'appelant, puisqu'un corps n'a pas d'échelle (ADR-0026).
 [[nodiscard]] CollisionMesh collisionMeshOf(const Model& model,
                                             float maxError = DefaultCollisionError);
+
+/// La collision du modèle `asset`, déjà chargé en `model` : sa version cuite (`.lvcol`) si elle est
+/// à jour, sinon calculée ici (`collisionMeshOf`), et on le signale, comme un modèle cuit retombe
+/// sur son glTF (ADR-0020). Les 60 ms de la simplification de Sponza sont alors payées au
+/// chargement.
+[[nodiscard]] CollisionMesh loadCollision(const AssetRegistry& registry, AssetId asset,
+                                          const Model& model,
+                                          float maxError = DefaultCollisionError);
 
 } // namespace levain::assets

@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "levain/assets/asset_ref.hpp"
+#include "levain/assets/collision.hpp"
 #include "levain/assets/cooked.hpp"
 #include "levain/assets/cooked_texture.hpp"
 #include "levain/assets/gltf.hpp"
@@ -125,6 +126,39 @@ bool cookImage(const levain::assets::AssetRegistry& registry, levain::assets::As
     return true;
 }
 
+/// Cuit la collision d'un modèle (`.lvcol`, ADR-0028) si elle n'est pas à jour : sa simplification
+/// coûte 60 ms pour Sponza, que le chargement ne paie plus. Rend faux en cas d'échec d'écriture.
+bool cookCollision(const levain::assets::AssetRegistry& registry, levain::assets::AssetId id,
+                   const levain::assets::AssetEntry& entry, const levain::assets::Model& model)
+{
+    const std::optional<fs::path> cooked = levain::assets::cookedPathOf(registry, id, ".lvcol");
+    if (!cooked)
+    {
+        log("cook", LogLevel::Error, "{} : hors des racines d'assets, pas de .lvcol",
+            entry.file.string());
+        return false;
+    }
+    if (levain::assets::readCookedCollision(*cooked, entry.hash,
+                                            levain::assets::DefaultCollisionError))
+    {
+        return true;
+    }
+    const auto start = std::chrono::steady_clock::now();
+    const levain::assets::CollisionMesh mesh = levain::assets::collisionMeshOf(model);
+    if (auto written = levain::assets::writeCookedCollision(*cooked, mesh, entry.hash,
+                                                            levain::assets::DefaultCollisionError);
+        !written)
+    {
+        log("cook", LogLevel::Error, "{}", written.error().message);
+        return false;
+    }
+    // « cuite en » : le garde-fou de la CI (cache restauré, rien ne doit être recuit) le cherche.
+    log("cook", LogLevel::Info, "collision cuite en {:.0f} ms ({} triangles) : {}",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(),
+        mesh.indices.size() / 3, cooked->string());
+    return true;
+}
+
 /// Cuit un modèle et ses images embarquées, s'ils ne sont pas déjà à jour, et ajoute à `uses` les
 /// usages des textures de ses matériaux. Rend faux en cas d'échec.
 bool cookModel(const levain::assets::AssetRegistry& registry, levain::assets::AssetId id,
@@ -148,6 +182,12 @@ bool cookModel(const levain::assets::AssetRegistry& registry, levain::assets::As
             });
         if (embeddedCooked)
         {
+            // Le modèle est à jour : seule sa collision peut manquer. Son échec ne recuit pas le
+            // modèle, qui serait réécrit pour échouer au même endroit.
+            if (!cookCollision(registry, id, entry, *cached))
+            {
+                return false;
+            }
             log("cook", LogLevel::Info, "à jour : {}", entry.file.string());
             return true;
         }
@@ -177,7 +217,7 @@ bool cookModel(const levain::assets::AssetRegistry& registry, levain::assets::As
     log("cook", LogLevel::Info, "cuit en {:.0f} ms : {} → {}",
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(),
         entry.file.string(), cooked.string());
-    return true;
+    return cookCollision(registry, id, entry, *model);
 }
 
 } // namespace

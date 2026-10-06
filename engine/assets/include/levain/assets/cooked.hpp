@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 
+#include "levain/assets/collision.hpp"
 #include "levain/assets/gltf.hpp"
 #include "levain/core/error.hpp"
 
@@ -35,5 +36,18 @@ enum class MeshEncoding : std::uint32_t
 /// `sourceHash`. Le moteur retombe alors sur la source.
 [[nodiscard]] core::Result<Model> readCookedModel(const std::filesystem::path& path,
                                                   std::uint64_t sourceHash);
+
+/// Écrit la collision d'un modèle en `.lvcol` (ADR-0028), à côté de son `.lvmesh` : un en-tête
+/// (signature `LVCO`, version du format, version du cuiseur, hash de la source, tolérance), puis
+/// ses sommets et ses indices. Petit-boutiste.
+[[nodiscard]] core::Result<void> writeCookedCollision(const std::filesystem::path& path,
+                                                      const CollisionMesh& mesh,
+                                                      std::uint64_t sourceHash, float maxError);
+
+/// Relit un `.lvcol`. Échoue s'il est illisible, tronqué, d'un indice hors de ses sommets, ou
+/// **périmé** : cuit par une autre version du cuiseur, depuis une autre source, ou à une autre
+/// tolérance que `maxError`.
+[[nodiscard]] core::Result<CollisionMesh>
+readCookedCollision(const std::filesystem::path& path, std::uint64_t sourceHash, float maxError);
 
 } // namespace levain::assets

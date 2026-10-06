@@ -26,8 +26,10 @@ au lieu de 128.
 **En M6.3** : la collision du décor ([ADR-0028](../../docs/adr/0028-personnage.md)). `collisionMeshOf` tire
 d'un modèle des triangles pour la physique : les nœuds composés, sans le feuillage (les matériaux en `MASK`) ni
 ce qui est skinné ou pend sous un os, soudés par position, puis simplifiés par meshoptimizer à 2 cm près, en
-unités du modèle. Sponza sans feuillage passe de 230 831 à 34 016 triangles. `whyNotAValidModel` refuse au
-chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou un parent ne tient pas.
+unités du modèle. Sponza passe de 262 267 à 32 073 triangles. `levain_cook` l'écrit en `.lvcol` à côté du
+`.lvmesh` (60 ms pour Sponza), et `loadCollision` le relit, ou simplifie au chargement s'il manque ou a
+périmé ; changer `collisionMeshOf` demande d'incrémenter `CollisionMeshVersion`. `whyNotAValidModel` refuse
+au chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou un parent ne tient pas.
 
 ## Invariants
 
@@ -68,8 +70,8 @@ chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou un
 | [`include/levain/assets/asset_ref.hpp`](include/levain/assets/asset_ref.hpp) | `MeshRef`, `AssetsModule` (le comptage), `takeUnusedAssets`, `ModelCache`, `loadModel`, `loadTexture`, `loadTextureData` |
 | [`include/levain/assets/asset_id.hpp`](include/levain/assets/asset_id.hpp) | `AssetId`, `contentHash`, `readMeta`, `writeMeta` |
 | [`include/levain/assets/registry.hpp`](include/levain/assets/registry.hpp) | `AssetRegistry` (fichier, racine et hash de chaque asset), `scanAssets` (les cinq cas de l'ADR-0019), `pathOf`, `cookedPathOf` ; `watchAssets` et `takeChangedAssets`, le hot-reload (ADR-0021) |
-| [`include/levain/assets/collision.hpp`](include/levain/assets/collision.hpp) | `collisionMeshOf`, `CollisionMesh`, `DefaultCollisionError` : la collision du décor tirée du maillage affiché, sans le feuillage, soudée et simplifiée par meshoptimizer (ADR-0028) |
-| [`include/levain/assets/cooked.hpp`](include/levain/assets/cooked.hpp) | Le format `.lvmesh` : `writeCookedModel`, `readCookedModel`, `CookerVersion`, `MeshEncoding` |
+| [`include/levain/assets/collision.hpp`](include/levain/assets/collision.hpp) | `collisionMeshOf`, `loadCollision`, `CollisionMesh`, `DefaultCollisionError` : la collision du décor tirée du maillage affiché, sans le feuillage, soudée et simplifiée par meshoptimizer (ADR-0028) |
+| [`include/levain/assets/cooked.hpp`](include/levain/assets/cooked.hpp) | Les formats `.lvmesh` et `.lvcol` : `writeCookedModel`, `readCookedModel`, `writeCookedCollision`, `readCookedCollision`, `CookerVersion`, `MeshEncoding` |
 | [`include/levain/assets/cooked_texture.hpp`](include/levain/assets/cooked_texture.hpp) | `TextureData`, `writeCookedTexture` (UASTC), `writePlatformTexture` (BC7), `readCookedTexture` |
 | [`../../tools/cook/main.cpp`](../../tools/cook/main.cpp) | `levain_cook`, le cuiseur |
 
