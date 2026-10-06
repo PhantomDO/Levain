@@ -43,28 +43,30 @@ dans le renderer qu'il crée, comme ils le font déjà dans celui du sandbox (AD
 
 ### Ce qu'il contient
 
-1. **Le cycle de vie**, en une fonction, que le `main` d'une application appelle avec ses réglages et ses
-   points d'accroche :
+1. **Le cycle de vie**, en une fonction, que le `main` d'une application appelle avec ses réglages et sa
+   fonction de démarrage :
 
    ```cpp
    int main(int argc, char** argv)
    {
-       return levain::app::runApp(randoSettings({argv, static_cast<std::size_t>(argc)}),
-                                  {.start = startRando, .frame = steerPlayer});
+       return levain::app::runApp(randoSettings({argv, static_cast<std::size_t>(argc)}), startRando);
    }
+
+   // Appelée une fois, tout étant prêt : le jeu y pose sa scène, et rend ses points d'accroche.
+   levain::core::Result<levain::app::FrameHooks> startRando(levain::app::App& app);
    ```
 
    `runApp` crée la fenêtre et le device (en natif d'un coup, dans le navigateur quand il les donne,
-   ADR-0023), le renderer et le monde, appelle `start`, fait tourner la boucle (la sienne en natif,
-   `emscripten_set_main_loop` dans le navigateur), puis appelle `finish`, journalise le bilan et écrit la
+   ADR-0023), le renderer et le monde, appelle la fonction de démarrage, fait tourner la boucle (la sienne en
+   natif, `emscripten_set_main_loop` dans le navigateur), puis appelle `finish`, journalise le bilan et écrit la
    capture demandée. En natif, il rend le code de sortie du processus ; dans le navigateur, `main` est déjà
    revenu (ADR-0023), et un échec s'écrit dans la console.
 
-2. **Les points d'accroche**, `AppHooks`, des fonctions libres du programme, toutes facultatives sauf `start` :
+2. **Les points d'accroche**, `FrameHooks`, que la fonction de démarrage rend, tous facultatifs :
 
    | Point | Quand | Ce que le sandbox y met |
    |---|---|---|
-   | `start(App&)` | une fois, tout étant prêt | ses vues, ses modèles, ses plugins ; *Rando* sa vallée et son joueur |
+   | (le démarrage) | une fois, tout étant prêt | ses vues, ses modèles, ses plugins ; *Rando* sa vallée et son joueur |
    | `frame(App&)` | à chaque image, après l'input, avant les pas | la sélection à la souris, `FpsInput`, `WalkInput` ; *Rando* la capture de la souris |
    | `record(App&, commandList, seconds)` | à chaque image, avant le rendu | les instances des cubes, les lumières de la démo |
    | `finish(App&)` | à la fin de la boucle | `--pick`, la position du renard, ses bilans ; `false` fait échouer le programme |
@@ -72,6 +74,10 @@ dans le renderer qu'il crée, comme ils le font déjà dans celui du sandbox (AD
    Le reste passe par ce que le moteur a déjà : les **systèmes** flecs pour le gameplay, les **étapes** du
    renderer pour les dessins (ADR-0025). Un point d'accroche n'existe que si un programme en a besoin
    aujourd'hui.
+   **Le piège de l'ordre de destruction**, et sa parade : l'état du programme (les cubes de la démo, leurs
+   meshes, leurs textures) tient des ressources du GPU, qui doivent disparaître **avant le device**. Les points
+   d'accroche le gardent dans leurs captures, et `App` les range dans son dernier champ : détruit le premier,
+   il emporte cet état avec lui, avant le renderer, avant le device.
 
 3. **`App`**, ce que la boucle anime et que le programme lit ou remplit : la fenêtre, le device, le renderer, le
    monde flecs et son pas fixe, le registre d'assets et ses modèles, l'input, l'éclairage de l'image (soleil,
@@ -174,7 +180,7 @@ d'`AGENTS.md`).
   viendra plus tard ; rien ici ne l'empêche.
 - **L'éditeur (phase 7)** sera une application de plus au-dessus de `app` : son Play/Stop (M7.5) jouera sur le
   monde d'`App`.
-- Des fonctions libres en points d'accroche plutôt qu'une classe à dériver : c'est la règle de forme de
+- Des fonctions en points d'accroche plutôt qu'une classe à dériver : c'est la règle de forme de
   l'ADR-0011. Il n'y a rien à surcharger, seulement une scène à poser et quelques lignes de glu par image.
 
 ## Ce que font les autres moteurs
@@ -192,7 +198,7 @@ d'`AGENTS.md`).
 - **Bevy** (un moteur Rust tout en ECS, le plus proche de notre usage de flecs) : « `App` is the primary API
   for writing user applications. It automates the setup of a standard lifecycle and provides interface glue for
   plugins » [4], et un programme s'écrit `App::new().add_systems(Update, …).run()`. Nos `runApp` et
-  `AppHooks` en sont l'équivalent explicite.
+  `FrameHooks` en sont l'équivalent explicite.
 
 Les quatre font la même chose : **la boucle appartient au moteur, le jeu y branche son contenu**. Nous gardons
 un `main` dans le jeu, parce qu'il se lit d'un coup d'œil et qu'il n'y a ni code généré ni chargement
