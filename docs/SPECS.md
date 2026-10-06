@@ -125,7 +125,7 @@ engine/
 ├── physics/    intégration Jolt
 ├── audio/      intégration miniaudio
 ├── input/      actions et axes au-dessus de platform
-└── app/        boucle principale, cycle de vie
+└── app/        boucle principale, cycle de vie, modèles sur le GPU (ADR-0029)
 editor/         bibliothèque de l'éditeur ; l'exécutable est construit par le jeu (ADR-0018)
 plugins/        plugins moteur : terrain, eau, végétation, marche du personnage (ADR-0018, ADR-0028)
 sandbox/        une démo par milestone
