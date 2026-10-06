@@ -493,6 +493,7 @@ std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList, do
     return gpuMs;
 }
 
+#ifndef __EMSCRIPTEN__
 /// Rend une dernière image et l'écrit en PNG. Un échec est bruyant (règle n°7) : une capture
 /// demandée et absente ferait croire à une image qui n'existe pas.
 bool captureFrame(App& app, nvrhi::ICommandList& commandList, double seconds,
@@ -520,6 +521,7 @@ bool captureFrame(App& app, nvrhi::ICommandList& commandList, double seconds,
               image->height);
     return true;
 }
+#endif
 
 /// Ce que la boucle garde d'une image à l'autre. Une image est une fonction (`runFrame`) : en
 /// natif, la boucle l'appelle ; dans le navigateur, c'est lui, à chaque image (ADR-0023, point 3).
