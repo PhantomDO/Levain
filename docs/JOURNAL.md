@@ -32,10 +32,12 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ## 2026-10-06 — M6.3 — Clôture : le renard monte l'escalier de Sponza, et se promène dans la vallée du navigateur
 
-- **Temps Donnovan : 2,0 h** (estimé 1,65 h), ratio 1,21. Le 06/10, Donnovan a donné « environ 2h » pour M6.3.
-  Réparti entre les issues au prorata de leurs estimations : #177 1,52 h, #178 0,48 h. Mode autonome : deux
+- **Temps Donnovan : 2,75 h** (estimé 1,65 h), ratio 1,67. Le 06/10, Donnovan a donné « environ 2h » pour M6.3,
+  puis « environ 45min » à la clôture : l'essai de la page web sur sa tablette et le sondage sur #294 et #295,
+  comptés dans M6.3 puisque ni l'une ni l'autre n'est commencée. Réparti entre les issues au prorata de leurs
+  estimations : #177 2,08 h, #178 0,67 h. Mode autonome : deux
   sondages pour l'ADR-0028 (le personnage, puis la masse qui règle la poussée), un pour la démo.
-- Phase 6 à ce stade : 7,5 h passées pour 4,9 h estimées (M6.1 à M6.3), ratio 1,53, provisoire jusqu'à la
+- Phase 6 à ce stade : 8,25 h passées pour 4,9 h estimées (M6.1 à M6.3), ratio 1,68, provisoire jusqu'à la
   clôture de la phase.
 - Sessions Claude Code : 1 (la même que M6.1 et M6.2)
 - Fait, en 12 PR (#282 à #293) :

@@ -318,7 +318,7 @@ profondeur) ; de l'herbe dense instanciée sur GPU, répartie par une carte de d
 |---|---:|---:|---|
 | M6.1 Intégration Jolt | 2,96 (réel, 1,75 estimées) | 1 | fini le 05/10/2026 |
 | M6.2 Colliders, requêtes, debug draw | 2,54 (réel, 1,5 estimées) | 1 | fini le 05/10/2026 |
-| M6.3 Character controller | 2,0 (réel, 1,65 estimées) | 1 | fini le 06/10/2026 |
+| M6.3 Character controller | 2,75 (réel, 1,65 estimées) | 1 | fini le 06/10/2026 |
 | M6.4 Caméra à la troisième personne | 1,7 | 1 | 28/02/2027 |
 | M6.5 Nage, planeur et endurance | 1,25 | 1 | 28/02/2027 |
 
