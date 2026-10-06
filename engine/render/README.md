@@ -302,8 +302,9 @@ la frame, efface l'atlas des ombres, puis appelle les étapes dans l'ordre de l'
 Ce qui se dessine, il ne le connaît pas : ce sont les fonctions que l'application et les plugins y inscrivent
 (`addStageFunction`), dans l'ordre de leur inscription. Chacune reçoit un `StageContext` : la command list, la
 cible, les ressources de l'image (`FrameBindings`), la matrice vue-projection de l'étape et son frustum, pour le
-culling. Le sandbox inscrit ainsi ses cubes, son sol et ses modèles (`addDemoStages`), et donne l'ordre réel au
-démarrage (« étapes du rendu : ombres : démo ; opaques : démo ; transparents : aucune »). Le temps GPU de chaque
+culling. Le module `app` inscrit ainsi les modèles glTF (« modèles »), le sandbox ses cubes et son sol
+(`addDemoStages`), et le sandbox donne l'ordre réel au démarrage (« étapes du rendu : ombres : modèles, démo ;
+opaques : modèles, démo ; transparents : aucune »). Le temps GPU de chaque
 passe est mesuré par le renderer (`passTimes`) ; une étape vide n'est pas chronométrée. Chaque fonction d'étape a
 une zone Tracy à son nom (« ombres/terrain »), et peut être chronométrée elle aussi (#295, `timeFunctions`) : un
 minuteur par appel de l'image (un par cascade pour les ombres), une courbe « GPU étape/nom », et

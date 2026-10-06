@@ -30,6 +30,8 @@
 #include "levain/animation/animation_set.hpp"
 #include "levain/animation/animator.hpp"
 #include "levain/app/app.hpp"
+#include "levain/app/camera.hpp"
+#include "levain/app/load_model.hpp"
 #include "levain/app/models.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/collision.hpp"
@@ -86,14 +88,15 @@ using levain::app::ModelGpu;
 using levain::app::ModelPrimitiveGpu;
 using levain::app::textureLevelsOf;
 
-/// Les dessins d'une passe depuis le début de la boucle : soumis au GPU, écartés par le frustum
-/// culling (#132), et les triangles soumis, instances comprises (#133).
-struct DrawCount
+using levain::app::DrawCount;
+
+/// Les dessins de la démo et ceux des modèles (`app`) : ce que comptent les bilans de #132 et #133.
+DrawCount operator+(const DrawCount& first, const DrawCount& second)
 {
-    std::uint64_t drawn = 0;
-    std::uint64_t culled = 0;
-    std::uint64_t triangles = 0;
-};
+    return {.drawn = first.drawn + second.drawn,
+            .culled = first.culled + second.culled,
+            .triangles = first.triangles + second.triangles};
+}
 
 /// Ce que le rendu dessine comme cube : un tag, vide, posé sur les entités de la grille. Demander
 /// plutôt « les enfants de grid » coûterait 212 µs par frame au lieu de 8 : une requête
@@ -265,39 +268,26 @@ float demoSpeedAt(double seconds)
            static_cast<float>(0.5 - 0.5 * std::cos(2.0 * glm::pi<double>() * seconds / Period));
 }
 
-/// Les clips de `--locomotion` (« repos,marche,course », par leurs noms), pour l'animateur. Les
-/// autres états n'ont pas de clip : ils gardent la locomotion.
-levain::core::Result<levain::animation::AnimatorClips>
-locomotionClipsOf(const levain::animation::AnimationSet& set, std::string_view names)
+/// Les clips de `--locomotion` (« repos,marche,course », par leurs noms), et les vitesses
+/// auxquelles le modèle les joue.
+levain::core::Result<levain::app::LocomotionClips> locomotionOf(std::string_view names,
+                                                                float walkSpeed, float runSpeed)
 {
-    std::array<std::size_t, 3> indices{};
+    levain::app::LocomotionClips locomotion{
+        .names = {}, .walkSpeed = walkSpeed, .runSpeed = runSpeed};
     std::size_t start = 0;
-    for (std::size_t& index : indices)
+    for (std::string& name : locomotion.names)
     {
         const std::size_t comma = names.find(',', start);
-        const std::string name{names.substr(start, comma - start)};
+        name = std::string{names.substr(start, comma - start)};
         if (name.empty())
         {
             return levain::core::makeError(levain::core::ErrorCode::InvalidData,
                                            "--locomotion attend trois clips : repos,marche,course");
         }
-        auto clip = levain::app::clipIndexOf(set, name);
-        if (!clip)
-        {
-            return std::unexpected(clip.error());
-        }
-        index = *clip;
         start = comma == std::string_view::npos ? names.size() : comma + 1;
     }
-    return levain::animation::AnimatorClips{.ground = {.idle = indices[0],
-                                                       .walk = indices[1],
-                                                       .run = indices[2],
-                                                       .walkSpeed = DemoWalkSpeed,
-                                                       .runSpeed = DemoRunSpeed},
-                                            .jump = std::nullopt,
-                                            .fall = std::nullopt,
-                                            .swim = std::nullopt,
-                                            .glide = std::nullopt};
+    return locomotion;
 }
 
 /// Ce que montre le sandbox : la démo (cubes, sol, modèle), la vue du glTF Sample Viewer (#125,
@@ -383,8 +373,6 @@ struct DemoScene
     levain::render::Instances grid;
     levain::render::Mesh ground;
     levain::render::Instances groundInstance; ///< Une seule, sous les cubes.
-    levain::render::Instances modelInstance;  ///< Une seule, à l'origine : la matrice monde place.
-    flecs::query<const levain::assets::MeshRef, const levain::scene::WorldTransform> modelParts;
     nvrhi::TextureHandle checker;
     nvrhi::BindingSetHandle material;
     /// Le personnage de `--view character` (M6.3) : la caméra le suit, le clavier le mène, son
@@ -438,23 +426,11 @@ struct ModelRequest
     bool followsPlayer = false;
 };
 
-/// Un modèle lu, avant le GPU : le modèle, son squelette et ses clips s'il est skinné.
-struct LoadedModel
-{
-    const levain::assets::Model* model = nullptr;
-    levain::assets::AssetId id;
-    std::optional<levain::animation::AnimationSet> animation;
-    std::size_t clip = 0;
-    std::optional<levain::animation::AnimatorClips> animatorClips;
-    ModelRequest request;
-};
-
-/// Lit un modèle d'une racine d'assets déjà scannée, et son squelette s'il est skinné. Les noms de
-/// `--clip` et `--locomotion` se vérifient ici, avant tout travail GPU : un échec plus tard aurait
-/// envoyé meshes et textures pour rien.
-levain::core::Result<LoadedModel> loadSandboxModel(const ModelRequest& request,
-                                                   const levain::assets::AssetRegistry& registry,
-                                                   levain::assets::ModelCache& modelCache)
+/// Charge un modèle par `app` (ADR-0029), avec sa locomotion s'il en a une : celle du renard à
+/// la vitesse du joueur, les autres à la vitesse de la démonstration. Un fichier absent l'est le
+/// plus souvent faute d'avoir téléchargé les assets de test : l'erreur le dit.
+levain::core::Result<levain::app::LoadedModel> loadSandboxModel(levain::app::App& app,
+                                                                const ModelRequest& request)
 {
     std::error_code missing;
     if (!std::filesystem::exists(request.path, missing))
@@ -467,86 +443,34 @@ levain::core::Result<LoadedModel> loadSandboxModel(const ModelRequest& request,
                         "redistribuer)",
                         request.path.string()));
     }
-    const auto id = levain::assets::idOf(registry, request.path);
-    if (!id)
-    {
-        return levain::core::makeError(
-            levain::core::ErrorCode::InvalidData,
-            std::format("{} : pas un asset d'une racine connue (data/, assets-cache/)",
-                        request.path.string()));
-    }
-    auto loaded = levain::assets::loadModel(modelCache, registry, *id);
-    if (!loaded)
-    {
-        return std::unexpected(loaded.error());
-    }
-    LoadedModel result{.model = *loaded,
-                       .id = *id,
-                       .animation = std::nullopt,
-                       .clip = 0,
-                       .animatorClips = std::nullopt,
-                       .request = request};
-    if (!levain::app::isSkinned(*result.model))
-    {
-        return result;
-    }
-    // Un modèle skinné anime son squelette (ADR-0022) : la passerelle relit son glTF.
-    // ponytail: squelette et clips viennent toujours de la source ; leur cuisson dans .cooked/
-    // (ADR-0022) viendra quand leur lecture pèsera au chargement (0,55 ms pour Fox).
-    auto set = levain::animation::importAnimationSet(
-        levain::assets::pathOf(registry, *id).value_or(request.path));
-    if (!set)
-    {
-        return std::unexpected(set.error());
-    }
-    auto index = levain::app::clipIndexOf(*set, request.clip);
-    if (!index)
-    {
-        return std::unexpected(index.error());
-    }
-    result.clip = *index;
+    levain::app::ModelLoad load{.path = request.path,
+                                .placement = request.placement,
+                                .name = request.name,
+                                .clip = request.clip,
+                                .locomotion = std::nullopt};
     if (request.locomotion)
     {
-        auto clips = locomotionClipsOf(*set, *request.locomotion);
-        if (!clips)
+        // Le renard marche et court aux vitesses du personnage, en m/s : la foulée de Fox n'est pas
+        // mesurée, ses pieds peuvent glisser un peu. Les autres, à celles de la démonstration.
+        auto locomotion =
+            request.followsPlayer
+                ? locomotionOf(*request.locomotion, levain::sandbox::FoxWalker.walkSpeed,
+                               levain::sandbox::FoxWalker.runSpeed)
+                : locomotionOf(*request.locomotion, DemoWalkSpeed, DemoRunSpeed);
+        if (!locomotion)
         {
-            return std::unexpected(clips.error());
+            return std::unexpected(locomotion.error());
         }
-        result.animatorClips = *clips;
-        if (request.followsPlayer)
-        {
-            // Les vitesses du personnage, en m/s : la marche à la sienne, la course à la sienne.
-            // La foulée de Fox n'est pas mesurée : ses pieds peuvent glisser un peu.
-            result.animatorClips->ground.walkSpeed = levain::sandbox::FoxWalker.walkSpeed;
-            result.animatorClips->ground.runSpeed = levain::sandbox::FoxWalker.runSpeed;
-            levain::core::log("sandbox", levain::core::LogLevel::Info,
-                              "modèle skinné : {} os, locomotion « {} », menée par le joueur",
-                              set->jointNames.size(), *request.locomotion);
-        }
-        else
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Info,
-                              "modèle skinné : {} os, locomotion « {} », vitesse de 0 à {} et "
-                              "retour en 8 s",
-                              set->jointNames.size(), *request.locomotion, DemoRunSpeed);
-        }
+        load.locomotion = *locomotion;
     }
-    else
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Info,
-                          "modèle skinné : {} os, clip « {} » ({:.2f} s) joué en boucle",
-                          set->jointNames.size(), set->clips[result.clip].name,
-                          set->clips[result.clip].durationSeconds);
-    }
-    result.animation = std::move(*set);
-    return result;
+    return levain::app::loadModel(app, load);
 }
 
 /// La collision d'un décor (ADR-0028) : son maillage affiché, sans feuillage, simplifié, dans un
 /// corps statique à la place du modèle. Cuite par `levain_cook`, sinon simplifiée ici, et le
 /// journal le dit.
 void addDecorCollision(flecs::world& world, const levain::assets::AssetRegistry& registry,
-                       const LoadedModel& loaded)
+                       const levain::app::LoadedModel& loaded, const ModelRequest& request)
 {
     const Clock::time_point start = Clock::now();
     levain::assets::CollisionMesh collision =
@@ -554,7 +478,7 @@ void addDecorCollision(flecs::world& world, const levain::assets::AssetRegistry&
     auto mesh = std::make_shared<levain::physics::TriangleMesh>();
     mesh->vertices = std::move(collision.vertices);
     mesh->indices = std::move(collision.indices);
-    const levain::scene::Transform& placement = loaded.request.placement;
+    const levain::scene::Transform& placement = request.placement;
     // L'échelle dans les sommets : un corps de Jolt n'en a pas, sa pose n'est qu'une position et
     // une rotation. Sans elle, un décor agrandi aurait la collision de sa taille d'origine.
     for (glm::vec3& vertex : mesh->vertices)
@@ -562,9 +486,9 @@ void addDecorCollision(flecs::world& world, const levain::assets::AssetRegistry&
         vertex *= placement.scale;
     }
     levain::core::log("sandbox", levain::core::LogLevel::Info,
-                      "collision de {} : {} triangles, chargés en {:.0f} ms", loaded.request.name,
+                      "collision de {} : {} triangles, chargés en {:.0f} ms", request.name,
                       mesh->indices.size() / 3, secondsBetween(start, Clock::now()) * 1000.0);
-    world.entity(std::format("{}_collision", loaded.request.name).c_str())
+    world.entity(std::format("{}_collision", request.name).c_str())
         .set(levain::scene::Transform{.position = placement.position,
                                       .rotation = placement.rotation})
         .set(levain::physics::Collider{.shape = levain::physics::MeshShape{std::move(mesh)}});
@@ -647,23 +571,6 @@ createDemoScene(levain::app::App& app, const SandboxOptions& options, const Came
 {
     const SandboxView view = options.view;
     nvrhi::IDevice& device = *app.gpu.nvrhi;
-    // Les modèles demandés, chacun par son GUID, dans les racines qu'`app` a scannées (ADR-0019).
-    // Les deux temps du chargement (le critère de M4.3) : la lecture des modèles, cuits ou source ;
-    // leurs textures, leurs mips et l'envoi au GPU. Le scan, avant eux, est dans le journal d'`app`
-    // (« scan des racines d'assets »).
-    std::vector<LoadedModel> loadedModels;
-    const Clock::time_point modelStart = Clock::now();
-    for (const ModelRequest& request : modelRequestsOf(options))
-    {
-        auto loaded = loadSandboxModel(request, app.registry, app.modelCache);
-        if (!loaded)
-        {
-            return std::unexpected(loaded.error());
-        }
-        loadedModels.push_back(std::move(*loaded));
-    }
-    const Clock::time_point modelEnd = Clock::now();
-
     auto image = levain::assets::loadImage(LEVAIN_DATA_DIR "/textures/checker.png");
     if (!image)
     {
@@ -708,19 +615,25 @@ createDemoScene(levain::app::App& app, const SandboxOptions& options, const Came
     const std::optional<glm::vec3> start = playerStartOf(view, heightmap, valley);
     const flecs::entity player =
         start ? levain::sandbox::spawnPlayer(world, *start) : flecs::entity{};
-    for (const LoadedModel& loaded : loadedModels)
+    // Les modèles demandés, chacun par son GUID, dans les racines qu'`app` a scannées (ADR-0019),
+    // envoyés au GPU et instanciés dans le monde par `app`.
+    std::optional<levain::assets::AssetId> playerModel;
+    for (const ModelRequest& request : modelRequestsOf(options))
     {
-        const flecs::entity root =
-            levain::assets::instantiateModel(world, *loaded.model, loaded.id, loaded.request.name)
-                .set(loaded.request.placement);
-        if (loaded.request.followsPlayer && player)
+        auto loaded = loadSandboxModel(app, request);
+        if (!loaded)
+        {
+            return std::unexpected(loaded.error());
+        }
+        if (request.followsPlayer && player)
         {
             // Par flecs::Parent, comme toute la hiérarchie (ADR-0015) : le modèle suit le joueur.
-            root.set(flecs::Parent{player});
+            loaded->root.set(flecs::Parent{player});
+            playerModel = loaded->id;
         }
-        if (loaded.request.collides)
+        if (request.collides)
         {
-            addDecorCollision(world, app.registry, loaded);
+            addDecorCollision(world, app.registry, *loaded, request);
         }
     }
     // La caméra est une entité comme les autres : basse, sur le côté de la grille, et visant loin
@@ -771,16 +684,13 @@ createDemoScene(levain::app::App& app, const SandboxOptions& options, const Came
         controller.yawDegrees = options.cameraLook->x;
         controller.pitchDegrees = options.cameraLook->y;
     }
-    app.cameraEntity = cameraEntity;
-    // La grille occupe la gauche de l'image, le sol file jusqu'à l'horizon à droite, de plus en
-    // plus de biais : c'est là que le filtrage trilinéaire seul le rend flou. Position et regard
-    // sont ceux de l'entité, et le joueur peut les changer.
-    app.camera = {.position = {},
-                  .target = {},
-                  .verticalFovRadians =
-                      glm::radians(view == SandboxView::Khronos ? KhronosViewerFovDegrees : 60.0f),
-                  .nearPlane = 0.5f,
-                  .farPlane = 1000.0f};
+    // La caméra du rendu (ADR-0029) : la grille occupe la gauche de l'image, le sol file jusqu'à
+    // l'horizon à droite, de plus en plus de biais : c'est là que le filtrage trilinéaire seul le
+    // rend flou. Position et regard sont ceux de l'entité, et le joueur peut les changer.
+    cameraEntity.set(levain::app::CameraLens{
+        .verticalFovDegrees = view == SandboxView::Khronos ? KhronosViewerFovDegrees : 60.0f,
+        .nearPlane = 0.5f,
+        .farPlane = 1000.0f});
     levain::scene::advanceWorld(world, app.fixedStep,
                                 0.0f); // les matrices monde, avant le premier envoi
     std::vector<levain::render::InstancePose> cubePoses;
@@ -799,43 +709,6 @@ createDemoScene(levain::app::App& app, const SandboxOptions& options, const Came
         levain::render::createInstances(device, *upload, groundOffset);
     nvrhi::TextureHandle checker =
         levain::render::createTexture(device, *upload, textureLevelsOf(mips), "checker");
-    const Clock::time_point uploadStart = Clock::now();
-    std::optional<levain::assets::AssetId> playerModel;
-    for (LoadedModel& loaded : loadedModels)
-    {
-        const auto skinJoints =
-            static_cast<std::uint32_t>(loaded.animation ? loaded.animation->skinJoints.size() : 0);
-        auto uploaded = levain::app::uploadModel(device, *upload, *loaded.model, app.registry,
-                                                 app.modelCache, app.skinning, skinJoints);
-        if (!uploaded)
-        {
-            levain::app::submitAbandonedUpload(device, *upload);
-            return std::unexpected(uploaded.error());
-        }
-        if (loaded.animatorClips)
-        {
-            uploaded->animatorClips = *loaded.animatorClips;
-            uploaded->animator = levain::animation::Animator{};
-        }
-        uploaded->animation = std::move(loaded.animation);
-        uploaded->clip = loaded.clip;
-        if (loaded.request.followsPlayer)
-        {
-            playerModel = loaded.id;
-        }
-        // Rangés par asset : un même modèle demandé deux fois n'aurait qu'un animateur.
-        if (!app.models.emplace(loaded.id, std::move(*uploaded)).second)
-        {
-            levain::app::submitAbandonedUpload(device, *upload);
-            return levain::core::makeError(
-                levain::core::ErrorCode::InvalidData,
-                std::format("{} demandé deux fois : le sandbox n'en charge qu'une instance",
-                            loaded.request.path.string()));
-        }
-    }
-    const std::array<levain::render::InstancePose, 1> origin{};
-    levain::render::Instances modelInstance =
-        levain::render::createInstances(device, *upload, origin);
     // Les matériaux avant la fermeture de l'envoi : leurs constantes passent par lui. Le damier des
     // cubes et du sol : non métallique, assez rugueux.
     nvrhi::BindingSetHandle material = levain::render::createMaterialBindings(
@@ -848,11 +721,6 @@ createDemoScene(levain::app::App& app, const SandboxOptions& options, const Came
         levain::render::withDefaults({.baseColor = checker},
                                      levain::render::createMaterialDefaults(device, *upload)),
         *app.sampler);
-    for (const LoadedModel& loaded : loadedModels)
-    {
-        levain::app::bindModelMaterials(device, *upload, app.renderer.meshPass, *app.sampler,
-                                        *loaded.model, app.models.at(loaded.id));
-    }
     std::optional<levain::terrain::TerrainPass> terrain;
     std::optional<levain::water::WaterPass> water;
     std::optional<levain::grass::GrassPass> grass;
@@ -889,28 +757,6 @@ createDemoScene(levain::app::App& app, const SandboxOptions& options, const Came
     }
     upload->close();
     device.executeCommandList(upload);
-    // Une ligne par modèle, puis les temps du chargement, communs à tous (le critère de M4.3).
-    for (const LoadedModel& loaded : loadedModels)
-    {
-        const ModelGpu& uploaded = app.models.at(loaded.id);
-        levain::core::log(
-            "sandbox", levain::core::LogLevel::Info,
-            "modèle {} : {} meshes, {} matériaux, {} textures ({:.1f} Mo en mémoire vidéo)",
-            loaded.request.name, loaded.model->meshes.size(), loaded.model->materials.size(),
-            uploaded.textures.size(),
-            static_cast<double>(uploaded.textureBytes) / (1024.0 * 1024.0));
-    }
-    if (!loadedModels.empty())
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Info,
-                          "chargement des modèles : modèles {:.1f} ms, textures, mips et envoi "
-                          "{:.0f} ms",
-                          secondsBetween(modelStart, modelEnd) * 1000.0,
-                          secondsBetween(uploadStart, Clock::now()) * 1000.0);
-    }
-
-    flecs::query<const levain::assets::MeshRef, const levain::scene::WorldTransform> modelParts =
-        world.query<const levain::assets::MeshRef, const levain::scene::WorldTransform>();
     return std::make_shared<DemoScene>(
         DemoScene{.app = app,
                   .options = options,
@@ -921,8 +767,6 @@ createDemoScene(levain::app::App& app, const SandboxOptions& options, const Came
                   .grid = std::move(grid),
                   .ground = std::move(ground),
                   .groundInstance = std::move(groundInstance),
-                  .modelInstance = std::move(modelInstance),
-                  .modelParts = std::move(modelParts),
                   .checker = std::move(checker),
                   .material = std::move(material),
                   .player = player,
@@ -986,8 +830,8 @@ motionToPlay(const DemoScene& scene, const levain::assets::AssetId& model, doubl
     return {.speed = demoSpeedAt(seconds)};
 }
 
-/// Ce que l'image dessine : les cubes, le sol, et le modèle glTF nœud par nœud, chaque primitive
-/// avec son matériau et sa matrice monde. `draw(mesh, instances, matériau, modèle)` est appelé pour
+/// Ce que la démo dessine : les cubes et le sol ; les modèles glTF sont à `app`, dans l'étape
+/// « modèles ». `draw(mesh, instances, matériau, modèle)` est appelé pour
 /// chacun de ceux qui touchent `frustum` : par la passe d'ombres, puis par la passe des meshes. Les
 /// autres sont comptés dans `count`, sans être soumis au GPU.
 template <typename Draw>
@@ -1017,18 +861,6 @@ void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum
     {
         drawIfVisible(scene.ground, scene.groundInstance, *scene.material, glm::mat4{1.0f});
     }
-    scene.modelParts.each(
-        [&](const levain::assets::MeshRef& part, const levain::scene::WorldTransform& world)
-        {
-            const ModelGpu& model = scene.app.models.at(part.mesh.asset);
-            for (const ModelPrimitiveGpu& primitive : model.meshes[part.mesh.sub])
-            {
-                drawIfVisible(primitive.mesh, scene.modelInstance,
-                              primitive.material ? *model.materials[*primitive.material]
-                                                 : *scene.material,
-                              world.matrix);
-            }
-        });
 }
 
 /// La sélection à la souris, le critère de M6.2 : le rayon de la caméra par le pixel visé, puis le
@@ -1309,8 +1141,8 @@ bool finishDemo(DemoScene& scene)
     // Le critère de #132 : ce que le frustum culling épargne au GPU, par image.
     const auto perFrame = [&scene](std::uint64_t count)
     { return static_cast<double>(count) / std::max(scene.app.frameCount, 1); };
-    const DrawCount& camera = scene.cameraCulling;
-    const DrawCount& shadows = scene.shadowCulling;
+    const DrawCount camera = scene.cameraCulling + scene.app.modelsCamera;
+    const DrawCount shadows = scene.shadowCulling + scene.app.modelsShadows;
     levain::core::log(
         "sandbox", levain::core::LogLevel::Info,
         "culling, par image : caméra {:.1f} dessins écartés sur {:.1f}, ombres {:.1f} "
@@ -1402,15 +1234,11 @@ void steerDemo(DemoScene& scene)
     }
 }
 
-/// Ce que l'image envoie au GPU avant de dessiner : les poses des modèles animés, les instances
-/// des cubes, et les lumières de la démo.
+/// Ce que l'image envoie au GPU avant de dessiner : les instances des cubes, et les lumières de la
+/// démo. Les poses des modèles animés sont à `app`, qui les demande à `motionToPlay`.
 void recordDemo(DemoScene& scene, nvrhi::ICommandList& commandList, double seconds)
 {
     levain::app::App& app = scene.app;
-    levain::app::animateModels(
-        *app.gpu.nvrhi, commandList, app.models, app.skinning, app.skinningState,
-        [&scene, seconds](const levain::assets::AssetId& id)
-        { return motionToPlay(scene, id, seconds); }, seconds);
     // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
     gatherCubePoses(scene.cubes, scene.cubesTurn, scene.cubePoses);
     levain::render::updateInstances(commandList, scene.grid, scene.cubePoses);
@@ -1456,7 +1284,9 @@ levain::core::Result<levain::app::FrameHooks> startSandbox(levain::app::App& app
         .frame = [scene](levain::app::App&) { steerDemo(*scene); },
         .record = [scene](levain::app::App&, nvrhi::ICommandList& commandList, double seconds)
         { recordDemo(*scene, commandList, seconds); },
-        .finish = [scene](levain::app::App&) { return finishDemo(*scene); }};
+        .finish = [scene](levain::app::App&) { return finishDemo(*scene); },
+        .motionOf = [scene](const levain::assets::AssetId& id, double seconds)
+        { return motionToPlay(*scene, id, seconds); }};
 }
 
 } // namespace

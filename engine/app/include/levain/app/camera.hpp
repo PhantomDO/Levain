@@ -1,0 +1,35 @@
+#pragma once
+
+// La caméra du rendu (ADR-0029, point 8) : une entité comme les autres, qui porte un objectif. Le
+// rendu regarde par l'unique entité qui en a un.
+
+#include <flecs.h>
+#include <glm/glm.hpp>
+
+#include "levain/core/error.hpp"
+#include "levain/render/camera.hpp"
+
+namespace levain::app
+{
+
+/// L'objectif d'une caméra : son champ vertical et ses plans de découpe. L'entité qui le porte
+/// donne la position et le regard, par sa matrice monde (vers −Z, comme `render::Camera`).
+/// C'est le `CameraComponent` d'Unreal, la `Camera3D` de Godot.
+struct CameraLens
+{
+    float verticalFovDegrees = 60.0f;
+    float nearPlane = 0.5f;
+    float farPlane = 1000.0f;
+};
+
+/// La caméra du rendu, d'un objectif et de la matrice monde de son entité : celle-ci est déjà
+/// interpolée entre deux pas de simulation (ADR-0016). Lire le `Transform` ferait saccader le
+/// regard dès que le rendu va plus vite que la simulation.
+[[nodiscard]] render::Camera cameraFrom(const CameraLens& lens, const glm::mat4& world);
+
+/// La caméra du rendu, celle de l'unique entité qui porte un `CameraLens` et une matrice monde.
+/// Aucune, ou plusieurs, est une erreur qui les nomme : le rendu ne choisit pas au hasard
+/// (règle n°7).
+[[nodiscard]] core::Result<render::Camera> renderCameraOf(const flecs::world& world);
+
+} // namespace levain::app

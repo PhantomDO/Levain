@@ -12,12 +12,12 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
   navigateur, le compte rendu des images (le titre, le calque de la page web, Tracy), les bilans et la capture ;
 - **les points d'accroche** (`FrameHooks`) que la fonction de démarrage du programme rend ;
 - **les options communes** de la ligne de commande (`parseCommonOption`) ;
-- **les modèles glTF sur le GPU** : leurs meshes, skinnés ou non, leurs textures, cuites si possible
-  (ADR-0020), un binding set par matériau, l'animation des modèles skinnés (ADR-0022) ;
+- **les modèles glTF** : `loadModel` les lit, les envoie au GPU (meshes skinnés ou non, textures cuites si
+  possible, ADR-0020, un binding set par matériau) et les instancie ; l'étape « modèles » dessine toute entité
+  qui porte un `MeshRef`, et `app` anime les modèles skinnés (ADR-0022) ;
+- **la caméra du rendu** : l'unique entité qui porte un `CameraLens` ;
+- **l'input du joueur en singleton du monde** (`PlayerInput`), avec les appuis qu'aucun pas n'a encore vus ;
 - le hot-reload des shaders (ADR-0014) et des textures (ADR-0021).
-
-La suite arrive par la PR suivante de l'issue #300 : la caméra du rendu par `CameraLens`, l'input en singleton
-et `loadModel`.
 
 ## Invariants
 
@@ -35,10 +35,19 @@ et `loadModel`.
    avant le device.
 5. **`App` ne bouge pas en mémoire** : il est sur le tas, créé une fois. Les fonctions d'étape et les systèmes
    du programme peuvent le garder par référence.
-6. **Un appelant dont l'envoi échoue après `open()`** appelle `submitAbandonedUpload` avant de rendre l'erreur
+6. **Une seule caméra** : zéro ou plusieurs entités avec un `CameraLens` font échouer le démarrage, puis
+   l'image où cela arrive, en les nommant (règle n°7).
+7. **Un modèle skinné ne se charge qu'une fois** : l'animation est rangée par asset, et `loadModel` refuse un
+   modèle déjà chargé.
+8. **Un appelant dont l'envoi échoue après `open()`** appelle `submitAbandonedUpload` avant de rendre l'erreur
    (voir « Pièges connus »).
 
 ## Pièges connus
+
+- **Les appuis entre deux pas** : `input::actionPressed` ne vaut que pour l'image de l'appui. À 144 images/s, la
+  plupart des images ne jouent aucun pas de simulation, et un système du pas fixe ne verrait jamais l'appui ;
+  une image qui en joue deux le verrait deux fois. `PlayerInput` cumule donc les appuis jusqu'au prochain pas
+  joué (`pressedSinceLastStep`), et les oublie après lui (`forgetPressesAfterSteps`).
 
 - **Le temps où la fenêtre est cachée n'est pas une image** : dans le navigateur, un onglet caché n'est plus
   appelé, et la première image au retour durerait toute l'absence (`forgetHiddenTime`). En natif, la boucle
@@ -60,7 +69,10 @@ et `loadModel`.
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `AppSettings`, `ShaderBuild`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `App`, `FrameHooks`, `StartFunction`, `runApp` |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `AppSettings`, `ShaderBuild`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf`), `StartFunction`, `runApp` |
+| [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf` : la caméra du rendu |
+| [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPressesAfterSteps`, `pressedSinceLastStep` : l'input en singleton |
+| [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
 | [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `SkinningState`, `createSkinningState`, `animateModels` |
 | [`include/levain/app/texture_reload.hpp`](include/levain/app/texture_reload.hpp) | `TextureReload`, `startTextureReload`, `reloadChangedTextures` : le hot-reload des textures |
 | [`src/model_textures.hpp`](src/model_textures.hpp) | `textureTargetOf`, `UploadedTexture`, `uploadTexture` : une texture au format que le GPU échantillonne ; interne, partagé par l'envoi et le hot-reload |

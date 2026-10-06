@@ -20,6 +20,7 @@
 
 #include "levain/app/models.hpp"
 #include "levain/assets/asset_ref.hpp"
+#include "levain/assets/gltf.hpp"
 #include "levain/assets/registry.hpp"
 #include "levain/core/error.hpp"
 #include "levain/gpu/device.hpp"
@@ -30,10 +31,12 @@
 #include "levain/render/environment.hpp"
 #include "levain/render/gpu_timer.hpp"
 #include "levain/render/light_clusters.hpp"
+#include "levain/render/mesh.hpp"
 #include "levain/render/renderer.hpp"
 #include "levain/render/skinning.hpp"
 #include "levain/render/texture.hpp"
 #include "levain/render/tonemap.hpp"
+#include "levain/scene/components.hpp"
 #include "levain/scene/fixed_step.hpp"
 
 namespace levain::app
@@ -112,6 +115,15 @@ inline constexpr std::string_view CommonOptionsUsage =
 
 struct App;
 
+/// Les dessins d'une passe depuis le début de la boucle : soumis au GPU, écartés par le frustum
+/// culling (#132), et les triangles soumis, instances comprises (#133).
+struct DrawCount
+{
+    std::uint64_t drawn = 0;
+    std::uint64_t culled = 0;
+    std::uint64_t triangles = 0;
+};
+
 /// Ce que le programme branche sur chaque image, tout facultatif. Les captures de ces fonctions
 /// gardent son état (ses meshes, ses textures) : `App` les détruit avant le renderer et le device,
 /// dont cet état dépend.
@@ -124,6 +136,9 @@ struct FrameHooks
     std::function<void(App&, nvrhi::ICommandList&, double seconds)> record;
     /// À la fin de la boucle, avant la capture : ses bilans. `false` fait échouer le programme.
     std::function<bool(App&)> finish;
+    /// Le mouvement que jouent les modèles qui ont une locomotion (`loadModel`). Sans, ils restent
+    /// au repos.
+    MotionOf motionOf;
 };
 
 /// Ce que la boucle anime, et que le programme lit ou remplit. Ses champs ne bougent pas en
@@ -142,9 +157,8 @@ struct App
 
     flecs::world world;
     scene::FixedStep fixedStep; ///< L'horloge de la simulation, 60 Hz (ADR-0016).
-    /// La caméra du rendu : l'entité, que le programme pose au démarrage, et ce que le rendu en
-    /// relit à chaque image, à sa matrice monde interpolée.
-    flecs::entity cameraEntity{};
+    /// La caméra du rendu de la dernière image, relue sur l'unique entité qui porte un
+    /// `CameraLens` (camera.hpp) : le programme la lit, pour viser à la souris par exemple.
     render::Camera camera;
 
     /// Les modèles glTF, par GUID (ADR-0019) : le registre des chemins, les modèles en mémoire, et
@@ -152,6 +166,14 @@ struct App
     assets::AssetRegistry registry;
     assets::ModelCache modelCache;
     std::map<assets::AssetId, ModelGpu> models;
+    /// Ce que l'étape « modèles » dessine (`loadModel`) : toute entité qui porte un `MeshRef`, à sa
+    /// matrice monde, une instance chacune.
+    flecs::query<const assets::MeshRef, const scene::WorldTransform> modelParts;
+    render::Instances modelInstance; ///< Une seule, à l'origine : la matrice monde place.
+    /// Pour une primitive sans matériau : blanc, non métallique, assez rugueux.
+    nvrhi::BindingSetHandle defaultMaterial;
+    DrawCount modelsCamera;  ///< Les dessins des modèles, par la caméra.
+    DrawCount modelsShadows; ///< Et par les quatre cascades d'ombres ensemble.
 
     /// L'éclairage de l'image : le soleil (celui du ciel, ou celui des réglages), les lumières que
     /// le programme pose à chaque image, et le fond, là où rien n'est dessiné.
@@ -159,6 +181,8 @@ struct App
     std::vector<render::PointLight> lights;
     glm::vec4 background{0.55f, 0.32f, 0.14f, 1.0f}; ///< Une croûte de levain.
 
+    /// Les liaisons et l'état de l'input, que `app` recopie à chaque image dans le singleton
+    /// `PlayerInput` du monde (player_input.hpp), avec les appuis qu'aucun pas n'a encore vus.
     input::Bindings bindings;
     input::InputState input;
 
@@ -171,8 +195,8 @@ struct App
 };
 
 /// Pose la scène du programme, `App` étant prêt, et rend ses points d'accroche. Elle **doit**
-/// poser la caméra : `App::cameraEntity`, une entité qui porte un `Transform`, et `App::camera`,
-/// son champ et ses plans. Un échec arrête le programme avec son message.
+/// poser la caméra : une seule entité qui porte un `CameraLens` (camera.hpp) et un `Transform`.
+/// Un échec arrête le programme avec son message.
 using StartFunction = std::function<core::Result<FrameHooks>(App&)>;
 
 /// Le programme entier : la fenêtre, le device, `start`, la boucle, les bilans et la capture. En
