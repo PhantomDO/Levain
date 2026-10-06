@@ -353,6 +353,13 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   sert pas à la PR suivante : après un changement du manifeste, les PR n'en profitent qu'une fois qu'une CI a
   tourné sur `main`. En cas d'erreur réseau (504) sur un job, relancer les jobs en échec après que `main` a
   enregistré ses caches.
+- **Un cache binaire sans `restore-keys` recompile tout à chaque changement du manifeste** (2026-10-06).
+  Symptôme : après l'arrivée de Jolt dans *Rando* (#6), chaque job recompilait toutes les dépendances (25 à
+  37 min), et les PR empilées au-dessus aussi, puisque le cache de #6 ne leur était pas visible ; remarqué par
+  Donnovan. Cause : la clé contient l'empreinte de `vcpkg.json`, et sans `restore-keys` aucun ancien cache ne
+  correspond. Parade : `restore-keys: vcpkg-<tag>-`. vcpkg ne reprend une archive que si l'ABI du paquet n'a
+  pas changé, il ne compile donc que ce qui manque : 26 paquets restaurés, Jolt et meshoptimizer compilés,
+  3 min (*Rando* #9).
 - **Le bootstrap de vcpkg exige que `VCPKG_DOWNLOADS` soit un dossier existant** (2026-09-21) : « was set to
   …, but that was not a directory ». Restaurer ce cache et créer le dossier **avant** le bootstrap ; le cache
   binaire, lui, peut attendre après.
