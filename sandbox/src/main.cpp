@@ -991,8 +991,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                 const std::optional<std::filesystem::path>& skyPath, SandboxView view,
                 std::optional<glm::vec3> cameraPosition, std::optional<glm::vec3> sunDirection)
 {
-    // Le modèle de `--model`, par son GUID : le dossier qui le contient est scanné (ADR-0019), ce
-    // qui lui donne un .meta s'il n'en avait pas.
+    // Les modèles demandés, chacun par son GUID : le dossier qui contient chacun est scanné
+    // (ADR-0019), ce qui lui donne un .meta s'il n'en avait pas.
     levain::assets::AssetRegistry registry;
     levain::assets::ModelCache modelCache;
     std::vector<LoadedModel> loadedModels;
