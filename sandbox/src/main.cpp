@@ -101,6 +101,19 @@ struct LoopState
     bool isVisible = true;
 };
 
+/// Le piège du temps masqué : sous le web, le navigateur cesse d'appeler la boucle d'un onglet
+/// caché, et l'horloge des images n'est pas remise à l'heure. Au retour (`Shown`), l'intervalle
+/// repart de cette image ; sinon la première durerait toute l'absence, et le calque de la page
+/// (#294) afficherait 0 image/s pendant une seconde.
+void forgetHiddenTime(Clock::time_point& previousFrameEnd,
+                      const levain::platform::WindowEvent& event, Clock::time_point frameStart)
+{
+    if (event.type == levain::platform::WindowEventType::Shown)
+    {
+        previousFrameEnd = frameStart;
+    }
+}
+
 void applyWindowEvent(LoopState& state, const levain::platform::WindowEvent& event)
 {
     using levain::platform::WindowEventType;
@@ -1794,8 +1807,9 @@ void addDemoStages(DemoScene& scene)
 /// Efface l'image de la swapchain et son depth buffer, y dessine la grille, et la présente. Rend le
 /// temps GPU d'une frame précédente, dès qu'il est lisible. Avec `capture`, l'image est aussi
 /// copiée pour être relue (`render::readBack`).
-/// `displayWait`, s'il est donné, reçoit le temps passé à attendre l'écran : l'image libre, puis
-/// la présentation. Ce n'est pas du travail du moteur (#294).
+/// `displayWait`, s'il est donné, reçoit le temps passé dans `beginFrame` et `presentFrame` :
+/// l'attente de l'écran ou du GPU, qui n'est pas du travail du moteur (#294). La recréation de la
+/// swapchain et le ramasse-miettes de NVRHI, courts, y sont comptés aussi.
 std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
                                   const levain::platform::Window& window, DemoScene& scene,
                                   nvrhi::ICommandList& commandList, double seconds,
@@ -2501,6 +2515,7 @@ bool runFrame(Loop& loop)
         for (const auto& event : events.window)
         {
             applyWindowEvent(loop.state, event);
+            forgetHiddenTime(loop.previousFrameEnd, event, frameStart);
         }
         levain::input::updateInput(loop.input, loop.bindings, events.input,
                                    static_cast<float>(loop.lastFrameSeconds));

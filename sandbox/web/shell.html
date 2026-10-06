@@ -10,6 +10,8 @@
   #status { position: fixed; inset: 0; z-index: 1; display: grid; place-items: center; padding: 0 16px; text-align: center; color: #fff; text-shadow: 0 1px 2px #000; pointer-events: none; }
   #hint { position: fixed; z-index: 1; left: 8px; top: 6px; color: #fffc; text-shadow: 0 1px 2px #000; }
   #stats { position: fixed; z-index: 1; right: 8px; top: 6px; margin: 0; padding: 4px 8px; max-width: calc(100% - 32px); overflow: hidden; white-space: pre-wrap; color: #fff; background: #0008; border-radius: 4px; font: 11px/1.4 ui-monospace, monospace; pointer-events: none; }
+  /* Sur un écran étroit, l'indice des touches tient deux lignes : le calque passe dessous. */
+  @media (max-width: 760px) { #stats { top: 48px; } }
   #credits { position: fixed; z-index: 1; left: 8px; bottom: 6px; color: #fffc; text-shadow: 0 1px 2px #000; }
 </style>
 </head>
@@ -52,7 +54,10 @@ var Module = {
   printErr: (text) => { console.error(text); showCritical(text); },
   setStatus: (text) => { status.textContent = text; },
   onRuntimeInitialized: () => { status.textContent = ""; },
-  onFrameReport: levainStatsOverlay(document.getElementById("stats")),
+  // Le calque est un plus : s'il manque, le moteur démarre quand même (tools/web-smoke.mjs le
+  // remarque, lui).
+  onFrameReport: typeof levainStatsOverlay === "function"
+    ? levainStatsOverlay(document.getElementById("stats")) : undefined,
 };
 if (!navigator.gpu) {
   status.textContent = "Ce navigateur n'a pas WebGPU (Firefox : dom.webgpu.enabled ; Chrome et Edge : récents).";

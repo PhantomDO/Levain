@@ -579,8 +579,18 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           mkdir -p pages
-          cp build/web/sandbox/levain_sandbox.{html,js,wasm,data} pages/
+          cp build/web/sandbox/{levain_sandbox.{html,js,wasm,data},stats.js} pages/
           cp pages/levain_sandbox.html pages/index.html
+          # Chaque script local que la page charge doit être publié avec elle : sans stats.js (#294),
+          # le calque manquerait, et le test de fumée, qui sert build/web, ne le verrait pas. Emscripten
+          # minifie la page : `src=stats.js`, sans guillemets. Au moins deux scripts, sinon le motif
+          # ne reconnaît plus rien et le contrôle passerait sans rien vérifier (règle n°7).
+          scripts=$(grep -oE 'src="?[^" >]+' pages/index.html | sed -E 's/^src="?//' | grep -v ':' || true)
+          [ "$(echo "$scripts" | grep -c .)" -ge 2 ] \
+            || { echo "::error::scripts de la page non reconnus : $scripts"; exit 1; }
+          for script in $scripts; do
+            [ -f "pages/$script" ] || { echo "::error::$script, chargé par la page, n'est pas publié"; exit 1; }
+          done
 
       - name: Envoyer la page
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

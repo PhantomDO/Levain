@@ -67,7 +67,9 @@ if (referencePath === "-") {
   // Le calque des mesures (#294) : le moteur doit en avoir rendu compte, et la page l'afficher.
   const { report, text } = JSON.parse(overlayState);
   console.log(`calque :\n${text}`);
-  if (!(report?.imagesPerSecond > 0) || !text.includes("images/s")) {
+  const sane = report?.imagesPerSecond > 0 && report.engineMs > 0 && report.enginePercent <= 100 &&
+    report.width > 0 && report.height > 0;
+  if (!sane || !text.includes("images/s") || !text.includes("navigateur :")) {
     console.error("ÉCHEC : le calque des mesures est vide");
     process.exit(1);
   }

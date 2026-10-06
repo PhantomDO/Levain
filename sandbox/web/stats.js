@@ -30,22 +30,31 @@ function levainBrowser() {
 }
 
 // Le GPU tel que WebGPU le décrit. Le navigateur choisit ce qu'il en dit : Chromium donne le vendeur
-// et l'architecture, Firefox peut ne rien donner.
+// et l'architecture, Firefox peut ne rien donner. Le même que demande le moteur, le plus puissant
+// (engine/gpu/src/webgpu/create.cpp) : sur une machine à deux GPU, l'autre serait décrit.
 async function levainGpu() {
   if (!navigator.gpu) return "pas de WebGPU";
-  const adapter = await navigator.gpu.requestAdapter();
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+  if (!adapter) return "aucun adaptateur WebGPU";
   const info = adapter?.info ?? (await adapter?.requestAdapterInfo?.());
   const text = [info?.vendor, info?.architecture, info?.device, info?.description].filter(Boolean).join(" ");
   return text || "non communiqué par le navigateur";
+}
+
+// La mémoire, telle que Chromium la donne : arrondie à la puissance de deux la plus proche, de 0,25
+// à 8 Go (une tablette de 3 Go en annonce 4). D'où le « ≈ », et « ou plus » au plafond seulement.
+function levainMemory() {
+  const memory = navigator.deviceMemory;
+  if (!memory) return "mémoire non communiquée";
+  if (memory >= 8) return "8 Go ou plus";
+  return `≈ ${levainNumber(memory, memory < 1 ? 2 : 0)} Go`;
 }
 
 // Branche le calque sur `element` et rend la fonction à donner à `Module.onFrameReport`.
 function levainStatsOverlay(element) {
   let machine = [`navigateur : ${levainBrowser()}`];
   const cores = navigator.hardwareConcurrency;
-  const memory = navigator.deviceMemory; // Chromium seulement, arrondie, 8 Go au plus
-  machine.push(`${cores ? `${cores} cœurs logiques` : "cœurs non communiqués"} · ` +
-               `${memory ? `${levainNumber(memory, 0)} Go ou plus` : "mémoire non communiquée"}`);
+  machine.push(`${cores ? `${cores} cœurs logiques` : "cœurs non communiqués"} · ${levainMemory()}`);
   let frame = ["en attente de la première seconde…"];
   const draw = () => { element.textContent = [...frame, ...machine].join("\n"); };
   levainGpu()
