@@ -38,6 +38,8 @@
 #include "levain/animation/animation_set.hpp"
 #include "levain/animation/animator.hpp"
 #include "levain/animation/pose.hpp"
+#include "levain/app/models.hpp"
+#include "levain/app/texture_reload.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/collision.hpp"
 #include "levain/assets/gltf.hpp"
@@ -156,6 +158,11 @@ double secondsBetween(Clock::time_point start, Clock::time_point end)
 using levain::render::averageOf;
 using levain::render::GpuTimeAverage;
 
+// Les modèles sur le GPU, dans le module app (ADR-0029).
+using levain::app::ModelGpu;
+using levain::app::ModelPrimitiveGpu;
+using levain::app::textureLevelsOf;
+
 /// Les dessins d'une passe depuis le début de la boucle : soumis au GPU, écartés par le frustum
 /// culling (#132), et les triangles soumis, instances comprises (#133).
 struct DrawCount
@@ -241,76 +248,6 @@ constexpr float GridSpacing = 1.5f;
 constexpr float GroundSize = 1000.0f;
 constexpr float GroundTextureRepeat = GroundSize / 8.0f;
 
-/// Une texture sur le GPU : sa référence (ADR-0020), et vrai si ce sont des données
-/// (rugosité-métal, normal map) et non une couleur. La même image servirait aux deux en deux
-/// textures : le format sRGB ou UNORM se choisit à la création.
-using TextureKey = std::pair<levain::assets::AssetRef, bool>;
-
-/// Une primitive d'un modèle importé, prête à dessiner.
-struct ModelPrimitiveGpu
-{
-    levain::render::Mesh mesh;
-    std::optional<std::uint32_t> material; ///< Indice dans `ModelGpu::materials`.
-    /// Un mesh skinné (ADR-0022) : `mesh` est alors son mesh déformé, que le compute réécrit à
-    /// chaque image.
-    std::optional<levain::render::SkinnedMesh> skin;
-};
-
-/// Un modèle glTF sur le GPU. Les meshes sont dans l'ordre de `Model::meshes` : c'est ce qui donne
-/// un sens au sous-indice d'un `MeshRef` (ADR-0019).
-struct ModelGpu
-{
-    std::vector<std::vector<ModelPrimitiveGpu>> meshes;
-    /// Une par texture distincte (`TextureKey`) : une texture partagée par deux matériaux n'est
-    /// chargée qu'une fois.
-    std::map<TextureKey, nvrhi::TextureHandle> textures;
-    /// Pour les textures qu'un matériau n'a pas, que ses facteurs règlent seuls.
-    levain::render::MaterialDefaults defaults;
-    /// Les octets des textures en mémoire vidéo au chargement (critère de #92). Un hot-reload
-    /// (ADR-0021) ne le met pas à jour.
-    std::size_t textureBytes = 0;
-    std::vector<nvrhi::BindingSetHandle> materials;
-    /// Pour un modèle skinné : son squelette et ses clips, le clip joué, et la pose et les
-    /// matrices du skinning de la dernière image, gardées pour ne pas réallouer.
-    std::optional<levain::animation::AnimationSet> animation;
-    std::size_t clip = 0;
-    /// Avec `--locomotion` : l'animateur, qui remplace le clip unique (#118).
-    std::optional<levain::animation::Animator> animator;
-    levain::animation::AnimatorClips animatorClips;
-    float lastSeconds = 0.0f;   ///< Le temps de l'image précédente : l'animateur et sa mesure.
-    bool followsPlayer = false; ///< Animé par le mouvement du joueur, pas par la démo (M6.3).
-    levain::animation::Pose pose;
-    std::vector<glm::mat4> skinMatrices;
-};
-
-/// Le coût du skinning (critère de #117), en moyenne sur la boucle : l'échantillonnage et les
-/// matrices côté CPU, le compute côté GPU.
-struct SkinningCost
-{
-    double cpuMs = 0.0;
-    std::size_t frames = 0;
-    double gpuMs = 0.0;
-    std::size_t gpuSamples = 0;
-    /// La plus grande vitesse d'un os d'une image à l'autre, en unités du modèle par seconde. Un
-    /// saut de pose (critère de M4.5) la ferait bondir au-dessus de celle du clip le plus rapide.
-    float maxJointSpeed = 0.0f;
-};
-
-/// La plus grande vitesse d'un os entre deux poses séparées de `seconds`.
-float maxJointSpeedOf(const levain::animation::Pose& before, const levain::animation::Pose& after,
-                      float seconds)
-{
-    float fastest = 0.0f;
-    for (std::size_t joint = 0; joint < std::min(before.joints.size(), after.joints.size());
-         ++joint)
-    {
-        fastest = std::max(fastest, glm::distance(glm::vec3(before.joints[joint][3]),
-                                                  glm::vec3(after.joints[joint][3])) /
-                                        seconds);
-    }
-    return fastest;
-}
-
 /// Ce que dessine le sandbox en M2.2 : une grille de cubes texturés qui tournent, sur un sol qui
 /// file jusqu'à l'horizon, où se voit le filtrage anisotrope.
 struct DemoScene
@@ -344,6 +281,8 @@ struct DemoScene
     /// Le personnage de `--view character` (M6.3) : la caméra le suit, le clavier le mène, son
     /// mouvement anime le renard. Vide dans les autres vues.
     flecs::entity player{};
+    /// Le modèle qui joue le mouvement du joueur, le renard ; les autres jouent la démo.
+    std::optional<levain::assets::AssetId> playerModel;
     levain::render::Camera camera;
     /// La grille de cubes, le sol et les lumières de couleur ; absents des autres vues.
     bool demoProps = true;
@@ -368,8 +307,7 @@ struct DemoScene
     levain::terrain::TerrainStats terrainCamera;
     levain::terrain::TerrainStats terrainShadows;
     levain::render::GpuTimer gpuTimer;
-    levain::render::GpuTimer skinningTimer; ///< Le seul skinning : le critère de coût de #117.
-    SkinningCost skinningCost;
+    levain::app::SkinningState skinningState; ///< Son minuteur et son coût : le critère de #117.
     DrawCount cameraCulling;
     DrawCount shadowCulling; ///< Les quatre cascades ensemble.
 };
@@ -532,218 +470,6 @@ void enableExplorerOnLoopback(flecs::world& world)
 }
 #endif
 
-/// Les niveaux de mip dans le format qu'attend render. Ils pointent dans `mips`, qui doit leur
-/// survivre jusqu'à l'envoi.
-std::vector<levain::render::TextureLevel>
-textureLevelsOf(const std::vector<levain::assets::Image>& mips)
-{
-    std::vector<levain::render::TextureLevel> levels;
-    levels.reserve(mips.size());
-    for (const levain::assets::Image& mip : mips)
-    {
-        levels.push_back({.width = mip.width,
-                          .height = mip.height,
-                          .bytes = std::as_bytes(std::span{mip.rgba})});
-    }
-    return levels;
-}
-
-/// Les niveaux d'une texture chargée par `assets`, cuite ou non, pour `render`.
-std::vector<levain::render::TextureLevel> textureLevelsOf(const levain::assets::TextureData& data)
-{
-    std::vector<levain::render::TextureLevel> levels;
-    levels.reserve(data.mips.size());
-    for (const levain::assets::TextureMip& mip : data.mips)
-    {
-        levels.push_back({.width = mip.width, .height = mip.height, .bytes = mip.bytes});
-    }
-    return levels;
-}
-
-/// Le format NVRHI d'une texture. `linear` : des données (rugosité-métal, normal map), que le GPU
-/// lit telles quelles au lieu de les convertir depuis le sRGB.
-// ponytail: les données sont cuites comme les couleurs : leurs mips sont moyennés en sRGB, et ceux
-// des normal maps ne sont pas renormalisés. L'espace de couleur dans le .meta et des mips linéaires
-// si un artefact se voit de loin.
-nvrhi::Format nvrhiFormatOf(levain::assets::TextureFormat format, bool linear)
-{
-    if (format == levain::assets::TextureFormat::Bc7Srgb)
-    {
-        return linear ? nvrhi::Format::BC7_UNORM : nvrhi::Format::BC7_UNORM_SRGB;
-    }
-    return linear ? nvrhi::Format::RGBA8_UNORM : nvrhi::Format::SRGBA8_UNORM;
-}
-
-/// Le format où charger les textures cuites : le BC7 si le GPU l'échantillonne (tous les GPU de
-/// PC), le RGBA8 sinon.
-levain::assets::TextureFormat textureTargetOf(nvrhi::IDevice& device)
-{
-    return levain::render::supportsSampledFormat(device, nvrhi::Format::BC7_UNORM_SRGB)
-               ? levain::assets::TextureFormat::Bc7Srgb
-               : levain::assets::TextureFormat::Rgba8Srgb;
-}
-
-struct UploadedTexture
-{
-    nvrhi::TextureHandle handle;
-    std::size_t bytes = 0; ///< En mémoire vidéo, mips comprises.
-};
-
-/// Charge la texture `key`, cuite si possible (ADR-0020) : le cache BC7 se copie tel quel, sinon
-/// la source. Son envoi est enregistré dans `commandList`.
-levain::core::Result<UploadedTexture> uploadTexture(nvrhi::IDevice& device,
-                                                    nvrhi::ICommandList& commandList,
-                                                    const levain::assets::AssetRegistry& registry,
-                                                    const levain::assets::ModelCache& models,
-                                                    TextureKey key,
-                                                    levain::assets::TextureFormat target)
-{
-    const auto [ref, linear] = key;
-    auto data = levain::assets::loadTextureData(registry, models, ref, target,
-                                                linear ? levain::assets::ImageEncoding::Linear
-                                                       : levain::assets::ImageEncoding::Srgb);
-    if (!data)
-    {
-        return std::unexpected(data.error());
-    }
-    // Le nom du fichier source, pour retrouver la texture dans une capture RenderDoc
-    // (tools/renderdoc-mips.py). NVRHI le recopie.
-    const std::string name =
-        levain::assets::pathOf(registry, ref.asset).value_or("glTF").filename().string();
-    UploadedTexture texture{
-        .handle = levain::render::createTexture(device, commandList, textureLevelsOf(*data),
-                                                name.c_str(), nvrhiFormatOf(data->format, linear)),
-        .bytes = 0};
-    for (const levain::assets::TextureMip& mip : data->mips)
-    {
-        texture.bytes += mip.bytes.size();
-    }
-    return texture;
-}
-
-/// Envoie meshes et textures, et enregistre l'envoi dans `commandList`. La couleur d'un sommet est
-/// la couleur de base de son matériau ; sans matériau, c'est sa normale ramenée dans [0, 1], qui
-/// rend les formes lisibles sans éclairage (M5.1).
-levain::core::Result<ModelGpu> uploadModel(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
-                                           const levain::assets::Model& model,
-                                           const levain::assets::AssetRegistry& registry,
-                                           const levain::assets::ModelCache& models,
-                                           const levain::render::SkinningPass& skinning,
-                                           std::uint32_t skinJointCount)
-{
-    const levain::assets::TextureFormat target = textureTargetOf(device);
-    ModelGpu gpu;
-    std::vector<levain::render::MeshVertex> vertices;
-    for (const levain::assets::ModelMesh& mesh : model.meshes)
-    {
-        std::vector<ModelPrimitiveGpu>& primitives = gpu.meshes.emplace_back();
-        for (const levain::assets::MeshPrimitive& primitive : mesh.primitives)
-        {
-            // Le matériau porte sa couleur de base (MaterialConstants) : le sommet reste blanc.
-            const std::optional<glm::vec3> baseColor =
-                primitive.material ? std::optional{glm::vec3{1.0f}} : std::nullopt;
-            vertices.clear();
-            for (const levain::assets::ModelVertex& vertex : primitive.vertices)
-            {
-                vertices.push_back({.position = vertex.position,
-                                    .normal = vertex.normal,
-                                    .tangent = vertex.tangent,
-                                    .color = baseColor.value_or(vertex.normal * 0.5f + 0.5f),
-                                    .uv = vertex.uv});
-            }
-            if (primitive.joints.empty())
-            {
-                primitives.push_back({.mesh = levain::render::createMesh(
-                                          device, commandList, vertices, primitive.indices),
-                                      .material = primitive.material,
-                                      .skin = std::nullopt});
-                continue;
-            }
-            // Skinné : les mêmes sommets, avec leurs os et leurs poids, que le compute déformera.
-            std::vector<levain::render::SkinnedVertex> skinned;
-            skinned.reserve(vertices.size());
-            for (std::size_t v = 0; v < vertices.size(); ++v)
-            {
-                skinned.push_back({.position = vertices[v].position,
-                                   .normal = vertices[v].normal,
-                                   .tangent = vertices[v].tangent,
-                                   .color = vertices[v].color,
-                                   .uv = vertices[v].uv,
-                                   .joints = primitive.joints[v],
-                                   .weights = primitive.weights[v]});
-            }
-            levain::render::SkinnedMesh skin = levain::render::createSkinnedMesh(
-                device, commandList, skinning, skinned, primitive.indices, skinJointCount);
-            primitives.push_back(
-                {.mesh = skin.skinned, .material = primitive.material, .skin = std::move(skin)});
-        }
-    }
-    for (const levain::assets::ModelMaterial& material : model.materials)
-    {
-        const std::array<std::pair<std::optional<levain::assets::AssetRef>, bool>, 3> slots{{
-            {material.baseColorTexture, false},
-            {material.metallicRoughnessTexture, true},
-            {material.normalTexture, true},
-        }};
-        for (const auto& [ref, linear] : slots)
-        {
-            if (!ref || gpu.textures.contains({*ref, linear}))
-            {
-                continue;
-            }
-            auto texture =
-                uploadTexture(device, commandList, registry, models, {*ref, linear}, target);
-            if (!texture)
-            {
-                return std::unexpected(texture.error());
-            }
-            gpu.textures.emplace(TextureKey{*ref, linear}, texture->handle);
-            gpu.textureBytes += texture->bytes;
-        }
-    }
-    gpu.defaults = levain::render::createMaterialDefaults(device, commandList);
-    return gpu;
-}
-
-/// Abandonne un envoi en cours : `commandList`, ouverte, est fermée et soumise quand même. Juste
-/// détruite, elle fuirait jusqu'à `vkDestroyDevice` avec tout ce qu'elle a enregistré : `open()`
-/// l'inscrit dans les ressources de son propre command buffer (NVRHI, vulkan-commandlist.cpp), un
-/// cycle que seule la file rompt, quand elle retire le command buffer soumis.
-void submitAbandonedUpload(nvrhi::IDevice& device, nvrhi::ICommandList& commandList)
-{
-    commandList.close();
-    device.executeCommandList(&commandList);
-}
-
-/// Un binding set par matériau du modèle : ses facteurs, et ses textures ou celles par défaut. Les
-/// constantes s'envoient par `commandList`.
-void bindModelMaterials(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
-                        const levain::render::MeshPass& pass, nvrhi::ISampler& sampler,
-                        const levain::assets::Model& model, ModelGpu& gpu)
-{
-    const auto textureOf = [&gpu](const std::optional<levain::assets::AssetRef>& ref,
-                                  bool linear) -> nvrhi::ITexture*
-    { return ref ? gpu.textures.at({*ref, linear}).Get() : nullptr; };
-    for (const levain::assets::ModelMaterial& material : model.materials)
-    {
-        const levain::render::MaterialConstants constants{
-            .baseColorFactor = material.baseColorFactor,
-            .metallicFactor = material.metallicFactor,
-            .roughnessFactor = material.roughnessFactor,
-            .normalScale = material.normalScale,
-            .padding = 0.0f,
-        };
-        const levain::render::MaterialTextures textures{
-            .baseColor = textureOf(material.baseColorTexture, false),
-            .metallicRoughness = textureOf(material.metallicRoughnessTexture, true),
-            .normal = textureOf(material.normalTexture, true),
-        };
-        gpu.materials.push_back(levain::render::createMaterialBindings(
-            device, commandList, pass, constants,
-            levain::render::withDefaults(textures, gpu.defaults), sampler));
-    }
-}
-
 /// Où poser le modèle de `--model` : devant la caméra de départ, sur le sol, et tourné de trois
 /// quarts pour montrer deux faces. `scale` vaut 2 par défaut, pour qu'un objet de quelques mètres
 /// se voie de loin ; `--model-scale` le change pour un modèle d'une autre unité (Fox mesure une
@@ -753,46 +479,6 @@ levain::scene::Transform modelPlacement(float scale)
     return {.position = {96.0f, -1.0f, 104.0f},
             .rotation = glm::angleAxis(glm::radians(-50.0f), glm::vec3{0.0f, 1.0f, 0.0f}),
             .scale = glm::vec3{scale}};
-}
-
-/// Vrai si l'un des meshes du modèle est skinné : il faut alors son squelette (ADR-0022).
-bool isSkinned(const levain::assets::Model& model)
-{
-    return std::ranges::any_of(model.meshes,
-                               [](const levain::assets::ModelMesh& mesh)
-                               {
-                                   return std::ranges::any_of(
-                                       mesh.primitives, [](const levain::assets::MeshPrimitive& p)
-                                       { return !p.joints.empty(); });
-                               });
-}
-
-/// L'indice du clip `name`, ou du premier si aucun n'est demandé. Un nom inconnu est un échec, qui
-/// liste les clips du modèle.
-levain::core::Result<std::size_t> clipIndexOf(const levain::animation::AnimationSet& set,
-                                              const std::optional<std::string>& name)
-{
-    if (set.clips.empty())
-    {
-        return levain::core::makeError(levain::core::ErrorCode::InvalidData,
-                                       "modèle skinné sans clip");
-    }
-    if (!name)
-    {
-        return 0;
-    }
-    std::string available;
-    for (std::size_t clip = 0; clip < set.clips.size(); ++clip)
-    {
-        if (set.clips[clip].name == *name)
-        {
-            return clip;
-        }
-        available += (clip == 0 ? "" : ", ") + set.clips[clip].name;
-    }
-    return levain::core::makeError(
-        levain::core::ErrorCode::InvalidData,
-        std::format("clip « {} » inconnu ; clips : {}", *name, available));
 }
 
 /// La vitesse du renard de démonstration (#118) : du repos à la course, puis retour, en 8 s. Les
@@ -824,7 +510,7 @@ locomotionClipsOf(const levain::animation::AnimationSet& set, std::string_view n
             return levain::core::makeError(levain::core::ErrorCode::InvalidData,
                                            "--locomotion attend trois clips : repos,marche,course");
         }
-        auto clip = clipIndexOf(set, name);
+        auto clip = levain::app::clipIndexOf(set, name);
         if (!clip)
         {
             return std::unexpected(clip.error());
@@ -1065,7 +751,7 @@ levain::core::Result<LoadedModel> loadSandboxModel(const ModelRequest& request,
                        .clip = 0,
                        .animatorClips = std::nullopt,
                        .request = request};
-    if (!isSkinned(*result.model))
+    if (!levain::app::isSkinned(*result.model))
     {
         return result;
     }
@@ -1078,7 +764,7 @@ levain::core::Result<LoadedModel> loadSandboxModel(const ModelRequest& request,
     {
         return std::unexpected(set.error());
     }
-    auto index = clipIndexOf(*set, request.clip);
+    auto index = levain::app::clipIndexOf(*set, request.clip);
     if (!index)
     {
         return std::unexpected(index.error());
@@ -1377,15 +1063,16 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         levain::render::createTexture(*gpu.nvrhi, *upload, textureLevelsOf(mips), "checker");
     const Clock::time_point uploadStart = Clock::now();
     std::map<levain::assets::AssetId, ModelGpu> models;
+    std::optional<levain::assets::AssetId> playerModel;
     for (LoadedModel& loaded : loadedModels)
     {
         const auto skinJoints =
             static_cast<std::uint32_t>(loaded.animation ? loaded.animation->skinJoints.size() : 0);
-        auto uploaded = uploadModel(*gpu.nvrhi, *upload, *loaded.model, registry, modelCache,
-                                    *skinning, skinJoints);
+        auto uploaded = levain::app::uploadModel(*gpu.nvrhi, *upload, *loaded.model, registry,
+                                                 modelCache, *skinning, skinJoints);
         if (!uploaded)
         {
-            submitAbandonedUpload(*gpu.nvrhi, *upload);
+            levain::app::submitAbandonedUpload(*gpu.nvrhi, *upload);
             return std::unexpected(uploaded.error());
         }
         if (loaded.animatorClips)
@@ -1395,11 +1082,14 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         }
         uploaded->animation = std::move(loaded.animation);
         uploaded->clip = loaded.clip;
-        uploaded->followsPlayer = loaded.request.followsPlayer;
+        if (loaded.request.followsPlayer)
+        {
+            playerModel = loaded.id;
+        }
         // Rangés par asset : un même modèle demandé deux fois n'aurait qu'un animateur.
         if (!models.emplace(loaded.id, std::move(*uploaded)).second)
         {
-            submitAbandonedUpload(*gpu.nvrhi, *upload);
+            levain::app::submitAbandonedUpload(*gpu.nvrhi, *upload);
             return levain::core::makeError(
                 levain::core::ErrorCode::InvalidData,
                 std::format("{} demandé deux fois : le sandbox n'en charge qu'une instance",
@@ -1424,8 +1114,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         *samplerHandle);
     for (const LoadedModel& loaded : loadedModels)
     {
-        bindModelMaterials(*gpu.nvrhi, *upload, renderer->meshPass, *samplerHandle, *loaded.model,
-                           models.at(loaded.id));
+        levain::app::bindModelMaterials(*gpu.nvrhi, *upload, renderer->meshPass, *samplerHandle,
+                                        *loaded.model, models.at(loaded.id));
     }
     std::optional<levain::terrain::TerrainPass> terrain;
     std::optional<levain::water::WaterPass> water;
@@ -1518,6 +1208,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .material = std::move(material),
                      .cameraEntity = cameraEntity,
                      .player = player,
+                     .playerModel = playerModel,
                      .camera = camera,
                      .demoProps = view == SandboxView::Demo || view == SandboxView::Physics,
                      .spinCubes = view == SandboxView::Demo,
@@ -1531,8 +1222,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .terrainCamera = {},
                      .terrainShadows = {},
                      .gpuTimer = levain::render::createGpuTimer(*gpu.nvrhi),
-                     .skinningTimer = levain::render::createGpuTimer(*gpu.nvrhi),
-                     .skinningCost = {},
+                     .skinningState = levain::app::createSkinningState(*gpu.nvrhi),
                      .cameraCulling = {},
                      .shadowCulling = {}};
 }
@@ -1568,84 +1258,14 @@ glm::mat4 cubeRotation(double seconds)
 
 /// Le mouvement que joue un modèle animé : celui du joueur pour le modèle qui le suit (M6.3),
 /// sinon la vitesse de démonstration, du repos à la course et retour (#118).
-levain::animation::CharacterMotion motionToPlay(const DemoScene& scene, const ModelGpu& model,
-                                                double seconds)
+levain::animation::CharacterMotion
+motionToPlay(const DemoScene& scene, const levain::assets::AssetId& model, double seconds)
 {
-    if (model.followsPlayer && scene.player)
+    if (scene.playerModel == model && scene.player)
     {
         return scene.player.get<levain::animation::CharacterMotion>();
     }
     return {.speed = demoSpeedAt(seconds)};
-}
-
-/// La pose d'un modèle skinné à `seconds` : son animateur s'il en a un, sinon son clip en boucle.
-void poseModel(ModelGpu& model, const levain::animation::AnimationSet& set,
-               const levain::animation::CharacterMotion& motion, double seconds)
-{
-    if (model.animator)
-    {
-        const levain::animation::AnimatorLayers layers =
-            levain::animation::advanceAnimator(set, model.animatorClips, *model.animator, motion,
-                                               static_cast<float>(seconds) - model.lastSeconds);
-        levain::animation::sampleBlend(set, layers, model.pose);
-        return;
-    }
-    levain::animation::samplePose(set, model.clip, static_cast<float>(seconds), model.pose);
-}
-
-/// Anime les modèles skinnés (ADR-0022) : la pose de leur clip à `seconds`, ses matrices, puis un
-/// dispatch par mesh skinné. À enregistrer avant les dessins qui lisent les sommets déformés. Le
-/// coût est relevé dans `scene.skinningCost`.
-void animateModels(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, DemoScene& scene,
-                   double seconds)
-{
-    const Clock::time_point start = Clock::now();
-    std::optional<std::optional<double>> gpuMs; ///< Vide tant qu'aucun modèle n'est animé.
-    for (auto& [id, model] : scene.models)
-    {
-        if (!model.animation)
-        {
-            continue;
-        }
-        if (!gpuMs)
-        {
-            gpuMs = levain::render::beginGpuTimer(device, commandList, scene.skinningTimer);
-        }
-        const levain::animation::Pose before = model.pose;
-        poseModel(model, *model.animation, motionToPlay(scene, model, seconds), seconds);
-        if (!before.joints.empty() && seconds > model.lastSeconds)
-        {
-            scene.skinningCost.maxJointSpeed =
-                std::max(scene.skinningCost.maxJointSpeed,
-                         maxJointSpeedOf(before, model.pose,
-                                         static_cast<float>(seconds) - model.lastSeconds));
-        }
-        model.lastSeconds = static_cast<float>(seconds);
-        levain::animation::skinningMatrices(*model.animation, model.pose, model.skinMatrices);
-        for (const std::vector<ModelPrimitiveGpu>& mesh : model.meshes)
-        {
-            for (const ModelPrimitiveGpu& primitive : mesh)
-            {
-                if (primitive.skin)
-                {
-                    levain::render::skinMesh(commandList, scene.skinning, *primitive.skin,
-                                             model.skinMatrices);
-                }
-            }
-        }
-    }
-    if (!gpuMs)
-    {
-        return;
-    }
-    levain::render::endGpuTimer(commandList, scene.skinningTimer);
-    scene.skinningCost.cpuMs += secondsBetween(start, Clock::now()) * 1000.0;
-    ++scene.skinningCost.frames;
-    if (*gpuMs)
-    {
-        scene.skinningCost.gpuMs += **gpuMs;
-        ++scene.skinningCost.gpuSamples;
-    }
 }
 
 /// Ce que l'image dessine : les cubes, le sol, et le modèle glTF nœud par nœud, chaque primitive
@@ -1838,7 +1458,10 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
 
         commandList.open();
         gpuMs = levain::render::beginGpuTimer(*gpu.nvrhi, commandList, scene.gpuTimer);
-        animateModels(*gpu.nvrhi, commandList, scene, seconds);
+        levain::app::animateModels(
+            *gpu.nvrhi, commandList, scene.models, scene.skinning, scene.skinningState,
+            [&scene, seconds](const levain::assets::AssetId& id, const ModelGpu&)
+            { return motionToPlay(scene, id, seconds); }, seconds);
         // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
         gatherCubePoses(scene.cubes, scene.cubesTurn, scene.cubePoses);
         levain::render::updateInstances(commandList, scene.grid, scene.cubePoses);
@@ -1872,127 +1495,6 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
             secondsBetween(acquireStart, acquireEnd) + secondsBetween(presentStart, Clock::now());
     }
     return gpuMs;
-}
-
-/// Le hot-reload des textures (ADR-0021) : les fichiers du registre, relus une fois par période.
-struct TextureReload
-{
-    levain::assets::AssetWatch watch;
-    Clock::time_point nextCheck;
-};
-
-/// Comme les shaders : au plus 100 ms entre l'enregistrement d'une texture et sa détection.
-constexpr std::chrono::milliseconds TextureCheckPeriod{100};
-
-TextureReload startTextureReload(const levain::assets::AssetRegistry& registry)
-{
-    return TextureReload{.watch = levain::assets::watchAssets(registry),
-                         .nextCheck = Clock::now() + TextureCheckPeriod};
-}
-
-/// Le temps écoulé depuis la dernière modification de `file`. `file_clock` : la même horloge que
-/// les dates de modification, sans conversion.
-double millisecondsSinceWrite(const std::filesystem::path& file)
-{
-    std::error_code error;
-    const auto age = std::filesystem::file_time_type::clock::now() -
-                     std::filesystem::last_write_time(file, error);
-    return std::chrono::duration<double, std::milli>(age).count();
-}
-
-/// Recharge les textures modifiées sur le disque, depuis leur source puisque leur fichier cuit est
-/// périmé, et refait les binding sets des modèles qui les utilisent. Une texture qui ne se charge
-/// pas (fichier invalide, ou à moitié écrit) reste en place, et l'erreur va dans le log.
-void reloadChangedTextures(TextureReload& reload, nvrhi::IDevice& device,
-                           levain::assets::AssetRegistry& registry,
-                           const levain::assets::ModelCache& modelCache,
-                           std::map<levain::assets::AssetId, ModelGpu>& models,
-                           const levain::render::MeshPass& meshPass, nvrhi::ISampler& sampler)
-{
-    const Clock::time_point now = Clock::now();
-    if (now < reload.nextCheck)
-    {
-        return;
-    }
-    reload.nextCheck = now + TextureCheckPeriod;
-    const std::vector<levain::assets::AssetId> changed =
-        levain::assets::takeChangedAssets(registry, reload.watch);
-    if (changed.empty())
-    {
-        return;
-    }
-
-    const nvrhi::CommandListHandle commandList = device.createCommandList();
-    commandList->open();
-    std::set<levain::assets::AssetId> touchedModels;
-    for (const levain::assets::AssetId& id : changed)
-    {
-        const std::filesystem::path file = registry.entries.at(id).file;
-        // Une texture dans son propre fichier est le sous-asset 0 de son GUID (ADR-0020).
-        const levain::assets::AssetRef ref{.asset = id, .sub = 0};
-        // Ses versions en usage : couleur, données, ou les deux (TextureKey).
-        std::vector<bool> versions;
-        for (const bool linear : {false, true})
-        {
-            if (std::ranges::any_of(models, [&](const auto& model)
-                                    { return model.second.textures.contains({ref, linear}); }))
-            {
-                versions.push_back(linear);
-            }
-        }
-        if (versions.empty())
-        {
-            levain::core::log("assets", levain::core::LogLevel::Info,
-                              "{} modifié : aucune texture en usage, rien à recharger (seules les "
-                              "textures se rechargent à chaud, ADR-0021)",
-                              file.filename().string());
-            continue;
-        }
-        const Clock::time_point loadStart = Clock::now();
-        bool loaded = true;
-        for (const bool linear : versions)
-        {
-            auto texture = uploadTexture(device, *commandList, registry, modelCache, {ref, linear},
-                                         textureTargetOf(device));
-            if (!texture)
-            {
-                levain::core::log("assets", levain::core::LogLevel::Error,
-                                  "{} ; l'ancienne texture reste", texture.error().message);
-                loaded = false;
-                break;
-            }
-            for (auto& [modelId, gpu] : models)
-            {
-                if (auto slot = gpu.textures.find({ref, linear}); slot != gpu.textures.end())
-                {
-                    slot->second = texture->handle;
-                    touchedModels.insert(modelId);
-                }
-            }
-        }
-        if (!loaded)
-        {
-            continue;
-        }
-        // Le critère de M4.4 : l'âge du fichier quand la texture est prête, visible à l'image
-        // suivante.
-        levain::core::log(
-            "assets", levain::core::LogLevel::Info,
-            "{} rechargée en {:.0f} ms, {:.0f} ms après son écriture", file.filename().string(),
-            secondsBetween(loadStart, Clock::now()) * 1000.0, millisecondsSinceWrite(file));
-    }
-    // Un binding set désigne ses textures : ceux des modèles touchés sont refaits, avant la
-    // fermeture de l'envoi, qui porte leurs constantes. NVRHI garde les anciens, et l'ancienne
-    // texture, tant qu'une image en vol s'en sert.
-    for (const levain::assets::AssetId& modelId : touchedModels)
-    {
-        ModelGpu& gpu = models.at(modelId);
-        gpu.materials.clear();
-        bindModelMaterials(device, *commandList, meshPass, sampler, modelCache.models.at(modelId),
-                           gpu);
-    }
-    commandList->close();
-    device.executeCommandList(commandList);
 }
 
 struct SandboxOptions
@@ -2416,7 +1918,7 @@ struct Loop
     Clock::time_point previousFrameEnd;
     int frameCount = 0;
     ShaderReload shaderReload;
-    TextureReload textureReload;
+    levain::app::TextureReload textureReload;
     nvrhi::FramebufferInfo sceneTarget;
     levain::input::InputState input;
     bool mouseCaptured = false;
@@ -2466,7 +1968,7 @@ Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, Sa
                 .previousFrameEnd = now,
                 .frameCount = 0,
                 .shaderReload = startShaderReload(),
-                .textureReload = startTextureReload(scene.registry),
+                .textureReload = levain::app::startTextureReload(scene.registry),
                 .sceneTarget = levain::render::sceneTargetInfo(),
                 .input = levain::input::makeInputState(sandbox.bindings),
                 .mouseCaptured = false,
@@ -2555,8 +2057,9 @@ bool runFrame(Loop& loop)
 
     reloadChangedShaders(loop.shaderReload, *loop.gpu.nvrhi, loop.sceneTarget,
                          scene.renderer.meshPass);
-    reloadChangedTextures(loop.textureReload, *loop.gpu.nvrhi, scene.registry, scene.modelCache,
-                          scene.models, scene.renderer.meshPass, *scene.sampler);
+    levain::app::reloadChangedTextures(loop.textureReload, *loop.gpu.nvrhi, scene.registry,
+                                       scene.modelCache, scene.models, scene.renderer.meshPass,
+                                       *scene.sampler);
 
     {
         // Un tour du monde : les pas de simulation que la dernière image a mérités, puis une
@@ -2756,7 +2259,7 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
                           "herbe, par image : {:.1f} parcelles et {:.0f} brins demandés",
                           perFrame(grass.patches), perFrame(grass.blades));
     }
-    const SkinningCost& skinning = loop.scene.skinningCost;
+    const levain::app::SkinningCost& skinning = loop.scene.skinningState.cost;
     if (skinning.frames > 0)
     {
         levain::core::log("sandbox", levain::core::LogLevel::Info,
