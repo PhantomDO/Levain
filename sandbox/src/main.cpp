@@ -826,6 +826,12 @@ bool hasPlayer(SandboxView view)
     return view == SandboxView::Character || view == SandboxView::Hike;
 }
 
+/// Les cubes sont des corps qui tournent : leur rotation se dessine, dès la première image.
+bool cubesTurn(SandboxView view)
+{
+    return view == SandboxView::Physics || showsValley(view) || view == SandboxView::Character;
+}
+
 /// Le soleil de la démo : haut, de biais, légèrement chaud.
 constexpr levain::render::Sun DemoSun{
     .direction = {-0.7f, 0.45f, 0.5f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
@@ -1080,6 +1086,23 @@ void addDecorCollision(flecs::world& world, const levain::assets::AssetRegistry&
         .set(levain::physics::Collider{.shape = levain::physics::MeshShape{std::move(mesh)}});
 }
 
+/// Où le joueur commence, s'il y en a un : au fond de la tranchée de Sponza, ou sur le fond de la
+/// vallée, à l'ouest du lac.
+std::optional<glm::vec3> playerStartOf(SandboxView view,
+                                       const std::optional<levain::terrain::Heightmap>& heightmap,
+                                       const levain::terrain::ValleySettings& valley)
+{
+    if (view == SandboxView::Character)
+    {
+        return levain::sandbox::PlayerStart;
+    }
+    if (view == SandboxView::Hike && heightmap)
+    {
+        return levain::sandbox::hikeStartOf(*heightmap, valley);
+    }
+    return std::nullopt;
+}
+
 /// Place la caméra derrière le joueur (M6.3), par référence : un `set` remettrait son état
 /// précédent à jour, et le rendu ne l'interpolerait plus entre deux pas (ADR-0016).
 void followPlayer(flecs::entity camera, flecs::entity player)
@@ -1167,7 +1190,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         return std::unexpected(renderer.error());
     }
 
-    // La vallée de --view terrain, avant le monde : sa physique en a besoin pour le sol (M6.2).
+    // La vallée de --view terrain et hike, avant le monde : sa physique en a besoin pour le sol
+    // (M6.2).
     const levain::terrain::ValleySettings valley;
     std::optional<levain::terrain::Heightmap> heightmap;
     if (showsValley(view))
@@ -1204,12 +1228,9 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         spawnCubeGrid(world);
     }
+    const std::optional<glm::vec3> start = playerStartOf(view, heightmap, valley);
     const flecs::entity player =
-        view == SandboxView::Character
-            ? levain::sandbox::spawnPlayer(world, levain::sandbox::PlayerStart)
-        : view == SandboxView::Hike && heightmap
-            ? levain::sandbox::spawnPlayer(world, levain::sandbox::hikeStartOf(*heightmap, valley))
-            : flecs::entity{};
+        start ? levain::sandbox::spawnPlayer(world, *start) : flecs::entity{};
     for (const LoadedModel& loaded : loadedModels)
     {
         const flecs::entity root =
@@ -1270,8 +1291,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     levain::scene::advanceWorld(world, fixedStep,
                                 0.0f); // les matrices monde, avant le premier envoi
     std::vector<levain::render::InstancePose> cubePoses;
-    gatherCubePoses(cubes, view == SandboxView::Physics || view == SandboxView::Character,
-                    cubePoses);
+    gatherCubePoses(cubes, cubesTurn(view), cubePoses);
 
     const nvrhi::CommandListHandle upload = gpu.nvrhi->createCommandList();
     upload->open();
@@ -1433,8 +1453,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .camera = camera,
                      .demoProps = view == SandboxView::Demo || view == SandboxView::Physics,
                      .spinCubes = view == SandboxView::Demo,
-                     .cubesTurn = view == SandboxView::Physics || showsValley(view) ||
-                                  view == SandboxView::Character,
+                     .cubesTurn = cubesTurn(view),
                      .drawCubes = view != SandboxView::Khronos,
                      .heightmap = std::move(heightmap),
                      .terrain = std::move(terrain),
@@ -1986,8 +2005,6 @@ std::optional<glm::vec3> parseVector(std::string_view text)
     return vector;
 }
 
-/// `[--seconds N] [--anisotropy N] [--capture fichier.png] [--model fichier.gltf]`, dans n'importe
-/// quel ordre. Vide si les arguments sont invalides.
 /// Pourquoi ces options ne vont pas ensemble, ou rien. Avec le joueur, la caméra le suit et la
 /// scène est fixée : `--look` planterait (la caméra n'a plus de regard libre), `--camera` et
 /// `--model` seraient ignorés sans un mot.
@@ -2008,6 +2025,8 @@ std::optional<std::string_view> whyNotCompatible(const SandboxOptions& options)
     return std::nullopt;
 }
 
+/// `[--seconds N] [--anisotropy N] [--capture fichier.png] [--model fichier.gltf]`, dans n'importe
+/// quel ordre. Vide si les arguments sont invalides.
 std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
 {
     SandboxOptions options;

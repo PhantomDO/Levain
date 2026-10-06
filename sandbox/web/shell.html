@@ -8,6 +8,7 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #8c5224; font: 13px system-ui, sans-serif; }
   canvas { display: block; touch-action: none; }
   #status { position: fixed; inset: 0; z-index: 1; display: grid; place-items: center; padding: 0 16px; text-align: center; color: #fff; text-shadow: 0 1px 2px #000; pointer-events: none; }
+  #hint { position: fixed; z-index: 1; left: 8px; top: 6px; color: #fffc; text-shadow: 0 1px 2px #000; }
   #credits { position: fixed; z-index: 1; left: 8px; bottom: 6px; color: #fffc; text-shadow: 0 1px 2px #000; }
 </style>
 </head>
@@ -15,7 +16,9 @@
 <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
 <div id="overlay">
 <div id="status">Chargement…</div>
-<!-- Les licences des modèles publiés (tools/assets.lock). -->
+<!-- Les touches de la vue par défaut : sans elles, le renard attend immobile sans rien dire. -->
+<div id="hint" hidden>ZQSD ou WASD pour mener le renard · Maj pour courir · espace pour sauter</div>
+<!-- Les licences des modèles et textures publiés (tools/assets.lock). -->
 <div id="credits">Renard : PixelMannen (CC0), tomkranis, @AsoboStudio, @scurest (CC-BY 4.0) ·
   Camion : Cesium (CC-BY 4.0) · Ciel et terrain : Kloofendal 48d, Grass Path 2, Rocky Terrain 02, Rock Face, Poly Haven (CC0) · <a href="https://github.com/PhantomDO/Levain" style="color:inherit">Levain</a></div>
 </div>
@@ -28,7 +31,9 @@ new MutationObserver(() => {
   if (overlay.parentElement !== document.body) document.body.append(overlay);
 }).observe(document.body, { childList: true, subtree: true });
 // Les arguments du sandbox : ceux de ?args=…, sinon le renard qu'on dirige dans la vallée (M6.3).
-const args = new URLSearchParams(location.search).get("args") ?? "--view hike";
+const custom = new URLSearchParams(location.search).get("args");
+const args = custom ?? "--view hike";
+document.getElementById("hint").hidden = custom !== null;
 // Une erreur critique du moteur s'affiche sur la page : sans cela, un navigateur sans adaptateur
 // WebGPU montrerait un fond uni sans un mot (règle n°7).
 const showCritical = (text) => {

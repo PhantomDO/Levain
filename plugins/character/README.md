@@ -40,7 +40,8 @@ personnage qui marche :
 
 Les tests : `tests/walk_test.cpp`. La démo : `levain_sandbox --view character`, le renard dans Sponza, mené
 au clavier (ZQSD ou WASD, espace pour sauter) ; `--walk x,z --steps N` le fait marcher seul pendant N pas,
-pour la CI.
+pour la CI. `--view hike` : le même renard dans la vallée du terrain, la vue par défaut de la page web
+(Sponza ne peut pas y être publiée).
 
 ## Équivalents ailleurs
 

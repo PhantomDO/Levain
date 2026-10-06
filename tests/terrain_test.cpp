@@ -242,6 +242,8 @@ TEST_CASE("le renard de la démo marche sur le fond de la vallée, vers le lac")
     const levain::terrain::Heightmap heightmap = levain::terrain::valleyOf(valley);
     levain::sandbox::spawnLakeShoreCrates(world, heightmap, valley);
     const glm::vec3 start = levain::sandbox::hikeStartOf(heightmap, valley);
+    // Hors du lac : un volume déclencheur ne l'arrêterait pas, il marcherait au fond de l'eau.
+    CHECK(glm::distance(glm::vec2{start.x, start.z}, valley.lakeCenter) > valley.lakeRadius);
     const flecs::entity fox = levain::sandbox::spawnPlayer(world, start);
     fox.get_mut<levain::character::WalkInput>().direction = {1.0f, 0.0f};
     levain::scene::FixedStep step;
@@ -255,6 +257,7 @@ TEST_CASE("le renard de la démo marche sur le fond de la vallée, vers le lac")
     CHECK(fox.get<levain::physics::CharacterState>().ground.state ==
           levain::physics::GroundState::OnGround);
     CHECK(feet.x - start.x > 14.0f);
+    CHECK(feet.x < valley.lakeCenter.x - valley.lakeRadius); // toujours avant la rive
     // Ses pieds sur le terrain : la grille de hauteurs de Jolt et `heightAt` interpolent toutes
     // deux entre échantillons, mais pas en suivant les mêmes triangles.
     CHECK(std::abs(feet.y - levain::terrain::heightAt(heightmap, {feet.x, feet.z})) < 0.05f);
