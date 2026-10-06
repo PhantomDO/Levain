@@ -893,22 +893,109 @@ levain::core::Result<Sky> loadSky(nvrhi::IDevice& device,
 /// Le champ vertical de la caméra du glTF Sample Viewer (PerspectiveCamera.yfov).
 constexpr float KhronosViewerFovDegrees = 45.0f;
 
-/// Crée la passe des meshes et envoie au GPU le cube, la grille, le sol, la texture du damier, le
-/// modèle de `--model` et le ciel de `--sky`.
+/// Un modèle que la scène charge : son fichier, sa place, et pour un modèle skinné, le clip qu'il
+/// joue ou sa locomotion (`--clip`, `--locomotion`).
+struct ModelRequest
+{
+    std::filesystem::path path;
+    levain::scene::Transform placement;
+    std::optional<std::string> clip;
+    std::optional<std::string> locomotion;
+};
+
+/// Un modèle lu, avant le GPU : le modèle, son squelette et ses clips s'il est skinné.
+struct LoadedModel
+{
+    const levain::assets::Model* model = nullptr;
+    levain::assets::AssetId id;
+    std::optional<levain::animation::AnimationSet> animation;
+    std::size_t clip = 0;
+    std::optional<levain::animation::AnimatorClips> animatorClips;
+    levain::scene::Transform placement;
+};
+
+/// Lit un modèle d'une racine d'assets déjà scannée, et son squelette s'il est skinné. Les noms de
+/// `--clip` et `--locomotion` se vérifient ici, avant tout travail GPU : un échec plus tard aurait
+/// envoyé meshes et textures pour rien.
+levain::core::Result<LoadedModel> loadSandboxModel(const ModelRequest& request,
+                                                   const levain::assets::AssetRegistry& registry,
+                                                   levain::assets::ModelCache& modelCache)
+{
+    const auto id = levain::assets::idOf(registry, request.path);
+    if (!id)
+    {
+        return levain::core::makeError(
+            levain::core::ErrorCode::InvalidData,
+            std::format("{} : pas un asset d'une racine connue (data/, assets-cache/)",
+                        request.path.string()));
+    }
+    auto loaded = levain::assets::loadModel(modelCache, registry, *id);
+    if (!loaded)
+    {
+        return std::unexpected(loaded.error());
+    }
+    LoadedModel result{.model = *loaded,
+                       .id = *id,
+                       .animation = std::nullopt,
+                       .clip = 0,
+                       .animatorClips = std::nullopt,
+                       .placement = request.placement};
+    if (!isSkinned(*result.model))
+    {
+        return result;
+    }
+    // Un modèle skinné anime son squelette (ADR-0022) : la passerelle relit son glTF.
+    // ponytail: squelette et clips viennent toujours de la source ; leur cuisson dans .cooked/
+    // (ADR-0022) viendra quand leur lecture pèsera au chargement (0,55 ms pour Fox).
+    auto set = levain::animation::importAnimationSet(
+        levain::assets::pathOf(registry, *id).value_or(request.path));
+    if (!set)
+    {
+        return std::unexpected(set.error());
+    }
+    auto index = clipIndexOf(*set, request.clip);
+    if (!index)
+    {
+        return std::unexpected(index.error());
+    }
+    result.clip = *index;
+    if (request.locomotion)
+    {
+        auto clips = locomotionClipsOf(*set, *request.locomotion);
+        if (!clips)
+        {
+            return std::unexpected(clips.error());
+        }
+        result.animatorClips = *clips;
+        levain::core::log("sandbox", levain::core::LogLevel::Info,
+                          "modèle skinné : {} os, locomotion « {} », vitesse de 0 à {} et "
+                          "retour en 8 s",
+                          set->jointNames.size(), *request.locomotion, DemoRunSpeed);
+    }
+    else
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Info,
+                          "modèle skinné : {} os, clip « {} » ({:.2f} s) joué en boucle",
+                          set->jointNames.size(), set->clips[result.clip].name,
+                          set->clips[result.clip].durationSeconds);
+    }
+    result.animation = std::move(*set);
+    return result;
+}
+
+/// Crée la passe des meshes et envoie au GPU le cube, la grille, le sol, la texture du damier, les
+/// modèles demandés et le ciel de `--sky`.
 levain::core::Result<DemoScene>
 createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettings& sampler,
-                const std::optional<std::filesystem::path>& modelPath,
-                const std::optional<std::string>& clipName,
-                const std::optional<std::string>& locomotion, float modelScale,
+                const std::vector<ModelRequest>& requests,
                 const std::optional<std::filesystem::path>& skyPath, SandboxView view,
                 std::optional<glm::vec3> cameraPosition, std::optional<glm::vec3> sunDirection)
 {
-    // Le modèle de `--model`, par son GUID : le dossier qui le contient est scanné (ADR-0019), ce
-    // qui lui donne un .meta s'il n'en avait pas.
+    // Les modèles demandés, chacun par son GUID : le dossier qui contient chacun est scanné
+    // (ADR-0019), ce qui lui donne un .meta s'il n'en avait pas.
     levain::assets::AssetRegistry registry;
     levain::assets::ModelCache modelCache;
-    const levain::assets::Model* model = nullptr;
-    levain::assets::AssetId modelId;
+    std::vector<LoadedModel> loadedModels;
     // Les trois temps du chargement (le critère de M4.3) : le scan des racines, qui hache tous les
     // assets ; la lecture du modèle, cuit ou source ; ses textures, leurs mips et l'envoi au GPU.
     const Clock::time_point loadStart = Clock::now();
@@ -935,26 +1022,17 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         }
         logScanReport(*report);
     }
-    if (modelPath)
+    modelStart = Clock::now();
+    for (const ModelRequest& request : requests)
     {
-        const auto id = levain::assets::idOf(registry, *modelPath);
-        if (!id)
-        {
-            return levain::core::makeError(
-                levain::core::ErrorCode::InvalidData,
-                std::format("{} : pas un asset d'une racine connue (data/, assets-cache/)",
-                            modelPath->string()));
-        }
-        modelStart = Clock::now();
-        auto loaded = levain::assets::loadModel(modelCache, registry, *id);
+        auto loaded = loadSandboxModel(request, registry, modelCache);
         if (!loaded)
         {
             return std::unexpected(loaded.error());
         }
-        model = *loaded;
-        modelId = *id;
-        modelEnd = Clock::now();
+        loadedModels.push_back(std::move(*loaded));
     }
+    modelEnd = Clock::now();
 
     auto image = levain::assets::loadImage(LEVAIN_DATA_DIR "/textures/checker.png");
     if (!image)
@@ -963,51 +1041,6 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     }
     const std::vector<levain::assets::Image> mips =
         levain::assets::buildMipChain(std::move(*image));
-
-    // Un modèle skinné anime son squelette (ADR-0022) : la passerelle relit son glTF.
-    // ponytail: squelette et clips viennent toujours de la source ; leur cuisson dans .cooked/
-    // (ADR-0022) viendra quand leur lecture pèsera au chargement (0,55 ms pour Fox).
-    std::optional<levain::animation::AnimationSet> animation;
-    std::size_t clip = 0;
-    std::optional<levain::animation::AnimatorClips> animatorClips;
-    if (model != nullptr && modelPath && isSkinned(*model))
-    {
-        auto set = levain::animation::importAnimationSet(
-            levain::assets::pathOf(registry, modelId).value_or(*modelPath));
-        if (!set)
-        {
-            return std::unexpected(set.error());
-        }
-        auto index = clipIndexOf(*set, clipName);
-        if (!index)
-        {
-            return std::unexpected(index.error());
-        }
-        clip = *index;
-        // Les noms de --locomotion se vérifient ici, avant tout travail GPU : un échec plus tard
-        // aurait envoyé meshes et textures pour rien.
-        if (locomotion)
-        {
-            auto clips = locomotionClipsOf(*set, *locomotion);
-            if (!clips)
-            {
-                return std::unexpected(clips.error());
-            }
-            animatorClips = *clips;
-            levain::core::log("sandbox", levain::core::LogLevel::Info,
-                              "modèle skinné : {} os, locomotion « {} », vitesse de 0 à {} et "
-                              "retour en 8 s",
-                              set->jointNames.size(), *locomotion, DemoRunSpeed);
-        }
-        else
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Info,
-                              "modèle skinné : {} os, clip « {} » ({:.2f} s) joué en boucle",
-                              set->jointNames.size(), set->clips[clip].name,
-                              set->clips[clip].durationSeconds);
-        }
-        animation = std::move(*set);
-    }
 
     auto skinning = levain::render::createSkinningPass(*gpu.nvrhi);
     if (!skinning)
@@ -1057,10 +1090,10 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         spawnCubeGrid(world);
     }
-    if (model != nullptr)
+    for (const LoadedModel& loaded : loadedModels)
     {
-        levain::assets::instantiateModel(world, *model, modelId, "model")
-            .set(khronosView ? levain::scene::Transform{} : modelPlacement(modelScale));
+        levain::assets::instantiateModel(world, *loaded.model, loaded.id, "model")
+            .set(loaded.placement);
     }
     // La caméra est une entité comme les autres : basse, sur le côté de la grille, et visant loin
     // devant. Elle porte son état précédent pour que le rendu l'interpole entre deux pas de
@@ -1115,25 +1148,25 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         levain::render::createTexture(*gpu.nvrhi, *upload, textureLevelsOf(mips), "checker");
     const Clock::time_point uploadStart = Clock::now();
     std::map<levain::assets::AssetId, ModelGpu> models;
-    if (model != nullptr)
+    for (LoadedModel& loaded : loadedModels)
     {
         const auto skinJoints =
-            static_cast<std::uint32_t>(animation ? animation->skinJoints.size() : 0);
-        auto uploaded =
-            uploadModel(*gpu.nvrhi, *upload, *model, registry, modelCache, *skinning, skinJoints);
+            static_cast<std::uint32_t>(loaded.animation ? loaded.animation->skinJoints.size() : 0);
+        auto uploaded = uploadModel(*gpu.nvrhi, *upload, *loaded.model, registry, modelCache,
+                                    *skinning, skinJoints);
         if (!uploaded)
         {
             submitAbandonedUpload(*gpu.nvrhi, *upload);
             return std::unexpected(uploaded.error());
         }
-        if (animatorClips)
+        if (loaded.animatorClips)
         {
-            uploaded->animatorClips = *animatorClips;
+            uploaded->animatorClips = *loaded.animatorClips;
             uploaded->animator = levain::animation::Animator{};
         }
-        uploaded->animation = std::move(animation);
-        uploaded->clip = clip;
-        models.emplace(modelId, std::move(*uploaded));
+        uploaded->animation = std::move(loaded.animation);
+        uploaded->clip = loaded.clip;
+        models.emplace(loaded.id, std::move(*uploaded));
     }
     const std::array<levain::render::InstancePose, 1> origin{};
     levain::render::Instances modelInstance =
@@ -1151,10 +1184,10 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         levain::render::withDefaults({.baseColor = checker},
                                      levain::render::createMaterialDefaults(*gpu.nvrhi, *upload)),
         *samplerHandle);
-    if (model != nullptr)
+    for (const LoadedModel& loaded : loadedModels)
     {
-        bindModelMaterials(*gpu.nvrhi, *upload, renderer->meshPass, *samplerHandle, *model,
-                           models.at(modelId));
+        bindModelMaterials(*gpu.nvrhi, *upload, renderer->meshPass, *samplerHandle, *loaded.model,
+                           models.at(loaded.id));
     }
     std::optional<levain::terrain::TerrainPass> terrain;
     std::optional<levain::water::WaterPass> water;
@@ -1189,14 +1222,15 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     }
     upload->close();
     gpu.nvrhi->executeCommandList(upload);
-    if (model != nullptr)
+    for (const LoadedModel& loaded : loadedModels)
     {
+        const ModelGpu& uploaded = models.at(loaded.id);
         levain::core::log(
             "sandbox", levain::core::LogLevel::Info,
             "modèle : {} meshes, {} matériaux, {} textures ({:.1f} Mo en mémoire vidéo) ; scan "
-            "{:.0f} ms, modèle {:.1f} ms, textures, mips et envoi {:.0f} ms",
-            model->meshes.size(), model->materials.size(), models.at(modelId).textures.size(),
-            static_cast<double>(models.at(modelId).textureBytes) / (1024.0 * 1024.0),
+            "{:.0f} ms, modèles {:.1f} ms, textures, mips et envoi {:.0f} ms",
+            loaded.model->meshes.size(), loaded.model->materials.size(), uploaded.textures.size(),
+            static_cast<double>(uploaded.textureBytes) / (1024.0 * 1024.0),
             secondsBetween(loadStart, modelStart) * 1000.0,
             secondsBetween(modelStart, modelEnd) * 1000.0,
             secondsBetween(uploadStart, Clock::now()) * 1000.0);
@@ -1949,16 +1983,31 @@ std::optional<std::filesystem::path> defaultSky()
     return std::nullopt;
 }
 
+/// Les modèles que la scène charge, selon les options : celui de `--model`, à sa place.
+std::vector<ModelRequest> modelRequestsOf(const SandboxOptions& options)
+{
+    std::vector<ModelRequest> requests;
+    if (options.modelPath)
+    {
+        requests.push_back({.path = *options.modelPath,
+                            .placement = options.view == SandboxView::Khronos
+                                             ? levain::scene::Transform{}
+                                             : modelPlacement(options.modelScale),
+                            .clip = options.clipName,
+                            .locomotion = options.locomotion});
+    }
+    return requests;
+}
+
 levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
                                             const SandboxOptions& options)
 {
     const levain::render::SamplerSettings sampler{.maxAnisotropy = options.maxAnisotropy};
     levain::core::log("sandbox", levain::core::LogLevel::Info, "filtrage anisotrope : {}",
                       levain::render::clampAnisotropy(sampler.maxAnisotropy));
-    auto scene =
-        createDemoScene(gpu, sampler, options.modelPath, options.clipName, options.locomotion,
-                        options.modelScale, options.skyPath ? options.skyPath : defaultSky(),
-                        options.view, options.cameraPosition, options.sunDirection);
+    auto scene = createDemoScene(gpu, sampler, modelRequestsOf(options),
+                                 options.skyPath ? options.skyPath : defaultSky(), options.view,
+                                 options.cameraPosition, options.sunDirection);
     if (!scene)
     {
         return std::unexpected{std::move(scene.error())};
