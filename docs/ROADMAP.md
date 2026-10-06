@@ -349,7 +349,8 @@ collision avec le décor par sphere cast (le « spring arm » d'Unreal), recentr
 sortent du sandbox, et *Rando* montre la vallée et le renard au-dessus de lui.
 
 **M6.5 — Nage, planeur et endurance.** Plugin gameplay, dans le dépôt du jeu : états du joueur au-dessus du
-character controller, volume d'eau, jauge d'endurance ; le cadrage de la caméra en vol plané (ADR-0030).
+character controller, volume d'eau, jauge d'endurance ; le cadrage de la caméra en vol plané (ADR-0030,
+[ADR-0031](adr/0031-nage-planeur-endurance.md)).
 *Critère* : descendre du promontoire en planant, traverser le lac à la nage, et se noyer si l'endurance
 s'épuise.
 
@@ -440,6 +441,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0028 | Le personnage : `CharacterVirtual` dans le moteur, la marche dans un plugin, la collision du décor simplifiée et cuite | M6.3 |
 | 0029 | Le module `app` : la boucle, les modèles et la page web sortent du sandbox | M6.4 |
 | 0030 | La caméra à la troisième personne de *Rando* (sphere cast, retour amorti, recentrage) | M6.4 |
+| 0031 | La nage, le planeur et l'endurance de *Rando* (un état à la fois, le lac pour l'eau, la jauge en lignes de debug) | M6.5 |
 | 0013 | Réflexion des composants (addon meta de flecs) | M7.2 |
 
 ## Numérotation des ADR
