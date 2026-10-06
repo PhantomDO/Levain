@@ -7,7 +7,6 @@
 #include <array>
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -62,23 +61,32 @@ using StageFunction = std::function<void(const StageContext&)>;
 /// Les fonctions inscrites, étape par étape, dans l'ordre de leur inscription.
 struct RenderStages
 {
+    /// Un appel de la fonction dans l'image, chronométré sur le GPU : un seul pour les étapes de la
+    /// caméra, un par cascade pour les ombres. Chacun a sa moyenne : une lecture manquée ne fausse
+    /// que la sienne, pas le découpage de l'image.
+    struct TimedCall
+    {
+        GpuTimer timer;
+        GpuTimeAverage average;
+        double lastMs = 0.0; ///< Sa dernière mesure, pour la courbe de Tracy.
+    };
+
     struct Entry
     {
         std::string name;
         StageFunction function;
-        /// Le temps GPU de la fonction (#295), un minuteur par appel de l'image : quatre pour les
-        /// ombres, une par cascade. Créés au premier appel.
-        std::vector<GpuTimer> timers;
-        /// Ses mesures, par image : toutes les cascades s'y ajoutent, la cascade 0 compte l'image.
-        GpuTimeAverage gpuTime;
-        /// La dernière image mesurée, toutes cascades comprises, pour la courbe de Tracy.
-        double lastFrameMs = 0.0;
-        /// « GPU ombres/terrain » : le nom de la courbe. Sur le tas, pour que son adresse ne change
-        /// pas quand le tableau des fonctions grandit (LEVAIN_PROFILE_PLOT).
-        std::shared_ptr<const std::string> plotName;
+        /// « ombres/terrain » et « GPU ombres/terrain » : le nom de sa zone et de sa courbe dans
+        /// Tracy. Internés, jamais libérés : Tracy reconnaît une courbe à l'adresse de son nom.
+        const char* label = nullptr;
+        const char* plotName = nullptr;
+        std::vector<TimedCall> calls; ///< Créés au premier appel, avec `timeFunctions` seulement.
     };
 
     std::array<std::vector<Entry>, RenderStageNames.size()> entries;
+    /// Chronométrer chaque fonction sur le GPU (#295). Désactivé par défaut : NVRHI referme la
+    /// passe de rendu à chaque requête de temps, et la mesure coûte alors ce qu'elle mesure (+20 %
+    /// sur les ombres de la vallée, engine/render/README.md).
+    bool timeFunctions = false;
 };
 
 /// Inscrit `function` à `stage`, après celles qui y sont déjà : c'est l'ordre où elles dessinent.
@@ -93,7 +101,8 @@ void runStage(RenderStages& stages, RenderStage stage, const StageContext& conte
 void plotStageTimes(const RenderStages& stages);
 
 /// « ombres/terrain 0,30 ms, opaques/herbe 2,10 ms » : le temps GPU moyen d'une image, fonction
-/// par fonction ; celles qui n'ont pas encore de mesure n'y sont pas.
+/// par fonction, la somme des moyennes de ses appels ; celles qui n'ont pas encore de mesure n'y
+/// sont pas.
 [[nodiscard]] std::string describeStageTimes(const RenderStages& stages);
 
 /// « ombres : démo, terrain ; opaques : démo ; transparents : aucune » : l'ordre réel de l'image.

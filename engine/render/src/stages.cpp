@@ -1,7 +1,9 @@
 #include "levain/render/stages.hpp"
 
 #include <format>
-#include <memory>
+#include <functional>
+#include <set>
+#include <string>
 #include <utility>
 
 #include "levain/core/profile.hpp"
@@ -9,54 +11,59 @@
 namespace levain::render
 {
 
-void addStageFunction(RenderStages& stages, RenderStage stage, std::string name,
-                      StageFunction function)
-{
-    auto plotName = std::make_shared<const std::string>(
-        std::format("GPU {}/{}", RenderStageNames[static_cast<std::size_t>(stage)], name));
-    stages.entries[static_cast<std::size_t>(stage)].push_back({.name = std::move(name),
-                                                               .function = std::move(function),
-                                                               .timers = {},
-                                                               .gpuTime = {},
-                                                               .lastFrameMs = 0.0,
-                                                               .plotName = std::move(plotName)});
-}
-
 namespace
 {
 
-/// Ajoute la mesure d'un appel, relue trois images plus tard (gpu_timer.hpp). La cascade 0 ouvre
-/// une nouvelle image : les autres s'ajoutent à la sienne. Le piège : sans ce découpage, la
-/// moyenne serait celle d'une cascade, quatre fois trop petite pour les ombres.
-void addStageReading(RenderStages::Entry& entry, std::uint32_t call, double ms)
+/// Un nom interné : la même adresse toute la session, ce que Tracy exige d'un nom de courbe
+/// (LEVAIN_PROFILE_PLOT). Les noms ne sont jamais libérés : quelques dizaines d'octets par
+/// fonction.
+const char* internedName(std::string name)
 {
-    entry.gpuTime.totalMs += ms;
-    if (call == 0)
-    {
-        ++entry.gpuTime.samples;
-        entry.lastFrameMs = 0.0;
-    }
-    entry.lastFrameMs += ms;
+    static std::set<std::string, std::less<>> names;
+    return names.insert(std::move(name)).first->c_str();
 }
 
 } // namespace
+
+void addStageFunction(RenderStages& stages, RenderStage stage, std::string name,
+                      StageFunction function)
+{
+    const std::string label =
+        std::format("{}/{}", RenderStageNames[static_cast<std::size_t>(stage)], name);
+    stages.entries[static_cast<std::size_t>(stage)].push_back(
+        {.name = std::move(name),
+         .function = std::move(function),
+         .label = internedName(label),
+         .plotName = internedName(std::format("GPU {}", label)),
+         .calls = {}});
+}
 
 void runStage(RenderStages& stages, RenderStage stage, const StageContext& context)
 {
     for (RenderStages::Entry& entry : stages.entries[static_cast<std::size_t>(stage)])
     {
-        LEVAIN_PROFILE_SCOPE_TEXT(entry.name);
-        while (entry.timers.size() <= context.cascade)
+        LEVAIN_PROFILE_SCOPE_TEXT(entry.label);
+        if (!stages.timeFunctions)
         {
-            entry.timers.push_back(createGpuTimer(context.device));
+            entry.function(context);
+            continue;
         }
-        GpuTimer& timer = entry.timers[context.cascade];
-        if (const auto ms = beginGpuTimer(context.device, context.commandList, timer))
+        // Un appel par cascade : l'anneau de trois requêtes d'un minuteur suppose un seul appel par
+        // image (gpu_timer.hpp). Une étape appelée deux fois pour la même cascade le casserait.
+        while (entry.calls.size() <= context.cascade)
         {
-            addStageReading(entry, context.cascade, *ms);
+            entry.calls.push_back(
+                {.timer = createGpuTimer(context.device), .average = {}, .lastMs = 0.0});
+        }
+        RenderStages::TimedCall& call = entry.calls[context.cascade];
+        if (const auto ms = beginGpuTimer(context.device, context.commandList, call.timer))
+        {
+            call.average.totalMs += *ms;
+            ++call.average.samples;
+            call.lastMs = *ms;
         }
         entry.function(context);
-        endGpuTimer(context.commandList, timer);
+        endGpuTimer(context.commandList, call.timer);
     }
 }
 
@@ -67,7 +74,15 @@ void plotStageTimes([[maybe_unused]] const RenderStages& stages)
     {
         for (const RenderStages::Entry& entry : entries)
         {
-            LEVAIN_PROFILE_PLOT(entry.plotName->c_str(), entry.lastFrameMs);
+            double lastMs = 0.0;
+            for (const RenderStages::TimedCall& call : entry.calls)
+            {
+                lastMs += call.lastMs;
+            }
+            if (!entry.calls.empty())
+            {
+                LEVAIN_PROFILE_PLOT(entry.plotName, lastMs);
+            }
         }
     }
 #endif
@@ -76,17 +91,22 @@ void plotStageTimes([[maybe_unused]] const RenderStages& stages)
 std::string describeStageTimes(const RenderStages& stages)
 {
     std::string description;
-    for (std::size_t stage = 0; stage < RenderStageNames.size(); ++stage)
+    for (const auto& entries : stages.entries)
     {
-        for (const RenderStages::Entry& entry : stages.entries[stage])
+        for (const RenderStages::Entry& entry : entries)
         {
-            if (entry.gpuTime.samples == 0)
+            double frameMs = 0.0;
+            bool measured = false;
+            for (const RenderStages::TimedCall& call : entry.calls)
             {
-                continue;
+                frameMs += averageOf(call.average);
+                measured = measured || call.average.samples > 0;
             }
-            description +=
-                std::format("{}{}/{} {:.3f} ms", description.empty() ? "" : ", ",
-                            RenderStageNames[stage], entry.name, averageOf(entry.gpuTime));
+            if (measured)
+            {
+                description += std::format("{}{} {:.3f} ms", description.empty() ? "" : ", ",
+                                           entry.label, frameMs);
+            }
         }
     }
     return description.empty() ? "aucune mesure" : description;

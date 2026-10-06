@@ -23,11 +23,10 @@
 /// Mesure le bloc courant sous un nom choisi, quand le nom de la fonction ne suffit pas.
 #define LEVAIN_PROFILE_SCOPE_NAMED(name) ZoneScopedN(name)
 
-/// Mesure le bloc courant sous un nom connu à l'exécution seulement (une `std::string_view`) :
-/// celui d'une fonction d'étape inscrite par un plugin. Tracy copie le texte.
-#define LEVAIN_PROFILE_SCOPE_TEXT(text)                                                            \
-    ZoneScoped;                                                                                    \
-    ZoneName((text).data(), (text).size())
+/// Mesure le bloc courant sous un nom connu à l'exécution seulement (un `const char*`) : celui
+/// d'une fonction d'étape inscrite par un plugin. Une zone « transitoire » : Tracy copie son nom et
+/// regroupe les zones par ce nom, de sorte que tracy-csvexport les sépare aussi.
+#define LEVAIN_PROFILE_SCOPE_TEXT(text) ZoneTransientN(___tracy_scoped_zone, (text), true)
 
 /// Ajoute un point à la courbe `name` : un `const char*` qui doit rester valide et à la même
 /// adresse toute la session, car Tracy reconnaît une courbe à son pointeur, pas à son texte.

@@ -5,12 +5,13 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 
 ## tracy-csvexport range les zones par emplacement, pas par nom (2026-10-06)
 
-- **Symptôme** : les zones des fonctions d'étape (« terrain », « herbe »…, nommées à l'exécution par
-  `LEVAIN_PROFILE_SCOPE_TEXT`) sortent toutes sous `runStage`, 13 appels par image, sans leur nom.
-- **Cause** : `tracy-csvexport` groupe par emplacement dans le source ; le nom donné par `ZoneName` n'apparaît que
-  dans le profileur.
-- **Parade** : lire le coût CPU d'une fonction d'étape dans le profileur ; pour un chiffre scripté, le coût GPU
-  passe par les courbes « GPU étape/nom » (`tools/tracy-summary.py`), une valeur par image et par fonction.
+- **Symptôme** : des zones renommées à l'exécution (`ZoneScoped` puis `ZoneName`) sortent toutes sous le nom de
+  leur fonction (`runStage`, 13 appels par image), sans leur nom.
+- **Cause** : `tracy-csvexport` groupe par emplacement dans le source ; `ZoneName` ne change que l'affichage du
+  profileur.
+- **Parade** : une zone « transitoire » (`ZoneTransientN`, notre `LEVAIN_PROFILE_SCOPE_TEXT`), dont l'emplacement
+  porte le nom : Tracy les regroupe par nom, et csvexport aussi. Le nom doit être unique par fonction
+  (« ombres/terrain », pas « terrain », qu'on retrouve dans deux étapes).
 
 ## Une correction de relecture poussée sans le contrôle de format : la CI passe au rouge (2026-10-06)
 

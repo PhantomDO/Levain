@@ -30,6 +30,42 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-06 — M6.4 — Préalables : les mesures dans la page web, et Tracy remis en service
+
+- Temps Donnovan : compté à la clôture de M6.4 (les deux sondages du jour, l'essai sur son téléphone).
+- Sessions Claude Code : 1 (la même que M6.1 à M6.3)
+- Fait, en 2 PR :
+  - **le calque des mesures de la page web** (#297, ferme #294) : les images/s, le temps passé dans le moteur et
+    sa part de l'image, la résolution, et la machine (GPU, navigateur, cœurs, mémoire), sur la page du sandbox et
+    sur l'Artifact ; GitHub Pages publie `stats.js`, et un contrôle échoue si un script de la page manque ;
+  - **Tracy remis en service** (ferme #295) : des zones dans le moteur (pas fixe, physique, personnage,
+    animation, chargement) et une par fonction d'étape du rendu ; le temps GPU de chaque fonction par les
+    minuteurs de NVRHI, en courbes dans Tracy (choix de Donnovan, plutôt que les zones GPU natives) ;
+    `tools/tracy-summary.py` en tire les médianes ; `build.no-tracy` vérifie que Tracy reste hors du binaire.
+- Mesures :
+  - **le téléphone de Donnovan** (Fairphone 6 : Snapdragon 7s Gen 3, Adreno 810, Android WebView 148, rendu
+    1116 × 2055 px, écran ×3) : 30 images/s, 33,6 ms par image (pire 127,7), dont 6,5 ms dans le moteur (19 %) :
+    le GPU limite (le calque, capture d'écran de Donnovan) ;
+  - Firefox 157, headless, sur la machine de référence (1366 × 682) : 60 images/s, moteur 1,2 à 1,5 ms (7 à 9 %)
+    (`tools/web-smoke.mjs`) ;
+  - **la vallée, capture Tracy** (`--view hike --walk 1,0`, Release profilé, RX 9070 XT, 1920 × 1080 sans
+    synchronisation, 5 s) : GPU par image, opaques/terrain 0,232 ms, opaques/herbe 0,227, ombres/terrain 0,071,
+    le reste sous 0,02 ; CPU, rendu 0,666 ms dont 0,484 à attendre le GPU et 0,176 d'enregistrement ; un pas fixe
+    0,177 ms, dont 0,148 de physique ; la plus chère des fonctions d'étape côté CPU, opaques/terrain, 22 µs
+    (`SDL_VIDEO_DRIVER=offscreen ./tools/tracy-capture.sh 5 captures/hike.tracy --view hike --walk 1,0`) ;
+  - le coût du chronométrage de chaque fonction, d'où son activation en build profilé seulement : ombres
+    0,111 → 0,133 ms, opaques 0,476 → 0,493 ms (`levain_sandbox --view hike --seconds 8`, Release, trois
+    lancements de chaque).
+- Décisions de Donnovan, par sondage : le calque (images/s, CPU, machine), avant M6.4 ; Tracy remis en service ;
+  les temps GPU par nos minuteurs plutôt que par les zones GPU natives de Tracy.
+- Écarts et problèmes :
+  - aucun job de CI ne compile avec `LEVAIN_PROFILING=ON` : les macros profilées ne sont vérifiées qu'en local
+    (#298) ;
+  - les minuteurs de NVRHI referment la passe de rendu : chronométrer finement perturbe ce qu'on mesure
+    (`engine/render/README.md`, « la mesure qui coûte »).
+- Prochaine étape : M6.4, la caméra à la troisième personne, dans le dépôt du jeu. Pour le mobile, réduire la
+  définition de rendu sur les écrans denses, puis l'herbe.
+
 ## 2026-10-06 — M6.3 — Clôture : le renard monte l'escalier de Sponza, et se promène dans la vallée du navigateur
 
 - **Temps Donnovan : 2,75 h** (estimé 1,65 h), ratio 1,67. Le 06/10, Donnovan a donné « environ 2h » pour M6.3,
