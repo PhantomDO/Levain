@@ -802,8 +802,8 @@ void logScanReport(const levain::assets::ScanReport& report)
 }
 
 /// Ce que montre le sandbox : la démo (cubes, sol, modèle), la vue du glTF Sample Viewer (#125,
-/// #131), le terrain (M5.6), les caisses de la physique (M6.1), ou le renard qu'on dirige dans
-/// Sponza (M6.3).
+/// #131), le terrain (M5.6), les caisses de la physique (M6.1), ou le renard qu'on dirige, dans
+/// Sponza ou dans la vallée (M6.3).
 enum class SandboxView : std::uint8_t
 {
     Demo,
@@ -811,12 +811,19 @@ enum class SandboxView : std::uint8_t
     Terrain,
     Physics,
     Character,
+    Hike,
 };
 
-/// Un joueur, le renard, que la caméra suit (M6.3).
+/// La vallée de M5.6 est là : seule (`terrain`), ou sous les pas du renard (`hike`).
+bool showsValley(SandboxView view)
+{
+    return view == SandboxView::Terrain || view == SandboxView::Hike;
+}
+
+/// Un joueur, le renard, que la caméra suit : dans Sponza (`character`) ou dans la vallée (`hike`).
 bool hasPlayer(SandboxView view)
 {
-    return view == SandboxView::Character;
+    return view == SandboxView::Character || view == SandboxView::Hike;
 }
 
 /// Le soleil de la démo : haut, de biais, légèrement chaud.
@@ -1163,7 +1170,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     // La vallée de --view terrain, avant le monde : sa physique en a besoin pour le sol (M6.2).
     const levain::terrain::ValleySettings valley;
     std::optional<levain::terrain::Heightmap> heightmap;
-    if (view == SandboxView::Terrain)
+    if (showsValley(view))
     {
         heightmap = levain::terrain::valleyOf(valley);
     }
@@ -1179,8 +1186,12 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         world.import<levain::physics::PhysicsModule>();
         levain::sandbox::spawnCrates<Cube>(world, GroundSize);
     }
-    else if (view == SandboxView::Terrain && heightmap)
+    else if (showsValley(view) && heightmap)
     {
+        if (view == SandboxView::Hike)
+        {
+            world.import<levain::character::WalkModule>();
+        }
         world.import<levain::physics::PhysicsModule>();
         levain::sandbox::spawnLakeShoreCrates<Cube>(world, *heightmap, valley);
     }
@@ -1194,8 +1205,11 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         spawnCubeGrid(world);
     }
     const flecs::entity player =
-        hasPlayer(view) ? levain::sandbox::spawnPlayer(world, levain::sandbox::PlayerStart)
-                        : flecs::entity{};
+        view == SandboxView::Character
+            ? levain::sandbox::spawnPlayer(world, levain::sandbox::PlayerStart)
+        : view == SandboxView::Hike && heightmap
+            ? levain::sandbox::spawnPlayer(world, levain::sandbox::hikeStartOf(*heightmap, valley))
+            : flecs::entity{};
     for (const LoadedModel& loaded : loadedModels)
     {
         const flecs::entity root =
@@ -1237,10 +1251,11 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         cameraEntity.set(levain::scene::Transform{.position = {30.0f, 140.0f, 480.0f}})
             .set(levain::scene::FpsController{.yawDegrees = -45.0f, .pitchDegrees = -22.0f});
     }
-    if (view == SandboxView::Character)
+    if (player)
     {
         // La caméra suit le joueur (M6.3) : pas de regard libre, un système la place à chaque pas.
-        cameraEntity.set(levain::sandbox::followCamera(levain::sandbox::PlayerStart))
+        cameraEntity
+            .set(levain::sandbox::followCamera(player.get<levain::scene::Transform>().position))
             .remove<levain::scene::FpsController>();
         world.system("FollowPlayer")
             .kind<levain::scene::PostPhysics>()
@@ -1327,7 +1342,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     std::optional<levain::terrain::TerrainPass> terrain;
     std::optional<levain::water::WaterPass> water;
     std::optional<levain::grass::GrassPass> grass;
-    if (view == SandboxView::Terrain && heightmap)
+    if (showsValley(view) && heightmap)
     {
         auto pass = levain::terrain::createTerrainPass(
             *gpu.nvrhi, *upload, *heightmap, renderer->frame, renderer->shadows,
@@ -1418,7 +1433,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .camera = camera,
                      .demoProps = view == SandboxView::Demo || view == SandboxView::Physics,
                      .spinCubes = view == SandboxView::Demo,
-                     .cubesTurn = view == SandboxView::Physics || view == SandboxView::Terrain ||
+                     .cubesTurn = view == SandboxView::Physics || showsValley(view) ||
                                   view == SandboxView::Character,
                      .drawCubes = view != SandboxView::Khronos,
                      .heightmap = std::move(heightmap),
@@ -1913,7 +1928,7 @@ struct SandboxOptions
     /// (#125, #131, tools/khronos-compare.sh). Le modèle seul, à l'origine, sous sa caméra et son
     /// ciel ; ni cubes, ni sol, ni lumières de la démo. `--view terrain` : la vallée de M5.6.
     /// `--view physics` : 1 000 caisses qui tombent sur le sol de la démo (M6.1). `--view
-    /// character` : le renard qu'on dirige dans Sponza (M6.3).
+    /// character` et `--view hike` : le renard qu'on dirige, dans Sponza ou dans la vallée (M6.3).
     SandboxView view = SandboxView::Demo;
     /// `--camera x,y,z` : la caméra à cette position, face à −Z. Celle du glTF Sample Viewer, que
     /// tools/khronos-compare.sh relit dans sa page.
@@ -1932,8 +1947,8 @@ struct SandboxOptions
     std::optional<std::filesystem::path> skyPath;
     /// `--steps N` : N pas de simulation, un par image, puis l'arrêt (M6.3, pour la CI).
     std::optional<int> steps;
-    /// `--walk x,z` : la direction que suit le personnage de `--view character`, au lieu du
-    /// clavier.
+    /// `--walk x,z` : la direction que suit le personnage de `--view character` ou `hike`, au lieu
+    /// du clavier.
     std::optional<glm::vec2> walk;
     /// `--gpu webgpu` : le backend WebGPU sur Dawn, hors écran, pour le vérifier sans navigateur
     /// (ADR-0023).
@@ -2064,7 +2079,7 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         {
             const std::string_view view{arguments[i + 1]};
             if (view != "khronos" && view != "demo" && view != "terrain" && view != "physics" &&
-                view != "character")
+                view != "character" && view != "hike")
             {
                 return std::nullopt;
             }
@@ -2072,6 +2087,7 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
                            : view == "terrain"   ? SandboxView::Terrain
                            : view == "physics"   ? SandboxView::Physics
                            : view == "character" ? SandboxView::Character
+                           : view == "hike"      ? SandboxView::Hike
                                                  : SandboxView::Demo;
             continue;
         }
@@ -2188,13 +2204,11 @@ std::optional<std::filesystem::path> defaultSky()
 std::vector<ModelRequest> modelRequestsOf(const SandboxOptions& options)
 {
     std::vector<ModelRequest> requests;
+    const std::filesystem::path models{LEVAIN_TEST_ASSETS_DIR "/Models"};
     if (options.view == SandboxView::Character)
     {
         // Sponza à l'échelle 1, dans ses mètres : sa collision est simplifiée à 2 cm près dans le
-        // monde (ADR-0028). Le renard, enfant du joueur : 0,01, soit 1,55 m de long et 0,79 m de
-        // haut (Fox mesure 155 × 79 unités ; le 0,05 de la démo de M4.5 en faisait un renard de 4
-        // m), et un demi-tour, son avant étant +z quand celui du personnage est −z.
-        const std::filesystem::path models{LEVAIN_TEST_ASSETS_DIR "/Models"};
+        // monde (ADR-0028).
         requests.push_back({.path = models / "Sponza/glTF/Sponza.gltf",
                             .placement = {},
                             .clip = std::nullopt,
@@ -2202,6 +2216,12 @@ std::vector<ModelRequest> modelRequestsOf(const SandboxOptions& options)
                             .name = "sponza",
                             .collides = true,
                             .followsPlayer = false});
+    }
+    if (hasPlayer(options.view))
+    {
+        // Le renard, enfant du joueur : 0,01, soit 1,55 m de long et 0,79 m de haut (Fox mesure
+        // 155 × 79 unités ; le 0,05 de la démo de M4.5 en faisait un renard de 4 m), et un
+        // demi-tour, son avant étant +z quand celui du personnage est −z.
         requests.push_back({.path = models / "Fox/glTF/Fox.gltf",
                             .placement = {.rotation = glm::angleAxis(glm::pi<float>(),
                                                                      glm::vec3{0.0f, 1.0f, 0.0f}),
@@ -2705,7 +2725,7 @@ int main(int argc, char** argv)
                          "repos,marche,course] "
                          "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
                          "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
-                         "fichier.hdr|none] [--view demo|khronos|terrain|physics|character] "
+                         "fichier.hdr|none] [--view demo|khronos|terrain|physics|character|hike] "
                          "[--camera x,y,z] [--look lacet,tangage] [--sun x,y,z] [--pick x,y] "
                          "[--walk x,z] [--steps N]");
             return 2;

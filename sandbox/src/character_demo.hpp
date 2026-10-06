@@ -8,6 +8,7 @@
 
 #include <flecs.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include "levain/animation/animator.hpp"
@@ -132,11 +133,14 @@ template <typename... Tags> void spawnCharacterDemo(flecs::world& world)
 }
 
 /// Le joueur : une racine sans échelle, le personnage (ADR-0028). Le modèle du renard en sera un
-/// enfant, avec son échelle.
+/// enfant, avec son échelle. Il regarde vers +x, comme la caméra qui le suit : de dos, pas de
+/// profil, avant le premier pas.
 inline flecs::entity spawnPlayer(flecs::world& world, const glm::vec3& feet)
 {
     return world.entity("player")
-        .set(scene::Transform{.position = feet})
+        .set(scene::Transform{
+            .position = feet,
+            .rotation = glm::angleAxis(-glm::half_pi<float>(), glm::vec3{0.0f, 1.0f, 0.0f})})
         .set(FoxController)
         .set(FoxWalker)
         .set(character::WalkInput{})

@@ -52,4 +52,13 @@ void spawnLakeShoreCrates(flecs::world& world, const terrain::Heightmap& heightm
     }
 }
 
+/// Où le renard de `--view hike` commence (M6.3) : sur le fond plat de la vallée, 1,4 rayon à
+/// l'ouest du lac, face à lui (+x, le regard de la caméra qui le suit).
+inline glm::vec3 hikeStartOf(const terrain::Heightmap& heightmap,
+                             const terrain::ValleySettings& valley)
+{
+    const glm::vec2 spot = valley.lakeCenter - glm::vec2{valley.lakeRadius * 1.4f, 0.0f};
+    return {spot.x, terrain::heightAt(heightmap, spot), spot.y};
+}
+
 } // namespace levain::sandbox

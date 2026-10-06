@@ -5,8 +5,11 @@
 #include <doctest/doctest.h>
 #include <flecs.h>
 
+#include "character_demo.hpp"
 #include "lake_shore.hpp"
 
+#include "levain/character/walk.hpp"
+#include "levain/physics/character.hpp"
 #include "levain/physics/physics.hpp"
 #include "levain/physics/physics_world.hpp"
 #include "levain/scene/fixed_step.hpp"
@@ -228,4 +231,31 @@ TEST_CASE("les caisses de la démo roulent de la rive est jusque dans le lac, un
     const auto swimmers = levain::physics::occupantsOf(world, lake).size();
     CAPTURE(swimmers);
     CHECK(swimmers >= 32);
+}
+
+TEST_CASE("le renard de la démo marche sur le fond de la vallée, vers le lac")
+{
+    // La scène de `levain_sandbox --view hike`, sans le rendu : la vue de la page web (M6.3).
+    flecs::world world;
+    world.import<levain::character::WalkModule>();
+    const levain::terrain::ValleySettings valley;
+    const levain::terrain::Heightmap heightmap = levain::terrain::valleyOf(valley);
+    levain::sandbox::spawnLakeShoreCrates(world, heightmap, valley);
+    const glm::vec3 start = levain::sandbox::hikeStartOf(heightmap, valley);
+    const flecs::entity fox = levain::sandbox::spawnPlayer(world, start);
+    fox.get_mut<levain::character::WalkInput>().direction = {1.0f, 0.0f};
+    levain::scene::FixedStep step;
+    for (int i = 0; i < 600; ++i) // 10 s à 1,5 m/s : 15 m, sans atteindre la rive (x = 240)
+    {
+        levain::scene::advanceWorld(world, step, 1.0f / 60.0f);
+    }
+    const glm::vec3 feet = fox.get<levain::scene::Transform>().position;
+    CAPTURE(feet.x);
+    CAPTURE(feet.y);
+    CHECK(fox.get<levain::physics::CharacterState>().ground.state ==
+          levain::physics::GroundState::OnGround);
+    CHECK(feet.x - start.x > 14.0f);
+    // Ses pieds sur le terrain : la grille de hauteurs de Jolt et `heightAt` interpolent toutes
+    // deux entre échantillons, mais pas en suivant les mêmes triangles.
+    CHECK(std::abs(feet.y - levain::terrain::heightAt(heightmap, {feet.x, feet.z})) < 0.05f);
 }

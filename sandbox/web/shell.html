@@ -17,7 +17,7 @@
 <div id="status">Chargement…</div>
 <!-- Les licences des modèles publiés (tools/assets.lock). -->
 <div id="credits">Renard : PixelMannen (CC0), tomkranis, @AsoboStudio, @scurest (CC-BY 4.0) ·
-  Camion : Cesium (CC-BY 4.0) · Ciel : Kloofendal 48d, Poly Haven (CC0) · <a href="https://github.com/PhantomDO/Levain" style="color:inherit">Levain</a></div>
+  Camion : Cesium (CC-BY 4.0) · Ciel et terrain : Kloofendal 48d, Grass Path 2, Rocky Terrain 02, Rock Face, Poly Haven (CC0) · <a href="https://github.com/PhantomDO/Levain" style="color:inherit">Levain</a></div>
 </div>
 <script>
 const status = document.getElementById("status");
@@ -27,9 +27,8 @@ const overlay = document.getElementById("overlay");
 new MutationObserver(() => {
   if (overlay.parentElement !== document.body) document.body.append(overlay);
 }).observe(document.body, { childList: true, subtree: true });
-// Les arguments du sandbox : ceux de ?args=…, sinon le renard qui court.
-const args = new URLSearchParams(location.search).get("args")
-  ?? "--model /assets-cache/Models/Fox/glTF/Fox.gltf --model-scale 0.05 --locomotion Survey,Walk,Run";
+// Les arguments du sandbox : ceux de ?args=…, sinon le renard qu'on dirige dans la vallée (M6.3).
+const args = new URLSearchParams(location.search).get("args") ?? "--view hike";
 // Une erreur critique du moteur s'affiche sur la page : sans cela, un navigateur sans adaptateur
 // WebGPU montrerait un fond uni sans un mot (règle n°7).
 const showCritical = (text) => {
