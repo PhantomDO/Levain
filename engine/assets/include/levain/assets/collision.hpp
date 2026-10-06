@@ -28,6 +28,12 @@ struct CollisionMesh
 /// versionnée : un ordre de grandeur).
 inline constexpr float DefaultCollisionError = 0.02f;
 
+/// La version de ce que rend `collisionMeshOf`, écrite dans chaque `.lvcol`. **Le piège de la
+/// collision périmée** : à incrémenter à chaque changement de l'algorithme (un filtre, la soudure,
+/// la simplification). Sans quoi un `.lvcol` cuit par l'ancien resterait « à jour », puisque ni la
+/// source, ni le cuiseur, ni la tolérance n'ont changé.
+inline constexpr std::uint32_t CollisionMeshVersion = 1;
+
 /// La collision d'un modèle, tirée de son maillage affiché (ADR-0028) :
 ///
 /// 1. les triangles de chaque nœud, dans le repère du modèle (les `Transform` des nœuds composés) ;

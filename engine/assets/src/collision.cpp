@@ -156,7 +156,7 @@ CollisionMesh loadCollision(const AssetRegistry& registry, AssetId asset, const 
     {
         core::log("assets", core::LogLevel::Warning,
                   "collision de {} pas cuite : simplifiée au chargement (lancer levain_cook)",
-                  toString(asset));
+                  entry != registry.entries.end() ? entry->second.file.string() : toString(asset));
     }
     return collisionMeshOf(model, maxError);
 }

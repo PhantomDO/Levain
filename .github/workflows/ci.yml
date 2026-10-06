@@ -408,7 +408,7 @@ jobs:
         run: |
           set -euo pipefail
           ./build/${{ matrix.preset }}/tools/cook/levain_cook assets-cache 2>&1 | tee cook.log
-          if [ "${{ steps.cooked.outputs.cache-hit }}" = true ] && grep -Eq "cuit en|texture cuite" cook.log; then
+          if [ "${{ steps.cooked.outputs.cache-hit }}" = true ] && grep -Eq "cuit en|texture cuite|collision cuite" cook.log; then
             echo "::error::cache des assets cuits restauré, mais le cuiseur a recuit des fichiers"
             exit 1
           fi
@@ -424,6 +424,16 @@ jobs:
             --model assets-cache/Models/Sponza/glTF/Sponza.gltf | tee sponza-cooked.log
           if grep -q "depuis la source" sponza-cooked.log; then
             echo "::error::un asset de Sponza chargé depuis sa source : la cuisson n'a pas servi"
+            exit 1
+          fi
+          # La collision du décor (ADR-0028), relue de son .lvcol : la vue du personnage, deux pas.
+          timeout --foreground --preserve-status -k 10 120 \
+            ./build/${{ matrix.preset }}/sandbox/levain_sandbox --view character --steps 2 \
+            | tee character-cooked.log
+          grep -q "collision de sponza : [0-9]* triangles, chargés" character-cooked.log \
+            || { echo "::error::la vue du personnage n'a pas chargé la collision de Sponza"; exit 1; }
+          if grep -Eq "simplifiée au chargement|depuis la source" character-cooked.log; then
+            echo "::error::la collision de Sponza simplifiée au chargement : le .lvcol n'a pas servi"
             exit 1
           fi
 

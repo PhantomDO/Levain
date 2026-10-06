@@ -27,8 +27,9 @@ au lieu de 128.
 d'un modèle des triangles pour la physique : les nœuds composés, sans le feuillage (les matériaux en `MASK`) ni
 ce qui est skinné ou pend sous un os, soudés par position, puis simplifiés par meshoptimizer à 2 cm près, en
 unités du modèle. Sponza passe de 262 267 à 32 073 triangles. `levain_cook` l'écrit en `.lvcol` à côté du
-`.lvmesh` (60 ms pour Sponza), et `loadCollision` le relit, ou simplifie au chargement s'il manque ou a périmé. `whyNotAValidModel` refuse au
-chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou un parent ne tient pas.
+`.lvmesh` (60 ms pour Sponza), et `loadCollision` le relit, ou simplifie au chargement s'il manque ou a
+périmé ; changer `collisionMeshOf` demande d'incrémenter `CollisionMeshVersion`. `whyNotAValidModel` refuse
+au chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou un parent ne tient pas.
 
 ## Invariants
 

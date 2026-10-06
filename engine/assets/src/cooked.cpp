@@ -234,8 +234,6 @@ bool readBody(Reader& reader, Model& model)
     return reader.finished();
 }
 
-} // namespace
-
 /// Écrit les octets d'un fichier cuit, en créant son dossier `.cooked/` au besoin.
 core::Result<void> save(const std::filesystem::path& path, const Writer& writer)
 {
@@ -250,6 +248,8 @@ core::Result<void> save(const std::filesystem::path& path, const Writer& writer)
     }
     return {};
 }
+
+} // namespace
 
 core::Result<void> writeCookedModel(const std::filesystem::path& path, const Model& model,
                                     std::uint64_t sourceHash)
@@ -366,6 +366,7 @@ core::Result<void> writeCookedCollision(const std::filesystem::path& path,
     Writer writer;
     writer.value(CollisionSignature);
     writer.value(CollisionFormatVersion);
+    writer.value(CollisionMeshVersion);
     writer.value(CookerVersion);
     writer.value(sourceHash);
     writer.value(maxError);
@@ -385,12 +386,13 @@ core::Result<CollisionMesh> readCookedCollision(const std::filesystem::path& pat
     Reader reader{*bytes};
     std::array<char, 4> signature{};
     std::uint32_t formatVersion = 0;
+    std::uint32_t meshVersion = 0;
     std::uint32_t cookerVersion = 0;
     std::uint64_t cookedFrom = 0;
     float cookedTolerance = 0.0f;
     if (!reader.value(signature) || signature != CollisionSignature ||
-        !reader.value(formatVersion) || !reader.value(cookerVersion) || !reader.value(cookedFrom) ||
-        !reader.value(cookedTolerance))
+        !reader.value(formatVersion) || !reader.value(meshVersion) ||
+        !reader.value(cookerVersion) || !reader.value(cookedFrom) || !reader.value(cookedTolerance))
     {
         return cookedError(path, "pas un .lvcol");
     }
@@ -399,9 +401,11 @@ core::Result<CollisionMesh> readCookedCollision(const std::filesystem::path& pat
         return cookedError(path, std::format("format {} inconnu", formatVersion));
     }
     // La tolérance aussi : simplifiée autrement, la collision ne serait plus celle demandée.
-    if (cookerVersion != CookerVersion || cookedFrom != sourceHash || cookedTolerance != maxError)
+    if (meshVersion != CollisionMeshVersion || cookerVersion != CookerVersion ||
+        cookedFrom != sourceHash || cookedTolerance != maxError)
     {
-        return cookedError(path, "périmé : la source, le cuiseur ou la tolérance ont changé");
+        return cookedError(
+            path, "périmé : la source, l'algorithme, le cuiseur ou la tolérance ont changé");
     }
     CollisionMesh mesh;
     if (!reader.array(mesh.vertices) || !reader.array(mesh.indices) || !reader.finished())

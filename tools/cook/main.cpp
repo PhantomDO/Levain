@@ -131,25 +131,31 @@ bool cookImage(const levain::assets::AssetRegistry& registry, levain::assets::As
 bool cookCollision(const levain::assets::AssetRegistry& registry, levain::assets::AssetId id,
                    const levain::assets::AssetEntry& entry, const levain::assets::Model& model)
 {
-    const fs::path cooked =
-        levain::assets::cookedPathOf(registry, id, ".lvcol").value_or(fs::path{});
-    if (levain::assets::readCookedCollision(cooked, entry.hash,
+    const std::optional<fs::path> cooked = levain::assets::cookedPathOf(registry, id, ".lvcol");
+    if (!cooked)
+    {
+        log("cook", LogLevel::Error, "{} : hors des racines d'assets, pas de .lvcol",
+            entry.file.string());
+        return false;
+    }
+    if (levain::assets::readCookedCollision(*cooked, entry.hash,
                                             levain::assets::DefaultCollisionError))
     {
         return true;
     }
     const auto start = std::chrono::steady_clock::now();
     const levain::assets::CollisionMesh mesh = levain::assets::collisionMeshOf(model);
-    if (auto written = levain::assets::writeCookedCollision(cooked, mesh, entry.hash,
+    if (auto written = levain::assets::writeCookedCollision(*cooked, mesh, entry.hash,
                                                             levain::assets::DefaultCollisionError);
         !written)
     {
         log("cook", LogLevel::Error, "{}", written.error().message);
         return false;
     }
-    log("cook", LogLevel::Info, "collision simplifiée en {:.0f} ms ({} triangles) : {}",
+    // « cuite en » : le garde-fou de la CI (cache restauré, rien ne doit être recuit) le cherche.
+    log("cook", LogLevel::Info, "collision cuite en {:.0f} ms ({} triangles) : {}",
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(),
-        mesh.indices.size() / 3, cooked.string());
+        mesh.indices.size() / 3, cooked->string());
     return true;
 }
 
@@ -174,8 +180,14 @@ bool cookModel(const levain::assets::AssetRegistry& registry, levain::assets::As
                     levain::assets::cookedTextureStem(registry, use.first, use.second);
                 return use.first.asset != id || (stem && isTextureCooked(*stem, entry.hash));
             });
-        if (embeddedCooked && cookCollision(registry, id, entry, *cached))
+        if (embeddedCooked)
         {
+            // Le modèle est à jour : seule sa collision peut manquer. Son échec ne recuit pas le
+            // modèle, qui serait réécrit pour échouer au même endroit.
+            if (!cookCollision(registry, id, entry, *cached))
+            {
+                return false;
+            }
             log("cook", LogLevel::Info, "à jour : {}", entry.file.string());
             return true;
         }
