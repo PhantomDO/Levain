@@ -304,7 +304,10 @@ Ce qui se dessine, il ne le connaît pas : ce sont les fonctions que l'applicati
 cible, les ressources de l'image (`FrameBindings`), la matrice vue-projection de l'étape et son frustum, pour le
 culling. Le sandbox inscrit ainsi ses cubes, son sol et ses modèles (`addDemoStages`), et donne l'ordre réel au
 démarrage (« étapes du rendu : ombres : démo ; opaques : démo ; transparents : aucune »). Le temps GPU de chaque
-passe est mesuré par le renderer (`passTimes`) ; une étape vide n'est pas chronométrée.
+passe est mesuré par le renderer (`passTimes`) ; une étape vide n'est pas chronométrée. Chaque fonction d'étape
+l'est aussi (#295) : `runStage` lui donne un minuteur par appel de l'image (un par cascade pour les ombres), une
+zone Tracy à son nom, et une courbe « GPU étape/nom » ; `describeStageTimes` en donne la moyenne par image, que
+le sandbox journalise (« étapes, GPU en moyenne : … »).
 
 ## Les lignes de debug
 

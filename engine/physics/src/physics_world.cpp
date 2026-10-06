@@ -46,6 +46,7 @@
 
 #include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
+#include "levain/core/profile.hpp"
 #include "levain/physics/body_rules.hpp"
 #include "levain/physics/queries.hpp"
 
@@ -416,6 +417,7 @@ void optimizeAfterLoading(PhysicsState& state)
 
 void stepPhysics(PhysicsWorld& world, float seconds)
 {
+    LEVAIN_PROFILE_SCOPE();
     PhysicsState& state = *world.state;
     optimizeAfterLoading(state);
     forgetDeadShapes(state);

@@ -9,6 +9,7 @@
 
 #include "levain/core/file.hpp"
 #include "levain/core/log.hpp"
+#include "levain/core/profile.hpp"
 
 namespace levain::assets
 {
@@ -71,6 +72,7 @@ bool isImportable(const fs::path& path)
 
 core::Result<ScanReport> scanAssets(const fs::path& root, AssetRegistry& registry)
 {
+    LEVAIN_PROFILE_SCOPE();
     std::error_code error;
     if (!fs::is_directory(root, error))
     {

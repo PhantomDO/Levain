@@ -3,6 +3,15 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## tracy-csvexport range les zones par emplacement, pas par nom (2026-10-06)
+
+- **Symptôme** : les zones des fonctions d'étape (« terrain », « herbe »…, nommées à l'exécution par
+  `LEVAIN_PROFILE_SCOPE_TEXT`) sortent toutes sous `runStage`, 13 appels par image, sans leur nom.
+- **Cause** : `tracy-csvexport` groupe par emplacement dans le source ; le nom donné par `ZoneName` n'apparaît que
+  dans le profileur.
+- **Parade** : lire le coût CPU d'une fonction d'étape dans le profileur ; pour un chiffre scripté, le coût GPU
+  passe par les courbes « GPU étape/nom » (`tools/tracy-summary.py`), une valeur par image et par fonction.
+
 ## Une correction de relecture poussée sans le contrôle de format : la CI passe au rouge (2026-10-06)
 
 - **Symptôme** : #292 et #293, empilées, rouges sur l'étape « Format » de linux-debug, alors que la

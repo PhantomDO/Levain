@@ -5,6 +5,7 @@
 
 #include "levain/assets/cooked.hpp"
 #include "levain/core/log.hpp"
+#include "levain/core/profile.hpp"
 
 namespace levain::assets
 {
@@ -82,6 +83,7 @@ std::vector<AssetId> takeUnusedAssets(flecs::world& world)
 core::Result<const Model*> loadModel(ModelCache& cache, const AssetRegistry& registry,
                                      AssetId asset)
 {
+    LEVAIN_PROFILE_SCOPE();
     if (const auto loaded = cache.models.find(asset); loaded != cache.models.end())
     {
         return &loaded->second;

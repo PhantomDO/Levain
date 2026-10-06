@@ -2604,6 +2604,10 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
     }
     levain::core::log("sandbox", levain::core::LogLevel::Info, "passes, GPU en moyenne : {}",
                       passes);
+    // Le détail des étapes (#295) : ce que coûte chaque fonction inscrite, terrain, herbe, eau,
+    // toutes cascades d'ombres comprises.
+    levain::core::log("sandbox", levain::core::LogLevel::Info, "étapes, GPU en moyenne : {}",
+                      levain::render::describeStageTimes(loop.scene.renderer.stages));
     // Le critère de #132 : ce que le frustum culling épargne au GPU, par image.
     const auto perFrame = [&loop](std::uint64_t count)
     { return static_cast<double>(count) / std::max(loop.frameCount, 1); };

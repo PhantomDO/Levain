@@ -5,6 +5,7 @@
 
 #include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
+#include "levain/core/profile.hpp"
 #include "levain/physics/body_rules.hpp"
 #include "levain/physics/components.hpp"
 #include "levain/physics/physics.hpp"
@@ -97,6 +98,7 @@ void teleportOrRebuildCharacter(PhysicsWorld& physics, flecs::entity entity, Cha
 void advanceCharacter(PhysicsWorld& physics, scene::Transform& transform,
                       const CharacterVelocity* velocity, CharacterHandle handle, float seconds)
 {
+    LEVAIN_PROFILE_SCOPE();
     turnCharacter(physics, handle, transform.rotation);
     moveCharacter(physics, handle, velocity != nullptr ? velocity->value : glm::vec3{0.0f},
                   seconds);

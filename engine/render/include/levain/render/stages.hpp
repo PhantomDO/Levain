@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -16,6 +17,7 @@
 
 #include "levain/render/culling.hpp"
 #include "levain/render/frame.hpp"
+#include "levain/render/gpu_timer.hpp"
 #include "levain/render/shadows.hpp"
 
 namespace levain::render
@@ -64,6 +66,16 @@ struct RenderStages
     {
         std::string name;
         StageFunction function;
+        /// Le temps GPU de la fonction (#295), un minuteur par appel de l'image : quatre pour les
+        /// ombres, une par cascade. Créés au premier appel.
+        std::vector<GpuTimer> timers;
+        /// Ses mesures, par image : toutes les cascades s'y ajoutent, la cascade 0 compte l'image.
+        GpuTimeAverage gpuTime;
+        /// La dernière image mesurée, toutes cascades comprises, pour la courbe de Tracy.
+        double lastFrameMs = 0.0;
+        /// « GPU ombres/terrain » : le nom de la courbe. Sur le tas, pour que son adresse ne change
+        /// pas quand le tableau des fonctions grandit (LEVAIN_PROFILE_PLOT).
+        std::shared_ptr<const std::string> plotName;
     };
 
     std::array<std::vector<Entry>, RenderStageNames.size()> entries;
@@ -73,8 +85,16 @@ struct RenderStages
 void addStageFunction(RenderStages& stages, RenderStage stage, std::string name,
                       StageFunction function);
 
-/// Appelle les fonctions de `stage`, dans l'ordre de leur inscription.
-void runStage(const RenderStages& stages, RenderStage stage, const StageContext& context);
+/// Appelle les fonctions de `stage`, dans l'ordre de leur inscription, chacune chronométrée sur
+/// le GPU et dans Tracy.
+void runStage(RenderStages& stages, RenderStage stage, const StageContext& context);
+
+/// Ajoute à Tracy la dernière image de chaque fonction, une courbe par fonction.
+void plotStageTimes(const RenderStages& stages);
+
+/// « ombres/terrain 0,30 ms, opaques/herbe 2,10 ms » : le temps GPU moyen d'une image, fonction
+/// par fonction ; celles qui n'ont pas encore de mesure n'y sont pas.
+[[nodiscard]] std::string describeStageTimes(const RenderStages& stages);
 
 /// « ombres : démo, terrain ; opaques : démo ; transparents : aucune » : l'ordre réel de l'image.
 [[nodiscard]] std::string describeStages(const RenderStages& stages);

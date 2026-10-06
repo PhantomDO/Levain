@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Capture Tracy du sandbox, sans interface : lance le sandbox profilé, enregistre quelques
-# secondes avec tracy-capture, puis résume les zones avec tracy-csvexport (temps en ns).
+# secondes avec tracy-capture, puis résume les zones et les courbes (tools/tracy-summary.py).
 #
 # Prérequis : le build profilé (skill build, « Profilage Tracy ») et les outils Tracy de la même
 # version que le client, 0.14.1 (ports/tracy) : github.com/wolfpld/tracy/releases/tag/v0.14.1
 #
-# Usage : ./tools/tracy-capture.sh [secondes] [fichier.tracy]
+# Usage : ./tools/tracy-capture.sh [secondes] [fichier.tracy] [arguments du sandbox…]
+#   ./tools/tracy-capture.sh 5 captures/hike.tracy --view hike --walk 1,0
 # La capture s'ouvre ensuite dans le profileur : tracy-profiler-x86_64.AppImage <fichier.tracy>
 set -euo pipefail
 
@@ -17,7 +18,7 @@ readonly sandbox=build/prof/sandbox/levain_sandbox
 mkdir -p "$(dirname "$output")"
 
 # TRACY_NO_EXIT : sans lui, le sandbox pourrait se terminer avant la connexion, sans un mot.
-TRACY_NO_EXIT=1 "$sandbox" > /dev/null 2>&1 &
+TRACY_NO_EXIT=1 "$sandbox" "${@:3}" > /dev/null 2>&1 &
 readonly sandbox_pid=$!
 
 stop_sandbox() {
@@ -32,4 +33,4 @@ stop_sandbox() {
 trap stop_sandbox EXIT
 
 "$tracy_dir/tracy-capture" -a 127.0.0.1 -o "$output" -f -s "$seconds"
-"$tracy_dir/tracy-csvexport" "$output"
+TRACY_DIR="$tracy_dir" "$(dirname "$0")/tracy-summary.py" "$output"
