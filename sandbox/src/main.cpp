@@ -152,14 +152,64 @@ struct DrawCount
     std::uint64_t triangles = 0;
 };
 
-std::string describeFrameTimes(const levain::core::FrameTimeSummary& summary, double gpuMs)
+/// Ce que la boucle mesure d'une période d'images (#294) : le titre de la fenêtre et le calque de
+/// la page web l'affichent.
+struct FrameReport
 {
-    // Tirets ASCII : setWindowTitle refuse le reste (voir window.hpp). averageMs n'est jamais
-    // nul, un résumé couvre au moins FrameTimePeriodSeconds.
-    return std::format(
-        "Levain - {:.3f} ms (min {:.3f}, max {:.3f}) - {:.0f} images/s - GPU {:.3f} ms",
-        summary.averageMs, summary.minMs, summary.maxMs, 1000.0 / summary.averageMs, gpuMs);
+    levain::core::FrameTimeSummary times;
+    double imagesPerSecond = 0.0;
+    /// Le temps d'une image passé dans le moteur, hors attente de l'écran, en moyenne.
+    double engineMs = 0.0;
+    /// Sa part de l'intervalle entre deux images, en %.
+    double enginePercent = 0.0;
+    levain::platform::PixelSize pixels;
+};
+
+/// Le résumé d'une période, et la part du moteur : ce qui s'approche le plus d'une occupation du
+/// CPU, que le navigateur ne donne pas (docs/QA.md, 06/10/2026). Le reste de l'intervalle, c'est
+/// l'attente de l'écran, ou ailleurs le navigateur et les autres programmes.
+FrameReport frameReportOf(const levain::core::FrameTimeSummary& summary, double engineSeconds,
+                          levain::platform::PixelSize pixels)
+{
+    // averageMs n'est jamais nul : un résumé couvre au moins FrameTimePeriodSeconds.
+    const double engineMs = engineSeconds * 1000.0 / summary.frameCount;
+    return {.times = summary,
+            .imagesPerSecond = 1000.0 / summary.averageMs,
+            .engineMs = engineMs,
+            .enginePercent = 100.0 * engineMs / summary.averageMs,
+            .pixels = pixels};
 }
+
+std::string describeFrameTimes(const FrameReport& report, double gpuMs)
+{
+    // Tirets ASCII : setWindowTitle refuse le reste (voir window.hpp).
+    return std::format("Levain - {:.3f} ms (min {:.3f}, max {:.3f}) - {:.0f} images/s - moteur "
+                       "{:.3f} ms ({:.0f} %) - GPU {:.3f} ms",
+                       report.times.averageMs, report.times.minMs, report.times.maxMs,
+                       report.imagesPerSecond, report.engineMs, report.enginePercent, gpuMs);
+}
+
+#ifdef __EMSCRIPTEN__
+// Le calque de la page web (#294) : le moteur appelle `Module.onFrameReport` s'il existe, une fois
+// par période. EM_JS écrit une fonction JavaScript appelable depuis le C++ (documentation
+// d'Emscripten, « Interacting with code », section « Calling JavaScript from C/C++ »).
+// clang-format off
+EM_JS(void, reportFrameToPage, (double imagesPerSecond, double averageMs, double maxMs,
+                                double engineMs, double enginePercent, int width, int height), {
+    if (Module.onFrameReport) {
+        Module.onFrameReport({imagesPerSecond, averageMs, maxMs, engineMs, enginePercent, width,
+                              height});
+    }
+});
+// clang-format on
+
+void reportFrame(const FrameReport& report)
+{
+    reportFrameToPage(report.imagesPerSecond, report.times.averageMs, report.times.maxMs,
+                      report.engineMs, report.enginePercent, report.pixels.width,
+                      report.pixels.height);
+}
+#endif
 
 /// Ce que le rendu dessine comme cube : un tag, vide, posé sur les entités de la grille. Demander
 /// plutôt « les enfants de grid » coûterait 212 µs par frame au lieu de 8 : une requête
@@ -1744,12 +1794,17 @@ void addDemoStages(DemoScene& scene)
 /// Efface l'image de la swapchain et son depth buffer, y dessine la grille, et la présente. Rend le
 /// temps GPU d'une frame précédente, dès qu'il est lisible. Avec `capture`, l'image est aussi
 /// copiée pour être relue (`render::readBack`).
+/// `displayWait`, s'il est donné, reçoit le temps passé à attendre l'écran : l'image libre, puis
+/// la présentation. Ce n'est pas du travail du moteur (#294).
 std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
                                   const levain::platform::Window& window, DemoScene& scene,
                                   nvrhi::ICommandList& commandList, double seconds,
-                                  nvrhi::StagingTextureHandle* capture = nullptr)
+                                  nvrhi::StagingTextureHandle* capture = nullptr,
+                                  double* displayWait = nullptr)
 {
+    const Clock::time_point acquireStart = Clock::now();
     nvrhi::ITexture* backBuffer = levain::gpu::beginFrame(gpu, window);
+    const Clock::time_point acquireEnd = Clock::now();
     if (backBuffer == nullptr)
     {
         return std::nullopt;
@@ -1790,7 +1845,13 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
     }
 
     LEVAIN_PROFILE_SCOPE_NAMED("présentation");
+    const Clock::time_point presentStart = Clock::now();
     levain::gpu::presentFrame(gpu);
+    if (displayWait != nullptr)
+    {
+        *displayWait =
+            secondsBetween(acquireStart, acquireEnd) + secondsBetween(presentStart, Clock::now());
+    }
     return gpuMs;
 }
 
@@ -2329,6 +2390,9 @@ struct Loop
     levain::core::FrameTimeAccumulator frameTimes;
     GpuTimeAverage periodGpu; ///< Depuis la dernière mise à jour du titre.
     GpuTimeAverage totalGpu;  ///< Depuis le début de la boucle, journalisé à la fin.
+    /// Le temps passé dans le moteur, hors attente de l'écran, depuis la dernière mise à jour du
+    /// titre (#294).
+    double periodEngineSeconds = 0.0;
     Clock::time_point loopStart;
     Clock::time_point previousFrameEnd;
     int frameCount = 0;
@@ -2378,6 +2442,7 @@ Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, Sa
                 .frameTimes = {},
                 .periodGpu = {},
                 .totalGpu = {},
+                .periodEngineSeconds = 0.0,
                 .loopStart = now,
                 .previousFrameEnd = now,
                 .frameCount = 0,
@@ -2427,6 +2492,8 @@ bool runFrame(Loop& loop)
         return true;
     }
 
+    const Clock::time_point frameStart = Clock::now();
+    double displayWait = 0.0;
     {
         LEVAIN_PROFILE_SCOPE_NAMED("événements");
 
@@ -2484,8 +2551,8 @@ bool runFrame(Loop& loop)
 
     {
         LEVAIN_PROFILE_SCOPE_NAMED("rendu");
-        if (const auto gpuMs =
-                renderFrame(loop.gpu, loop.window, scene, *loop.commandList, sceneSecondsOf(loop)))
+        if (const auto gpuMs = renderFrame(loop.gpu, loop.window, scene, *loop.commandList,
+                                           sceneSecondsOf(loop), nullptr, &displayWait))
         {
             loop.periodGpu.totalMs += *gpuMs;
             ++loop.periodGpu.samples;
@@ -2507,14 +2574,21 @@ bool runFrame(Loop& loop)
     const double frameSeconds = secondsBetween(loop.previousFrameEnd, frameEnd);
     loop.previousFrameEnd = frameEnd;
     loop.lastFrameSeconds = frameSeconds;
+    loop.periodEngineSeconds += secondsBetween(frameStart, frameEnd) - displayWait;
 
     if (const auto summary =
             levain::core::recordFrame(loop.frameTimes, frameSeconds, FrameTimePeriodSeconds))
     {
         LEVAIN_PROFILE_SCOPE_NAMED("titre");
+        const FrameReport report = frameReportOf(*summary, loop.periodEngineSeconds,
+                                                 levain::platform::windowPixelSize(loop.window));
         levain::platform::setWindowTitle(loop.window,
-                                         describeFrameTimes(*summary, averageOf(loop.periodGpu)));
+                                         describeFrameTimes(report, averageOf(loop.periodGpu)));
+#ifdef __EMSCRIPTEN__
+        reportFrame(report);
+#endif
         loop.periodGpu = {};
+        loop.periodEngineSeconds = 0.0;
     }
 
     ++loop.frameCount;

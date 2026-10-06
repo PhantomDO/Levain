@@ -42,6 +42,9 @@ if(EMSCRIPTEN)
                 "--preload-file=${testAssets}/${texture}@/assets-cache/${texture}")
         endforeach()
     endforeach()
+    # Le calque des mesures (#294), à côté de la page qui le charge : un fichier à part, que
+    # l'Artifact de la page web publie aussi.
+    configure_file(web/stats.js "${CMAKE_CURRENT_BINARY_DIR}/stats.js" COPYONLY)
     # LINK_DEPENDS : la page se régénère quand son modèle change, pas seulement le code.
     set_target_properties(levain_sandbox PROPERTIES SUFFIX ".html" LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html")
     target_link_options(levain_sandbox PRIVATE

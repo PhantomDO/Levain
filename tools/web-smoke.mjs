@@ -49,6 +49,10 @@ for (const start = Date.now(); Date.now() - start < TimeoutMs; ) {
   if (/dessiné|images\/s|échec/.test(title)) break;
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
+// Lu avant la fin de la session : le calque des mesures du sandbox (#294), vide sur une autre page.
+const overlayState = (await send("script.evaluate", {
+  expression: "JSON.stringify({ report: window.levainLastReport ?? null, text: document.getElementById('stats')?.textContent ?? '' })",
+  target: { context }, awaitPromise: false })).result.value;
 const shot = await send("browsingContext.captureScreenshot", { context });
 await send("session.end");
 socket.close();
@@ -60,6 +64,13 @@ if (!/dessiné|images\/s/.test(title)) {
 }
 if (referencePath === "-") {
   console.log(`la page tourne : ${title}`);
+  // Le calque des mesures (#294) : le moteur doit en avoir rendu compte, et la page l'afficher.
+  const { report, text } = JSON.parse(overlayState);
+  console.log(`calque :\n${text}`);
+  if (!(report?.imagesPerSecond > 0) || !text.includes("images/s")) {
+    console.error("ÉCHEC : le calque des mesures est vide");
+    process.exit(1);
+  }
   process.exit(0);
 }
 

@@ -62,7 +62,9 @@ l'instant. Les captures restent dans `build/web/web-smoke.png` et `build/web/web
 Le sandbox web (`build/web/sandbox/levain_sandbox.html`) précharge `data/`, les shaders WGSL, le renard, le
 camion et les textures du terrain (jamais Sponza, licence) : `tools/fetch-assets.sh` d'abord. Ses arguments
 passent par l'URL, `?args=--model%20/assets-cache/Models/CesiumMilkTruck/glTF/CesiumMilkTruck.gltf` ; par
-défaut, `--view hike`, le renard qu'on dirige dans la vallée. Pour
+défaut, `--view hike`, le renard qu'on dirige dans la vallée. Un calque en haut à droite (`sandbox/web/stats.js`,
+#294) affiche chaque seconde les images/s, le temps passé dans le moteur et sa part de l'image, la résolution, et
+la machine (GPU, navigateur, cœurs, mémoire) ; `tools/web-smoke.sh` vérifie qu'il se remplit. Pour
 le voir soi-même : `python3 -m http.server -d build/web/sandbox`, puis `http://localhost:8000/levain_sandbox.html`.
 
 `-pedantic-errors` (C++23 strict) et `-Wall -Wextra -Werror` sont dans le `CMakeLists.txt` racine : **ne jamais
