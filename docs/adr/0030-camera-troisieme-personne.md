@@ -1,7 +1,8 @@
 # ADR-0030 — La caméra à la troisième personne de *Rando*
 
-- **Statut** : accepté le 2026-10-06, sur les réponses de Donnovan au sondage du jour (collision, recentrage,
-  souris)
+- **Statut** : accepté le 2026-10-06, sur les réponses de Donnovan aux sondages du jour (collision, recentrage,
+  souris, puis le regard vers le haut) ; relu par un subagent, dont la relecture a ajouté la marge de la
+  sphère, son masque, et la vérification entre deux pas
 - **Date** : 2026-10-06
 - **Milestone** : M6.4
 
@@ -19,7 +20,9 @@ Les réponses de Donnovan au sondage, mot pour mot :
 
 - quand un rocher coupe le bras : « Sphère, rentre vite, ressort doucement (Recommandé) » ;
 - recentrage : « En marchant, après 1,5 s sans regard (Recommandé) » ;
-- souris : « Souris capturée (Recommandé) ».
+- souris : « Souris capturée (Recommandé) » ;
+- en levant les yeux, la caméra touche vite le sol derrière le renard : « Elle glisse sur le sol
+  (Recommandé) », plutôt qu'un regard borné à l'horizontale.
 
 ## Options envisagées
 
@@ -65,8 +68,8 @@ Les réglages, dans `ThirdPersonCamera`, avec leurs valeurs de départ (à régl
 | Réglage | Départ | Rôle |
 |---|---:|---|
 | `pivotHeight` | 0,6 m | Le pivot au-dessus des pieds : le dos d'un renard de 0,79 m |
-| `armLength` | 3,5 m | La longueur du bras sans obstacle, celle de la caméra de M6.3 |
-| `minPitchDegrees`, `maxPitchDegrees` | −70°, 40° | On ne passe ni sous le sol ni par-dessus la tête |
+| `armLength` | 3,5 m | La longueur du bras sans obstacle ; la caméra de M6.3 était à 3,7 m de sa cible |
+| `minPitchDegrees`, `maxPitchDegrees` | −70°, 30° | Vers le bas, pas par-dessus la tête ; vers le haut, la caméra glisse sur le sol (au-delà d'environ 5° sur sol plat, le bras touche le sol et rentre) et lève les yeux vers les crêtes |
 | `lookDegreesPerUnit` | 1 | Comme la caméra libre (ADR-0017) |
 | `returnSeconds` | 0,4 s | La constante de temps du retour, une fois l'obstacle dégagé |
 | `recenterWaitSeconds` | 1,5 s | Sans regard, le temps avant le recentrage |
@@ -82,11 +85,17 @@ Dans la phase `PostPhysics` (ADR-0026), après que le joueur a bougé, chaque pa
 
 1. **Le regard** : les axes `look_right` et `look_up` de l'input du joueur, posé par `app` en singleton
    (ADR-0029), tournent le lacet et le tangage, bornés (`clampPitch`, déjà dans `scene`).
-2. **Le recentrage** : si le regard est resté à zéro pendant `recenterWaitSeconds` et que le joueur avance
-   plus vite que `recenterMinSpeed`, le lacet rejoint celui du joueur par le plus court chemin, en
-   s'en approchant exponentiellement. Comme le *Recentering* de Cinemachine, avec son `Wait` et son `Time` [3].
-3. **Le bras** : un `physics::sphereCast` part du pivot, dans la direction de la caméra, sur `armLength`, contre
-   le décor et les corps dynamiques (pas les volumes déclencheurs : le lac ne repousse pas la caméra).
+2. **Le recentrage** : si le regard est resté à zéro pendant `recenterWaitSeconds`, que le joueur avance plus
+   vite que `recenterMinSpeed` **et qu'il s'éloigne de la caméra** (sa marche à moins de 45° de son regard), le
+   lacet rejoint celui du joueur par le plus court chemin, en s'en approchant exponentiellement. Comme le
+   *Recentering* de Cinemachine, avec son `Wait` et son `Time` [3].
+3. **Le bras** : un `physics::sphereCast` part du pivot, dans la direction de la caméra, sur `armLength`, avec
+   le masque `maskOf({Layer::Static, Layer::Dynamic})` : le décor et les corps dynamiques. Ni les volumes
+   déclencheurs (le lac ne repousse pas la caméra), ni la couche `Character`, que le masque par défaut
+   (`SolidLayers`) contient : le pivot est **dans** la capsule du renard (0,6 m, pour un sommet à 0,8 m), et
+   une sphère qui part de l'intérieur d'un corps et avance vers lui le touche à la distance 0 (queries.hpp) ;
+   la caméra s'écraserait sur le pivot dès qu'on lève les yeux. La documentation de Godot donne le même
+   conseil pour son `SpringArm3D` (exclure le corps du joueur).
    - **Touché à une distance plus courte que le bras actuel** : le bras prend cette distance **tout de suite**.
    - **Sinon** : il revient vers `armLength`, exponentiellement, avec la constante `returnSeconds`. Le retour
      ne dépasse jamais la distance libre que le *sphere cast* vient de trouver.
@@ -100,19 +109,28 @@ une ligne.
 
 - **`nearPlaneRadius(lens, aspect)`** : la sphère doit contenir le **plan proche** de la caméra, pas seulement
   son centre. Le coin de ce plan est à `near × √(1 + tan²(fov/2) × (1 + aspect²))` du centre optique : avec
-  60° et du 16:9, c'est 1,55 fois le plan proche. Une sphère plus petite laisserait les coins de l'image entrer
+  60° et du 16:9, c'est 1,54 fois le plan proche. Une sphère plus petite laisserait les coins de l'image entrer
   dans la roche, c'est exactement ce que le critère interdit. Le rayon se recalcule quand la fenêtre change de
   forme (un téléphone en portrait, ADR-0023).
-- **Le plan proche passe de 0,5 à 0,2 m** pour cette caméra : avec 0,5 m, la sphère ferait 0,77 m, et la caméra
-  ne s'approcherait jamais à moins de 77 cm d'une paroi. Avec 0,2 m, elle fait 0,31 m. Le prix est la précision
-  de la profondeur au loin (un depth buffer non inversé, `D32`) : la PR de la caméra capture la vallée à 0,2 et
-  à 0,5 m pour vérifier qu'aucun scintillement n'apparaît au bord du lac ou sur les crêtes. S'il en apparaît, la
-  profondeur inversée (*reversed-Z*) sera une issue du moteur.
-- **`shortestYawDelta(from, to)`** : recentrer de 350° à 10° fait 20° dans un sens, pas 340° dans l'autre.
+- **Une marge de 5 cm** s'ajoute à ce rayon : la collision (les triangles du heightfield de Jolt), l'image (ceux
+  du GPU) et la mesure de la CI (`heightAt`, bilinéaire) ne voient pas exactement le même relief. Sans marge,
+  les coins de l'image toucheraient la roche au contact, et la CI réussirait ou échouerait au hasard.
+- **Le plan proche passe de 0,5 à 0,2 m** pour cette caméra : avec 0,5 m, la sphère ferait 0,82 m, et la caméra
+  ne s'approcherait jamais à moins de 82 cm d'une paroi. Avec 0,2 m, elle fait 0,36 m. Le prix : la précision de
+  la profondeur au loin, et deux réglages qui partent du plan proche, les **cascades d'ombres**
+  (`cascadeSplitsOf`, en répartition logarithmique) et les **tranches des clusters** de lumières (ADR-0024). La
+  PR de la caméra capture la vallée à 0,2 et à 0,5 m et compare le bord du lac, les crêtes et les ombres. Si un
+  écart se voit, deux issues du moteur : la profondeur inversée (*reversed-Z*), et des cascades réglées par
+  leur propre distance plutôt que par le plan proche.
+- **`shortestYawDelta(from, to)`** : recentrer de 350° à 10° fait 20° dans un sens, pas 340° dans l'autre. Le
+  `turnTowards` du plugin `character` fait déjà ce calcul en privé : la fonction descend dans `scene`, à côté
+  de `clampPitch`, et les deux s'en servent.
+- **Le recentrage qui tourne en rond** : tenir « droite » fait marcher le renard vers la droite de la caméra ;
+  recentrée derrière lui, la caméra tourne, la droite tourne avec elle, et le renard décrit un cercle. D'où la
+  condition « s'éloigne de la caméra » : de profil ou face à elle, il n'y a pas de recentrage.
 - **Un pivot dans la roche** : sous un surplomb bas, le *sphere cast* touche à la distance 0. La caméra se
-  pose alors sur le pivot, sans traverser ; c'est l'endroit où le renard lui-même remplit l'image, un défaut
-  connu de toutes les caméras de ce type (Unreal masque alors le personnage). Masquer le renard quand la caméra
-  est trop près sera une issue de M6.5, si la vallée en montre le besoin.
+  pose alors sur le pivot, sans traverser ; c'est l'endroit où le renard lui-même remplit l'image. Le masquer
+  quand la caméra est trop près sera une issue de M6.5, si la vallée en montre le besoin.
 
 ### La souris
 
@@ -129,18 +147,24 @@ lui en M6.4 ; la forme ci-dessus le permet sans rien casser.
 
 ### Le critère, vérifié en CI
 
-Une **marge au relief**, à chaque image : la hauteur des quatre coins du plan proche et de son centre au-dessus
-du terrain (`terrain::heightAt`), à la pose rendue, donc interpolée. Le relief de la vallée n'a ni surplomb ni
-grotte : passer sous lui, c'est traverser la roche.
+Une **marge au relief** : la hauteur des quatre coins du plan proche et de son centre au-dessus du terrain
+(`terrain::heightAt`). Le relief de la vallée n'a ni surplomb ni grotte : passer sous lui, c'est traverser la
+roche.
 
-- **Le scénario** : le renard longe le pied d'un versant (`--walk`), pendant que la caméra fait un tour complet
-  autour de lui toutes les 4 s (un regard scripté, `--orbit`). Toutes les directions du bras passent donc
-  contre la pente.
+- **Entre deux pas** : la CI joue un pas par image (`--steps`), et le rendu n'y voit donc jamais une pose
+  interpolée. Or c'est là qu'est le risque : le bras rentre d'un coup, et sur une arête convexe, le segment
+  entre l'ancienne et la nouvelle pose peut passer sous la roche. La mesure évalue donc, à chaque pas, la pose
+  interpolée entre le `PreviousTransform` et le `Transform` aux fractions 0, ¼, ½ et ¾, comme la verrait une
+  image tombée entre les deux.
+- **Le scénario** : le renard longe le pied d'un versant (`--walk`, une direction **dans le monde**, que la
+  caméra ne tourne pas), pendant que la caméra fait un tour complet autour de lui toutes les 4 s et que son
+  tangage va d'une borne à l'autre (un regard scripté, `--orbit`). Toutes les directions du bras passent donc
+  contre la pente, la caméra basse comprise, le pire cas.
 - **Le contrôle qui mord** (règle n°7) : le même scénario, la collision coupée (`--camera-collision off`), doit
   donner une marge **négative**. Sinon, le scénario ne longe pas assez la paroi pour prouver quoi que ce soit, et
   l'étape échoue.
-- **Avec la collision**, la marge minimale doit rester positive. La CI lit la ligne « caméra : marge minimale au
-  relief … » du journal.
+- **Avec la collision**, la marge minimale doit rester d'au moins **2 cm**. La CI lit la ligne « caméra : marge
+  minimale au relief … » du journal.
 
 ## Conséquences
 
@@ -150,7 +174,8 @@ grotte : passer sous lui, c'est traverser la roche.
   souris, plus l'interpolation. Si la latence se sent sur un écran à 144 Hz, l'orbite passera à l'image ; le
   bras et sa collision resteront au pas.
 - La direction de marche se tourne selon le **lacet de la caméra** : « avant » est là où elle regarde. La glu
-  du jeu qui remplit le `WalkInput` lit ce lacet. Le `walkDirectionOf` du sandbox, figé sur +x, reste au sandbox.
+  du jeu qui remplit le `WalkInput` lit ce lacet ; `--walk` la remplace par une direction du monde, pour la CI.
+  Le `walkDirectionOf` du sandbox, figé sur +x, reste au sandbox.
 - Le sandbox garde sa caméra qui suit, sans collision : la caméra de *Rando* ne descend pas dans le moteur.
 
 ## Ce que font les autres moteurs
@@ -159,8 +184,10 @@ grotte : passer sous lui, c'est traverser la roche.
   the parent, but will retract the children if there is a collision, and spring back when there is no
   collision » [1]. La collision est un *sphere cast* : `bDoCollisionTest`, « do a collision test using
   ProbeChannel and ProbeSize to prevent camera clipping into level », la sphère de `ProbeSize` (12 unités,
-  12 cm, dans son constructeur, d'après le code source). Le lissage est optionnel et symétrique (`bEnableCameraLag`,
-  `CameraLagSpeed`) ; le recentrage n'est pas dans le bras, mais dans le `PlayerController`.
+  12 cm, dans son constructeur, d'après le code source). Son *camera lag* (`bEnableCameraLag`, « camera lags
+  behind target position to smooth its movement ») lisse le suivi de la cible, pas la collision : d'après le
+  code source, le bras prend le point touché aussitôt, dans les deux sens. Unreal ne fournit pas de recentrage :
+  un jeu l'écrit lui-même.
 - **Unity**, Cinemachine : l'extension *Deoccluder* a les deux amortissements que nous choisissons, `Damping`,
   « How quickly to return the camera to its normal position after an occlusion has gone away », et `Damping When
   Occluded`, « How quickly to move the camera to avoid an obstacle », plus un `Camera Radius`, « Distance to

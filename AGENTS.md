@@ -46,6 +46,9 @@ Références pour NVRHI : Donut et Donut-Samples (NVIDIA, MIT), à lire et adapt
 2. **Une PR se relit en 30 minutes au plus** (environ 400 lignes hors tiers et généré). Sinon, découper.
    Exception admise par Donnovan (2026-09-21) : du code Vulkan qui forme un bloc peut dépasser, **s'il reste
    lisible et que l'écart est signalé** dans la PR avec sa raison.
+   Exception décidée par Donnovan (2026-10-06) : une PR qui **déplace du code sans le changer** peut dépasser,
+   si l'écart est signalé et que le guide de lecture dit de la lire avec `git diff --color-moved` : seules les
+   lignes changées en route ressortent (ADR-0029).
 3. **Décision structurante = ADR d'abord** (`docs/adr/`, modèle `0000-modele.md`), validé par Donnovan avant
    l'implémentation.
 4. **Zéro erreur de validation en Debug** (couche de validation NVRHI, validation layers Vulkan, couche de debug

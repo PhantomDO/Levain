@@ -141,7 +141,7 @@ docs/           SPECS, ROADMAP, JOURNAL, LECTURES, QA, SETUP, adr/, etudes/
 core ← platform ← gpu ← render
 core ← scene (flecs) ← assets, physics, audio, input
 assets ← animation
-tout ce qui précède ← app ← editor, sandbox
+tout ce qui précède ← app ← editor, sandbox, jeu (ADR-0029)
 moteur ← plugins moteur ← jeu (autre dépôt) et ses plugins gameplay
 ```
 
