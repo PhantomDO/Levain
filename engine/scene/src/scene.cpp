@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "levain/core/profile.hpp"
 #include "levain/scene/camera_control.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/motion.hpp"
@@ -188,11 +189,13 @@ int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds)
     const flecs::entity_t simulation = world.get<SimulationPipeline>().pipeline;
     for (int i = 0; i < plan.steps; ++i)
     {
+        LEVAIN_PROFILE_SCOPE_NAMED("pas fixe");
         // Le pas, jamais le temps réel de l'image : c'est là que tient le déterminisme (ADR-0016).
         world.run_pipeline(simulation, step.stepSeconds);
     }
     world.set<RenderAlpha>({.value = plan.alpha});
-    world.progress(frameSeconds); // le pipeline par défaut : interpolation et matrices monde
+    LEVAIN_PROFILE_SCOPE_NAMED("interpolation et matrices monde");
+    world.progress(frameSeconds); // le pipeline par défaut
     return plan.steps;
 }
 

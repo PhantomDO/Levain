@@ -140,12 +140,19 @@ Les outils de la même version (profileur, `tracy-capture`, `tracy-csvexport`) v
 décompressée dans `~/.local/opt/tracy-0.14.1/` (`TRACY_DIR` pour un autre dossier).
 
 ```bash
-cmake -S . -B build/prof -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ \
-  -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -DLEVAIN_PROFILING=ON
-cmake --build build/prof
-./tools/tracy-capture.sh 3 captures/sandbox.tracy        # capture scriptée + statistiques des zones
-~/.local/opt/tracy-0.14.1/tracy-profiler-x86_64.AppImage captures/sandbox.tracy   # ouvrir la capture
+cmake --preset linux-release -B build/prof -DLEVAIN_PROFILING=ON   # Release : des temps représentatifs
+cmake --build build/prof --target levain_sandbox
+SDL_VIDEO_DRIVER=offscreen ./tools/tracy-capture.sh 5 captures/hike.tracy --view hike --walk 1,0
+./tools/tracy-summary.py captures/hike.tracy             # médianes des zones et des courbes GPU
+~/.local/opt/tracy-0.14.1/tracy-profiler-x86_64.AppImage captures/hike.tracy   # ouvrir la capture
 ```
+
+Ce que la capture contient (#295) : les zones du sandbox, celles du moteur (pas fixe, `stepPhysics`,
+`advanceCharacter`, `sampleBlend`, le chargement), une zone par fonction d'étape du rendu (« ombres/terrain »), et
+une courbe « GPU étape/nom » par fonction : le temps GPU de la fonction, toutes cascades comprises, par les
+minuteurs de NVRHI. Ces minuteurs coûtent (engine/render/README.md, « la mesure qui coûte ») : le sandbox ne les
+active qu'en build profilé, et le journal y ajoute la ligne « étapes, GPU en moyenne ». Pas de zones GPU natives de Tracy (`TracyVkZone`) : elles demanderaient les poignées Vulkan hors du
+module `gpu` (choix de Donnovan, 06/10/2026).
 
 Pour profiler en direct : lancer le profileur, puis `TRACY_NO_EXIT=1 ./build/prof/sandbox/levain_sandbox`.
 

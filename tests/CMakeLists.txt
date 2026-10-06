@@ -137,6 +137,15 @@ add_test(NAME deps.asset-libraries-visibility
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/check_asset_libraries_visibility.cmake)
 
+# Sans LEVAIN_PROFILING, Tracy n'est pas dans le binaire (engine/core/include/levain/core/profile.hpp) :
+# ni symbole, ni thread, ni socket. Le contrôle exige aussi des symboles levain::, sans quoi un nm
+# muet le laisserait vert (règle n°7).
+if(NOT LEVAIN_PROFILING AND NOT EMSCRIPTEN)
+    add_test(NAME build.no-tracy COMMAND ${CMAKE_NM} -C $<TARGET_FILE:levain_tests>)
+    set_tests_properties(build.no-tracy PROPERTIES
+        FAIL_REGULAR_EXPRESSION "tracy::" PASS_REGULAR_EXPRESSION "levain::")
+endif()
+
 add_test(NAME assets.metas-committed
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/check_asset_metas.cmake)

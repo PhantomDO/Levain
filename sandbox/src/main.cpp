@@ -1252,6 +1252,11 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     {
         return std::unexpected(renderer.error());
     }
+#if defined(LEVAIN_PROFILING_ENABLED) && LEVAIN_PROFILING_ENABLED
+    // Le temps GPU de chaque fonction d'étape (#295), en build profilé seulement : ailleurs, il
+    // coûterait ce qu'il mesure (engine/render/README.md).
+    renderer->stages.timeFunctions = true;
+#endif
 
     // La vallée de --view terrain et hike, avant le monde : sa physique en a besoin pour le sol
     // (M6.2).
@@ -2693,6 +2698,13 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
     }
     levain::core::log("sandbox", levain::core::LogLevel::Info, "passes, GPU en moyenne : {}",
                       passes);
+    // Le détail des étapes (#295), en build profilé : ce que coûte chaque fonction inscrite,
+    // terrain, herbe, eau, toutes cascades d'ombres comprises.
+    if (loop.scene.renderer.stages.timeFunctions)
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Info, "étapes, GPU en moyenne : {}",
+                          levain::render::describeStageTimes(loop.scene.renderer.stages));
+    }
     // Le critère de #132 : ce que le frustum culling épargne au GPU, par image.
     const auto perFrame = [&loop](std::uint64_t count)
     { return static_cast<double>(count) / std::max(loop.frameCount, 1); };

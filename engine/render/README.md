@@ -304,7 +304,19 @@ Ce qui se dessine, il ne le connaît pas : ce sont les fonctions que l'applicati
 cible, les ressources de l'image (`FrameBindings`), la matrice vue-projection de l'étape et son frustum, pour le
 culling. Le sandbox inscrit ainsi ses cubes, son sol et ses modèles (`addDemoStages`), et donne l'ordre réel au
 démarrage (« étapes du rendu : ombres : démo ; opaques : démo ; transparents : aucune »). Le temps GPU de chaque
-passe est mesuré par le renderer (`passTimes`) ; une étape vide n'est pas chronométrée.
+passe est mesuré par le renderer (`passTimes`) ; une étape vide n'est pas chronométrée. Chaque fonction d'étape a
+une zone Tracy à son nom (« ombres/terrain »), et peut être chronométrée elle aussi (#295, `timeFunctions`) : un
+minuteur par appel de l'image (un par cascade pour les ombres), une courbe « GPU étape/nom », et
+`describeStageTimes`, la somme des moyennes de ses appels, que le sandbox journalise (« étapes, GPU en moyenne :
+… »).
+
+**Le piège de la mesure qui coûte** : NVRHI referme la passe de rendu à chaque requête de temps
+(`vulkan-queries.cpp`). Chronométrer chaque fonction coupe donc les ombres en une passe par fonction et par
+cascade. Mesuré sur la vallée (`levain_sandbox --view hike --seconds 8`, Release, RX 9070 XT, trois lancements) :
+ombres 0,111 → 0,133 ms, opaques 0,476 → 0,493 ms. D'où `timeFunctions`, désactivé par défaut, et activé par le
+sandbox en build profilé seulement. Le budget : NVRHI offre 256 requêtes de temps, chaque appel chronométré en
+prend 3 (un anneau), les autres minuteurs du sandbox 24 (les passes, l'image, le skinning) ; au-delà d'environ
+77 appels par image, `createTimerQuery` rend nul.
 
 ## Les lignes de debug
 

@@ -211,6 +211,7 @@ void renderFrame(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, Rende
     beginPass(device, commandList, renderer, TimedPass::Tonemap);
     tonemap(commandList, renderer.tonemap, renderer.hdr, *screen, view.tonemap);
     endPass(commandList, renderer, TimedPass::Tonemap);
+    plotStageTimes(renderer.stages);
 }
 
 } // namespace levain::render

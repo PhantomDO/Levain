@@ -13,6 +13,7 @@
 #include "ozz_data.hpp"
 
 #include "levain/core/assert.hpp"
+#include "levain/core/profile.hpp"
 
 namespace levain::animation
 {
@@ -25,6 +26,7 @@ float loopedRatio(float seconds, float duration)
 
 void sampleBlend(const AnimationSet& set, std::span<const ClipLayer> layers, Pose& pose)
 {
+    LEVAIN_PROFILE_SCOPE();
     const ozz::animation::Skeleton& skeleton = *set.ozz->skeleton;
     const auto soaJoints = static_cast<std::size_t>(skeleton.num_soa_joints());
 
