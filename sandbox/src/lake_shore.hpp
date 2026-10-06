@@ -10,8 +10,9 @@
 #include "levain/terrain/collision.hpp"
 #include "levain/terrain/heightmap.hpp"
 
-/// La vallée de `levain_sandbox --view terrain` et `--view hike` dans la physique (M6.2, M6.3) : celle de la démo, et
-/// celle que vérifie `terrain_test.cpp`. Un seul endroit, pour que le test soit la démo.
+/// La vallée de `levain_sandbox --view terrain` et `--view hike` dans la physique (M6.2, M6.3) :
+/// celle de la démo, et celle que vérifie `terrain_test.cpp`. Un seul endroit, pour que le test
+/// soit la démo.
 namespace levain::sandbox
 {
 
