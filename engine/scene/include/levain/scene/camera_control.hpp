@@ -37,6 +37,12 @@ struct FpsInput
 /// Le tangage, borné : sans ça, la caméra passe par-dessus la tête et le monde se retourne.
 [[nodiscard]] float clampPitch(float pitchDegrees, float minDegrees, float maxDegrees);
 
+/// L'angle à tourner pour aller de `from` à `to`, en radians, par le plus court chemin : entre −π
+/// et π. Le piège : de 350° à 10°, l'écart brut est de −340°, et un lacet qui le suivrait ferait
+/// presque un tour complet au lieu de 20°. Le personnage qui se tourne vers sa marche et la caméra
+/// qui se recentre derrière lui (ADR-0030) s'en servent.
+[[nodiscard]] float shortestYawDelta(float fromRadians, float toRadians);
+
 /// L'avant et la droite **à plat**, pour le lacet donné : le tangage ne participe pas au
 /// déplacement, sinon regarder le ciel ferait décoller la caméra.
 struct HorizontalBasis

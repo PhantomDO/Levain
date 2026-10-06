@@ -30,6 +30,11 @@ float clampPitch(float pitchDegrees, float minDegrees, float maxDegrees)
     return std::clamp(pitchDegrees, minDegrees, maxDegrees);
 }
 
+float shortestYawDelta(float fromRadians, float toRadians)
+{
+    return std::remainder(toRadians - fromRadians, glm::two_pi<float>());
+}
+
 HorizontalBasis horizontalBasisFrom(float yawDegrees)
 {
     const float yaw = glm::radians(yawDegrees);
