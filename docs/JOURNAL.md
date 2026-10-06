@@ -30,6 +30,54 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-06 — M6.3 — Clôture : le renard monte l'escalier de Sponza, et se promène dans la vallée du navigateur
+
+- **Temps Donnovan : 2,0 h** (estimé 1,65 h), ratio 1,21. Le 06/10, Donnovan a donné « environ 2h » pour M6.3.
+  Réparti entre les issues au prorata de leurs estimations : #177 1,52 h, #178 0,48 h. Mode autonome : deux
+  sondages pour l'ADR-0028 (le personnage, puis la masse qui règle la poussée), un pour la démo.
+- Phase 6 à ce stade : 7,5 h passées pour 4,9 h estimées (M6.1 à M6.3), ratio 1,53, provisoire jusqu'à la
+  clôture de la phase.
+- Sessions Claude Code : 1 (la même que M6.1 et M6.2)
+- Fait, en 12 PR (#282 à #293) :
+  - **l'ADR-0028** (#282) : `CharacterVirtual` de Jolt dans le moteur, la marche (gravité, saut, accélération,
+    contrôle en l'air) dans un plugin moteur, `plugins/character` ; la poussée selon la masse de la caisse (choix
+    de Donnovan) ; la collision du décor tirée du maillage affiché, simplifiée à 2 cm et cuite ;
+  - **le personnage dans le moteur** (#283 à #286) : marches, pentes, poussée, plateformes qui le portent,
+    téléportation, puis sa glu flecs (`CharacterController`, `CharacterVelocity`, `CharacterState`) ;
+  - **la marche** (#287), **la collision d'un modèle** (#288), cuite en `.lvcol` (#291) ;
+  - **la démo** : `--view character`, le renard dans Sponza, un escalier dans la tranchée sud, deux rampes et des
+    caisses (#289, #290) ; `--view hike`, le même renard dans la vallée, la vue par défaut de la page web (#292),
+    puisque Sponza ne peut pas y être publiée ;
+  - **l'étude E6** (#293) : la physique dans les moteurs, et pourquoi c'est presque toujours une bibliothèque.
+- Mesures :
+  - **critère de M6.3, se déplacer dans Sponza, escaliers compris** : parti du fond de la tranchée (y = −0,92), le
+    renard finit sur le palier, au niveau des galeries, au sol : pieds à (0,34 ; −0,02 ; −5,73), identique sur
+    RADV, sous lavapipe et en ASan (`levain_sandbox --view character --walk 1,0 --steps 200`, en CI) ;
+  - dans la vallée : (206,91 ; −0,05 ; 280,02) après 120 pas, identique sur Vulkan et WebGPU (`--view hike --walk
+    1,0 --steps 120`, en CI) ; 14,84 m en 10 s, à 1,6 mm du terrain, sans GPU (`levain_tests -tc='*renard de la
+    démo*'`) ;
+  - la collision de Sponza : 262 267 triangles bruts, 32 073 sans feuillage et simplifiés à 2 cm, cuits en 64 ms
+    et relus en moins d'une milliseconde (`levain_cook assets-cache` puis `--view character --steps 2`, Release) ;
+  - la tenue sur une pente : moins de 5 mm de glissement en 3 s sur 30°, contre 21 cm sans `StandStill`
+    (`levain_tests -tc='*pente de 30*'`, la mutation retirée) ;
+  - la page web : environ 60 images/s dans Firefox WebGPU, headless (`tools/web-smoke.mjs`) ;
+  - tests : 256 en natif (260 en Release), 172 en WebAssembly (`ctest`).
+- Décisions de Donnovan, par sondage : la marche dans un plugin ; la collision la plus performante ; la poussée
+  selon la masse de la caisse ; la démo du renard, caméra qui suit. ADR-0028.
+- Écarts et problèmes :
+  - la PR de la vue du personnage (#290) dépasse la règle n°2 (590 lignes), signalé ;
+  - LeakSanitizer : avec lavapipe installé à côté de RADV, les tests GPU échouent en local sur une fausse fuite si
+    un seul pilote n'est pas imposé (`build/GOTCHA.md`, entrée du 05/10) ; la CI n'est pas concernée ;
+  - la foulée de Fox n'est pas mesurée : ses pieds peuvent glisser un peu ;
+  - #292 et #293 sont d'abord passées au rouge sur le format : un commentaire modifié par script dans la
+    correction de relecture, poussé sans relancer le contrôle sur tout l'arbre (`build/GOTCHA.md`, entrée du
+    jour).
+- Après un essai sur une vieille tablette (Chromium, environ 10 images/s), Donnovan a demandé les images/s, la
+  machine et l'occupation dans la page web, et remarqué que Tracy ne servait plus. Décidé par sondage, avant M6.4 :
+  le calque des mesures (#294) et Tracy remis en service, avec une capture de la vallée (#295). Réponse archivée
+  dans `docs/QA.md`.
+- Prochaine étape : #294, puis #295, puis M6.4, la caméra à la troisième personne, dans le dépôt du jeu.
+
 ## 2026-10-05 — M6.2 — Clôture : des volumes, des rayons, un contour à la souris, et la vallée qui collisionne
 
 - **Temps Donnovan : 2,54 h** (estimé 1,5 h), ratio 1,69. Le 05/10, Donnovan a donné « environ 5 à 6 h en

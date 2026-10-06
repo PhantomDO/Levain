@@ -1,6 +1,10 @@
 # Roadmap v1
 
-> Version 0.10 — 03/10/2026 — statut : **validé par Donnovan** (clôture de la phase 5)
+> Version 0.11 — 06/10/2026 — statut : **validé par Donnovan** (sondage du 06/10)
+>
+> v0.11 : **deux préalables à M6.4**, demandés par Donnovan après un essai de la page web sur une vieille
+> tablette : le calque des mesures de la page web (#294, 0,3 h) et Tracy remis en service (#295, 0,4 h). M6.4
+> passe de 1,0 à **1,7 h**. Total : **61,9 h → 62,6 h** ; échéances inchangées.
 >
 > v0.10 : **clôture de la phase 5**, ratio **0,91** (10,0 h pour 11,0) : dans la fourchette, **aucun
 > recalibrage**. Le ratio cumulé des phases 0 à 5 vaut 0,92 (38,0 h pour 41,5). Échéances inchangées.
@@ -313,8 +317,8 @@ profondeur) ; de l'herbe dense instanciée sur GPU, répartie par une carte de d
 |---|---:|---:|---|
 | M6.1 Intégration Jolt | 2,96 (réel, 1,75 estimées) | 1 | fini le 05/10/2026 |
 | M6.2 Colliders, requêtes, debug draw | 2,54 (réel, 1,5 estimées) | 1 | fini le 05/10/2026 |
-| M6.3 Character controller | 1,65 | 1 | 21/02/2027 |
-| M6.4 Caméra à la troisième personne | 1,0 | 1 | 28/02/2027 |
+| M6.3 Character controller | 2,0 (réel, 1,65 estimées) | 1 | fini le 06/10/2026 |
+| M6.4 Caméra à la troisième personne | 1,7 | 1 | 28/02/2027 |
 | M6.5 Nage, planeur et endurance | 1,25 | 1 | 28/02/2027 |
 
 **M6.1 — Intégration Jolt.** Monde physique, corps statiques et dynamiques, synchronisation flecs ↔ Jolt au pas
@@ -332,6 +336,8 @@ collision ; affichage de debug ; collision du terrain (heightfield Jolt) ; volum
 collision avec le décor par sphere cast (le « spring arm » d'Unreal), recentrage automatique derrière lui,
 cadrage propre au vol plané.
 *Critère* : la caméra ne traverse jamais la roche en longeant une paroi de la vallée.
+*Préalables*, dans le moteur (v0.11) : le calque des mesures de la page web, images/s, temps CPU et machine
+(#294, 0,3 h) ; Tracy remis en service, le moteur instrumenté et une capture de la vallée analysée (#295, 0,4 h).
 
 **M6.5 — Nage, planeur et endurance.** Plugin gameplay, dans le dépôt du jeu : états du joueur au-dessus du
 character controller, volume d'eau, jauge d'endurance.
