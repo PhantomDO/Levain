@@ -1,6 +1,12 @@
 # Roadmap v1
 
-> Version 0.11 — 06/10/2026 — statut : **validé par Donnovan** (sondage du 06/10)
+> Version 0.12 — 06/10/2026 — statut : **validé par Donnovan** (sondage du 06/10)
+>
+> v0.12 : **le module `app` avant la caméra** ([ADR-0029](adr/0029-module-app.md)), choisi par Donnovan : *Rando*
+> n'affichait qu'un ciel bleu, et la boucle, les modèles et la page web vivaient dans le sandbox. Ils passent dans un
+> module du moteur dont le sandbox et le jeu se servent, puis *Rando* montre la vallée et reçoit la caméra
+> ([ADR-0030](adr/0030-camera-troisieme-personne.md)). M6.4 passe de 1,7 à **3,5 h**. Total : **61,6 h → 63,4 h** ;
+> échéances inchangées.
 >
 > v0.11 : **deux préalables à M6.4**, demandés par Donnovan après un essai de la page web sur une vieille
 > tablette : le calque des mesures de la page web (#294, 0,3 h) et Tracy remis en service (#295, 0,4 h). M6.4
@@ -67,15 +73,15 @@
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
 | 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
 | 5 | Rendu PBR et monde | 10,0 (réel, 11,0 estimées) | 13 | fini le 03/10/2026 |
-| 6 | Physique et traversée | 7,85 | 6 | 28/02/2027 |
+| 6 | Physique et traversée | 9,65 | 6 | 28/02/2027 |
 | 7 | Éditeur | 7,5 | 8 | 04/04/2027 |
 | 8 | Audio et le jeu | 8,25 | 8 | 16/05/2027 |
-| **Total** | | **61,6** | **65** | |
+| **Total** | | **63,4** | **65** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante après la phase 5 (23,6 h) selon le rythme : **2 h/sem. → 12 semaines** (fin décembre 2026) ·
-**1,5 h/sem. → 16 semaines** (fin janvier 2027) · **1 h/sem. → 24 semaines** (mi-mars 2027).
+Durée restante après la phase 5 (25,4 h) selon le rythme : **2 h/sem. → 13 semaines** (début janvier 2027) ·
+**1,5 h/sem. → 17 semaines** (fin janvier 2027) · **1 h/sem. → 26 semaines** (début avril 2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 09/05/2027.
@@ -319,7 +325,7 @@ profondeur) ; de l'herbe dense instanciée sur GPU, répartie par une carte de d
 | M6.1 Intégration Jolt | 2,96 (réel, 1,75 estimées) | 1 | fini le 05/10/2026 |
 | M6.2 Colliders, requêtes, debug draw | 2,54 (réel, 1,5 estimées) | 1 | fini le 05/10/2026 |
 | M6.3 Character controller | 2,75 (réel, 1,65 estimées) | 1 | fini le 06/10/2026 |
-| M6.4 Caméra à la troisième personne | 1,7 | 1 | 28/02/2027 |
+| M6.4 Caméra à la troisième personne | 3,5 | 1 | 28/02/2027 |
 | M6.5 Nage, planeur et endurance | 1,25 | 1 | 28/02/2027 |
 
 **M6.1 — Intégration Jolt.** Monde physique, corps statiques et dynamiques, synchronisation flecs ↔ Jolt au pas
@@ -334,14 +340,16 @@ collision ; affichage de debug ; collision du terrain (heightfield Jolt) ; volum
 *Critère* : se déplacer dans Sponza, escaliers compris.
 
 **M6.4 — Caméra à la troisième personne.** Plugin gameplay, dans le dépôt du jeu : orbite autour du joueur,
-collision avec le décor par sphere cast (le « spring arm » d'Unreal), recentrage automatique derrière lui,
-cadrage propre au vol plané.
+collision avec le décor par sphere cast (le « spring arm » d'Unreal), recentrage automatique derrière lui
+([ADR-0030](adr/0030-camera-troisieme-personne.md)). Le cadrage propre au vol plané attend le planeur (M6.5).
 *Critère* : la caméra ne traverse jamais la roche en longeant une paroi de la vallée.
 *Préalables*, dans le moteur (v0.11) : le calque des mesures de la page web, images/s, temps CPU et machine
-(#294, 0,3 h) ; Tracy remis en service, le moteur instrumenté et une capture de la vallée analysée (#295, 0,4 h).
+(#294, 0,3 h) ; Tracy remis en service, le moteur instrumenté et une capture de la vallée analysée (#295, 0,4 h) ;
+**le module `app`** ([ADR-0029](adr/0029-module-app.md), 1,8 h, v0.12) : la boucle, les modèles et la page web
+sortent du sandbox, et *Rando* montre la vallée et le renard au-dessus de lui.
 
 **M6.5 — Nage, planeur et endurance.** Plugin gameplay, dans le dépôt du jeu : états du joueur au-dessus du
-character controller, volume d'eau, jauge d'endurance.
+character controller, volume d'eau, jauge d'endurance ; le cadrage de la caméra en vol plané (ADR-0030).
 *Critère* : descendre du promontoire en planant, traverser le lac à la nage, et se noyer si l'endurance
 s'épuise.
 
@@ -430,6 +438,8 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0026 | Intégrer Jolt (Collider et RigidBody, autorité de Jolt, phases de simulation, couches fixes) | M6.1 |
 | 0027 | Volumes déclencheurs (relation `InsideOf` sur le corps), requêtes, grandes formes partagées, lignes de debug | M6.2 |
 | 0028 | Le personnage : `CharacterVirtual` dans le moteur, la marche dans un plugin, la collision du décor simplifiée et cuite | M6.3 |
+| 0029 | Le module `app` : la boucle, les modèles et la page web sortent du sandbox | M6.4 |
+| 0030 | La caméra à la troisième personne de *Rando* (sphere cast, retour amorti, recentrage) | M6.4 |
 | 0013 | Réflexion des composants (addon meta de flecs) | M7.2 |
 
 ## Numérotation des ADR

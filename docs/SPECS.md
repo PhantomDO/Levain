@@ -125,7 +125,7 @@ engine/
 ├── physics/    intégration Jolt
 ├── audio/      intégration miniaudio
 ├── input/      actions et axes au-dessus de platform
-└── app/        boucle principale, cycle de vie
+└── app/        boucle principale, cycle de vie, modèles sur le GPU (ADR-0029)
 editor/         bibliothèque de l'éditeur ; l'exécutable est construit par le jeu (ADR-0018)
 plugins/        plugins moteur : terrain, eau, végétation, marche du personnage (ADR-0018, ADR-0028)
 sandbox/        une démo par milestone
@@ -141,7 +141,7 @@ docs/           SPECS, ROADMAP, JOURNAL, LECTURES, QA, SETUP, adr/, etudes/
 core ← platform ← gpu ← render
 core ← scene (flecs) ← assets, physics, audio, input
 assets ← animation
-tout ce qui précède ← app ← editor, sandbox
+tout ce qui précède ← app ← editor, sandbox, jeu (ADR-0029)
 moteur ← plugins moteur ← jeu (autre dépôt) et ses plugins gameplay
 ```
 
