@@ -14,7 +14,6 @@
 #include <memory>
 #include <optional>
 #include <print>
-#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -37,7 +36,6 @@
 
 #include "levain/animation/animation_set.hpp"
 #include "levain/animation/animator.hpp"
-#include "levain/animation/pose.hpp"
 #include "levain/app/models.hpp"
 #include "levain/app/texture_reload.hpp"
 #include "levain/assets/asset_ref.hpp"
@@ -281,7 +279,8 @@ struct DemoScene
     /// Le personnage de `--view character` (M6.3) : la caméra le suit, le clavier le mène, son
     /// mouvement anime le renard. Vide dans les autres vues.
     flecs::entity player{};
-    /// Le modèle qui joue le mouvement du joueur, le renard ; les autres jouent la démo.
+    /// Le modèle qui joue le mouvement du joueur, le renard ; les autres jouent la démo. Un seul :
+    /// la vue `character` n'en demande pas d'autre (`modelRequestsOf`).
     std::optional<levain::assets::AssetId> playerModel;
     levain::render::Camera camera;
     /// La grille de cubes, le sol et les lumières de couleur ; absents des autres vues.
@@ -1460,7 +1459,7 @@ std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
         gpuMs = levain::render::beginGpuTimer(*gpu.nvrhi, commandList, scene.gpuTimer);
         levain::app::animateModels(
             *gpu.nvrhi, commandList, scene.models, scene.skinning, scene.skinningState,
-            [&scene, seconds](const levain::assets::AssetId& id, const ModelGpu&)
+            [&scene, seconds](const levain::assets::AssetId& id)
             { return motionToPlay(scene, id, seconds); }, seconds);
         // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
         gatherCubePoses(scene.cubes, scene.cubesTurn, scene.cubePoses);

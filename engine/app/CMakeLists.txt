@@ -1,5 +1,5 @@
 # Le socle des programmes du moteur (ADR-0029) : ce que le sandbox, le jeu et plus tard l'éditeur
-# partagent. Au-dessus de tous les autres modules, jamais d'un plugin (ADR-0018).
+# partagent. Au-dessus de tous les autres modules ; il ne lie jamais un plugin (ADR-0018).
 add_library(levain_app STATIC src/models.cpp src/texture_reload.cpp)
 add_library(levain::app ALIAS levain_app)
 

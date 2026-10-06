@@ -7,6 +7,8 @@
 #include <format>
 #include <string>
 
+#include "model_textures.hpp"
+
 #include "levain/core/profile.hpp"
 
 namespace levain::app
@@ -296,7 +298,7 @@ void animateModels(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
         const animation::Pose before = model.pose;
         // Le mouvement ne compte que pour un animateur : un clip seul joue en boucle.
         const animation::CharacterMotion motion =
-            model.animator ? motionOf(id, model) : animation::CharacterMotion{};
+            model.animator ? motionOf(id) : animation::CharacterMotion{};
         poseModel(model, *model.animation, motion, seconds);
         if (!before.joints.empty() && seconds > model.lastSeconds)
         {

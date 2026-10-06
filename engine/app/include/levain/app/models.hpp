@@ -18,6 +18,7 @@
 #include "levain/animation/animation_set.hpp"
 #include "levain/animation/animator.hpp"
 #include "levain/animation/pose.hpp"
+#include "levain/assets/asset_id.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/cooked_texture.hpp"
 #include "levain/assets/gltf.hpp"
@@ -78,23 +79,6 @@ struct ModelGpu
 /// survivre jusqu'à l'envoi.
 [[nodiscard]] std::vector<render::TextureLevel>
 textureLevelsOf(const std::vector<assets::Image>& mips);
-
-/// Le format où charger les textures cuites : le BC7 si le GPU l'échantillonne (tous les GPU de
-/// PC), le RGBA8 sinon.
-[[nodiscard]] assets::TextureFormat textureTargetOf(nvrhi::IDevice& device);
-
-struct UploadedTexture
-{
-    nvrhi::TextureHandle handle;
-    std::size_t bytes = 0; ///< En mémoire vidéo, mips comprises.
-};
-
-/// Charge la texture `key`, cuite si possible (ADR-0020) : le cache BC7 se copie tel quel, sinon
-/// la source. Son envoi est enregistré dans `commandList`.
-[[nodiscard]] core::Result<UploadedTexture>
-uploadTexture(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
-              const assets::AssetRegistry& registry, const assets::ModelCache& models,
-              TextureKey key, assets::TextureFormat target);
 
 /// Envoie meshes et textures, et enregistre l'envoi dans `commandList`. La couleur d'un sommet est
 /// la couleur de base de son matériau ; sans matériau, c'est sa normale ramenée dans [0, 1], qui
@@ -157,7 +141,8 @@ struct SkinningState
 
 /// Anime les modèles skinnés (ADR-0022) : la pose de leur clip à `seconds`, ou celle de leur
 /// animateur selon `motionOf`, ses matrices, puis un dispatch par mesh skinné. À enregistrer avant
-/// les dessins qui lisent les sommets déformés.
+/// les dessins qui lisent les sommets déformés. Le minuteur s'enregistre dans `commandList`, et le
+/// coût de l'image s'ajoute à `state.cost`.
 void animateModels(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
                    std::map<assets::AssetId, ModelGpu>& models,
                    const render::SkinningPass& skinning, SkinningState& state,

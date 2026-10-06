@@ -6,6 +6,8 @@
 #include <system_error>
 #include <vector>
 
+#include "model_textures.hpp"
+
 #include "levain/core/log.hpp"
 
 namespace levain::app
@@ -29,9 +31,9 @@ double millisecondsSinceWrite(const std::filesystem::path& file)
     return std::chrono::duration<double, std::milli>(age).count();
 }
 
-double secondsBetween(Clock::time_point start, Clock::time_point end)
+double millisecondsSince(Clock::time_point start)
 {
-    return std::chrono::duration<double>(end - start).count();
+    return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
 }
 
 } // namespace
@@ -115,7 +117,7 @@ void reloadChangedTextures(TextureReload& reload, nvrhi::IDevice& device,
         // suivante.
         core::log("assets", core::LogLevel::Info,
                   "{} rechargée en {:.0f} ms, {:.0f} ms après son écriture",
-                  file.filename().string(), secondsBetween(loadStart, Clock::now()) * 1000.0,
+                  file.filename().string(), millisecondsSince(loadStart),
                   millisecondsSinceWrite(file));
     }
     // Un binding set désigne ses textures : ceux des modèles touchés sont refaits, avant la
