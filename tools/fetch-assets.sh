@@ -6,6 +6,11 @@
 # fichier pris ailleurs (une HDRI de Poly Haven).
 #
 #   ./tools/fetch-assets.sh
+#   ./tools/fetch-assets.sh <dossier> [préfixe…]
+#
+# Le second usage est celui d'un jeu (ADR-0029) : *Rando* télécharge par ce script, dans son propre
+# dossier, les seuls assets dont il a besoin (`Models/Fox`, `Textures/`) ; jamais Sponza, dont la
+# licence interdit la redistribution. Un préfixe qui ne désigne aucun fichier est une erreur.
 #
 # Un hash qui ne correspond pas arrête tout (règle n°7) : le fichier a changé à la source, ou le
 # téléchargement est corrompu.
@@ -13,13 +18,28 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 lock="$root/tools/assets.lock"
-dest="$root/assets-cache"
+dest="${1:-$root/assets-cache}"
+prefixes=("${@:2}")
+# Chaque préfixe doit désigner au moins un fichier du lock, vérifié avant tout téléchargement : un
+# préfixe vide prendrait tout, un préfixe mal écrit ne prendrait rien, sans rien dire.
+for prefix in ${prefixes[@]+"${prefixes[@]}"}; do
+    [[ -n "$prefix" ]] || { echo "préfixe vide" >&2; exit 1; }
+    awk -v p="$prefix" '$1 ~ /^[0-9a-f]{64}$/ && index($2, p) == 1 { found = 1 } END { exit !found }' \
+        "$lock" || { echo "aucun fichier pour « $prefix » dans $lock" >&2; exit 1; }
+done
 commit=$(awk '$1 == "commit" { print $2 }' "$lock")
 [[ -n "$commit" ]] || { echo "aucun commit dans $lock" >&2; exit 1; }
 
 count=0
 while read -r hash path url; do
     [[ -z "$hash" || "$hash" == \#* || "$hash" == commit ]] && continue
+    if [[ ${#prefixes[@]} -gt 0 ]]; then
+        wanted=false
+        for prefix in "${prefixes[@]}"; do
+            [[ "$path" == "$prefix"* ]] && wanted=true
+        done
+        $wanted || continue
+    fi
     file="$dest/$path"
     count=$((count + 1))
     if [[ -f "$file" ]] && echo "$hash  $file" | sha256sum --check --status; then

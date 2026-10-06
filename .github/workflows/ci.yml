@@ -278,7 +278,7 @@ jobs:
               ./build/${{ matrix.preset }}/sandbox/levain_sandbox --gpu $gpu --seconds 3 \
               --view terrain | tee terrain-$gpu.log
             # La sélection (M6.2) s'inscrit avec la physique, avant le terrain.
-            grep -q "étapes du rendu : ombres : démo, terrain ; opaques : démo, sélection, terrain" terrain-$gpu.log \
+            grep -q "étapes du rendu : ombres : modèles, démo, terrain ; opaques : modèles, démo, sélection, terrain" terrain-$gpu.log \
               || { echo "::error::le terrain ne s'est pas inscrit dans le renderer ($gpu)"; exit 1; }
             grep -Eq "terrain, par image : [1-9][0-9.]* parcelles dessinées" terrain-$gpu.log \
               || { echo "::error::aucune parcelle du terrain dessinée ($gpu)"; exit 1; }
@@ -292,7 +292,7 @@ jobs:
                 || { echo "::error::l'étape transparente n'a rien dessiné ($gpu)"; exit 1; }
             fi
             # L'herbe (M5.7), dans l'étape Opaque après le terrain, et des brins demandés.
-            grep -q "opaques : démo, sélection, terrain, herbe" terrain-$gpu.log \
+            grep -q "opaques : modèles, démo, sélection, terrain, herbe" terrain-$gpu.log \
               || { echo "::error::l'herbe ne s'est pas inscrite dans le renderer ($gpu)"; exit 1; }
             grep -Eq "herbe, par image : [0-9.]+ parcelles et [1-9][0-9]* brins" terrain-$gpu.log \
               || { echo "::error::aucun brin d'herbe dessiné ($gpu)"; exit 1; }
@@ -394,7 +394,7 @@ jobs:
             timeout --foreground --preserve-status -k 10 300 \
               ./build/${{ matrix.preset }}/sandbox/levain_sandbox --gpu $gpu --view hike --walk 1,0 \
               --steps 120 | tee hike-$gpu.log
-            grep -q "opaques : démo, sélection, terrain, herbe ; transparents : eau" hike-$gpu.log \
+            grep -q "opaques : modèles, démo, sélection, terrain, herbe ; transparents : eau" hike-$gpu.log \
               || { echo "::error::la vallée ne s'est pas inscrite dans le renderer ($gpu)"; exit 1; }
             line=$(grep -o "personnage : pieds à ([-0-9., ]*), [^,]*" hike-$gpu.log) \
               || { echo "::error::le sandbox n'a pas rendu compte du renard ($gpu)"; exit 1; }

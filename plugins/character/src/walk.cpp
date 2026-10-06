@@ -6,6 +6,7 @@
 #include <glm/gtc/constants.hpp>
 
 #include "levain/physics/physics.hpp"
+#include "levain/scene/camera_control.hpp"
 #include "levain/scene/scene.hpp"
 
 namespace levain::character
@@ -102,8 +103,7 @@ glm::quat turnTowards(const Walker& walker, const glm::quat& rotation, const glm
         return rotation;
     }
     const float current = yawOf(rotation);
-    // L'écart ramené entre −π et π : le plus court chemin.
-    const float gap = std::remainder(yawOf(direction) - current, glm::two_pi<float>());
+    const float gap = scene::shortestYawDelta(current, yawOf(direction));
     const float step = glm::radians(walker.turnDegreesPerSecond) * seconds;
     const float turned = current + std::clamp(gap, -step, step);
     return glm::angleAxis(turned, glm::vec3{0.0f, 1.0f, 0.0f});

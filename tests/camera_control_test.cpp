@@ -45,6 +45,17 @@ TEST_CASE("clampPitch empêche de passer par-dessus la tête")
     CHECK(clampPitch(30.0f, -85.0f, 85.0f) == doctest::Approx(30.0f));
 }
 
+TEST_CASE("shortestYawDelta tourne par le plus court chemin")
+{
+    using levain::scene::shortestYawDelta;
+    // De 350° à 10° : 20° dans le sens positif, pas −340°.
+    CHECK(glm::degrees(shortestYawDelta(glm::radians(350.0f), glm::radians(10.0f))) ==
+          doctest::Approx(20.0f));
+    CHECK(glm::degrees(shortestYawDelta(glm::radians(10.0f), glm::radians(350.0f))) ==
+          doctest::Approx(-20.0f));
+    CHECK(glm::degrees(shortestYawDelta(0.0f, glm::radians(90.0f))) == doctest::Approx(90.0f));
+}
+
 TEST_CASE("la caméra avance dans la direction où elle regarde")
 {
     // Lacet nul : l'avant est -Z. Une seconde à 12 unités par seconde.

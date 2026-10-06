@@ -18,6 +18,8 @@
 
 #include "shader_reload.hpp"
 
+#include "levain/app/camera.hpp"
+#include "levain/app/player_input.hpp"
 #include "levain/app/texture_reload.hpp"
 #include "levain/assets/image.hpp"
 #include "levain/core/assert.hpp"
@@ -25,8 +27,12 @@
 #include "levain/core/log.hpp"
 #include "levain/core/profile.hpp"
 #include "levain/platform/input.hpp"
+#include "levain/render/culling.hpp"
+#include "levain/render/mesh_pass.hpp"
 #include "levain/render/readback.hpp"
+#include "levain/render/shadows.hpp"
 #include "levain/render/sky.hpp"
+#include "levain/render/stages.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/scene.hpp"
 
@@ -254,7 +260,7 @@ void turnSkyAroundUp(assets::HdrImage& image, float degrees)
 
 /// Le ciel des réglages, ou sans HDRI un ciel uniforme et sombre, l'ambiance d'avant l'IBL, sous le
 /// soleil par défaut. Le soleil de l'HDRI en est retiré, pour devenir celui de la scène, qui jette
-/// les ombres, sauf si les réglages le laissent dans l'éclairage ambiant (`skySunCastsShadows`).
+/// les ombres, sauf si les réglages le laissent dans l'éclairage ambiant (`extractSkySun`).
 /// Le temps de calcul est donné : il se paie à chaque chargement.
 core::Result<Sky> loadSky(nvrhi::IDevice& device, const std::optional<std::filesystem::path>& path,
                           const AppSettings& settings)
@@ -340,6 +346,108 @@ std::optional<std::filesystem::path> skyPathOf(const AppSettings& settings)
     return std::nullopt;
 }
 
+/// Un modèle sans mouvement donné par le programme reste au repos.
+animation::CharacterMotion restingMotion(const assets::AssetId&, double)
+{
+    return {};
+}
+
+/// Les dessins de l'étape « modèles » : chaque primitive de chaque entité qui porte un `MeshRef`, à
+/// sa matrice monde, si elle touche `frustum`. Les autres sont comptées dans `count`, sans être
+/// soumises au GPU (#132).
+template <typename Draw>
+void forEachModelDraw(App& app, const render::Frustum& frustum, DrawCount& count, Draw&& draw)
+{
+    app.modelParts.each(
+        [&](const assets::MeshRef& part, const scene::WorldTransform& world)
+        {
+            const auto found = app.models.find(part.mesh.asset);
+            if (found == app.models.end())
+            {
+                // Le contrat de l'étape : un modèle chargé par `loadModel`. Une entité instanciée
+                // sans lui n'a rien sur le GPU ; le dire une fois, plutôt que de lever au milieu
+                // d'une étape du rendu (règle n°7).
+                if (!app.warnedUnloadedModel)
+                {
+                    core::log("app", core::LogLevel::Error,
+                              "{} : son modèle n'a pas été chargé par loadModel, rien à dessiner",
+                              assets::toString(part.mesh.asset));
+                    app.warnedUnloadedModel = true;
+                }
+                return;
+            }
+            const ModelGpu& model = found->second;
+            for (const ModelPrimitiveGpu& primitive : model.meshes[part.mesh.sub])
+            {
+                if (const auto box =
+                        render::worldBoundsOf(primitive.mesh, app.modelInstance, world.matrix);
+                    box && render::isOutside(frustum, *box))
+                {
+                    ++count.culled;
+                    continue;
+                }
+                ++count.drawn;
+                count.triangles += std::uint64_t{primitive.mesh.indexCount / 3};
+                draw(primitive.mesh,
+                     primitive.material ? *model.materials[*primitive.material]
+                                        : *app.defaultMaterial,
+                     world.matrix);
+            }
+        });
+}
+
+/// Ce que l'étape « modèles » demande avant la première image : sa requête, son instance unique,
+/// le matériau par défaut, et ses deux fonctions d'étape, l'ombre et la couleur (ADR-0025). Elles
+/// gardent `app` par référence : il ne bouge pas. Inscrites avant la fonction de démarrage, elles
+/// passent avant celles du programme.
+void prepareModels(App& app)
+{
+    nvrhi::IDevice& device = *app.gpu.nvrhi;
+    app.modelParts = app.world.query<const assets::MeshRef, const scene::WorldTransform>();
+    const nvrhi::CommandListHandle upload = device.createCommandList();
+    upload->open();
+    const std::array<render::InstancePose, 1> origin{};
+    app.modelInstance = render::createInstances(device, *upload, origin);
+    app.defaultMaterial = render::createMaterialBindings(
+        device, *upload, app.renderer.meshPass,
+        {.baseColorFactor = glm::vec4{1.0f},
+         .metallicFactor = 0.0f,
+         .roughnessFactor = 0.8f,
+         .normalScale = 1.0f,
+         .padding = 0.0f},
+        render::withDefaults({}, render::createMaterialDefaults(device, *upload)), *app.sampler);
+    upload->close();
+    device.executeCommandList(upload);
+
+    using render::RenderStage;
+    using render::StageContext;
+    render::addStageFunction(
+        app.renderer.stages, RenderStage::ShadowCasters, "modèles",
+        [&app](const StageContext& context)
+        {
+            forEachModelDraw(
+                app, context.frustum, app.modelsShadows,
+                [&](const render::Mesh& mesh, nvrhi::IBindingSet&, const glm::mat4& matrix)
+                {
+                    render::drawShadowCaster(context.commandList, context.shadows, context.cascade,
+                                             *context.cascadeView, mesh, app.modelInstance, matrix);
+                });
+        });
+    render::addStageFunction(
+        app.renderer.stages, RenderStage::Opaque, "modèles",
+        [&app](const StageContext& context)
+        {
+            forEachModelDraw(
+                app, context.frustum, app.modelsCamera,
+                [&](const render::Mesh& mesh, nvrhi::IBindingSet& material, const glm::mat4& matrix)
+                {
+                    render::drawMesh(context.commandList, app.renderer.meshPass, context.frame,
+                                     context.target, mesh, app.modelInstance, material,
+                                     {.viewProjection = context.viewProjection, .model = matrix});
+                });
+        });
+}
+
 /// Tout ce qui précède la fonction de démarrage : les assets, le ciel, le renderer, le monde et
 /// l'input. Sur le tas : les fonctions d'étape et les systèmes du programme gardent `App` par
 /// référence.
@@ -397,11 +505,16 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .sampler = render::createSampler(*gpu.nvrhi, sampler),
             .world = flecs::world{},
             .fixedStep = {},
-            .cameraEntity = {},
             .camera = {},
             .registry = std::move(registry),
             .modelCache = {},
             .models = {},
+            .modelParts = {},
+            .modelInstance = {},
+            .defaultMaterial = {},
+            .modelsCamera = {},
+            .modelsShadows = {},
+            .cameras = {},
             .sun = settings.sunDirection ? render::Sun{.direction = *settings.sunDirection,
                                                        .color = glm::vec3{1.0f},
                                                        .intensity = 1.0f}
@@ -418,20 +531,15 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
 #ifdef LEVAIN_ENABLE_EXPLORER
     enableExplorerOnLoopback(app->world);
 #endif
+    app->world.set<PlayerInput>(
+        {.bindings = &app->bindings, .state = app->input, .pressesUntilNextStep = {}});
+    forgetPressesAtEachStep(app->world);
+    app->cameras = app->world.query<const CameraLens, const scene::WorldTransform>();
+    prepareModels(*app);
     core::log("app", core::LogLevel::Info, "liaisons : {} actions et {} axes ({})",
               app->bindings.actions.size(), app->bindings.axes.size(),
               settings.bindingsFile.filename().string());
     return app;
-}
-
-/// La caméra du rendu, relue sur son entité : sa **matrice monde** porte la position et le regard
-/// déjà interpolés entre deux pas de simulation (ADR-0016). Lire le `Transform` ferait saccader le
-/// regard dès que le rendu va plus vite que la simulation.
-void updateRenderCamera(render::Camera& camera, const flecs::entity& cameraEntity)
-{
-    const glm::mat4& world = cameraEntity.get<scene::WorldTransform>().matrix;
-    camera.position = glm::vec3(world[3]);
-    camera.target = camera.position + glm::vec3(glm::mat3(world) * glm::vec3{0.0f, 0.0f, -1.0f});
 }
 
 /// Enregistre l'image, la présente, et rend le temps GPU d'une image précédente, dès qu'il est
@@ -460,6 +568,9 @@ std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList, do
 
         commandList.open();
         gpuMs = render::beginGpuTimer(*app.gpu.nvrhi, commandList, app.frameTimer);
+        // Les poses des modèles skinnés, avant les dessins qui lisent leurs sommets déformés.
+        animateModels(*app.gpu.nvrhi, commandList, app.models, app.skinning, app.skinningState,
+                      app.hooks.motionOf ? app.hooks.motionOf : MotionOf{restingMotion}, seconds);
         if (app.hooks.record)
         {
             app.hooks.record(app, commandList, seconds);
@@ -530,6 +641,8 @@ struct Loop
     App& app;
     nvrhi::CommandListHandle commandList;
     LoopState state;
+    /// Une image a échoué (la caméra a disparu) : la boucle s'arrête, et le programme aussi.
+    bool failed = false;
     core::FrameTimeAccumulator frameTimes;
     render::GpuTimeAverage periodGpu; ///< Depuis la dernière mise à jour du titre.
     /// Le temps passé dans le moteur, hors attente de l'écran, depuis la dernière mise à jour du
@@ -551,6 +664,7 @@ Loop startLoop(App& app)
     return Loop{.app = app,
                 .commandList = app.gpu.nvrhi->createCommandList(),
                 .state = {},
+                .failed = false,
                 .frameTimes = {},
                 .periodGpu = {},
                 .periodEngineSeconds = 0.0,
@@ -616,6 +730,7 @@ bool runFrame(Loop& loop)
         }
         input::updateInput(app.input, app.bindings, events.input,
                            static_cast<float>(loop.lastFrameSeconds));
+        takeFrameInput(app.world.get_mut<PlayerInput>(), app.input);
         // Ce que le joueur demande, posé pour le prochain pas de simulation.
         if (app.hooks.frame)
         {
@@ -636,7 +751,14 @@ bool runFrame(Loop& loop)
         scene::advanceWorld(app.world, app.fixedStep,
                             settings.steps ? app.fixedStep.stepSeconds
                                            : static_cast<float>(loop.lastFrameSeconds));
-        updateRenderCamera(app.camera, app.cameraEntity);
+        auto camera = renderCameraOf(app.cameras);
+        if (!camera)
+        {
+            core::log("app", core::LogLevel::Error, "{}", camera.error().message);
+            loop.failed = true;
+            return false;
+        }
+        app.camera = *camera;
     }
 
     {
@@ -689,6 +811,10 @@ bool runFrame(Loop& loop)
 bool finishLoop(Loop& loop)
 {
     App& app = loop.app;
+    if (loop.failed)
+    {
+        return false;
+    }
     // Lu par la CI, qui échoue si la boucle a tourné moins d'une seconde : un démarrage lent
     // (lavapipe, validation, sanitizers) peut sinon manger tout le délai sans que rien ne rougisse.
     core::log("app", core::LogLevel::Info,
@@ -762,13 +888,14 @@ core::Result<std::unique_ptr<App>> startApp(platform::Window& window, gpu::GpuDe
         return std::unexpected(hooks.error());
     }
     (*app)->hooks = std::move(*hooks);
-    if (!(*app)->cameraEntity)
-    {
-        return core::makeError(core::ErrorCode::InvalidData,
-                               "le démarrage n'a pas posé de caméra (App::cameraEntity)");
-    }
-    // Les matrices monde, avant la première image.
+    // Les matrices monde, avant la première image, et la caméra par laquelle elle se verra.
     scene::advanceWorld((*app)->world, (*app)->fixedStep, 0.0f);
+    auto camera = renderCameraOf((*app)->cameras);
+    if (!camera)
+    {
+        return std::unexpected(camera.error());
+    }
+    (*app)->camera = *camera;
     return app;
 }
 
