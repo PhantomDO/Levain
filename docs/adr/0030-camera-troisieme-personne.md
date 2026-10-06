@@ -3,7 +3,7 @@
 - **Statut** : accepté le 2026-10-06, sur les réponses de Donnovan aux sondages du jour (collision, recentrage,
   souris, puis le regard vers le haut) ; relu par un subagent, dont la relecture a ajouté la marge de la
   sphère, son masque, et la vérification entre deux pas ; précisé le 2026-10-06, à la clôture de M6.4 (le
-  scénario de la CI et le cône du recentrage)
+  scénario de la CI, le cône du recentrage et le plan proche)
 - **Date** : 2026-10-06
 - **Milestone** : M6.4
 
@@ -185,8 +185,8 @@ Ce que l'implémentation (*Rando* #7 et #8) a fixé, sans changer de décision :
 
 - **Le scénario de la CI** : le renard part du pied du versant ouest, à (176 ; 250), et marche vers +z
   (`--start 176,250 --walk 0,1 --steps 300`). La caméra fait un tour **en 2 s** (`--orbit 180`), et non en 4 s :
-  plus sévère, puisque le bras change de direction deux fois plus vite. Le tangage va d'une borne à l'autre en
-  7 s ; les deux périodes ne se calent pas l'une sur l'autre.
+  plus sévère, puisque le bras change de direction deux fois plus vite. Le tangage fait un aller-retour d'une
+  borne à l'autre en 7 s ; les deux périodes (2 et 7 s) ne se calent pas l'une sur l'autre.
 - **« S'éloigne de la caméra »** se lit comme une marche à moins de **40°** du regard de la caméra
   (`recenterMaxDegrees`) : la diagonale du clavier, à 45°, ne recentre pas, ce qui évite le cercle décrit plus
   haut.
