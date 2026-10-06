@@ -244,7 +244,7 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   buffer (`vulkan-commandlist.cpp`), un cycle que seule la file rompt, quand elle retire le command buffer
   soumis. Tout ce qui a été enregistré (meshes, `UploadChunk`) fuit avec elle.
 - **Parade** : un retour anticipé après `open()` ferme et soumet la command list (`submitAbandonedUpload`,
-  `sandbox/src/main.cpp`), ou le travail qui peut échouer passe avant `open()`, comme les noms de
+  `engine/app/src/models.cpp`), ou le travail qui peut échouer passe avant `open()`, comme les noms de
   `--locomotion`. Reproduire : copier un glTF dans `data/`, remplacer sa texture par du texte, lancer
   `SDL_VIDEO_DRIVER=offscreen levain_sandbox --seconds 1 --model <gltf>` en Debug : code 1 attendu, sans fuite.
 

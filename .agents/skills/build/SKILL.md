@@ -148,7 +148,7 @@ SDL_VIDEO_DRIVER=offscreen ./tools/tracy-capture.sh 5 captures/hike.tracy --view
 ```
 
 Ce que la capture contient (#295) : les zones du sandbox, celles du moteur (pas fixe, `stepPhysics`,
-`advanceCharacter`, `sampleBlend`, le chargement), une zone par fonction d'étape du rendu (« ombres/terrain »), et
+`advanceCharacter`, `sampleBlend`, `animateModels`, le chargement), une zone par fonction d'étape du rendu (« ombres/terrain »), et
 une courbe « GPU étape/nom » par fonction : le temps GPU de la fonction, toutes cascades comprises, par les
 minuteurs de NVRHI. Ces minuteurs coûtent (engine/render/README.md, « la mesure qui coûte ») : le sandbox ne les
 active qu'en build profilé, et le journal y ajoute la ligne « étapes, GPU en moyenne ». Pas de zones GPU natives de Tracy (`TracyVkZone`) : elles demanderaient les poignées Vulkan hors du

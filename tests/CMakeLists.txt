@@ -24,6 +24,7 @@ set(cpuTests
     version_test.cpp
     walk_test.cpp)
 set(nativeTests
+    app_models_test.cpp
     camera_control_test.cpp
     camera_test.cpp
     culling_test.cpp
@@ -66,7 +67,7 @@ if(EMSCRIPTEN)
 else()
     add_executable(levain_tests doctest_main.cpp ${cpuTests} ${nativeTests})
     target_link_libraries(levain_tests PRIVATE
-        levain::animation levain::assets levain::core levain::gpu levain::input levain::physics
+        levain::animation levain::app levain::assets levain::core levain::gpu levain::input levain::physics
         levain::platform levain::render levain::scene plugin::character plugin::grass plugin::terrain plugin::water
         doctest::doctest)
     # La scène du lac de la démo (sandbox/src/lake_shore.hpp), que terrain_test.cpp simule sans GPU.
