@@ -38,7 +38,9 @@ personnage qui marche :
 |---|---|
 | [`include/levain/character/walk.hpp`](include/levain/character/walk.hpp) | `WalkInput`, `Walker`, `walkVelocity`, `turnTowards`, `motionOf`, `stepWalk`, `WalkModule` |
 
-Les tests : `tests/walk_test.cpp`.
+Les tests : `tests/walk_test.cpp`. La démo : `levain_sandbox --view character`, le renard dans Sponza, mené
+au clavier (ZQSD ou WASD, espace pour sauter) ; `--walk x,z --steps N` le fait marcher seul pendant N pas,
+pour la CI.
 
 ## Équivalents ailleurs
 

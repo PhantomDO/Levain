@@ -30,6 +30,7 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "character_demo.hpp"
 #include "crates.hpp"
 #include "lake_shore.hpp"
 #include "shader_reload.hpp"
@@ -38,9 +39,11 @@
 #include "levain/animation/animator.hpp"
 #include "levain/animation/pose.hpp"
 #include "levain/assets/asset_ref.hpp"
+#include "levain/assets/collision.hpp"
 #include "levain/assets/gltf.hpp"
 #include "levain/assets/image.hpp"
 #include "levain/assets/registry.hpp"
+#include "levain/character/walk.hpp"
 #include "levain/core/assert.hpp"
 #include "levain/core/frame_time.hpp"
 #include "levain/core/log.hpp"
@@ -50,6 +53,7 @@
 #include "levain/grass/grass_pass.hpp"
 #include "levain/input/bindings.hpp"
 #include "levain/input/state.hpp"
+#include "levain/physics/character.hpp"
 #include "levain/physics/components.hpp"
 #include "levain/physics/outlines.hpp"
 #include "levain/physics/physics.hpp"
@@ -210,7 +214,8 @@ struct ModelGpu
     /// Avec `--locomotion` : l'animateur, qui remplace le clip unique (#118).
     std::optional<levain::animation::Animator> animator;
     levain::animation::AnimatorClips animatorClips;
-    float lastSeconds = 0.0f; ///< Le temps de l'image précédente : l'animateur et sa mesure.
+    float lastSeconds = 0.0f;   ///< Le temps de l'image précédente : l'animateur et sa mesure.
+    bool followsPlayer = false; ///< Animé par le mouvement du joueur, pas par la démo (M6.3).
     levain::animation::Pose pose;
     std::vector<glm::mat4> skinMatrices;
 };
@@ -273,6 +278,9 @@ struct DemoScene
     nvrhi::SamplerHandle sampler; ///< Gardé pour refaire les binding sets au hot-reload.
     nvrhi::BindingSetHandle material;
     flecs::entity cameraEntity; ///< Transform + FpsController : la caméra libre (M3.4).
+    /// Le personnage de `--view character` (M6.3) : la caméra le suit, le clavier le mène, son
+    /// mouvement anime le renard. Vide dans les autres vues.
+    flecs::entity player{};
     levain::render::Camera camera;
     /// La grille de cubes, le sol et les lumières de couleur ; absents des autres vues.
     bool demoProps = true;
@@ -351,6 +359,7 @@ struct CameraActions
     int lookEnable = 0;
     int sprint = 0;
     int select = 0; ///< Le clic qui sélectionne un corps (M6.2).
+    int jump = 0;   ///< Le saut du personnage de `--view character` (M6.3).
 };
 
 /// Les indices des actions et des axes dont la caméra a besoin, résolus **une fois**. Un nom absent
@@ -375,9 +384,10 @@ cameraActionsOf(const levain::input::Bindings& bindings)
         }
         *index = found.value_or(-1);
     }
-    const std::array<std::pair<const char*, int*>, 3> buttons{{{"look_enable", &actions.lookEnable},
+    const std::array<std::pair<const char*, int*>, 4> buttons{{{"look_enable", &actions.lookEnable},
                                                                {"sprint", &actions.sprint},
-                                                               {"select", &actions.select}}};
+                                                               {"select", &actions.select},
+                                                               {"jump", &actions.jump}}};
     for (const auto& [name, index] : buttons)
     {
         const auto found = levain::input::actionIndex(bindings, name);
@@ -403,6 +413,20 @@ levain::scene::FpsInput fpsInputFrom(const levain::input::InputState& input,
             .up = levain::input::axisValue(input, actions.moveUp),
             .look = looking ? glm::vec2{lookRight, lookUp} : glm::vec2{0.0f},
             .sprint = levain::input::actionHeld(input, actions.sprint)};
+}
+
+/// Ce que le joueur demande au personnage (M6.3) : la direction des axes de déplacement, tournée
+/// selon la caméra qui le suit, la course, et le saut. `--walk` remplace le clavier, pour la CI. Le
+/// saut s'ajoute à celui qui attend encore : la marche le consomme au pas suivant, et une image
+/// sans pas de simulation ne doit pas le perdre.
+void walkInputFrom(levain::character::WalkInput& walk, const levain::input::InputState& input,
+                   const CameraActions& actions, const std::optional<glm::vec2>& scripted)
+{
+    walk.direction = scripted.value_or(
+        levain::sandbox::walkDirectionOf(levain::input::axisValue(input, actions.moveRight),
+                                         levain::input::axisValue(input, actions.moveForward)));
+    walk.run = levain::input::actionHeld(input, actions.sprint);
+    walk.jump = walk.jump || levain::input::actionPressed(input, actions.jump);
 }
 
 /// Les poses des cubes **dans le monde**, dans `poses`, que le rendu envoie ensuite au GPU. La glu
@@ -778,14 +802,22 @@ void logScanReport(const levain::assets::ScanReport& report)
 }
 
 /// Ce que montre le sandbox : la démo (cubes, sol, modèle), la vue du glTF Sample Viewer (#125,
-/// #131), le terrain (M5.6), ou les caisses de la physique (M6.1).
+/// #131), le terrain (M5.6), les caisses de la physique (M6.1), ou le renard qu'on dirige dans
+/// Sponza (M6.3).
 enum class SandboxView : std::uint8_t
 {
     Demo,
     Khronos,
     Terrain,
     Physics,
+    Character,
 };
+
+/// Un joueur, le renard, que la caméra suit (M6.3).
+bool hasPlayer(SandboxView view)
+{
+    return view == SandboxView::Character;
+}
 
 /// Le soleil de la démo : haut, de biais, légèrement chaud.
 constexpr levain::render::Sun DemoSun{
@@ -901,6 +933,12 @@ struct ModelRequest
     levain::scene::Transform placement;
     std::optional<std::string> clip;
     std::optional<std::string> locomotion;
+    std::string name = "model"; ///< Le nom de son entité racine.
+    /// Sa collision est son maillage affiché, simplifié (ADR-0028) : le décor de `--view
+    /// character`.
+    bool collides = false;
+    /// Enfant du personnage, à `placement` dans son repère : le renard de `--view character`.
+    bool followsPlayer = false;
 };
 
 /// Un modèle lu, avant le GPU : le modèle, son squelette et ses clips s'il est skinné.
@@ -911,7 +949,7 @@ struct LoadedModel
     std::optional<levain::animation::AnimationSet> animation;
     std::size_t clip = 0;
     std::optional<levain::animation::AnimatorClips> animatorClips;
-    levain::scene::Transform placement;
+    ModelRequest request;
 };
 
 /// Lit un modèle d'une racine d'assets déjà scannée, et son squelette s'il est skinné. Les noms de
@@ -921,6 +959,17 @@ levain::core::Result<LoadedModel> loadSandboxModel(const ModelRequest& request,
                                                    const levain::assets::AssetRegistry& registry,
                                                    levain::assets::ModelCache& modelCache)
 {
+    std::error_code missing;
+    if (!std::filesystem::exists(request.path, missing))
+    {
+        // Le cas assuré du paquet web pour Sponza, dont la licence interdit la redistribution.
+        return levain::core::makeError(
+            levain::core::ErrorCode::InvalidData,
+            std::format("{} absent : lancer tools/fetch-assets.sh pour les assets de test "
+                        "(Sponza n'est jamais dans le paquet web : sa licence interdit de la "
+                        "redistribuer)",
+                        request.path.string()));
+    }
     const auto id = levain::assets::idOf(registry, request.path);
     if (!id)
     {
@@ -939,7 +988,7 @@ levain::core::Result<LoadedModel> loadSandboxModel(const ModelRequest& request,
                        .animation = std::nullopt,
                        .clip = 0,
                        .animatorClips = std::nullopt,
-                       .placement = request.placement};
+                       .request = request};
     if (!isSkinned(*result.model))
     {
         return result;
@@ -967,10 +1016,23 @@ levain::core::Result<LoadedModel> loadSandboxModel(const ModelRequest& request,
             return std::unexpected(clips.error());
         }
         result.animatorClips = *clips;
-        levain::core::log("sandbox", levain::core::LogLevel::Info,
-                          "modèle skinné : {} os, locomotion « {} », vitesse de 0 à {} et "
-                          "retour en 8 s",
-                          set->jointNames.size(), *request.locomotion, DemoRunSpeed);
+        if (request.followsPlayer)
+        {
+            // Les vitesses du personnage, en m/s : la marche à la sienne, la course à la sienne.
+            // La foulée de Fox n'est pas mesurée : ses pieds peuvent glisser un peu.
+            result.animatorClips->ground.walkSpeed = levain::sandbox::FoxWalker.walkSpeed;
+            result.animatorClips->ground.runSpeed = levain::sandbox::FoxWalker.runSpeed;
+            levain::core::log("sandbox", levain::core::LogLevel::Info,
+                              "modèle skinné : {} os, locomotion « {} », menée par le joueur",
+                              set->jointNames.size(), *request.locomotion);
+        }
+        else
+        {
+            levain::core::log("sandbox", levain::core::LogLevel::Info,
+                              "modèle skinné : {} os, locomotion « {} », vitesse de 0 à {} et "
+                              "retour en 8 s",
+                              set->jointNames.size(), *request.locomotion, DemoRunSpeed);
+        }
     }
     else
     {
@@ -981,6 +1043,40 @@ levain::core::Result<LoadedModel> loadSandboxModel(const ModelRequest& request,
     }
     result.animation = std::move(*set);
     return result;
+}
+
+/// La collision d'un décor (ADR-0028) : son maillage affiché, sans feuillage, simplifié, dans un
+/// corps statique à la place du modèle. Construite au chargement tant que le cuiseur ne l'écrit
+/// pas.
+void addDecorCollision(flecs::world& world, const levain::assets::Model& model,
+                       const std::string& name, const levain::scene::Transform& placement)
+{
+    const Clock::time_point start = Clock::now();
+    levain::assets::CollisionMesh collision = levain::assets::collisionMeshOf(model);
+    auto mesh = std::make_shared<levain::physics::TriangleMesh>();
+    mesh->vertices = std::move(collision.vertices);
+    mesh->indices = std::move(collision.indices);
+    // L'échelle dans les sommets : un corps de Jolt n'en a pas, sa pose n'est qu'une position et
+    // une rotation. Sans elle, un décor agrandi aurait la collision de sa taille d'origine.
+    for (glm::vec3& vertex : mesh->vertices)
+    {
+        vertex *= placement.scale;
+    }
+    levain::core::log("sandbox", levain::core::LogLevel::Info,
+                      "collision de {} : {} triangles, simplifiés en {:.0f} ms", name,
+                      mesh->indices.size() / 3, secondsBetween(start, Clock::now()) * 1000.0);
+    world.entity(std::format("{}_collision", name).c_str())
+        .set(levain::scene::Transform{.position = placement.position,
+                                      .rotation = placement.rotation})
+        .set(levain::physics::Collider{.shape = levain::physics::MeshShape{std::move(mesh)}});
+}
+
+/// Place la caméra derrière le joueur (M6.3), par référence : un `set` remettrait son état
+/// précédent à jour, et le rendu ne l'interpolerait plus entre deux pas (ADR-0016).
+void followPlayer(flecs::entity camera, flecs::entity player)
+{
+    camera.get_mut<levain::scene::Transform>() =
+        levain::sandbox::followCamera(player.get<levain::scene::Transform>().position);
 }
 
 /// Crée la passe des meshes et envoie au GPU le cube, la grille, le sol, la texture du damier, les
@@ -1086,14 +1182,32 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         world.import<levain::physics::PhysicsModule>();
         levain::sandbox::spawnLakeShoreCrates<Cube>(world, *heightmap, valley);
     }
+    else if (view == SandboxView::Character)
+    {
+        world.import<levain::character::WalkModule>();
+        levain::sandbox::spawnCharacterDemo<Cube>(world);
+    }
     else
     {
         spawnCubeGrid(world);
     }
+    const flecs::entity player =
+        hasPlayer(view) ? levain::sandbox::spawnPlayer(world, levain::sandbox::PlayerStart)
+                        : flecs::entity{};
     for (const LoadedModel& loaded : loadedModels)
     {
-        levain::assets::instantiateModel(world, *loaded.model, loaded.id, "model")
-            .set(loaded.placement);
+        const flecs::entity root =
+            levain::assets::instantiateModel(world, *loaded.model, loaded.id, loaded.request.name)
+                .set(loaded.request.placement);
+        if (loaded.request.followsPlayer && player)
+        {
+            // Par flecs::Parent, comme toute la hiérarchie (ADR-0015) : le modèle suit le joueur.
+            root.set(flecs::Parent{player});
+        }
+        if (loaded.request.collides)
+        {
+            addDecorCollision(world, *loaded.model, loaded.request.name, loaded.request.placement);
+        }
     }
     // La caméra est une entité comme les autres : basse, sur le côté de la grille, et visant loin
     // devant. Elle porte son état précédent pour que le rendu l'interpole entre deux pas de
@@ -1121,6 +1235,15 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         cameraEntity.set(levain::scene::Transform{.position = {30.0f, 140.0f, 480.0f}})
             .set(levain::scene::FpsController{.yawDegrees = -45.0f, .pitchDegrees = -22.0f});
     }
+    if (view == SandboxView::Character)
+    {
+        // La caméra suit le joueur (M6.3) : pas de regard libre, un système la place à chaque pas.
+        cameraEntity.set(levain::sandbox::followCamera(levain::sandbox::PlayerStart))
+            .remove<levain::scene::FpsController>();
+        world.system("FollowPlayer")
+            .kind<levain::scene::PostPhysics>()
+            .run([cameraEntity, player](flecs::iter&) { followPlayer(cameraEntity, player); });
+    }
     if (cameraPosition)
     {
         // Face à −Z : le regard du glTF Sample Viewer à l'ouverture d'un modèle.
@@ -1130,7 +1253,8 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     levain::scene::advanceWorld(world, fixedStep,
                                 0.0f); // les matrices monde, avant le premier envoi
     std::vector<levain::render::InstancePose> cubePoses;
-    gatherCubePoses(cubes, view == SandboxView::Physics, cubePoses);
+    gatherCubePoses(cubes, view == SandboxView::Physics || view == SandboxView::Character,
+                    cubePoses);
 
     const nvrhi::CommandListHandle upload = gpu.nvrhi->createCommandList();
     upload->open();
@@ -1166,7 +1290,16 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         }
         uploaded->animation = std::move(loaded.animation);
         uploaded->clip = loaded.clip;
-        models.emplace(loaded.id, std::move(*uploaded));
+        uploaded->followsPlayer = loaded.request.followsPlayer;
+        // Rangés par asset : un même modèle demandé deux fois n'aurait qu'un animateur.
+        if (!models.emplace(loaded.id, std::move(*uploaded)).second)
+        {
+            submitAbandonedUpload(*gpu.nvrhi, *upload);
+            return levain::core::makeError(
+                levain::core::ErrorCode::InvalidData,
+                std::format("{} demandé deux fois : le sandbox n'en charge qu'une instance",
+                            loaded.request.path.string()));
+        }
     }
     const std::array<levain::render::InstancePose, 1> origin{};
     levain::render::Instances modelInstance =
@@ -1222,18 +1355,25 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     }
     upload->close();
     gpu.nvrhi->executeCommandList(upload);
+    // Une ligne par modèle, puis les temps du chargement, communs à tous (le critère de M4.3).
     for (const LoadedModel& loaded : loadedModels)
     {
         const ModelGpu& uploaded = models.at(loaded.id);
         levain::core::log(
             "sandbox", levain::core::LogLevel::Info,
-            "modèle : {} meshes, {} matériaux, {} textures ({:.1f} Mo en mémoire vidéo) ; scan "
-            "{:.0f} ms, modèles {:.1f} ms, textures, mips et envoi {:.0f} ms",
-            loaded.model->meshes.size(), loaded.model->materials.size(), uploaded.textures.size(),
-            static_cast<double>(uploaded.textureBytes) / (1024.0 * 1024.0),
-            secondsBetween(loadStart, modelStart) * 1000.0,
-            secondsBetween(modelStart, modelEnd) * 1000.0,
-            secondsBetween(uploadStart, Clock::now()) * 1000.0);
+            "modèle {} : {} meshes, {} matériaux, {} textures ({:.1f} Mo en mémoire vidéo)",
+            loaded.request.name, loaded.model->meshes.size(), loaded.model->materials.size(),
+            uploaded.textures.size(),
+            static_cast<double>(uploaded.textureBytes) / (1024.0 * 1024.0));
+    }
+    if (!loadedModels.empty())
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Info,
+                          "chargement des modèles : scan {:.0f} ms, modèles {:.1f} ms, textures, "
+                          "mips et envoi {:.0f} ms",
+                          secondsBetween(loadStart, modelStart) * 1000.0,
+                          secondsBetween(modelStart, modelEnd) * 1000.0,
+                          secondsBetween(uploadStart, Clock::now()) * 1000.0);
     }
 
     // La grille occupe la gauche de l'image, le sol file jusqu'à l'horizon à droite, de plus en
@@ -1272,10 +1412,12 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
                      .sampler = std::move(samplerHandle),
                      .material = std::move(material),
                      .cameraEntity = cameraEntity,
+                     .player = player,
                      .camera = camera,
                      .demoProps = view == SandboxView::Demo || view == SandboxView::Physics,
                      .spinCubes = view == SandboxView::Demo,
-                     .cubesTurn = view == SandboxView::Physics || view == SandboxView::Terrain,
+                     .cubesTurn = view == SandboxView::Physics || view == SandboxView::Terrain ||
+                                  view == SandboxView::Character,
                      .drawCubes = view != SandboxView::Khronos,
                      .heightmap = std::move(heightmap),
                      .terrain = std::move(terrain),
@@ -1320,14 +1462,27 @@ glm::mat4 cubeRotation(double seconds)
     return glm::rotate(glm::mat4{1.0f}, angle, glm::vec3{1.0f, 1.0f, 0.0f});
 }
 
+/// Le mouvement que joue un modèle animé : celui du joueur pour le modèle qui le suit (M6.3),
+/// sinon la vitesse de démonstration, du repos à la course et retour (#118).
+levain::animation::CharacterMotion motionToPlay(const DemoScene& scene, const ModelGpu& model,
+                                                double seconds)
+{
+    if (model.followsPlayer && scene.player)
+    {
+        return scene.player.get<levain::animation::CharacterMotion>();
+    }
+    return {.speed = demoSpeedAt(seconds)};
+}
+
 /// La pose d'un modèle skinné à `seconds` : son animateur s'il en a un, sinon son clip en boucle.
-void poseModel(ModelGpu& model, const levain::animation::AnimationSet& set, double seconds)
+void poseModel(ModelGpu& model, const levain::animation::AnimationSet& set,
+               const levain::animation::CharacterMotion& motion, double seconds)
 {
     if (model.animator)
     {
-        const levain::animation::AnimatorLayers layers = levain::animation::advanceAnimator(
-            set, model.animatorClips, *model.animator, {.speed = demoSpeedAt(seconds)},
-            static_cast<float>(seconds) - model.lastSeconds);
+        const levain::animation::AnimatorLayers layers =
+            levain::animation::advanceAnimator(set, model.animatorClips, *model.animator, motion,
+                                               static_cast<float>(seconds) - model.lastSeconds);
         levain::animation::sampleBlend(set, layers, model.pose);
         return;
     }
@@ -1353,7 +1508,7 @@ void animateModels(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, Dem
             gpuMs = levain::render::beginGpuTimer(device, commandList, scene.skinningTimer);
         }
         const levain::animation::Pose before = model.pose;
-        poseModel(model, *model.animation, seconds);
+        poseModel(model, *model.animation, motionToPlay(scene, model, seconds), seconds);
         if (!before.joints.empty() && seconds > model.lastSeconds)
         {
             scene.skinningCost.maxJointSpeed =
@@ -1755,7 +1910,8 @@ struct SandboxOptions
     /// `--view khronos` : la scène telle que l'ouvre le glTF Sample Viewer, pour s'y comparer
     /// (#125, #131, tools/khronos-compare.sh). Le modèle seul, à l'origine, sous sa caméra et son
     /// ciel ; ni cubes, ni sol, ni lumières de la démo. `--view terrain` : la vallée de M5.6.
-    /// `--view physics` : 1 000 caisses qui tombent sur le sol de la démo (M6.1).
+    /// `--view physics` : 1 000 caisses qui tombent sur le sol de la démo (M6.1). `--view
+    /// character` : le renard qu'on dirige dans Sponza (M6.3).
     SandboxView view = SandboxView::Demo;
     /// `--camera x,y,z` : la caméra à cette position, face à −Z. Celle du glTF Sample Viewer, que
     /// tools/khronos-compare.sh relit dans sa page.
@@ -1772,6 +1928,11 @@ struct SandboxOptions
     std::optional<glm::vec3> sunDirection;
     /// L'HDRI qui éclaire la scène (M5.4) ; sans, `LEVAIN_DEFAULT_SKY` s'il a été téléchargé.
     std::optional<std::filesystem::path> skyPath;
+    /// `--steps N` : N pas de simulation, un par image, puis l'arrêt (M6.3, pour la CI).
+    std::optional<int> steps;
+    /// `--walk x,z` : la direction que suit le personnage de `--view character`, au lieu du
+    /// clavier.
+    std::optional<glm::vec2> walk;
     /// `--gpu webgpu` : le backend WebGPU sur Dawn, hors écran, pour le vérifier sans navigateur
     /// (ADR-0023).
     nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
@@ -1810,6 +1971,26 @@ std::optional<glm::vec3> parseVector(std::string_view text)
 
 /// `[--seconds N] [--anisotropy N] [--capture fichier.png] [--model fichier.gltf]`, dans n'importe
 /// quel ordre. Vide si les arguments sont invalides.
+/// Pourquoi ces options ne vont pas ensemble, ou rien. Avec le joueur, la caméra le suit et la
+/// scène est fixée : `--look` planterait (la caméra n'a plus de regard libre), `--camera` et
+/// `--model` seraient ignorés sans un mot.
+std::optional<std::string_view> whyNotCompatible(const SandboxOptions& options)
+{
+    if (hasPlayer(options.view) && (options.cameraLook || options.cameraPosition))
+    {
+        return "--look et --camera : la caméra de cette vue suit le joueur";
+    }
+    if (hasPlayer(options.view) && (options.modelPath || options.clipName || options.locomotion))
+    {
+        return "--model, --clip et --locomotion : cette vue a ses propres modèles";
+    }
+    if (!hasPlayer(options.view) && options.walk)
+    {
+        return "--walk : cette vue n'a pas de joueur";
+    }
+    return std::nullopt;
+}
+
 std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
 {
     SandboxOptions options;
@@ -1844,15 +2025,26 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
             options.tonemapper = found->second;
             continue;
         }
-        if (name == "--pick" || name == "--look")
+        if (name == "--pick" || name == "--look" || name == "--walk")
         {
             const std::optional<glm::vec3> pair = parseVector(std::string{arguments[i + 1]} + ",0");
             if (!pair)
             {
                 return std::nullopt;
             }
-            (name == "--pick" ? options.pickPixel : options.cameraLook) =
-                glm::vec2{pair->x, pair->y};
+            (name == "--pick"   ? options.pickPixel
+             : name == "--look" ? options.cameraLook
+                                : options.walk) = glm::vec2{pair->x, pair->y};
+            continue;
+        }
+        if (name == "--steps")
+        {
+            const std::optional<double> count = parsePositive(arguments[i + 1]);
+            if (!count || *count != std::floor(*count) || *count > 1e6)
+            {
+                return std::nullopt;
+            }
+            options.steps = static_cast<int>(*count);
             continue;
         }
         if (name == "--camera" || name == "--sun")
@@ -1869,14 +2061,16 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         if (name == "--view")
         {
             const std::string_view view{arguments[i + 1]};
-            if (view != "khronos" && view != "demo" && view != "terrain" && view != "physics")
+            if (view != "khronos" && view != "demo" && view != "terrain" && view != "physics" &&
+                view != "character")
             {
                 return std::nullopt;
             }
-            options.view = view == "khronos"   ? SandboxView::Khronos
-                           : view == "terrain" ? SandboxView::Terrain
-                           : view == "physics" ? SandboxView::Physics
-                                               : SandboxView::Demo;
+            options.view = view == "khronos"     ? SandboxView::Khronos
+                           : view == "terrain"   ? SandboxView::Terrain
+                           : view == "physics"   ? SandboxView::Physics
+                           : view == "character" ? SandboxView::Character
+                                                 : SandboxView::Demo;
             continue;
         }
         if (name == "--gpu")
@@ -1925,6 +2119,11 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         {
             return std::nullopt;
         }
+    }
+    if (const std::optional<std::string_view> why = whyNotCompatible(options))
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Error, "{}", *why);
+        return std::nullopt;
     }
     return options;
 }
@@ -1987,6 +2186,31 @@ std::optional<std::filesystem::path> defaultSky()
 std::vector<ModelRequest> modelRequestsOf(const SandboxOptions& options)
 {
     std::vector<ModelRequest> requests;
+    if (options.view == SandboxView::Character)
+    {
+        // Sponza à l'échelle 1, dans ses mètres : sa collision est simplifiée à 2 cm près dans le
+        // monde (ADR-0028). Le renard, enfant du joueur : 0,01, soit 1,55 m de long et 0,79 m de
+        // haut (Fox mesure 155 × 79 unités ; le 0,05 de la démo de M4.5 en faisait un renard de 4
+        // m), et un demi-tour, son avant étant +z quand celui du personnage est −z.
+        const std::filesystem::path models{LEVAIN_TEST_ASSETS_DIR "/Models"};
+        requests.push_back({.path = models / "Sponza/glTF/Sponza.gltf",
+                            .placement = {},
+                            .clip = std::nullopt,
+                            .locomotion = std::nullopt,
+                            .name = "sponza",
+                            .collides = true,
+                            .followsPlayer = false});
+        requests.push_back({.path = models / "Fox/glTF/Fox.gltf",
+                            .placement = {.rotation = glm::angleAxis(glm::pi<float>(),
+                                                                     glm::vec3{0.0f, 1.0f, 0.0f}),
+                                          .scale = glm::vec3{0.01f}},
+                            .clip = std::nullopt,
+                            .locomotion = "Survey,Walk,Run",
+                            .name = "fox",
+                            .collides = false,
+                            .followsPlayer = true});
+        return requests;
+    }
     if (options.modelPath)
     {
         requests.push_back({.path = *options.modelPath,
@@ -2053,6 +2277,11 @@ struct Loop
     const CameraActions& actions;
     double loopSeconds;
     std::optional<double> frozenSeconds;
+    /// `--steps N` : exactement un pas de simulation par image, puis l'arrêt après N, quelle que
+    /// soit la durée réelle des images. Ce que fait le personnage ne dépend plus de la machine.
+    std::optional<int> steps;
+    std::optional<glm::vec2>
+        walk; ///< `--walk x,z` : la direction du personnage, au lieu du clavier.
 
     nvrhi::CommandListHandle commandList;
     LoopState state;
@@ -2073,7 +2302,8 @@ struct Loop
 };
 
 Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, Sandbox& sandbox,
-               double loopSeconds, std::optional<double> frozenSeconds)
+               double loopSeconds, std::optional<double> frozenSeconds, std::optional<int> steps,
+               std::optional<glm::vec2> walk)
 {
     DemoScene& scene = sandbox.scene;
     if (scene.world.has<levain::physics::PhysicsWorld>())
@@ -2100,6 +2330,8 @@ Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, Sa
                 .actions = sandbox.actions,
                 .loopSeconds = loopSeconds,
                 .frozenSeconds = frozenSeconds,
+                .steps = steps,
+                .walk = walk,
                 .commandList = gpu.nvrhi->createCommandList(),
                 .state = {},
                 .frameTimes = {},
@@ -2125,7 +2357,8 @@ double sceneSecondsOf(const Loop& loop)
 /// Une image de la boucle ; `false` quand elle s'arrête (fenêtre fermée, --seconds écoulées).
 bool runFrame(Loop& loop)
 {
-    if (!loop.state.isRunning || secondsBetween(loop.loopStart, Clock::now()) >= loop.loopSeconds)
+    if (!loop.state.isRunning || secondsBetween(loop.loopStart, Clock::now()) >= loop.loopSeconds ||
+        (loop.steps && loop.frameCount >= *loop.steps))
     {
         return false;
     }
@@ -2179,8 +2412,17 @@ bool runFrame(Loop& loop)
                 levain::platform::cursorPosition(loop.window);
             selectAt(scene, levain::platform::windowPixelSize(loop.window), {cursor.x, cursor.y});
         }
-        // Ce que le joueur demande, posé pour le prochain pas de simulation.
-        scene.world.set<levain::scene::FpsInput>(fpsInputFrom(loop.input, loop.actions));
+        // Ce que le joueur demande, posé pour le prochain pas de simulation : au personnage s'il y
+        // en a un (M6.3), sinon à la caméra libre.
+        if (scene.player)
+        {
+            walkInputFrom(scene.player.get_mut<levain::character::WalkInput>(), loop.input,
+                          loop.actions, loop.walk);
+        }
+        else
+        {
+            scene.world.set<levain::scene::FpsInput>(fpsInputFrom(loop.input, loop.actions));
+        }
     }
 
     reloadChangedShaders(loop.shaderReload, *loop.gpu.nvrhi, loop.sceneTarget,
@@ -2194,7 +2436,8 @@ bool runFrame(Loop& loop)
         // passée est celle de l'image précédente : celle-ci n'est pas encore finie.
         LEVAIN_PROFILE_SCOPE_NAMED("monde");
         levain::scene::advanceWorld(scene.world, scene.fixedStep,
-                                    static_cast<float>(loop.lastFrameSeconds));
+                                    loop.steps ? scene.fixedStep.stepSeconds
+                                               : static_cast<float>(loop.lastFrameSeconds));
         updateRenderCamera(scene.camera, scene.cameraEntity);
     }
 
@@ -2238,6 +2481,34 @@ bool runFrame(Loop& loop)
     return true;
 }
 
+/// Le nom d'un état du sol, pour le journal.
+std::string_view groundName(levain::physics::GroundState state)
+{
+    switch (state)
+    {
+    case levain::physics::GroundState::OnGround:
+        return "au sol";
+    case levain::physics::GroundState::OnSteepGround:
+        return "sur une pente trop raide";
+    case levain::physics::GroundState::NotSupported:
+        return "sans appui";
+    case levain::physics::GroundState::InAir:
+        break;
+    }
+    return "en l'air";
+}
+
+void logPlayer(flecs::entity player)
+{
+    const glm::vec3 feet = player.get<levain::scene::Transform>().position;
+    const levain::physics::CharacterState* state =
+        player.try_get<levain::physics::CharacterState>();
+    levain::core::log("sandbox", levain::core::LogLevel::Info,
+                      "personnage : pieds à ({:.2f}, {:.2f}, {:.2f}), {}, {:.2f} m/s", feet.x,
+                      feet.y, feet.z, state ? groundName(state->ground.state) : "sans personnage",
+                      state ? glm::length(state->velocity) : 0.0f);
+}
+
 /// Le bilan de la boucle, puis la capture demandée ; `false` si elle a échoué.
 bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& capturePath,
                 const std::optional<glm::vec2>& pickPixel)
@@ -2258,6 +2529,20 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
         "boucle arrêtée après {:.1f} s et {} frames ; GPU : {:.3f} ms en moyenne sur {} mesures",
         secondsBetween(loop.loopStart, Clock::now()), loop.frameCount, averageOf(loop.totalGpu),
         loop.totalGpu.samples);
+    // Arrêtée avant ses `--steps` (fenêtre fermée, `--seconds` écoulées), la boucle n'a pas joué
+    // ce que la CI vérifie ensuite : elle échoue (règle n°7).
+    if (loop.steps && loop.frameCount < *loop.steps)
+    {
+        levain::core::log("sandbox", levain::core::LogLevel::Error,
+                          "--steps : {} pas simulés sur les {} demandés", loop.frameCount,
+                          *loop.steps);
+        return false;
+    }
+    // Lu par la CI (M6.3) : où sont les pieds du personnage, et sur quoi, à la fin de `--walk`.
+    if (loop.scene.player)
+    {
+        logPlayer(loop.scene.player);
+    }
     // Le critère de M5.3 : le temps GPU de la passe d'ombres, quatre cascades.
     const auto& passTimes = loop.scene.renderer.passTimes;
     const GpuTimeAverage& shadowGpu = passTimes[1]; // RendererPassNames : « ombres »
@@ -2394,7 +2679,7 @@ void startWebSandbox(levain::core::Result<levain::gpu::GpuDevice> gpu)
     }
     web.sandbox.emplace(std::move(*sandbox));
     web.loop.emplace(startLoop(*web.window, *web.gpu, *web.sandbox, web.options.loopSeconds,
-                               web.options.frozenSeconds));
+                               web.options.frozenSeconds, web.options.steps, web.options.walk));
     // 0 : au rythme de requestAnimationFrame, celui de l'écran.
     emscripten_set_main_loop(runWebFrame, 0, false);
 }
@@ -2418,8 +2703,9 @@ int main(int argc, char** argv)
                          "repos,marche,course] "
                          "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
                          "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
-                         "fichier.hdr|none] [--view demo|khronos|terrain|physics] "
-                         "[--camera x,y,z] [--look lacet,tangage] [--sun x,y,z] [--pick x,y]");
+                         "fichier.hdr|none] [--view demo|khronos|terrain|physics|character] "
+                         "[--camera x,y,z] [--look lacet,tangage] [--sun x,y,z] [--pick x,y] "
+                         "[--walk x,z] [--steps N]");
             return 2;
         }
 
@@ -2465,8 +2751,8 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        Loop loop =
-            startLoop(*window, *gpu, *sandbox, options->loopSeconds, options->frozenSeconds);
+        Loop loop = startLoop(*window, *gpu, *sandbox, options->loopSeconds, options->frozenSeconds,
+                              options->steps, options->walk);
         while (runFrame(loop))
         {
         }

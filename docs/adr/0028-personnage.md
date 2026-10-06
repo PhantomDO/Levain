@@ -51,9 +51,11 @@ coûte 2 µs (la dernière ligne du tableau est un autre sol, une simple boîte)
 de M6.1 demande qu'un pas de 1 000 caisses tienne en 4 ms. La simplification elle-même coûte environ 60 ms :
 c'est un travail de cuisson.
 
-La même sonde a établi que **Sponza n'a pas d'escalier**. La cour centrale (à −0,02 m) et les galeries (à
-−0,92 m) sont séparées par un **rebord vertical de 0,9 m**, sans marche. Le critère « escaliers compris »
-demande donc d'en poser un.
+La même sonde a établi que **Sponza n'a pas d'escalier**. ~~La cour centrale (à −0,02 m) et les galeries (à
+−0,92 m)~~ *Corrigé le 2026-10-06, sur une carte de Sponza relevée par rayons :* l'atrium et les galeries sont
+au même niveau (−0,02 m) ; c'est une **tranchée** large d'un mètre, le long de chaque mur extérieur, qui
+descend à −0,92 m. Les deux niveaux sont séparés par un **rebord vertical de 0,9 m**, sans marche. Le critère
+« escaliers compris » demande donc d'en poser un.
 
 ## Options envisagées
 
@@ -130,7 +132,8 @@ demande donc d'en poser un.
      suivant), contacts relus, `PreviousTransform` remis à la nouvelle pose pour que le rendu n'interpole pas la
      traversée.
    - **Le contrôleur est une entité racine, sans échelle**, comme un corps (ADR-0026) ; le modèle affiché est
-     un **enfant**, avec son échelle et son décalage (le renard est à l'échelle 0,05).
+     un **enfant**, avec son échelle et son décalage (le renard est à l'échelle 0,01, soit 0,79 m de haut ;
+     *corrigé le 2026-10-06*, le 0,05 de la démo de M4.5 en faisait un renard de 4 m).
    - **Il est interpolé par le rendu**, comme un corps : le trait `With` attache `PreviousTransform` au
      `CharacterController`.
    - **Le `PhysicsWorld` possède les personnages.** Leur destruction suit l'ordre de fermeture de l'ADR-0026
@@ -205,7 +208,8 @@ demande donc d'en poser un.
      modèles qui la portent ; elle remplacera alors la simplification pour ces modèles.
 
 6. **La démo** (choix de Donnovan) : le renard dans Sponza, mené au clavier, caméra qui le suit à distance fixe,
-   sans collision (la vraie caméra est M6.4). Contre le rebord de la cour, la démo pose :
+   sans collision (la vraie caméra est M6.4). Dans la tranchée sud, contre son rebord, la démo pose (*corrigé
+   le 2026-10-06* : « contre le rebord de la cour » venait de la sonde mal lue) :
    - un **escalier** de boîtes, six marches de 0,15 m ;
    - une rampe de 30°, qu'il monte, et une de 55°, qu'il ne gravit pas ;
    - quelques caisses à pousser.
