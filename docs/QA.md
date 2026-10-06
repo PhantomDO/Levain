@@ -12,6 +12,33 @@ Réponse courte, puis détails. Références : fichier:ligne, ADR, source extern
 
 ---
 
+### Peut-on afficher dans le navigateur les images/s, la machine et le pourcentage d'utilisation ? Et Tracy ? (2026-10-06, M6.3)
+
+**Les images/s et la machine, oui ; le pourcentage d'utilisation, pas tel quel.** Le moteur mesure déjà son temps
+d'image : il l'écrit chaque seconde dans le titre de la page (`sandbox/src/main.cpp`, « images/s »), que
+l'Artifact ne montre pas. La machine se lit en JavaScript : le GPU tel que WebGPU le décrit (`GPUAdapterInfo` :
+vendeur et architecture ; vides sous le Firefox de nos tests de fumée, où le moteur journalise
+« WebGPU :  () »), le navigateur,
+les cœurs logiques (`navigator.hardwareConcurrency`), la mémoire (`navigator.deviceMemory`, Chromium seulement,
+arrondie et plafonnée à 8 Go), la résolution et le zoom de l'écran (`devicePixelRatio`).
+
+Le navigateur ne donne en revanche **aucun pourcentage d'occupation du CPU ni du GPU**, pour la vie privée :
+Chromium n'expose qu'un état grossier de la charge du CPU (Compute Pressure API, quatre niveaux), et rien pour le
+GPU. On mesure à la place la part de l'intervalle entre deux images passée
+dans notre code. Le temps GPU par passe demanderait la fonctionnalité WebGPU `timestamp-query`, que notre backend
+WebGPU ne prend pas encore en charge (`engine/gpu/src/webgpu/commandlist.hpp:39`), et que Chrome arrondit.
+
+**Tracy** n'a servi qu'en M1.1 et M1.3. Depuis, les chiffres du journal viennent de benchs versionnés
+(`levain_bench`, `levain_physics_bench`), reproductibles sans profileur (règle n°6), et le moteur n'a que six
+zones et une marque d'image, toutes dans le sandbox. Tracy reste le bon outil pour « où part l'image », mais en natif seulement : il lui
+faut un socket TCP, et vcpkg ne l'installe pas pour Emscripten (`engine/core/CMakeLists.txt:34`).
+
+**Décidé par sondage** : un calque des images/s, du CPU et de la machine sur la page web (#294), et Tracy remis en
+service, le moteur instrumenté et une capture de la vallée analysée (#295), tous deux avant M6.4. Le temps GPU par
+passe dans le navigateur n'est pas retenu pour l'instant.
+
+---
+
 ### Est-ce qu'on est obligés de faire la CI à chaque PR ? (2026-10-05, M6.2)
 
 **Pas obligés, mais chaque PR fusionnée devient un commit de `main`, et c'est la CI qui dit qu'il marche.** Ne la

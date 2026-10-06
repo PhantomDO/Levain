@@ -3,6 +3,17 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Une correction de relecture poussée sans le contrôle de format : la CI passe au rouge (2026-10-06)
+
+- **Symptôme** : #292 et #293, empilées, rouges sur l'étape « Format » de linux-debug, alors que la
+  vérification complète de la pile était verte.
+- **Cause** : la vérification avait tourné avant la correction de relecture. Celle-ci a reformaté les fichiers
+  qu'elle croyait toucher, mais un commentaire modifié par script dans un autre fichier (`lake_shore.hpp`)
+  dépassait la largeur.
+- **Parade** : avant chaque push, même d'une petite correction, relancer le contrôle de la CI sur tout l'arbre :
+  `find engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run
+  --Werror`.
+
 ## meshoptimizer, comme Jolt, n'a ses assertions qu'en Debug (2026-10-05)
 
 - **Symptôme** : aucun, tant que les données sont saines ; la relecture de la collision du décor (M6.3) l'a

@@ -1,6 +1,11 @@
 # Roadmap v1
 
-> Version 0.10 — 03/10/2026 — statut : **validé par Donnovan** (clôture de la phase 5)
+> Version 0.11 — 06/10/2026 — statut : **validé par Donnovan** (sondage du 06/10)
+>
+> v0.11 : **deux préalables à M6.4**, demandés par Donnovan après un essai de la page web sur une vieille
+> tablette : le calque des mesures de la page web (#294, 0,3 h) et Tracy remis en service (#295, 0,4 h). M6.4
+> passe de 1,0 à **1,7 h**. Total : **60,9 h → 61,6 h** (la v0.10 avait laissé 61,9 h, sans retrancher l'heure
+> gagnée sur la phase 5) ; échéances inchangées.
 >
 > v0.10 : **clôture de la phase 5**, ratio **0,91** (10,0 h pour 11,0) : dans la fourchette, **aucun
 > recalibrage**. Le ratio cumulé des phases 0 à 5 vaut 0,92 (38,0 h pour 41,5). Échéances inchangées.
@@ -62,15 +67,15 @@
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
 | 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
 | 5 | Rendu PBR et monde | 10,0 (réel, 11,0 estimées) | 13 | fini le 03/10/2026 |
-| 6 | Physique et traversée | 7,15 | 6 | 28/02/2027 |
+| 6 | Physique et traversée | 7,85 | 6 | 28/02/2027 |
 | 7 | Éditeur | 7,5 | 8 | 04/04/2027 |
 | 8 | Audio et le jeu | 8,25 | 8 | 16/05/2027 |
-| **Total** | | **61,9** | **65** | |
+| **Total** | | **61,6** | **65** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante après la phase 5 (22,9 h) selon le rythme : **2 h/sem. → 12 semaines** (fin décembre 2026) ·
-**1,5 h/sem. → 16 semaines** (fin janvier 2027) · **1 h/sem. → 23 semaines** (mi-mars 2027).
+Durée restante après la phase 5 (23,6 h) selon le rythme : **2 h/sem. → 12 semaines** (fin décembre 2026) ·
+**1,5 h/sem. → 16 semaines** (fin janvier 2027) · **1 h/sem. → 24 semaines** (mi-mars 2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 09/05/2027.
@@ -313,8 +318,8 @@ profondeur) ; de l'herbe dense instanciée sur GPU, répartie par une carte de d
 |---|---:|---:|---|
 | M6.1 Intégration Jolt | 2,96 (réel, 1,75 estimées) | 1 | fini le 05/10/2026 |
 | M6.2 Colliders, requêtes, debug draw | 2,54 (réel, 1,5 estimées) | 1 | fini le 05/10/2026 |
-| M6.3 Character controller | 1,65 | 1 | 21/02/2027 |
-| M6.4 Caméra à la troisième personne | 1,0 | 1 | 28/02/2027 |
+| M6.3 Character controller | 2,75 (réel, 1,65 estimées) | 1 | fini le 06/10/2026 |
+| M6.4 Caméra à la troisième personne | 1,7 | 1 | 28/02/2027 |
 | M6.5 Nage, planeur et endurance | 1,25 | 1 | 28/02/2027 |
 
 **M6.1 — Intégration Jolt.** Monde physique, corps statiques et dynamiques, synchronisation flecs ↔ Jolt au pas
@@ -332,6 +337,8 @@ collision ; affichage de debug ; collision du terrain (heightfield Jolt) ; volum
 collision avec le décor par sphere cast (le « spring arm » d'Unreal), recentrage automatique derrière lui,
 cadrage propre au vol plané.
 *Critère* : la caméra ne traverse jamais la roche en longeant une paroi de la vallée.
+*Préalables*, dans le moteur (v0.11) : le calque des mesures de la page web, images/s, temps CPU et machine
+(#294, 0,3 h) ; Tracy remis en service, le moteur instrumenté et une capture de la vallée analysée (#295, 0,4 h).
 
 **M6.5 — Nage, planeur et endurance.** Plugin gameplay, dans le dépôt du jeu : états du joueur au-dessus du
 character controller, volume d'eau, jauge d'endurance.
