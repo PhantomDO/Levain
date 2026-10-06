@@ -127,7 +127,7 @@ struct SkinningCost
 
 /// Le mouvement que joue un modèle skinné qui a un animateur : celui d'un personnage, ou une
 /// vitesse de démonstration. L'appelant le choisit, modèle par modèle.
-using MotionOf = std::function<animation::CharacterMotion(const assets::AssetId&, const ModelGpu&)>;
+using MotionOf = std::function<animation::CharacterMotion(const assets::AssetId&)>;
 
 /// Ce que l'animation des modèles garde d'une image à l'autre : le minuteur GPU du skinning, seul
 /// (le critère de coût de #117), et la mesure.
