@@ -30,6 +30,65 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-06 — M6.4 — Clôture : *Rando* montre la vallée, et sa caméra ne traverse pas la roche
+
+- **Temps Donnovan : 2 h** (estimé 3,5 h), ratio 0,57. Le 06/10, Donnovan a donné 1 h, puis « environ 1 h » de
+  plus à la clôture : les sondages, l'essai de la page web sur son téléphone, la lecture des PR sur GitHub.
+  Réparti entre les issues au prorata de leurs estimations : #294 0,17 h, #295 0,23 h, #300 0,57 h, *Rando* #5
+  0,29 h, *Rando* #2 0,74 h. Mode autonome : six sondages (le socle du module `app`, la collision, le
+  recentrage, la souris, la taille des PR qui déplacent du code, le regard vers le haut), et un septième à la
+  clôture : garder `tools/merge-stack.sh` plutôt que les piles natives de GitHub, en préversion.
+- Phase 6 à ce stade : 10,25 h passées pour 8,4 h estimées (M6.1 à M6.4), ratio 1,22, provisoire jusqu'à la
+  clôture de la phase.
+- Sessions Claude Code : 1 (la même que M6.1 à M6.3)
+- Fait, en 4 PR dans le moteur (#301 à #304), 4 dans le jeu (*Rando* #6 à #9), et la clôture :
+  - **les ADR-0029 et 0030** (#301) : le module `app` avant la caméra (roadmap v0.12), puis la caméra ;
+  - **le module `app`** (#302 à #304, ferme #300) : les modèles sur le GPU, puis la boucle, la fenêtre, la page
+    web et le rapport d'image quittent le sandbox, qui devient un client de `runApp` ; la caméra du rendu est
+    l'entité qui porte un `CameraLens` ; l'entrée du joueur est un singleton du monde, dont les appuis sont
+    oubliés à la fin de chaque pas (`scene::EndOfStep`) ; `loadModel` et l'étape « modèles » ;
+    `tools/fetch-assets.sh` prête quelques assets de test au jeu ;
+  - **_Rando_ montre la vallée** (*Rando* #6, ferme *Rando* #5) : la vallée, le lac, l'herbe, le ciel, et le
+    renard mené au clavier, sur le module `app` ; la CI emprunte au moteur le renard, les textures et le ciel ;
+  - **la caméra à la troisième personne** (*Rando* #7 et #8, ferme *Rando* #2) : le plugin `plugins/camera`
+    (bras testé par une sphère, qui rentre aussitôt et ressort en 0,4 s, recentrage derrière le renard qui
+    marche) et les premiers tests du jeu ; la souris capturée, le stick droit, la marche tournée par la caméra ;
+  - **le cache de vcpkg** (*Rando* #9, puis la clôture pour le moteur) : `restore-keys` sur le cache binaire.
+- Mesures :
+  - **critère de M6.4, la caméra ne traverse jamais la roche en longeant une paroi** : marge minimale du plan
+    proche au relief **0,258 m** sur 1 200 poses ; **−1,702 m** sans la collision, preuve que la mesure mord
+    (*Rando* : `rando --start 176,250 --walk 0,1 --orbit 180 --steps 300 [--camera-collision off]`), mêmes
+    valeurs en local et dans la CI de `main` ;
+    0,269 / 0,265 / 0,241 m à 60 / 137 / 240 °/s sur 420 pas ;
+  - le plan proche à 0,2 m au lieu de 0,5 : 179 pixels de la vallée diffèrent de plus de 8 niveaux, aux bords
+    des ombres, sans scintillement ; ni profondeur inversée ni cascades à régler (ADR-0030, précisions) ;
+  - le renard de *Rando* finit à (206,91 ; −0,05 ; 280,02), au sol, comme la vue `hike` du sandbox
+    (`rando --walk 1,0 --steps 120`, en CI) ;
+  - le sandbox, client de `runApp`, donne des captures identiques octet pour octet avant et après chaque PR du
+    module (vues `demo`, `hike`, `khronos`, `physics --pick`) ;
+  - la page web : 59 à 60 images/s, moteur 1,4 ms (8 %), Firefox headless (`tools/web-smoke.mjs`) ;
+  - tests : 269 en natif (273 en Release), 172 en WebAssembly (`ctest`) ; 9 dans *Rando*.
+- Décisions de Donnovan, par sondage : un module `app` dans le moteur (ADR-0029) ; la sphère qui rentre vite et
+  ressort doucement ; le recentrage en marchant, après 1,5 s sans regard ; la souris capturée ; la caméra qui
+  glisse sur le sol quand on regarde en haut (ADR-0030) ; l'exception de la règle n°2 pour une PR qui déplace
+  du code sans le changer (AGENTS.md).
+- Écarts et problèmes :
+  - M6.4 est passée de 1,7 à 3,5 h estimées en cours de route (v0.12), pour le module `app` ;
+  - deux PR dépassent la règle n°2 **sans l'avoir signalé** : #304 (+896 −298, dont les tests) et *Rando* #6
+    (+466 −102) ; #302 et #303, des déplacements, l'ont signalé (exception du jour), comme *Rando* #7 (580
+    lignes, dont 142 de tests) ;
+  - Donnovan a remarqué que les PR de *Rando* ne profitaient pas du cache : sans `restore-keys`, l'arrivée de
+    Jolt a fait tout recompiler, de 25 à 37 min par job, et les PR empilées aussi. Corrigé : 26 paquets
+    restaurés, seuls Jolt et meshoptimizer compilés, 3 min (*Rando* #9, `build/GOTCHA.md`) ;
+  - deux arbres de travail n'ont pas le même cache d'assets cuits : leurs captures diffèrent de 1 à 8 niveaux
+    sans que le code soit en cause (`build/GOTCHA.md`, entrée du jour) ;
+  - une relecture a trouvé les appuis vus deux fois dans une image à deux pas : corrigé par `EndOfStep`, et
+    prouvé par un test sur un vrai monde ;
+  - dans le navigateur, le *pointer lock* ne s'obtient que dans un geste du joueur : la caméra de *Rando*
+    tournera au survol jusqu'au premier clic, à régler quand le jeu sera publié dans le navigateur.
+- Prochaine étape : M6.5, la nage, le planeur et l'endurance, dans le dépôt du jeu ; le cadrage du vol plané y
+  viendra avec un jeu de réglages de la caméra par état du joueur.
+
 ## 2026-10-06 — M6.4 — Préalables : les mesures dans la page web, et Tracy remis en service
 
 - Temps Donnovan : compté à la clôture de M6.4 (les deux sondages du jour, l'essai sur son téléphone).
