@@ -210,6 +210,8 @@ void logScanReport(const assets::ScanReport& report)
 /// Les fichiers cuits de chaque racine sont dans son `.cooked/` (ADR-0020).
 core::Result<void> scanAssetRoots(const AppSettings& settings, assets::AssetRegistry& registry)
 {
+    // Le premier temps du chargement (le critère de M4.3) : le scan hache tous les assets.
+    const Clock::time_point start = Clock::now();
     for (std::size_t root = 0; root < settings.assetRoots.size(); ++root)
     {
         const std::filesystem::path& directory = settings.assetRoots[root];
@@ -225,6 +227,8 @@ core::Result<void> scanAssetRoots(const AppSettings& settings, assets::AssetRegi
         }
         logScanReport(*report);
     }
+    core::log("assets", core::LogLevel::Info, "scan des racines d'assets : {:.0f} ms",
+              secondsBetween(start, Clock::now()) * 1000.0);
     return {};
 }
 
@@ -275,7 +279,7 @@ core::Result<Sky> loadSky(nvrhi::IDevice& device, const std::optional<std::files
         turnSkyAroundUp(*image, settings.skyTurnDegrees);
     }
     std::optional<render::Sun> sun;
-    if (!settings.skySunCastsShadows)
+    if (!settings.extractSkySun)
     {
         sun = render::Sun{.direction = {0.0f, 1.0f, 0.0f}, .color{1.0f}, .intensity = 0.0f};
         core::log("app", core::LogLevel::Info, "le ciel seul éclaire, tourné de {:.0f}°",
@@ -727,8 +731,18 @@ bool finishLoop(Loop& loop)
     {
         return false;
     }
+#ifdef __EMSCRIPTEN__
+    // Le navigateur ne laisse pas attendre le GPU (ADR-0023) : la relecture de l'image ne s'y fait
+    // pas. La capture se demande au build natif, `--gpu webgpu` compris.
+    if (app.settings.capturePath)
+    {
+        core::log("app", core::LogLevel::Warning, "--capture ignoré dans le navigateur");
+    }
+    return true;
+#else
     return !app.settings.capturePath ||
            captureFrame(app, *loop.commandList, sceneSecondsOf(loop), *app.settings.capturePath);
+#endif
 }
 
 /// Après le device : `App`, puis la fonction de démarrage, qui doit poser la caméra.

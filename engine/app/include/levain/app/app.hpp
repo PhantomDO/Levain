@@ -76,10 +76,11 @@ struct AppSettings
     /// `--sky f.hdr|none` : le ciel qui éclaire la scène ; sans, `defaultSky` s'il existe.
     std::optional<std::filesystem::path> sky;
     std::optional<std::filesystem::path> defaultSky;
-    /// Le ciel tourné autour de la verticale, et son soleil laissé dans l'éclairage ambiant au lieu
-    /// d'en devenir la lumière directionnelle : la scène telle que l'éclaire le glTF Sample Viewer.
+    /// Le ciel tourné autour de la verticale ; et son soleil, extrait de l'HDRI pour devenir la
+    /// lumière directionnelle qui jette les ombres, ou laissé dans l'éclairage ambiant : la scène
+    /// telle que l'éclaire le glTF Sample Viewer.
     float skyTurnDegrees = 0.0f;
-    bool skySunCastsShadows = true;
+    bool extractSkySun = true;
     std::optional<glm::vec3> sunDirection; ///< `--sun x,y,z` : un soleil blanc d'intensité 1.
     float maxAnisotropy = 16.0f;           ///< `--anisotropy N` : le filtrage des modèles.
     render::TonemapSettings tonemap;       ///< `--exposure N`, `--tonemap clip|aces|agx|neutral`.
@@ -97,7 +98,7 @@ enum class OptionUse : std::uint8_t
 [[nodiscard]] OptionUse parseCommonOption(AppSettings& settings, std::string_view name,
                                           std::string_view value);
 
-/// Un nombre strictement positif, écrit en entier. Vide sinon, NaN compris.
+/// Un nombre strictement positif, et rien d'autre dans le texte. Vide sinon, NaN compris.
 [[nodiscard]] std::optional<double> parsePositive(std::string_view text);
 
 /// Trois nombres séparés par des virgules, « 1.5,-2,0 ». Vide si le texte n'en est pas.
@@ -169,8 +170,9 @@ struct App
     FrameHooks hooks;
 };
 
-/// Pose la scène du programme, `App` étant prêt, et rend ses points d'accroche. Un échec arrête
-/// le programme avec son message.
+/// Pose la scène du programme, `App` étant prêt, et rend ses points d'accroche. Elle **doit**
+/// poser la caméra : `App::cameraEntity`, une entité qui porte un `Transform`, et `App::camera`,
+/// son champ et ses plans. Un échec arrête le programme avec son message.
 using StartFunction = std::function<core::Result<FrameHooks>(App&)>;
 
 /// Le programme entier : la fenêtre, le device, `start`, la boucle, les bilans et la capture. En

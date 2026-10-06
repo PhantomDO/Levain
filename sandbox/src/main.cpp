@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -9,7 +8,6 @@
 #include <expected>
 #include <filesystem>
 #include <format>
-#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -18,13 +16,9 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <tuple>
 #include <utility>
 #include <vector>
 
-#ifdef __EMSCRIPTEN__
-#include <emscripten/emscripten.h>
-#endif
 #include <flecs.h>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -37,17 +31,13 @@
 #include "levain/animation/animator.hpp"
 #include "levain/app/app.hpp"
 #include "levain/app/models.hpp"
-#include "levain/app/texture_reload.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/collision.hpp"
 #include "levain/assets/gltf.hpp"
 #include "levain/assets/image.hpp"
 #include "levain/assets/registry.hpp"
 #include "levain/character/walk.hpp"
-#include "levain/core/assert.hpp"
-#include "levain/core/frame_time.hpp"
 #include "levain/core/log.hpp"
-#include "levain/core/profile.hpp"
 #include "levain/core/version.hpp"
 #include "levain/gpu/device.hpp"
 #include "levain/grass/grass_pass.hpp"
@@ -63,15 +53,12 @@
 #include "levain/render/camera.hpp"
 #include "levain/render/culling.hpp"
 #include "levain/render/debug_lines.hpp"
-#include "levain/render/gpu_timer.hpp"
 #include "levain/render/light_clusters.hpp"
 #include "levain/render/mesh.hpp"
 #include "levain/render/mesh_pass.hpp"
-#include "levain/render/readback.hpp"
 #include "levain/render/renderer.hpp"
 #include "levain/render/shadows.hpp"
 #include "levain/render/skinning.hpp"
-#include "levain/render/sky.hpp"
 #include "levain/render/texture.hpp"
 #include "levain/render/tonemap.hpp"
 #include "levain/scene/camera_control.hpp"
@@ -93,10 +80,6 @@ double secondsBetween(Clock::time_point start, Clock::time_point end)
 {
     return std::chrono::duration<double>(end - start).count();
 }
-
-/// Temps GPU moyen sur une période : somme et nombre des mesures reçues.
-using levain::render::averageOf;
-using levain::render::GpuTimeAverage;
 
 // Les modèles sur le GPU, dans le module app (ADR-0029).
 using levain::app::ModelGpu;
@@ -666,7 +649,8 @@ createDemoScene(levain::app::App& app, const SandboxOptions& options, const Came
     nvrhi::IDevice& device = *app.gpu.nvrhi;
     // Les modèles demandés, chacun par son GUID, dans les racines qu'`app` a scannées (ADR-0019).
     // Les deux temps du chargement (le critère de M4.3) : la lecture des modèles, cuits ou source ;
-    // leurs textures, leurs mips et l'envoi au GPU. Le scan est dans le journal d'`app`.
+    // leurs textures, leurs mips et l'envoi au GPU. Le scan, avant eux, est dans le journal d'`app`
+    // (« scan des racines d'assets »).
     std::vector<LoadedModel> loadedModels;
     const Clock::time_point modelStart = Clock::now();
     for (const ModelRequest& request : modelRequestsOf(options))
@@ -1511,7 +1495,7 @@ int main(int argc, char** argv)
             // lumière directionnelle, et le ciel est tourné de 90° (sa rotation par défaut, « +Z
             // »).
             settings.skyTurnDegrees = 90.0f;
-            settings.skySunCastsShadows = false;
+            settings.extractSkySun = false;
         }
 
         std::print("Levain {} — {} — __cplusplus {}\n", levain::core::version(),

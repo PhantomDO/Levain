@@ -1,7 +1,7 @@
 // Le calque des mesures de la page web (#294) : ce que le moteur mesure, et la machine sur laquelle
 // il tourne. Partagé par la page du sandbox (shell.html) et par l'Artifact qui la publie.
 //
-// Les chiffres d'images viennent du moteur, une fois par seconde (sandbox/src/main.cpp, `reportFrame`,
+// Les chiffres d'images viennent du moteur, une fois par seconde (engine/app/src/app.cpp, `reportFrame`,
 // qui appelle `Module.onFrameReport`) : pas de seconde mesure ici. La machine se lit une fois, dans
 // les API du navigateur. Aucun navigateur ne donne l'occupation du CPU ni du GPU (docs/QA.md,
 // 06/10/2026) : la part de l'image passée dans le moteur est ce qui s'en approche.

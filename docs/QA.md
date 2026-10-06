@@ -15,7 +15,8 @@ Réponse courte, puis détails. Références : fichier:ligne, ADR, source extern
 ### Peut-on afficher dans le navigateur les images/s, la machine et le pourcentage d'utilisation ? Et Tracy ? (2026-10-06, M6.3)
 
 **Les images/s et la machine, oui ; le pourcentage d'utilisation, pas tel quel.** Le moteur mesure déjà son temps
-d'image : il l'écrit chaque seconde dans le titre de la page (`sandbox/src/main.cpp`, « images/s »), que
+d'image : il l'écrit chaque seconde dans le titre de la page (`describeFrameTimes`, aujourd'hui dans `engine/app/src/app.cpp`,
+« images/s »), que
 l'Artifact ne montre pas. La machine se lit en JavaScript : le GPU tel que WebGPU le décrit (`GPUAdapterInfo` :
 vendeur et architecture ; vides sous le Firefox de nos tests de fumée, où le moteur journalise
 « WebGPU :  () »), le navigateur,

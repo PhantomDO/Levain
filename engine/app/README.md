@@ -45,7 +45,10 @@ et `loadModel`.
   attend les événements et remet son horloge à l'heure.
 - **Dans le navigateur, `runApp` rend 0 aussitôt** : le device arrive plus tard (ADR-0023). Ce que la boucle
   utilise vit dans un état statique jusqu'à la fermeture de l'onglet, et un échec ne s'écrit que dans la console.
-
+  `--capture` y est ignoré, avec un avertissement : la relecture de l'image demande d'attendre le GPU.
+- **L'explorer de flecs s'ouvre dans tout programme construit en Debug**, sur `127.0.0.1:27750` : deux
+  programmes lancés ensemble en Debug (le sandbox et *Rando*) se disputent ce port, et le second n'a pas
+  d'explorer.
 - **Une command list ouverte puis détruite fuit** jusqu'à la destruction du device, avec tout ce qu'elle a
   enregistré : `open()` l'inscrit dans les ressources de son propre command buffer (NVRHI,
   `vulkan-commandlist.cpp`), un cycle que seule la file rompt. Un envoi abandonné se ferme et se soumet quand

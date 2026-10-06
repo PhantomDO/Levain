@@ -1,0 +1,57 @@
+#include <doctest/doctest.h>
+
+#include "levain/app/app.hpp"
+
+// Les options communes de la ligne de commande (ADR-0029) : le contrat que le sandbox et *Rando*
+// partagent, et ce que lit la CI.
+
+TEST_CASE("--steps prend un entier strictement positif, au plus un million")
+{
+    using levain::app::OptionUse;
+    levain::app::AppSettings settings;
+    CHECK(levain::app::parseCommonOption(settings, "--steps", "120") == OptionUse::Taken);
+    CHECK(settings.steps == 120);
+    for (const char* refused : {"1.5", "0", "1000001", "nan", "-3", "12x"})
+    {
+        CAPTURE(refused);
+        CHECK(levain::app::parseCommonOption(settings, "--steps", refused) == OptionUse::Invalid);
+    }
+}
+
+TEST_CASE("les options à valeurs fixées refusent toute autre valeur")
+{
+    using levain::app::OptionUse;
+    levain::app::AppSettings settings;
+    CHECK(levain::app::parseCommonOption(settings, "--gpu", "webgpu") == OptionUse::Taken);
+    CHECK(settings.api == nvrhi::GraphicsAPI::WEBGPU);
+    CHECK(levain::app::parseCommonOption(settings, "--gpu", "metal") == OptionUse::Invalid);
+    CHECK(levain::app::parseCommonOption(settings, "--tonemap", "aces") == OptionUse::Taken);
+    CHECK(settings.tonemap.tonemapper == levain::render::Tonemapper::Aces);
+    CHECK(levain::app::parseCommonOption(settings, "--tonemap", "filmic") == OptionUse::Invalid);
+    CHECK(levain::app::parseCommonOption(settings, "--sun", "1,2") == OptionUse::Invalid);
+    CHECK(levain::app::parseCommonOption(settings, "--sun", "0,1,0") == OptionUse::Taken);
+}
+
+TEST_CASE("les nombres doivent être positifs et sans rien d'autre dans le texte")
+{
+    using levain::app::OptionUse;
+    levain::app::AppSettings settings;
+    CHECK(levain::app::parseCommonOption(settings, "--seconds", "2.5") == OptionUse::Taken);
+    CHECK(settings.loopSeconds == 2.5);
+    CHECK(levain::app::parseCommonOption(settings, "--seconds", "-1") == OptionUse::Invalid);
+    CHECK(levain::app::parseCommonOption(settings, "--seconds", "3x") == OptionUse::Invalid);
+    CHECK(levain::app::parseCommonOption(settings, "--exposure", "2") == OptionUse::Taken);
+    CHECK(settings.tonemap.exposure == 2.0f);
+}
+
+TEST_CASE("les chemins se rangent tels quels, et les options du programme lui reviennent")
+{
+    using levain::app::OptionUse;
+    levain::app::AppSettings settings;
+    CHECK(levain::app::parseCommonOption(settings, "--capture", "out.png") == OptionUse::Taken);
+    CHECK(settings.capturePath == std::filesystem::path{"out.png"});
+    CHECK(levain::app::parseCommonOption(settings, "--sky", "none") == OptionUse::Taken);
+    CHECK(settings.sky == std::filesystem::path{"none"});
+    CHECK(levain::app::parseCommonOption(settings, "--view", "hike") == OptionUse::NotMine);
+    CHECK(levain::app::parseCommonOption(settings, "--walk", "1,0") == OptionUse::NotMine);
+}

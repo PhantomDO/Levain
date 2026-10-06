@@ -25,6 +25,7 @@ set(cpuTests
     walk_test.cpp)
 set(nativeTests
     app_models_test.cpp
+    app_options_test.cpp
     camera_control_test.cpp
     camera_test.cpp
     culling_test.cpp
