@@ -359,7 +359,8 @@ jobs:
       # de 0,9 m de la tranchée. `--steps 200` : exactement 200 pas de simulation, un par image, quelle
       # que soit la vitesse du runner ; le résultat ne dépend donc pas de la machine (mesuré : le même
       # au centimètre sur RADV et sous lavapipe). Parti du fond de la tranchée (y = −0,92), il doit
-      # finir au niveau des galeries (−0,02), au sol, sur le palier.
+      # finir au niveau des galeries (−0,02), au sol, sur le palier, toujours dans la tranchée sud
+      # (z entre −6,26 et −5,2).
       - name: Lancer le sandbox avec le personnage
         env:
           SDL_VIDEO_DRIVER: offscreen
@@ -374,7 +375,8 @@ jobs:
             || { echo "::error::le personnage n'est pas au sol : $line"; exit 1; }
           feet=$(echo "$line" | grep -o "([-0-9., ]*)" | tr -d '()' | tr ',' ' ')
           read -r x y z <<<"$feet"
-          awk -v x="$x" -v y="$y" 'BEGIN { exit !(y > -0.1 && y < 0.05 && x > 0.0) }' \
+          awk -v x="$x" -v y="$y" -v z="$z" \
+            'BEGIN { exit !(y > -0.1 && y < 0.05 && x > 0.0 && z > -6.26 && z < -5.2) }' \
             || { echo "::error::le renard n'a pas monté l'escalier : $line"; exit 1; }
 
       # Le cuiseur, sans GPU (ADR-0020), en Release seulement : l'encodage UASTC y est 5 fois plus

@@ -1,8 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <format>
+#include <string>
 
 #include <flecs.h>
 #include <glm/glm.hpp>
@@ -38,6 +40,10 @@ inline constexpr float StairTread = 0.3f;
 inline constexpr float StairStartX = -2.5f; ///< La première contremarche.
 inline constexpr int LandingCubes = 2;      ///< Après la dernière marche, à sa hauteur.
 
+/// La marche du renard : les réglages par défaut du plugin. Le joueur les porte, et l'animation
+/// y règle ses vitesses de marche et de course.
+inline constexpr character::Walker FoxWalker{};
+
 /// Où le renard commence : au fond de la tranchée, 1,5 m avant la première marche, face à elle.
 inline constexpr glm::vec3 PlayerStart{StairStartX - 1.5f, TrenchFloor, TrenchCenterZ};
 
@@ -59,17 +65,22 @@ flecs::entity spawnBlock(flecs::world& world, const std::string& name, const glm
     return block;
 }
 
+/// Le bord gauche (−x) du cube n° `step`, compté de 1 : sa contremarche pour une marche, tous les
+/// 30 cm ; les cubes du palier, eux, se suivent d'un mètre après la dernière marche.
+inline float stairLeftEdge(int step)
+{
+    const int stair = std::min(step, StairSteps);
+    const int landing = std::max(step - StairSteps, 0);
+    return StairStartX + StairTread * static_cast<float>(stair - 1) + static_cast<float>(landing);
+}
+
 /// L'escalier dans la tranchée, le long du mur, et son palier.
 template <typename... Tags> void spawnStairs(flecs::world& world)
 {
     for (int step = 1; step <= StairSteps + LandingCubes; ++step)
     {
         const int level = std::min(step, StairSteps);
-        // Le bord gauche du cube est sa contremarche ; les cubes du palier se suivent d'un mètre.
-        const float left = step <= StairSteps
-                               ? StairStartX + StairTread * static_cast<float>(step - 1)
-                               : StairStartX + StairTread * static_cast<float>(StairSteps - 1) +
-                                     static_cast<float>(step - StairSteps);
+        const float left = stairLeftEdge(step);
         const float top = TrenchFloor + StairRise * static_cast<float>(level);
         spawnBlock<Tags...>(world, std::format("stair_{}", step),
                             {left + 0.5f, top - 0.5f, TrenchCenterZ});
@@ -127,7 +138,7 @@ inline flecs::entity spawnPlayer(flecs::world& world, const glm::vec3& feet)
     return world.entity("player")
         .set(scene::Transform{.position = feet})
         .set(FoxController)
-        .set(character::Walker{})
+        .set(FoxWalker)
         .set(character::WalkInput{})
         .set(animation::CharacterMotion{});
 }
