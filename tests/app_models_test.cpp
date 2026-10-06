@@ -17,7 +17,7 @@ TEST_CASE("un modèle est skinné dès qu'une de ses primitives a des os")
     CHECK(levain::app::isSkinned(model));
 }
 
-TEST_CASE("un clip se trouve par son nom ; un nom inconnu liste les clips du modèle")
+TEST_CASE("un clip se trouve par son nom, et un nom inconnu liste les clips du modèle")
 {
     levain::animation::AnimationSet set;
     CHECK_FALSE(levain::app::clipIndexOf(set, std::nullopt).has_value()); // sans clip : un échec
