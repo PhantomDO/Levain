@@ -79,7 +79,8 @@ Lectures : *Quickstart* de flecs (`docs/LECTURES.md`, D1), puis *Queries* (D2).
 
 ## L'explorer
 
-En Debug, le sandbox active l'addon REST de flecs sur `127.0.0.1:27750`. Ouvrir
+En Debug, tout programme du moteur active l'addon REST de flecs sur `127.0.0.1:27750` (le module `app`,
+ADR-0029) : deux programmes lancés ensemble en Debug se disputent ce port. Ouvrir
 [flecs.dev/explorer](https://www.flecs.dev/explorer) dans un navigateur **sur la même machine** : il s'y connecte
 seul, liste les entités (`grid` et ses enfants, dont `cube_50_50` au centre) et permet d'éditer leurs
 composants. Donner une vitesse à un cube le fait partir : le rendu relit le monde à chaque frame. **Déplacer la

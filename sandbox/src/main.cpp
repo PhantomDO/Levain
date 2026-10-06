@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -9,7 +8,6 @@
 #include <expected>
 #include <filesystem>
 #include <format>
-#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -18,13 +16,9 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <tuple>
 #include <utility>
 #include <vector>
 
-#ifdef __EMSCRIPTEN__
-#include <emscripten/emscripten.h>
-#endif
 #include <flecs.h>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -32,22 +26,18 @@
 #include "character_demo.hpp"
 #include "crates.hpp"
 #include "lake_shore.hpp"
-#include "shader_reload.hpp"
 
 #include "levain/animation/animation_set.hpp"
 #include "levain/animation/animator.hpp"
+#include "levain/app/app.hpp"
 #include "levain/app/models.hpp"
-#include "levain/app/texture_reload.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/collision.hpp"
 #include "levain/assets/gltf.hpp"
 #include "levain/assets/image.hpp"
 #include "levain/assets/registry.hpp"
 #include "levain/character/walk.hpp"
-#include "levain/core/assert.hpp"
-#include "levain/core/frame_time.hpp"
 #include "levain/core/log.hpp"
-#include "levain/core/profile.hpp"
 #include "levain/core/version.hpp"
 #include "levain/gpu/device.hpp"
 #include "levain/grass/grass_pass.hpp"
@@ -63,15 +53,12 @@
 #include "levain/render/camera.hpp"
 #include "levain/render/culling.hpp"
 #include "levain/render/debug_lines.hpp"
-#include "levain/render/gpu_timer.hpp"
 #include "levain/render/light_clusters.hpp"
 #include "levain/render/mesh.hpp"
 #include "levain/render/mesh_pass.hpp"
-#include "levain/render/readback.hpp"
 #include "levain/render/renderer.hpp"
 #include "levain/render/shadows.hpp"
 #include "levain/render/skinning.hpp"
-#include "levain/render/sky.hpp"
 #include "levain/render/texture.hpp"
 #include "levain/render/tonemap.hpp"
 #include "levain/scene/camera_control.hpp"
@@ -89,72 +76,10 @@ namespace
 
 using Clock = std::chrono::steady_clock;
 
-/// Durée sur laquelle le frame time du titre est résumé.
-constexpr double FrameTimePeriodSeconds = 1.0;
-
-/// Validation en Debug seulement (règle n°4) : elle coûte cher, et c'est là qu'on développe.
-constexpr bool EnableValidation = LEVAIN_ASSERTIONS_ENABLED != 0;
-
-struct LoopState
-{
-    bool isRunning = true;
-    bool isVisible = true;
-};
-
-/// Le piège du temps masqué : sous le web, le navigateur cesse d'appeler la boucle d'un onglet
-/// caché, et l'horloge des images n'est pas remise à l'heure. Au retour (`Shown`), l'intervalle
-/// repart de cette image ; sinon la première durerait toute l'absence, et le calque de la page
-/// (#294) afficherait 0 image/s pendant une seconde.
-void forgetHiddenTime(Clock::time_point& previousFrameEnd,
-                      const levain::platform::WindowEvent& event, Clock::time_point frameStart)
-{
-    if (event.type == levain::platform::WindowEventType::Shown)
-    {
-        previousFrameEnd = frameStart;
-    }
-}
-
-void applyWindowEvent(LoopState& state, const levain::platform::WindowEvent& event)
-{
-    using levain::platform::WindowEventType;
-
-    switch (event.type)
-    {
-    case WindowEventType::CloseRequested:
-        state.isRunning = false;
-        break;
-    // Les deux arrivent en double : sous Wayland, SDL renvoie EXPOSED après chaque
-    // redimensionnement. On ne journalise donc que les changements d'état.
-    case WindowEventType::Hidden:
-        if (state.isVisible)
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Info, "masquée : boucle en pause");
-        }
-        state.isVisible = false;
-        break;
-    case WindowEventType::Shown:
-        if (!state.isVisible)
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Info, "visible : boucle relancée");
-        }
-        state.isVisible = true;
-        break;
-    case WindowEventType::Resized:
-        // M1.2 : c'est ici que la swapchain sera recréée à la nouvelle taille.
-        levain::core::log("sandbox", levain::core::LogLevel::Info, "redimensionnée : {} × {} px",
-                          event.pixelSize.width, event.pixelSize.height);
-        break;
-    }
-}
-
 double secondsBetween(Clock::time_point start, Clock::time_point end)
 {
     return std::chrono::duration<double>(end - start).count();
 }
-
-/// Temps GPU moyen sur une période : somme et nombre des mesures reçues.
-using levain::render::averageOf;
-using levain::render::GpuTimeAverage;
 
 // Les modèles sur le GPU, dans le module app (ADR-0029).
 using levain::app::ModelGpu;
@@ -169,65 +94,6 @@ struct DrawCount
     std::uint64_t culled = 0;
     std::uint64_t triangles = 0;
 };
-
-/// Ce que la boucle mesure d'une période d'images (#294) : le titre de la fenêtre et le calque de
-/// la page web l'affichent.
-struct FrameReport
-{
-    levain::core::FrameTimeSummary times;
-    double imagesPerSecond = 0.0;
-    /// Le temps d'une image passé dans le moteur, hors attente de l'écran, en moyenne.
-    double engineMs = 0.0;
-    /// Sa part de l'intervalle entre deux images, en %.
-    double enginePercent = 0.0;
-    levain::platform::PixelSize pixels;
-};
-
-/// Le résumé d'une période, et la part du moteur : ce qui s'approche le plus d'une occupation du
-/// CPU, que le navigateur ne donne pas (docs/QA.md, 06/10/2026). Le reste de l'intervalle, c'est
-/// l'attente de l'écran, ou ailleurs le navigateur et les autres programmes.
-FrameReport frameReportOf(const levain::core::FrameTimeSummary& summary, double engineSeconds,
-                          levain::platform::PixelSize pixels)
-{
-    // averageMs n'est jamais nul : un résumé couvre au moins FrameTimePeriodSeconds.
-    const double engineMs = engineSeconds * 1000.0 / summary.frameCount;
-    return {.times = summary,
-            .imagesPerSecond = 1000.0 / summary.averageMs,
-            .engineMs = engineMs,
-            .enginePercent = 100.0 * engineMs / summary.averageMs,
-            .pixels = pixels};
-}
-
-std::string describeFrameTimes(const FrameReport& report, double gpuMs)
-{
-    // Tirets ASCII : setWindowTitle refuse le reste (voir window.hpp).
-    return std::format("Levain - {:.3f} ms (min {:.3f}, max {:.3f}) - {:.0f} images/s - moteur "
-                       "{:.3f} ms ({:.0f} %) - GPU {:.3f} ms",
-                       report.times.averageMs, report.times.minMs, report.times.maxMs,
-                       report.imagesPerSecond, report.engineMs, report.enginePercent, gpuMs);
-}
-
-#ifdef __EMSCRIPTEN__
-// Le calque de la page web (#294) : le moteur appelle `Module.onFrameReport` s'il existe, une fois
-// par période. EM_JS écrit une fonction JavaScript appelable depuis le C++ (documentation
-// d'Emscripten, « Interacting with code », section « Calling JavaScript from C/C++ »).
-// clang-format off
-EM_JS(void, reportFrameToPage, (double imagesPerSecond, double averageMs, double maxMs,
-                                double engineMs, double enginePercent, int width, int height), {
-    if (Module.onFrameReport) {
-        Module.onFrameReport({imagesPerSecond, averageMs, maxMs, engineMs, enginePercent, width,
-                              height});
-    }
-});
-// clang-format on
-
-void reportFrame(const FrameReport& report)
-{
-    reportFrameToPage(report.imagesPerSecond, report.times.averageMs, report.times.maxMs,
-                      report.engineMs, report.enginePercent, report.pixels.width,
-                      report.pixels.height);
-}
-#endif
 
 /// Ce que le rendu dessine comme cube : un tag, vide, posé sur les entités de la grille. Demander
 /// plutôt « les enfants de grid » coûterait 212 µs par frame au lieu de 8 : une requête
@@ -245,71 +111,6 @@ constexpr float GridSpacing = 1.5f;
 /// (la texture a 8 cases de côté).
 constexpr float GroundSize = 1000.0f;
 constexpr float GroundTextureRepeat = GroundSize / 8.0f;
-
-/// Ce que dessine le sandbox en M2.2 : une grille de cubes texturés qui tournent, sur un sol qui
-/// file jusqu'à l'horizon, où se voit le filtrage anisotrope.
-struct DemoScene
-{
-    flecs::world world; ///< Les cubes, une entité chacun (M3.1), enfants de « grid » (M3.2).
-    levain::scene::FixedStep fixedStep; ///< L'horloge de la simulation, 60 Hz (M3.3).
-    flecs::query<const levain::scene::WorldTransform> cubes;
-    /// Relevées à chaque frame, gardées pour ne pas réallouer.
-    std::vector<levain::render::InstancePose> cubePoses;
-    /// L'image et l'ordre de ses passes (ADR-0025) ; la démo s'inscrit dans ses étapes
-    /// (`addDemoStages`).
-    levain::render::Renderer renderer;
-    levain::render::SkinningPass skinning;
-    levain::render::Sun sun; ///< Celui du ciel, ou celui de la démo sans HDRI.
-    levain::render::TonemapSettings tonemapSettings;
-    levain::render::Mesh cube;
-    levain::render::Instances grid;
-    levain::render::Mesh ground;
-    levain::render::Instances groundInstance; ///< Une seule, sous les cubes.
-    /// Les modèles glTF (M4.1), par GUID (ADR-0019) : le registre des chemins, les modèles en
-    /// mémoire, et leur version GPU, déchargée avec eux quand plus aucune entité ne les utilise.
-    levain::assets::AssetRegistry registry;
-    levain::assets::ModelCache modelCache;
-    std::map<levain::assets::AssetId, ModelGpu> models;
-    levain::render::Instances modelInstance; ///< Une seule, à l'origine : la matrice monde place.
-    flecs::query<const levain::assets::MeshRef, const levain::scene::WorldTransform> modelParts;
-    nvrhi::TextureHandle checker;
-    nvrhi::SamplerHandle sampler; ///< Gardé pour refaire les binding sets au hot-reload.
-    nvrhi::BindingSetHandle material;
-    flecs::entity cameraEntity; ///< Transform + FpsController : la caméra libre (M3.4).
-    /// Le personnage de `--view character` (M6.3) : la caméra le suit, le clavier le mène, son
-    /// mouvement anime le renard. Vide dans les autres vues.
-    flecs::entity player{};
-    /// Le modèle qui joue le mouvement du joueur, le renard ; les autres jouent la démo. Un seul :
-    /// la vue `character` n'en demande pas d'autre (`modelRequestsOf`).
-    std::optional<levain::assets::AssetId> playerModel;
-    levain::render::Camera camera;
-    /// La grille de cubes, le sol et les lumières de couleur ; absents des autres vues.
-    bool demoProps = true;
-    /// Les cubes tournent tous ensemble sur eux-mêmes (la démo), ou chacun selon sa physique.
-    bool spinCubes = true;
-    /// Chaque cube a sa propre rotation, à relire à chaque image : les caisses de la physique, et
-    /// elles seules. Un drapeau à part, et non `!spinCubes` : la vue khronos garde ses 10 000 cubes
-    /// sans les dessiner, et paierait la rotation pour rien.
-    bool cubesTurn = false;
-    /// Les cubes se dessinent : la grille de la démo, ou les caisses de la physique.
-    bool drawCubes = true;
-    /// La sélection à la souris (M6.2) : le corps visé par le dernier clic, et la passe qui dessine
-    /// son contour. Vide tant que rien n'est sélectionné, ou sans physique.
-    flecs::entity selected{};
-    std::optional<levain::render::DebugLinesPass> debugLines{};
-    /// La vallée de `--view terrain` (M5.6), et ce que ses dessins ont soumis et écarté.
-    std::optional<levain::terrain::Heightmap> heightmap;
-    std::optional<levain::terrain::TerrainPass> terrain;
-    std::optional<levain::water::WaterPass> water; ///< Le lac de la vallée (M5.7).
-    std::optional<levain::grass::GrassPass> grass; ///< Son herbe (M5.7).
-    levain::grass::GrassStats grassStats;
-    levain::terrain::TerrainStats terrainCamera;
-    levain::terrain::TerrainStats terrainShadows;
-    levain::render::GpuTimer gpuTimer;
-    levain::app::SkinningState skinningState; ///< Son minuteur et son coût : le critère de #117.
-    DrawCount cameraCulling;
-    DrawCount shadowCulling; ///< Les quatre cascades ensemble.
-};
 
 /// Les cubes de la grille : une entité chacun, nommée par sa colonne et sa rangée
 /// (« grid.cube_50_50 » au centre) pour la retrouver dans l'explorer, et **enfant** d'une entité
@@ -334,16 +135,6 @@ void spawnCubeGrid(flecs::world& world)
                 .add<Cube>();
         }
     }
-}
-
-/// La caméra du rendu, relue sur l'entité : sa **matrice monde** porte la position et le regard
-/// déjà interpolés entre deux pas de simulation (ADR-0016). Lire le `Transform` ferait saccader le
-/// regard dès que le rendu va plus vite que la simulation.
-void updateRenderCamera(levain::render::Camera& camera, const flecs::entity& cameraEntity)
-{
-    const glm::mat4& world = cameraEntity.get<levain::scene::WorldTransform>().matrix;
-    camera.position = glm::vec3(world[3]);
-    camera.target = camera.position + glm::vec3(glm::mat3(world) * glm::vec3{0.0f, 0.0f, -1.0f});
 }
 
 /// Les intentions du joueur, lues dans les axes et les actions du fichier de liaisons. Le sandbox
@@ -450,25 +241,6 @@ void gatherCubePoses(const flecs::query<const levain::scene::WorldTransform>& cu
         });
 }
 
-#ifdef LEVAIN_ENABLE_EXPLORER
-/// L'explorer web de flecs (https://www.flecs.dev/explorer) lit et modifie le monde par l'addon
-/// REST, sur le port 27750. Debug seulement, et **sur la boucle locale** : par défaut, flecs écoute
-/// sur toutes les interfaces, et son API distante sait aussi supprimer des entités et exécuter des
-/// scripts (https://www.flecs.dev/flecs/FlecsRemoteApi.html).
-void enableExplorerOnLoopback(flecs::world& world)
-{
-    world.import<flecs::stats>(); // les statistiques de l'onglet « Stats » de l'explorer
-    // ipaddr doit venir de l'allocateur de flecs : EcsRest en prend la propriété et le libère à la
-    // destruction du monde (src/addons/rest.c, ECS_DTOR(EcsRest)). Une chaîne statique finissait en
-    // « double free » à la sortie du sandbox.
-    world.set<flecs::Rest>(
-        {.port = ECS_REST_DEFAULT_PORT, .ipaddr = ecs_os_strdup("127.0.0.1"), .impl = nullptr});
-    levain::core::log("sandbox", levain::core::LogLevel::Info,
-                      "explorer : https://www.flecs.dev/explorer (REST sur 127.0.0.1:{})",
-                      ECS_REST_DEFAULT_PORT);
-}
-#endif
-
 /// Où poser le modèle de `--model` : devant la caméra de départ, sur le sol, et tourné de trois
 /// quarts pour montrer deux faces. `scale` vaut 2 par défaut, pour qu'un objet de quelques mètres
 /// se voie de loin ; `--model-scale` le change pour un modèle d'une autre unité (Fox mesure une
@@ -528,27 +300,6 @@ locomotionClipsOf(const levain::animation::AnimationSet& set, std::string_view n
                                             .glide = std::nullopt};
 }
 
-/// Ce que le scan des assets a changé sur le disque (ADR-0019) : les .meta créés et rattachés sont
-/// à versionner, les orphelins à regarder.
-void logScanReport(const levain::assets::ScanReport& report)
-{
-    for (const auto& created : report.created)
-    {
-        levain::core::log("assets", levain::core::LogLevel::Info, "nouveau .meta : {}",
-                          created.string());
-    }
-    for (const auto& reattached : report.reattached)
-    {
-        levain::core::log("assets", levain::core::LogLevel::Info,
-                          "renommé hors du moteur, GUID conservé : {}", reattached.string());
-    }
-    for (const auto& orphan : report.orphans)
-    {
-        levain::core::log("assets", levain::core::LogLevel::Warning,
-                          ".meta orphelin, asset disparu : {}", orphan.string());
-    }
-}
-
 /// Ce que montre le sandbox : la démo (cubes, sol, modèle), la vue du glTF Sample Viewer (#125,
 /// #131), le terrain (M5.6), les caisses de la physique (M6.1), ou le renard qu'on dirige, dans
 /// Sponza ou dans la vallée (M6.3).
@@ -580,111 +331,96 @@ bool cubesTurn(SandboxView view)
     return view == SandboxView::Physics || showsValley(view) || view == SandboxView::Character;
 }
 
-/// Le soleil de la démo : haut, de biais, légèrement chaud.
-constexpr levain::render::Sun DemoSun{
-    .direction = {-0.7f, 0.45f, 0.5f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
-
-/// `--sky none` : ni HDRI, ni ambiance.
-constexpr std::string_view NoSky = "none";
-
-/// Le ciel qui éclaire la scène, et son soleil.
-struct Sky
-{
-    levain::render::Environment environment;
-    levain::render::Sun sun;
-};
-
-/// Tourne le ciel de `degrees` autour de la verticale : chaque ligne de l'image équirectangulaire
-/// glisse d'autant de colonnes, la longitude faisant le tour de l'image.
-void turnSkyAroundUp(levain::assets::HdrImage& image, float degrees)
-{
-    const auto columns = static_cast<std::ptrdiff_t>(
-        std::lround(static_cast<double>(image.width) * degrees / 360.0));
-    const auto rowLength = static_cast<std::ptrdiff_t>(image.width) * 4;
-    for (auto row = image.rgba.begin(); row != image.rgba.end(); row += rowLength)
-    {
-        std::rotate(row, row + rowLength - (columns * 4), row + rowLength);
-    }
-}
-
-/// Le ciel de `--sky`, ou sans HDRI un ciel uniforme et sombre, l'ambiance d'avant l'IBL, sous le
-/// soleil de la démo. Le soleil de l'HDRI en est retiré, pour devenir celui de la scène, qui jette
-/// les ombres. Le temps de calcul est donné : il se paie à chaque chargement.
-///
-/// `khronosView` : le ciel tel que l'éclaire le glTF Sample Viewer. Son soleil reste dans l'IBL,
-/// sans lumière directionnelle, et le ciel est tourné de 90° (sa rotation par défaut, « +Z »).
-levain::core::Result<Sky> loadSky(nvrhi::IDevice& device,
-                                  const std::optional<std::filesystem::path>& skyPath,
-                                  bool khronosView)
-{
-    if (!skyPath || skyPath->native() == NoSky)
-    {
-        // `--sky none` : aucune lumière du ciel, pas même l'ambiance (#125, le viewer sans IBL).
-        auto uniform =
-            levain::render::createUniformEnvironment(device, glm::vec3{skyPath ? 0.0f : 0.1f});
-        if (!uniform)
-        {
-            return std::unexpected(uniform.error());
-        }
-        return Sky{.environment = std::move(*uniform), .sun = DemoSun};
-    }
-    auto image = levain::assets::loadHdrImage(*skyPath);
-    if (!image)
-    {
-        return std::unexpected(image.error());
-    }
-    std::optional<levain::render::Sun> sun;
-    if (khronosView)
-    {
-        turnSkyAroundUp(*image, 90.0f);
-        sun = levain::render::Sun{.direction = {0.0f, 1.0f, 0.0f}, .color{1.0f}, .intensity = 0.0f};
-    }
-    else
-    {
-        sun = levain::render::extractSun(image->width, image->height, image->rgba);
-    }
-    if (khronosView)
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Info,
-                          "vue du glTF Sample Viewer : le ciel seul éclaire, tourné de 90°");
-    }
-    else if (sun)
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Info,
-                          "soleil de l'HDRI : direction ({:.2f}, {:.2f}, {:.2f}), intensité {:.2f}",
-                          sun->direction.x, sun->direction.y, sun->direction.z, sun->intensity);
-    }
-    else
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Warning,
-                          "pas de soleil dans l'HDRI : le soleil de la démo éclaire la scène");
-    }
-    const auto start = std::chrono::steady_clock::now();
-    auto environment = levain::render::createEnvironment(
-        device, {.width = image->width, .height = image->height, .rgba = image->rgba});
-    device.waitForIdle();
-    const std::chrono::duration<double, std::milli> elapsed =
-        std::chrono::steady_clock::now() - start;
-#ifdef __EMSCRIPTEN__
-    // Le navigateur ne laisse pas attendre le GPU (waitForIdle n'y fait rien) : le temps ne compte
-    // que l'enregistrement des passes, pas leur calcul.
-    constexpr std::string_view Measured = "enregistré";
-#else
-    constexpr std::string_view Measured = "calculé";
-#endif
-    levain::core::log("sandbox", levain::core::LogLevel::Info,
-                      "ciel : {} ({} × {}), environnement {} en {:.1f} ms",
-                      skyPath->filename().string(), image->width, image->height, Measured,
-                      elapsed.count());
-    if (!environment)
-    {
-        return std::unexpected(environment.error());
-    }
-    return Sky{.environment = std::move(*environment), .sun = sun.value_or(DemoSun)};
-}
-
 /// Le champ vertical de la caméra du glTF Sample Viewer (PerspectiveCamera.yfov).
 constexpr float KhronosViewerFovDegrees = 45.0f;
+
+/// Les options propres au sandbox ; les options communes sont dans `levain::app::AppSettings`.
+struct SandboxOptions
+{
+    /// Un glTF à afficher devant la caméra (M4.1).
+    std::optional<std::filesystem::path> modelPath;
+    /// Le clip que joue un modèle skinné, par son nom ; le premier par défaut.
+    std::optional<std::string> clipName;
+    /// Les clips du repos, de la marche et de la course, séparés par des virgules : le modèle
+    /// passe de l'un à l'autre selon une vitesse de démonstration (#118).
+    std::optional<std::string> locomotion;
+    /// L'échelle du modèle (voir `modelPlacement`).
+    float modelScale = 2.0f;
+    /// `--view khronos` : la scène telle que l'ouvre le glTF Sample Viewer, pour s'y comparer
+    /// (#125, #131, tools/khronos-compare.sh). Le modèle seul, à l'origine, sous sa caméra et son
+    /// ciel ; ni cubes, ni sol, ni lumières de la démo. `--view terrain` : la vallée de M5.6.
+    /// `--view physics` : 1 000 caisses qui tombent sur le sol de la démo (M6.1). `--view
+    /// character` et `--view hike` : le renard qu'on dirige, dans Sponza ou dans la vallée (M6.3).
+    SandboxView view = SandboxView::Demo;
+    /// `--camera x,y,z` : la caméra à cette position, face à −Z. Celle du glTF Sample Viewer, que
+    /// tools/khronos-compare.sh relit dans sa page.
+    std::optional<glm::vec3> cameraPosition;
+    /// `--look lacet,tangage` : où regarde la caméra, en degrés. 0,0 regarde vers −Z, à
+    /// l'horizontale. Pour cadrer une capture sans bouger la souris.
+    std::optional<glm::vec2> cameraLook;
+    /// `--pick x,y` : à la fin de la boucle, avant la capture, sélectionne ce que vise ce pixel,
+    /// compté depuis le coin haut gauche. Le clic de la souris, sans souris : pour la CI et les
+    /// captures à distance (critère de M6.2).
+    std::optional<glm::vec2> pickPixel;
+    /// `--walk x,z` : la direction que suit le personnage de `--view character` ou `hike`, au lieu
+    /// du clavier.
+    std::optional<glm::vec2> walk;
+};
+
+/// Ce que montre le sandbox, en plus de ce qu'`app` dessine : une grille de cubes texturés qui
+/// tournent, sur un sol qui file jusqu'à l'horizon, où se voit le filtrage anisotrope (M2.2), et
+/// ce que chaque vue y ajoute. Les points d'accroche le gardent (`FrameHooks`).
+struct DemoScene
+{
+    levain::app::App& app;
+    SandboxOptions options;
+    CameraActions actions;
+    /// Les cubes, une entité chacun (M3.1), enfants de « grid » (M3.2).
+    flecs::query<const levain::scene::WorldTransform> cubes;
+    /// Relevées à chaque frame, gardées pour ne pas réallouer.
+    std::vector<levain::render::InstancePose> cubePoses;
+    levain::render::Mesh cube;
+    levain::render::Instances grid;
+    levain::render::Mesh ground;
+    levain::render::Instances groundInstance; ///< Une seule, sous les cubes.
+    levain::render::Instances modelInstance;  ///< Une seule, à l'origine : la matrice monde place.
+    flecs::query<const levain::assets::MeshRef, const levain::scene::WorldTransform> modelParts;
+    nvrhi::TextureHandle checker;
+    nvrhi::BindingSetHandle material;
+    /// Le personnage de `--view character` (M6.3) : la caméra le suit, le clavier le mène, son
+    /// mouvement anime le renard. Vide dans les autres vues.
+    flecs::entity player{};
+    /// Le modèle qui joue le mouvement du joueur, le renard ; les autres jouent la démo. Un seul :
+    /// la vue `character` n'en demande pas d'autre (`modelRequestsOf`).
+    std::optional<levain::assets::AssetId> playerModel;
+    /// La grille de cubes, le sol et les lumières de couleur ; absents des autres vues.
+    bool demoProps = true;
+    /// Les cubes tournent tous ensemble sur eux-mêmes (la démo), ou chacun selon sa physique.
+    bool spinCubes = true;
+    /// Chaque cube a sa propre rotation, à relire à chaque image : les caisses de la physique, et
+    /// elles seules. Un drapeau à part, et non `!spinCubes` : la vue khronos garde ses 10 000 cubes
+    /// sans les dessiner, et paierait la rotation pour rien.
+    bool cubesTurn = false;
+    /// Les cubes se dessinent : la grille de la démo, ou les caisses de la physique.
+    bool drawCubes = true;
+    /// La sélection à la souris (M6.2) : le corps visé par le dernier clic, et la passe qui dessine
+    /// son contour. Vide tant que rien n'est sélectionné, ou sans physique.
+    flecs::entity selected{};
+    std::optional<levain::render::DebugLinesPass> debugLines{};
+    /// La vallée de `--view terrain` (M5.6), et ce que ses dessins ont soumis et écarté.
+    std::optional<levain::terrain::Heightmap> heightmap;
+    std::optional<levain::terrain::TerrainPass> terrain;
+    std::optional<levain::water::WaterPass> water; ///< Le lac de la vallée (M5.7).
+    std::optional<levain::grass::GrassPass> grass; ///< Son herbe (M5.7).
+    levain::grass::GrassStats grassStats;
+    levain::terrain::TerrainStats terrainCamera;
+    levain::terrain::TerrainStats terrainShadows;
+    DrawCount cameraCulling;
+    DrawCount shadowCulling; ///< Les quatre cascades ensemble.
+    /// La souris ne se capture que pendant le regard : sinon on ne pourrait plus rien faire
+    /// d'autre de la fenêtre.
+    bool mouseCaptured = false;
+};
 
 /// Un modèle que la scène charge : son fichier, sa place, et pour un modèle skinné, le clip qu'il
 /// joue ou sa locomotion (`--clip`, `--locomotion`).
@@ -859,56 +595,74 @@ void followPlayer(flecs::entity camera, flecs::entity player)
         levain::sandbox::followCamera(player.get<levain::scene::Transform>().position);
 }
 
-/// Crée la passe des meshes et envoie au GPU le cube, la grille, le sol, la texture du damier, les
-/// modèles demandés et le ciel de `--sky`.
-levain::core::Result<DemoScene>
-createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettings& sampler,
-                const std::vector<ModelRequest>& requests,
-                const std::optional<std::filesystem::path>& skyPath, SandboxView view,
-                std::optional<glm::vec3> cameraPosition, std::optional<glm::vec3> sunDirection)
+/// Les modèles que la scène charge, selon les options : celui de `--model`, à sa place.
+std::vector<ModelRequest> modelRequestsOf(const SandboxOptions& options)
 {
-    // Les modèles demandés, chacun par son GUID : le dossier qui contient chacun est scanné
-    // (ADR-0019), ce qui lui donne un .meta s'il n'en avait pas.
-    levain::assets::AssetRegistry registry;
-    levain::assets::ModelCache modelCache;
+    std::vector<ModelRequest> requests;
+    const std::filesystem::path models{LEVAIN_TEST_ASSETS_DIR "/Models"};
+    if (options.view == SandboxView::Character)
+    {
+        // Sponza à l'échelle 1, dans ses mètres : sa collision est simplifiée à 2 cm près dans le
+        // monde (ADR-0028).
+        requests.push_back({.path = models / "Sponza/glTF/Sponza.gltf",
+                            .placement = {},
+                            .clip = std::nullopt,
+                            .locomotion = std::nullopt,
+                            .name = "sponza",
+                            .collides = true,
+                            .followsPlayer = false});
+    }
+    if (hasPlayer(options.view))
+    {
+        // Le renard, enfant du joueur : 0,01, soit 1,55 m de long et 0,79 m de haut (Fox mesure
+        // 155 × 79 unités ; le 0,05 de la démo de M4.5 en faisait un renard de 4 m), et un
+        // demi-tour, son avant étant +z quand celui du personnage est −z.
+        requests.push_back({.path = models / "Fox/glTF/Fox.gltf",
+                            .placement = {.rotation = glm::angleAxis(glm::pi<float>(),
+                                                                     glm::vec3{0.0f, 1.0f, 0.0f}),
+                                          .scale = glm::vec3{0.01f}},
+                            .clip = std::nullopt,
+                            .locomotion = "Survey,Walk,Run",
+                            .name = "fox",
+                            .collides = false,
+                            .followsPlayer = true});
+        return requests;
+    }
+    if (options.modelPath)
+    {
+        requests.push_back({.path = *options.modelPath,
+                            .placement = options.view == SandboxView::Khronos
+                                             ? levain::scene::Transform{}
+                                             : modelPlacement(options.modelScale),
+                            .clip = options.clipName,
+                            .locomotion = options.locomotion});
+    }
+    return requests;
+}
+
+/// Pose la scène de la vue : ses entités, ses modèles et ses passes, et envoie au GPU le cube, la
+/// grille, le sol, la texture du damier et les modèles demandés.
+levain::core::Result<std::shared_ptr<DemoScene>>
+createDemoScene(levain::app::App& app, const SandboxOptions& options, const CameraActions& actions)
+{
+    const SandboxView view = options.view;
+    nvrhi::IDevice& device = *app.gpu.nvrhi;
+    // Les modèles demandés, chacun par son GUID, dans les racines qu'`app` a scannées (ADR-0019).
+    // Les deux temps du chargement (le critère de M4.3) : la lecture des modèles, cuits ou source ;
+    // leurs textures, leurs mips et l'envoi au GPU. Le scan, avant eux, est dans le journal d'`app`
+    // (« scan des racines d'assets »).
     std::vector<LoadedModel> loadedModels;
-    // Les trois temps du chargement (le critère de M4.3) : le scan des racines, qui hache tous les
-    // assets ; la lecture du modèle, cuit ou source ; ses textures, leurs mips et l'envoi au GPU.
-    const Clock::time_point loadStart = Clock::now();
-    Clock::time_point modelStart = loadStart;
-    Clock::time_point modelEnd = loadStart;
-    // La racine d'assets du sandbox, versionnée : ses .meta se commitent avec les fichiers, et la
-    // CI refuse un asset qui n'a pas le sien (tests/check_asset_metas.cmake).
-    auto dataReport = levain::assets::scanAssets(LEVAIN_DATA_DIR, registry);
-    if (!dataReport)
+    const Clock::time_point modelStart = Clock::now();
+    for (const ModelRequest& request : modelRequestsOf(options))
     {
-        return std::unexpected(dataReport.error());
-    }
-    logScanReport(*dataReport);
-    // La seconde racine : les assets de test téléchargés (tools/fetch-assets.sh), s'ils sont là.
-    // Les fichiers cuits de chaque racine sont dans son `.cooked/` (ADR-0020), là où levain_cook
-    // les écrit.
-    const std::filesystem::path testAssets{LEVAIN_TEST_ASSETS_DIR};
-    if (std::filesystem::is_directory(testAssets))
-    {
-        auto report = levain::assets::scanAssets(testAssets, registry);
-        if (!report)
-        {
-            return std::unexpected(report.error());
-        }
-        logScanReport(*report);
-    }
-    modelStart = Clock::now();
-    for (const ModelRequest& request : requests)
-    {
-        auto loaded = loadSandboxModel(request, registry, modelCache);
+        auto loaded = loadSandboxModel(request, app.registry, app.modelCache);
         if (!loaded)
         {
             return std::unexpected(loaded.error());
         }
         loadedModels.push_back(std::move(*loaded));
     }
-    modelEnd = Clock::now();
+    const Clock::time_point modelEnd = Clock::now();
 
     auto image = levain::assets::loadImage(LEVAIN_DATA_DIR "/textures/checker.png");
     if (!image)
@@ -918,32 +672,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     const std::vector<levain::assets::Image> mips =
         levain::assets::buildMipChain(std::move(*image));
 
-    auto skinning = levain::render::createSkinningPass(*gpu.nvrhi);
-    if (!skinning)
-    {
-        return std::unexpected(skinning.error());
-    }
-    const bool khronosView = view == SandboxView::Khronos;
-    auto sky = loadSky(*gpu.nvrhi, skyPath, khronosView);
-    if (!sky)
-    {
-        return std::unexpected(sky.error());
-    }
-    // Le ciel en fond, avec une HDRI seulement : sans elle, le fond reste la croûte de levain.
-    auto renderer = levain::render::createRenderer(*gpu.nvrhi, levain::gpu::swapchainFormat(gpu),
-                                                   std::move(sky->environment),
-                                                   skyPath && skyPath->native() != NoSky);
-    if (!renderer)
-    {
-        return std::unexpected(renderer.error());
-    }
-#if defined(LEVAIN_PROFILING_ENABLED) && LEVAIN_PROFILING_ENABLED
-    // Le temps GPU de chaque fonction d'étape (#295), en build profilé seulement : ailleurs, il
-    // coûterait ce qu'il mesure (engine/render/README.md).
-    renderer->stages.timeFunctions = true;
-#endif
-
-    // La vallée de --view terrain et hike, avant le monde : sa physique en a besoin pour le sol
+    // La vallée de --view terrain et hike, avant ses entités : sa physique en a besoin pour le sol
     // (M6.2).
     const levain::terrain::ValleySettings valley;
     std::optional<levain::terrain::Heightmap> heightmap;
@@ -952,12 +681,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         heightmap = levain::terrain::valleyOf(valley);
     }
 
-    flecs::world world;
-    world.import<levain::scene::SceneModule>();
-    world.import<levain::assets::AssetsModule>();
-#ifdef LEVAIN_ENABLE_EXPLORER
-    enableExplorerOnLoopback(world);
-#endif
+    flecs::world& world = app.world;
     if (view == SandboxView::Physics)
     {
         world.import<levain::physics::PhysicsModule>();
@@ -996,7 +720,7 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
         }
         if (loaded.request.collides)
         {
-            addDecorCollision(world, registry, loaded);
+            addDecorCollision(world, app.registry, loaded);
         }
     }
     // La caméra est une entité comme les autres : basse, sur le côté de la grille, et visant loin
@@ -1012,7 +736,6 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     // Les cubes, et rien d'autre : ni la grille, qui n'est qu'un point d'accroche, ni le sol.
     flecs::query<const levain::scene::WorldTransform> cubes =
         world.query_builder<const levain::scene::WorldTransform>("cubes").with<Cube>().build();
-    levain::scene::FixedStep fixedStep;
     if (view == SandboxView::Physics)
     {
         // Devant le tas, un peu au-dessus : on voit les caisses tomber, puis s'étaler.
@@ -1035,43 +758,58 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
             .kind<levain::scene::PostPhysics>()
             .run([cameraEntity, player](flecs::iter&) { followPlayer(cameraEntity, player); });
     }
-    if (cameraPosition)
+    if (options.cameraPosition)
     {
         // Face à −Z : le regard du glTF Sample Viewer à l'ouverture d'un modèle.
-        cameraEntity.set(levain::scene::Transform{.position = *cameraPosition})
+        cameraEntity.set(levain::scene::Transform{.position = *options.cameraPosition})
             .set(levain::scene::FpsController{.yawDegrees = 0.0f, .pitchDegrees = 0.0f});
     }
-    levain::scene::advanceWorld(world, fixedStep,
+    if (options.cameraLook)
+    {
+        // Le regard de --look, appliqué au premier pas de simulation par la caméra libre.
+        auto& controller = cameraEntity.get_mut<levain::scene::FpsController>();
+        controller.yawDegrees = options.cameraLook->x;
+        controller.pitchDegrees = options.cameraLook->y;
+    }
+    app.cameraEntity = cameraEntity;
+    // La grille occupe la gauche de l'image, le sol file jusqu'à l'horizon à droite, de plus en
+    // plus de biais : c'est là que le filtrage trilinéaire seul le rend flou. Position et regard
+    // sont ceux de l'entité, et le joueur peut les changer.
+    app.camera = {.position = {},
+                  .target = {},
+                  .verticalFovRadians =
+                      glm::radians(view == SandboxView::Khronos ? KhronosViewerFovDegrees : 60.0f),
+                  .nearPlane = 0.5f,
+                  .farPlane = 1000.0f};
+    levain::scene::advanceWorld(world, app.fixedStep,
                                 0.0f); // les matrices monde, avant le premier envoi
     std::vector<levain::render::InstancePose> cubePoses;
     gatherCubePoses(cubes, cubesTurn(view), cubePoses);
 
-    const nvrhi::CommandListHandle upload = gpu.nvrhi->createCommandList();
+    const nvrhi::CommandListHandle upload = device.createCommandList();
     upload->open();
-    levain::render::Mesh cube = levain::render::createCube(*gpu.nvrhi, *upload);
-    levain::render::Instances grid =
-        levain::render::createInstances(*gpu.nvrhi, *upload, cubePoses);
+    levain::render::Mesh cube = levain::render::createCube(device, *upload);
+    levain::render::Instances grid = levain::render::createInstances(device, *upload, cubePoses);
     levain::render::Mesh ground =
-        levain::render::createPlane(*gpu.nvrhi, *upload, GroundSize, GroundTextureRepeat);
+        levain::render::createPlane(device, *upload, GroundSize, GroundTextureRepeat);
     // Juste sous les cubes, qui tournent sur eux-mêmes : leur demi-diagonale fait 0,87.
     const std::array<levain::render::InstancePose, 1> groundOffset{
         levain::render::InstancePose{.position = {0.0f, -1.0f, 0.0f}}};
     levain::render::Instances groundInstance =
-        levain::render::createInstances(*gpu.nvrhi, *upload, groundOffset);
+        levain::render::createInstances(device, *upload, groundOffset);
     nvrhi::TextureHandle checker =
-        levain::render::createTexture(*gpu.nvrhi, *upload, textureLevelsOf(mips), "checker");
+        levain::render::createTexture(device, *upload, textureLevelsOf(mips), "checker");
     const Clock::time_point uploadStart = Clock::now();
-    std::map<levain::assets::AssetId, ModelGpu> models;
     std::optional<levain::assets::AssetId> playerModel;
     for (LoadedModel& loaded : loadedModels)
     {
         const auto skinJoints =
             static_cast<std::uint32_t>(loaded.animation ? loaded.animation->skinJoints.size() : 0);
-        auto uploaded = levain::app::uploadModel(*gpu.nvrhi, *upload, *loaded.model, registry,
-                                                 modelCache, *skinning, skinJoints);
+        auto uploaded = levain::app::uploadModel(device, *upload, *loaded.model, app.registry,
+                                                 app.modelCache, app.skinning, skinJoints);
         if (!uploaded)
         {
-            levain::app::submitAbandonedUpload(*gpu.nvrhi, *upload);
+            levain::app::submitAbandonedUpload(device, *upload);
             return std::unexpected(uploaded.error());
         }
         if (loaded.animatorClips)
@@ -1086,9 +824,9 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
             playerModel = loaded.id;
         }
         // Rangés par asset : un même modèle demandé deux fois n'aurait qu'un animateur.
-        if (!models.emplace(loaded.id, std::move(*uploaded)).second)
+        if (!app.models.emplace(loaded.id, std::move(*uploaded)).second)
         {
-            levain::app::submitAbandonedUpload(*gpu.nvrhi, *upload);
+            levain::app::submitAbandonedUpload(device, *upload);
             return levain::core::makeError(
                 levain::core::ErrorCode::InvalidData,
                 std::format("{} demandé deux fois : le sandbox n'en charge qu'une instance",
@@ -1097,24 +835,23 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     }
     const std::array<levain::render::InstancePose, 1> origin{};
     levain::render::Instances modelInstance =
-        levain::render::createInstances(*gpu.nvrhi, *upload, origin);
+        levain::render::createInstances(device, *upload, origin);
     // Les matériaux avant la fermeture de l'envoi : leurs constantes passent par lui. Le damier des
     // cubes et du sol : non métallique, assez rugueux.
-    nvrhi::SamplerHandle samplerHandle = levain::render::createSampler(*gpu.nvrhi, sampler);
     nvrhi::BindingSetHandle material = levain::render::createMaterialBindings(
-        *gpu.nvrhi, *upload, renderer->meshPass,
+        device, *upload, app.renderer.meshPass,
         {.baseColorFactor = glm::vec4{1.0f},
          .metallicFactor = 0.0f,
          .roughnessFactor = 0.8f,
          .normalScale = 1.0f,
          .padding = 0.0f},
         levain::render::withDefaults({.baseColor = checker},
-                                     levain::render::createMaterialDefaults(*gpu.nvrhi, *upload)),
-        *samplerHandle);
+                                     levain::render::createMaterialDefaults(device, *upload)),
+        *app.sampler);
     for (const LoadedModel& loaded : loadedModels)
     {
-        levain::app::bindModelMaterials(*gpu.nvrhi, *upload, renderer->meshPass, *samplerHandle,
-                                        *loaded.model, models.at(loaded.id));
+        levain::app::bindModelMaterials(device, *upload, app.renderer.meshPass, *app.sampler,
+                                        *loaded.model, app.models.at(loaded.id));
     }
     std::optional<levain::terrain::TerrainPass> terrain;
     std::optional<levain::water::WaterPass> water;
@@ -1122,37 +859,40 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     if (showsValley(view) && heightmap)
     {
         auto pass = levain::terrain::createTerrainPass(
-            *gpu.nvrhi, *upload, *heightmap, renderer->frame, renderer->shadows,
+            device, *upload, *heightmap, app.renderer.frame, app.renderer.shadows,
             std::filesystem::path{LEVAIN_TEST_ASSETS_DIR} / "Textures");
         if (!pass)
         {
+            levain::app::submitAbandonedUpload(device, *upload);
             return std::unexpected(pass.error());
         }
         terrain = std::move(*pass);
         const levain::water::Lake lake{.center = valley.lakeCenter,
                                        .radius = valley.lakeRadius,
                                        .level = levain::sandbox::LakeLevel};
-        auto lakePass = levain::water::createWaterPass(*gpu.nvrhi, *upload, lake, *terrain,
-                                                       *heightmap, renderer->frame);
+        auto lakePass = levain::water::createWaterPass(device, *upload, lake, *terrain, *heightmap,
+                                                       app.renderer.frame);
         if (!lakePass)
         {
+            levain::app::submitAbandonedUpload(device, *upload);
             return std::unexpected(lakePass.error());
         }
         water = std::move(*lakePass);
         auto grassPass = levain::grass::createGrassPass(
-            *gpu.nvrhi, *upload, *terrain, *heightmap, levain::sandbox::LakeLevel, renderer->frame);
+            device, *upload, *terrain, *heightmap, levain::sandbox::LakeLevel, app.renderer.frame);
         if (!grassPass)
         {
+            levain::app::submitAbandonedUpload(device, *upload);
             return std::unexpected(grassPass.error());
         }
         grass = std::move(*grassPass);
     }
     upload->close();
-    gpu.nvrhi->executeCommandList(upload);
+    device.executeCommandList(upload);
     // Une ligne par modèle, puis les temps du chargement, communs à tous (le critère de M4.3).
     for (const LoadedModel& loaded : loadedModels)
     {
-        const ModelGpu& uploaded = models.at(loaded.id);
+        const ModelGpu& uploaded = app.models.at(loaded.id);
         levain::core::log(
             "sandbox", levain::core::LogLevel::Info,
             "modèle {} : {} meshes, {} matériaux, {} textures ({:.1f} Mo en mémoire vidéo)",
@@ -1163,67 +903,46 @@ createDemoScene(levain::gpu::GpuDevice& gpu, const levain::render::SamplerSettin
     if (!loadedModels.empty())
     {
         levain::core::log("sandbox", levain::core::LogLevel::Info,
-                          "chargement des modèles : scan {:.0f} ms, modèles {:.1f} ms, textures, "
-                          "mips et envoi {:.0f} ms",
-                          secondsBetween(loadStart, modelStart) * 1000.0,
+                          "chargement des modèles : modèles {:.1f} ms, textures, mips et envoi "
+                          "{:.0f} ms",
                           secondsBetween(modelStart, modelEnd) * 1000.0,
                           secondsBetween(uploadStart, Clock::now()) * 1000.0);
     }
 
-    // La grille occupe la gauche de l'image, le sol file jusqu'à l'horizon à droite, de plus en
-    // plus de biais : c'est là que le filtrage trilinéaire seul le rend flou. Position et regard
-    // sont ceux de l'entité, et le joueur peut les changer.
-    const levain::render::Camera camera{
-        .position = {},
-        .target = {},
-        .verticalFovRadians = glm::radians(khronosView ? KhronosViewerFovDegrees : 60.0f),
-        .nearPlane = 0.5f,
-        .farPlane = 1000.0f};
-    // Avant le return : `.world = std::move(world)` vide `world` avant les champs suivants.
     flecs::query<const levain::assets::MeshRef, const levain::scene::WorldTransform> modelParts =
         world.query<const levain::assets::MeshRef, const levain::scene::WorldTransform>();
-    return DemoScene{.world = std::move(world),
-                     .fixedStep = fixedStep,
-                     .cubes = std::move(cubes),
-                     .cubePoses = std::move(cubePoses),
-                     .renderer = std::move(*renderer),
-                     .skinning = std::move(*skinning),
-                     .sun = sunDirection ? levain::render::Sun{.direction = *sunDirection,
-                                                               .color = glm::vec3{1.0f},
-                                                               .intensity = 1.0f}
-                                         : sky->sun,
-                     .tonemapSettings = {},
-                     .cube = std::move(cube),
-                     .grid = std::move(grid),
-                     .ground = std::move(ground),
-                     .groundInstance = std::move(groundInstance),
-                     .registry = std::move(registry),
-                     .modelCache = std::move(modelCache),
-                     .models = std::move(models),
-                     .modelInstance = std::move(modelInstance),
-                     .modelParts = std::move(modelParts),
-                     .checker = std::move(checker),
-                     .sampler = std::move(samplerHandle),
-                     .material = std::move(material),
-                     .cameraEntity = cameraEntity,
-                     .player = player,
-                     .playerModel = playerModel,
-                     .camera = camera,
-                     .demoProps = view == SandboxView::Demo || view == SandboxView::Physics,
-                     .spinCubes = view == SandboxView::Demo,
-                     .cubesTurn = cubesTurn(view),
-                     .drawCubes = view != SandboxView::Khronos,
-                     .heightmap = std::move(heightmap),
-                     .terrain = std::move(terrain),
-                     .water = std::move(water),
-                     .grass = std::move(grass),
-                     .grassStats = {},
-                     .terrainCamera = {},
-                     .terrainShadows = {},
-                     .gpuTimer = levain::render::createGpuTimer(*gpu.nvrhi),
-                     .skinningState = levain::app::createSkinningState(*gpu.nvrhi),
-                     .cameraCulling = {},
-                     .shadowCulling = {}};
+    return std::make_shared<DemoScene>(
+        DemoScene{.app = app,
+                  .options = options,
+                  .actions = actions,
+                  .cubes = std::move(cubes),
+                  .cubePoses = std::move(cubePoses),
+                  .cube = std::move(cube),
+                  .grid = std::move(grid),
+                  .ground = std::move(ground),
+                  .groundInstance = std::move(groundInstance),
+                  .modelInstance = std::move(modelInstance),
+                  .modelParts = std::move(modelParts),
+                  .checker = std::move(checker),
+                  .material = std::move(material),
+                  .player = player,
+                  .playerModel = playerModel,
+                  .demoProps = view == SandboxView::Demo || view == SandboxView::Physics,
+                  .spinCubes = view == SandboxView::Demo,
+                  .cubesTurn = cubesTurn(view),
+                  .drawCubes = view != SandboxView::Khronos,
+                  .selected = {},
+                  .debugLines = {},
+                  .heightmap = std::move(heightmap),
+                  .terrain = std::move(terrain),
+                  .water = std::move(water),
+                  .grass = std::move(grass),
+                  .grassStats = {},
+                  .terrainCamera = {},
+                  .terrainShadows = {},
+                  .cameraCulling = {},
+                  .shadowCulling = {},
+                  .mouseCaptured = false});
 }
 
 /// Huit lumières de couleur qui tournent autour du modèle (`modelPlacement`), un tour en 12 s :
@@ -1301,7 +1020,7 @@ void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum
     scene.modelParts.each(
         [&](const levain::assets::MeshRef& part, const levain::scene::WorldTransform& world)
         {
-            const ModelGpu& model = scene.models.at(part.mesh.asset);
+            const ModelGpu& model = scene.app.models.at(part.mesh.asset);
             for (const ModelPrimitiveGpu& primitive : model.meshes[part.mesh.sub])
             {
                 drawIfVisible(primitive.mesh, scene.modelInstance,
@@ -1318,7 +1037,7 @@ void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum
 /// vue n'a pas de physique : il n'y avait rien à viser.
 bool selectAt(DemoScene& scene, levain::platform::PixelSize size, glm::vec2 pixel)
 {
-    const auto* physics = scene.world.try_get<levain::physics::PhysicsWorld>();
+    const auto* physics = scene.app.world.try_get<levain::physics::PhysicsWorld>();
     if (physics == nullptr || size.width <= 0 || size.height <= 0)
     {
         return false;
@@ -1326,10 +1045,10 @@ bool selectAt(DemoScene& scene, levain::platform::PixelSize size, glm::vec2 pixe
     const auto width = static_cast<float>(size.width);
     const auto height = static_cast<float>(size.height);
     const levain::render::CameraRay ray = levain::render::rayThrough(
-        scene.camera, width / height, levain::render::ndcOfPixel(pixel, width, height));
+        scene.app.camera, width / height, levain::render::ndcOfPixel(pixel, width, height));
     const std::optional<levain::physics::RayHit> hit = levain::physics::raycast(
         *physics, {.origin = ray.origin, .direction = ray.direction, .maxDistance = ray.length});
-    scene.selected = hit ? scene.world.entity(hit->entity) : flecs::entity{};
+    scene.selected = hit ? scene.app.world.entity(hit->entity) : flecs::entity{};
     levain::core::log("sandbox", levain::core::LogLevel::Info, "sélection : {} à {:.1f} m",
                       scene.selected ? scene.selected.path().c_str() : "rien",
                       hit ? hit->distance : 0.0f);
@@ -1377,7 +1096,7 @@ void addDemoStages(DemoScene& scene)
     using levain::render::RenderStage;
     using levain::render::StageContext;
     levain::render::addStageFunction(
-        scene.renderer.stages, RenderStage::ShadowCasters, "démo",
+        scene.app.renderer.stages, RenderStage::ShadowCasters, "démo",
         [&scene](const StageContext& context)
         {
             forEachDraw(scene, context.seconds, context.frustum, scene.shadowCulling,
@@ -1391,7 +1110,7 @@ void addDemoStages(DemoScene& scene)
                         });
         });
     levain::render::addStageFunction(
-        scene.renderer.stages, RenderStage::Opaque, "démo",
+        scene.app.renderer.stages, RenderStage::Opaque, "démo",
         [&scene](const StageContext& context)
         {
             forEachDraw(scene, context.seconds, context.frustum, scene.cameraCulling,
@@ -1400,190 +1119,33 @@ void addDemoStages(DemoScene& scene)
                             nvrhi::IBindingSet& material, const glm::mat4& model)
                         {
                             levain::render::drawMesh(
-                                context.commandList, scene.renderer.meshPass, context.frame,
+                                context.commandList, scene.app.renderer.meshPass, context.frame,
                                 context.target, mesh, instances, material,
                                 {.viewProjection = context.viewProjection, .model = model});
                         });
         });
     if (scene.debugLines)
     {
-        levain::render::addStageFunction(scene.renderer.stages, RenderStage::Opaque, "sélection",
-                                         [&scene](const StageContext& context)
+        levain::render::addStageFunction(scene.app.renderer.stages, RenderStage::Opaque,
+                                         "sélection", [&scene](const StageContext& context)
                                          { drawSelection(scene, context); });
     }
     if (scene.terrain && scene.heightmap)
     {
-        levain::terrain::addTerrainPasses(scene.renderer.stages, *scene.terrain, *scene.heightmap,
-                                          scene.terrainCamera, scene.terrainShadows);
+        levain::terrain::addTerrainPasses(scene.app.renderer.stages, *scene.terrain,
+                                          *scene.heightmap, scene.terrainCamera,
+                                          scene.terrainShadows);
     }
     if (scene.grass)
     {
-        levain::grass::addGrassPasses(scene.renderer.stages, *scene.grass, scene.grassStats);
+        levain::grass::addGrassPasses(scene.app.renderer.stages, *scene.grass, scene.grassStats);
     }
     if (scene.water)
     {
-        levain::water::addWaterPasses(scene.renderer.stages, *scene.water);
+        levain::water::addWaterPasses(scene.app.renderer.stages, *scene.water);
     }
     levain::core::log("sandbox", levain::core::LogLevel::Info, "étapes du rendu : {}",
-                      levain::render::describeStages(scene.renderer.stages));
-}
-
-/// Efface l'image de la swapchain et son depth buffer, y dessine la grille, et la présente. Rend le
-/// temps GPU d'une frame précédente, dès qu'il est lisible. Avec `capture`, l'image est aussi
-/// copiée pour être relue (`render::readBack`).
-/// `displayWait`, s'il est donné, reçoit le temps passé dans `beginFrame` et `presentFrame` :
-/// l'attente de l'écran ou du GPU, qui n'est pas du travail du moteur (#294). La recréation de la
-/// swapchain et le ramasse-miettes de NVRHI, courts, y sont comptés aussi.
-std::optional<double> renderFrame(levain::gpu::GpuDevice& gpu,
-                                  const levain::platform::Window& window, DemoScene& scene,
-                                  nvrhi::ICommandList& commandList, double seconds,
-                                  nvrhi::StagingTextureHandle* capture = nullptr,
-                                  double* displayWait = nullptr)
-{
-    const Clock::time_point acquireStart = Clock::now();
-    nvrhi::ITexture* backBuffer = levain::gpu::beginFrame(gpu, window);
-    const Clock::time_point acquireEnd = Clock::now();
-    if (backBuffer == nullptr)
-    {
-        return std::nullopt;
-    }
-
-    std::optional<double> gpuMs;
-
-    {
-        // Le travail CPU d'une frame, hors attente de l'écran (critère de M1.3,
-        // tools/tracy-capture.sh).
-        LEVAIN_PROFILE_SCOPE_NAMED("commandes");
-
-        commandList.open();
-        gpuMs = levain::render::beginGpuTimer(*gpu.nvrhi, commandList, scene.gpuTimer);
-        levain::app::animateModels(
-            *gpu.nvrhi, commandList, scene.models, scene.skinning, scene.skinningState,
-            [&scene, seconds](const levain::assets::AssetId& id)
-            { return motionToPlay(scene, id, seconds); }, seconds);
-        // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
-        gatherCubePoses(scene.cubes, scene.cubesTurn, scene.cubePoses);
-        levain::render::updateInstances(commandList, scene.grid, scene.cubePoses);
-        const std::vector<levain::render::PointLight> lights =
-            scene.demoProps ? demoLightsAt(seconds) : std::vector<levain::render::PointLight>{};
-        levain::render::renderFrame(*gpu.nvrhi, commandList, scene.renderer,
-                                    {.camera = scene.camera,
-                                     .sun = scene.sun,
-                                     .environmentIntensity = 1.0f,
-                                     .lights = lights,
-                                     .tonemap = scene.tonemapSettings,
-                                     // Une croûte de levain, là où rien n'est dessiné.
-                                     .background = {0.55f, 0.32f, 0.14f, 1.0f},
-                                     .seconds = seconds},
-                                    *backBuffer);
-        if (capture != nullptr)
-        {
-            *capture = levain::render::copyForReadback(*gpu.nvrhi, commandList, *backBuffer);
-        }
-        levain::render::endGpuTimer(commandList, scene.gpuTimer);
-        commandList.close();
-        gpu.nvrhi->executeCommandList(&commandList);
-    }
-
-    LEVAIN_PROFILE_SCOPE_NAMED("présentation");
-    const Clock::time_point presentStart = Clock::now();
-    levain::gpu::presentFrame(gpu);
-    if (displayWait != nullptr)
-    {
-        *displayWait =
-            secondsBetween(acquireStart, acquireEnd) + secondsBetween(presentStart, Clock::now());
-    }
-    return gpuMs;
-}
-
-struct SandboxOptions
-{
-    /// La durée de la boucle, sans limite par défaut. Comptée depuis le premier tour de boucle, pas
-    /// depuis le lancement : en CI, le démarrage varie de 1 à plus de 10 s selon la charge du
-    /// runner (lavapipe), et un délai extérieur tombait parfois avant la première frame.
-    double loopSeconds = std::numeric_limits<double>::infinity();
-    /// Le filtrage anisotrope du damier ; 1 le désactive (trilinéaire seul).
-    float maxAnisotropy = 16.0f;
-    /// L'exposition du tonemapping (M5.2) : 2 éclaire d'un diaphragme.
-    float exposure = 1.0f;
-    /// La courbe du tonemapping : `--tonemap clip|aces|agx|neutral`.
-    levain::render::Tonemapper tonemapper = levain::render::Tonemapper::Agx;
-    /// Un glTF à afficher devant la caméra (M4.1).
-    std::optional<std::filesystem::path> modelPath;
-    /// Le clip que joue un modèle skinné, par son nom ; le premier par défaut.
-    std::optional<std::string> clipName;
-    /// Les clips du repos, de la marche et de la course, séparés par des virgules : le modèle
-    /// passe de l'un à l'autre selon une vitesse de démonstration (#118).
-    std::optional<std::string> locomotion;
-    /// L'échelle du modèle (voir `modelPlacement`).
-    float modelScale = 2.0f;
-    /// Le temps de la scène, figé : les cubes et les animations s'arrêtent à cet instant. Deux
-    /// captures prises avec le même `--time` se comparent pixel par pixel (d'un build, d'un
-    /// shader ou d'un backend à l'autre).
-    std::optional<double> frozenSeconds;
-    /// Où écrire une capture de la dernière image, en PNG. Avec `--seconds`, c'est ce qui montre un
-    /// rendu à distance, sans écran ni capture du bureau.
-    std::optional<std::filesystem::path> capturePath;
-    /// `--view khronos` : la scène telle que l'ouvre le glTF Sample Viewer, pour s'y comparer
-    /// (#125, #131, tools/khronos-compare.sh). Le modèle seul, à l'origine, sous sa caméra et son
-    /// ciel ; ni cubes, ni sol, ni lumières de la démo. `--view terrain` : la vallée de M5.6.
-    /// `--view physics` : 1 000 caisses qui tombent sur le sol de la démo (M6.1). `--view
-    /// character` et `--view hike` : le renard qu'on dirige, dans Sponza ou dans la vallée (M6.3).
-    SandboxView view = SandboxView::Demo;
-    /// `--camera x,y,z` : la caméra à cette position, face à −Z. Celle du glTF Sample Viewer, que
-    /// tools/khronos-compare.sh relit dans sa page.
-    std::optional<glm::vec3> cameraPosition;
-    /// `--look lacet,tangage` : où regarde la caméra, en degrés. 0,0 regarde vers −Z, à
-    /// l'horizontale. Pour cadrer une capture sans bouger la souris.
-    std::optional<glm::vec2> cameraLook;
-    /// `--pick x,y` : à la fin de la boucle, avant la capture, sélectionne ce que vise ce pixel,
-    /// compté depuis le coin haut gauche. Le clic de la souris, sans souris : pour la CI et les
-    /// captures à distance (critère de M6.2).
-    std::optional<glm::vec2> pickPixel;
-    /// `--sun x,y,z` : un soleil blanc d'intensité 1, venant de cette direction. La lumière
-    /// principale du glTF Sample Viewer sans IBL (#125).
-    std::optional<glm::vec3> sunDirection;
-    /// L'HDRI qui éclaire la scène (M5.4) ; sans, `LEVAIN_DEFAULT_SKY` s'il a été téléchargé.
-    std::optional<std::filesystem::path> skyPath;
-    /// `--steps N` : N pas de simulation, un par image, puis l'arrêt (M6.3, pour la CI).
-    std::optional<int> steps;
-    /// `--walk x,z` : la direction que suit le personnage de `--view character` ou `hike`, au lieu
-    /// du clavier.
-    std::optional<glm::vec2> walk;
-    /// `--gpu webgpu` : le backend WebGPU sur Dawn, hors écran, pour le vérifier sans navigateur
-    /// (ADR-0023).
-    nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
-};
-
-/// Un nombre strictement positif, écrit en entier. Vide sinon, NaN compris.
-std::optional<double> parsePositive(std::string_view text)
-{
-    double value = 0.0;
-    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-    if (error != std::errc{} || end != text.data() + text.size() || !(value > 0.0))
-    {
-        return std::nullopt;
-    }
-    return value;
-}
-
-/// Trois nombres séparés par des virgules, « 1.5,-2,0 ». Vide si le texte n'en est pas.
-std::optional<glm::vec3> parseVector(std::string_view text)
-{
-    glm::vec3 vector{0.0f};
-    const char* cursor = text.data();
-    const char* const end = text.data() + text.size();
-    for (int axis = 0; axis < 3; ++axis)
-    {
-        const auto [next, error] = std::from_chars(cursor, end, vector[axis]);
-        const bool last = axis == 2;
-        if (error != std::errc{} || (last ? next != end : (next == end || *next != ',')))
-        {
-            return std::nullopt;
-        }
-        cursor = next + 1;
-    }
-    return vector;
+                      levain::render::describeStages(scene.app.renderer.stages));
 }
 
 /// Pourquoi ces options ne vont pas ensemble, ou rien. Avec le joueur, la caméra le suit et la
@@ -1606,9 +1168,10 @@ std::optional<std::string_view> whyNotCompatible(const SandboxOptions& options)
     return std::nullopt;
 }
 
-/// `[--seconds N] [--anisotropy N] [--capture fichier.png] [--model fichier.gltf]`, dans n'importe
-/// quel ordre. Vide si les arguments sont invalides.
-std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
+/// Les options du sandbox et les options communes, dans n'importe quel ordre. Vide si les
+/// arguments sont invalides.
+std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments,
+                                           levain::app::AppSettings& settings)
 {
     SandboxOptions options;
     for (std::size_t i = 1; i < arguments.size(); i += 2)
@@ -1618,33 +1181,26 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         {
             return std::nullopt;
         }
-        if (name == "--clip" || name == "--locomotion")
+        const std::string_view value{arguments[i + 1]};
+        if (const levain::app::OptionUse use =
+                levain::app::parseCommonOption(settings, name, value);
+            use != levain::app::OptionUse::NotMine)
         {
-            (name == "--clip" ? options.clipName : options.locomotion) =
-                std::string{arguments[i + 1]};
-            continue;
-        }
-        if (name == "--tonemap")
-        {
-            const std::string_view tonemapper{arguments[i + 1]};
-            constexpr std::array<std::pair<std::string_view, levain::render::Tonemapper>, 4>
-                Tonemappers{{{"clip", levain::render::Tonemapper::Clip},
-                             {"aces", levain::render::Tonemapper::Aces},
-                             {"agx", levain::render::Tonemapper::Agx},
-                             {"neutral", levain::render::Tonemapper::KhronosPbrNeutral}}};
-            const auto found =
-                std::ranges::find(Tonemappers, tonemapper,
-                                  &std::pair<std::string_view, levain::render::Tonemapper>::first);
-            if (found == Tonemappers.end())
+            if (use == levain::app::OptionUse::Invalid)
             {
                 return std::nullopt;
             }
-            options.tonemapper = found->second;
+            continue;
+        }
+        if (name == "--clip" || name == "--locomotion")
+        {
+            (name == "--clip" ? options.clipName : options.locomotion) = std::string{value};
             continue;
         }
         if (name == "--pick" || name == "--look" || name == "--walk")
         {
-            const std::optional<glm::vec3> pair = parseVector(std::string{arguments[i + 1]} + ",0");
+            const std::optional<glm::vec3> pair =
+                levain::app::parseVector(std::string{value} + ",0");
             if (!pair)
             {
                 return std::nullopt;
@@ -1654,22 +1210,10 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
                                 : options.walk) = glm::vec2{pair->x, pair->y};
             continue;
         }
-        if (name == "--steps")
+        if (name == "--camera")
         {
-            const std::optional<double> count = parsePositive(arguments[i + 1]);
-            if (!count || *count != std::floor(*count) || *count > 1e6)
-            {
-                return std::nullopt;
-            }
-            options.steps = static_cast<int>(*count);
-            continue;
-        }
-        if (name == "--camera" || name == "--sun")
-        {
-            std::optional<glm::vec3>& vector =
-                name == "--camera" ? options.cameraPosition : options.sunDirection;
-            vector = parseVector(arguments[i + 1]);
-            if (!vector)
+            options.cameraPosition = levain::app::parseVector(value);
+            if (!options.cameraPosition)
             {
                 return std::nullopt;
             }
@@ -1677,66 +1221,35 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         }
         if (name == "--view")
         {
-            const std::string_view view{arguments[i + 1]};
-            if (view != "khronos" && view != "demo" && view != "terrain" && view != "physics" &&
-                view != "character" && view != "hike")
+            if (value != "khronos" && value != "demo" && value != "terrain" && value != "physics" &&
+                value != "character" && value != "hike")
             {
                 return std::nullopt;
             }
-            options.view = view == "khronos"     ? SandboxView::Khronos
-                           : view == "terrain"   ? SandboxView::Terrain
-                           : view == "physics"   ? SandboxView::Physics
-                           : view == "character" ? SandboxView::Character
-                           : view == "hike"      ? SandboxView::Hike
-                                                 : SandboxView::Demo;
+            options.view = value == "khronos"     ? SandboxView::Khronos
+                           : value == "terrain"   ? SandboxView::Terrain
+                           : value == "physics"   ? SandboxView::Physics
+                           : value == "character" ? SandboxView::Character
+                           : value == "hike"      ? SandboxView::Hike
+                                                  : SandboxView::Demo;
             continue;
         }
-        if (name == "--gpu")
+        if (name == "--model")
         {
-            const std::string_view api{arguments[i + 1]};
-            if (api != "vulkan" && api != "webgpu")
+            options.modelPath = std::filesystem::path{value};
+            continue;
+        }
+        if (name == "--model-scale")
+        {
+            const std::optional<double> scale = levain::app::parsePositive(value);
+            if (!scale)
             {
                 return std::nullopt;
             }
-            options.api = api == "webgpu" ? nvrhi::GraphicsAPI::WEBGPU : nvrhi::GraphicsAPI::VULKAN;
+            options.modelScale = static_cast<float>(*scale);
             continue;
         }
-        if (name == "--capture" || name == "--model" || name == "--sky")
-        {
-            (name == "--capture" ? options.capturePath
-             : name == "--model" ? options.modelPath
-                                 : options.skyPath) = std::filesystem::path{arguments[i + 1]};
-            continue;
-        }
-        const std::optional<double> value = parsePositive(arguments[i + 1]);
-        if (!value)
-        {
-            return std::nullopt;
-        }
-        if (name == "--seconds")
-        {
-            options.loopSeconds = *value;
-        }
-        else if (name == "--exposure")
-        {
-            options.exposure = static_cast<float>(*value);
-        }
-        else if (name == "--anisotropy")
-        {
-            options.maxAnisotropy = static_cast<float>(*value);
-        }
-        else if (name == "--time")
-        {
-            options.frozenSeconds = value;
-        }
-        else if (name == "--model-scale")
-        {
-            options.modelScale = static_cast<float>(*value);
-        }
-        else
-        {
-            return std::nullopt;
-        }
+        return std::nullopt;
     }
     if (const std::optional<std::string_view> why = whyNotCompatible(options))
     {
@@ -1744,378 +1257,6 @@ std::optional<SandboxOptions> parseOptions(std::span<char* const> arguments)
         return std::nullopt;
     }
     return options;
-}
-
-/// Rend une dernière image et l'écrit en PNG. Un échec est bruyant (règle n°7) : une capture
-/// demandée et absente ferait croire à une image qui n'existe pas.
-bool captureFrame(levain::gpu::GpuDevice& gpu, const levain::platform::Window& window,
-                  DemoScene& scene, nvrhi::ICommandList& commandList, double seconds,
-                  const std::filesystem::path& path)
-{
-    nvrhi::StagingTextureHandle staging;
-    // std::addressof et non « & » : le RefCountPtr de NVRHI surcharge l'opérateur & (il rend
-    // l'adresse du pointeur brut, comme les ComPtr de COM).
-    static_cast<void>(
-        renderFrame(gpu, window, scene, commandList, seconds, std::addressof(staging)));
-    if (!staging)
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Error,
-                          "capture impossible : aucune image rendue (fenêtre masquée ?)");
-        return false;
-    }
-    auto image = levain::render::readBack(*gpu.nvrhi, *staging);
-    auto saved = image ? levain::assets::savePng(path, image->width, image->height, image->rgba)
-                       : std::unexpected(image.error());
-    if (!saved)
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Error, "capture : {}",
-                          saved.error().message);
-        return false;
-    }
-    levain::core::log("sandbox", levain::core::LogLevel::Info, "capture : {} ({} × {})",
-                      path.string(), image->width, image->height);
-    return true;
-}
-
-/// Ce que la boucle anime et lit, créé une fois le device là.
-struct Sandbox
-{
-    DemoScene scene;
-    levain::input::Bindings bindings;
-    CameraActions actions;
-};
-
-/// Le ciel par défaut, Kloofendal (sandbox/CMakeLists.txt), s'il a été téléchargé : sans lui, un
-/// ciel uniforme, et la ligne du journal dit pourquoi.
-std::optional<std::filesystem::path> defaultSky()
-{
-    std::error_code error;
-    if (std::filesystem::exists(LEVAIN_DEFAULT_SKY, error))
-    {
-        return std::filesystem::path{LEVAIN_DEFAULT_SKY};
-    }
-    levain::core::log("sandbox", levain::core::LogLevel::Info,
-                      "pas de ciel : {} absent (tools/fetch-assets.sh), ambiance uniforme",
-                      LEVAIN_DEFAULT_SKY);
-    return std::nullopt;
-}
-
-/// Les modèles que la scène charge, selon les options : celui de `--model`, à sa place.
-std::vector<ModelRequest> modelRequestsOf(const SandboxOptions& options)
-{
-    std::vector<ModelRequest> requests;
-    const std::filesystem::path models{LEVAIN_TEST_ASSETS_DIR "/Models"};
-    if (options.view == SandboxView::Character)
-    {
-        // Sponza à l'échelle 1, dans ses mètres : sa collision est simplifiée à 2 cm près dans le
-        // monde (ADR-0028).
-        requests.push_back({.path = models / "Sponza/glTF/Sponza.gltf",
-                            .placement = {},
-                            .clip = std::nullopt,
-                            .locomotion = std::nullopt,
-                            .name = "sponza",
-                            .collides = true,
-                            .followsPlayer = false});
-    }
-    if (hasPlayer(options.view))
-    {
-        // Le renard, enfant du joueur : 0,01, soit 1,55 m de long et 0,79 m de haut (Fox mesure
-        // 155 × 79 unités ; le 0,05 de la démo de M4.5 en faisait un renard de 4 m), et un
-        // demi-tour, son avant étant +z quand celui du personnage est −z.
-        requests.push_back({.path = models / "Fox/glTF/Fox.gltf",
-                            .placement = {.rotation = glm::angleAxis(glm::pi<float>(),
-                                                                     glm::vec3{0.0f, 1.0f, 0.0f}),
-                                          .scale = glm::vec3{0.01f}},
-                            .clip = std::nullopt,
-                            .locomotion = "Survey,Walk,Run",
-                            .name = "fox",
-                            .collides = false,
-                            .followsPlayer = true});
-        return requests;
-    }
-    if (options.modelPath)
-    {
-        requests.push_back({.path = *options.modelPath,
-                            .placement = options.view == SandboxView::Khronos
-                                             ? levain::scene::Transform{}
-                                             : modelPlacement(options.modelScale),
-                            .clip = options.clipName,
-                            .locomotion = options.locomotion});
-    }
-    return requests;
-}
-
-levain::core::Result<Sandbox> createSandbox(levain::gpu::GpuDevice& gpu,
-                                            const SandboxOptions& options)
-{
-    const levain::render::SamplerSettings sampler{.maxAnisotropy = options.maxAnisotropy};
-    levain::core::log("sandbox", levain::core::LogLevel::Info, "filtrage anisotrope : {}",
-                      levain::render::clampAnisotropy(sampler.maxAnisotropy));
-    auto scene = createDemoScene(gpu, sampler, modelRequestsOf(options),
-                                 options.skyPath ? options.skyPath : defaultSky(), options.view,
-                                 options.cameraPosition, options.sunDirection);
-    if (!scene)
-    {
-        return std::unexpected{std::move(scene.error())};
-    }
-    scene->tonemapSettings = {.exposure = options.exposure, .tonemapper = options.tonemapper};
-    if (options.cameraLook)
-    {
-        // Le regard de --look, appliqué au premier pas de simulation par la caméra libre.
-        auto& controller = scene->cameraEntity.get_mut<levain::scene::FpsController>();
-        controller.yawDegrees = options.cameraLook->x;
-        controller.pitchDegrees = options.cameraLook->y;
-    }
-
-    // Les liaisons d'entrée : changer une touche dans data/input.cfg ne demande aucune
-    // recompilation (ADR-0017). Un nom inconnu échoue ici, avec son numéro de ligne.
-    auto bindings = levain::input::loadBindings(LEVAIN_DATA_DIR "/input.cfg");
-    if (!bindings)
-    {
-        return std::unexpected{std::move(bindings.error())};
-    }
-    auto actions = cameraActionsOf(*bindings);
-    if (!actions)
-    {
-        return std::unexpected{std::move(actions.error())};
-    }
-
-    levain::core::log("sandbox", levain::core::LogLevel::Info,
-                      "liaisons : {} actions et {} axes (data/input.cfg) ; clic droit pour "
-                      "regarder, ZQSD ou WASD pour avancer",
-                      bindings->actions.size(), bindings->axes.size());
-    return Sandbox{
-        .scene = std::move(*scene), .bindings = std::move(*bindings), .actions = *actions};
-}
-
-/// Ce que la boucle garde d'une image à l'autre. Une image est une fonction (`runFrame`) : en
-/// natif, la boucle l'appelle ; dans le navigateur, c'est lui, à chaque image (ADR-0023, point 3).
-struct Loop
-{
-    levain::platform::Window& window;
-    levain::gpu::GpuDevice& gpu;
-    DemoScene& scene;
-    const levain::input::Bindings& bindings;
-    const CameraActions& actions;
-    double loopSeconds;
-    std::optional<double> frozenSeconds;
-    /// `--steps N` : exactement un pas de simulation par image, puis l'arrêt après N, quelle que
-    /// soit la durée réelle des images. Ce que fait le personnage ne dépend plus de la machine.
-    std::optional<int> steps;
-    std::optional<glm::vec2>
-        walk; ///< `--walk x,z` : la direction du personnage, au lieu du clavier.
-
-    nvrhi::CommandListHandle commandList;
-    LoopState state;
-    levain::core::FrameTimeAccumulator frameTimes;
-    GpuTimeAverage periodGpu; ///< Depuis la dernière mise à jour du titre.
-    GpuTimeAverage totalGpu;  ///< Depuis le début de la boucle, journalisé à la fin.
-    /// Le temps passé dans le moteur, hors attente de l'écran, depuis la dernière mise à jour du
-    /// titre (#294).
-    double periodEngineSeconds = 0.0;
-    Clock::time_point loopStart;
-    Clock::time_point previousFrameEnd;
-    int frameCount = 0;
-    ShaderReload shaderReload;
-    levain::app::TextureReload textureReload;
-    nvrhi::FramebufferInfo sceneTarget;
-    levain::input::InputState input;
-    bool mouseCaptured = false;
-    /// La durée de l'image précédente. La première n'en a pas : un pas de simulation, pour
-    /// démarrer.
-    double lastFrameSeconds;
-};
-
-Loop startLoop(levain::platform::Window& window, levain::gpu::GpuDevice& gpu, Sandbox& sandbox,
-               double loopSeconds, std::optional<double> frozenSeconds, std::optional<int> steps,
-               std::optional<glm::vec2> walk)
-{
-    DemoScene& scene = sandbox.scene;
-    if (scene.world.has<levain::physics::PhysicsWorld>())
-    {
-        // Une vue avec physique : de quoi dessiner le contour de la sélection.
-        auto lines =
-            levain::render::createDebugLinesPass(*gpu.nvrhi, levain::render::sceneTargetInfo());
-        if (lines)
-        {
-            scene.debugLines = std::move(*lines);
-        }
-        else
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Error,
-                              "pas de lignes de debug : {}", lines.error().message);
-        }
-    }
-    addDemoStages(scene);
-    const Clock::time_point now = Clock::now();
-    return Loop{.window = window,
-                .gpu = gpu,
-                .scene = scene,
-                .bindings = sandbox.bindings,
-                .actions = sandbox.actions,
-                .loopSeconds = loopSeconds,
-                .frozenSeconds = frozenSeconds,
-                .steps = steps,
-                .walk = walk,
-                .commandList = gpu.nvrhi->createCommandList(),
-                .state = {},
-                .frameTimes = {},
-                .periodGpu = {},
-                .totalGpu = {},
-                .periodEngineSeconds = 0.0,
-                .loopStart = now,
-                .previousFrameEnd = now,
-                .frameCount = 0,
-                .shaderReload = startShaderReload(),
-                .textureReload = levain::app::startTextureReload(scene.registry),
-                .sceneTarget = levain::render::sceneTargetInfo(),
-                .input = levain::input::makeInputState(sandbox.bindings),
-                .mouseCaptured = false,
-                .lastFrameSeconds = scene.fixedStep.stepSeconds};
-}
-
-/// Le temps de la scène : celui de la boucle, ou celui de --time, figé.
-double sceneSecondsOf(const Loop& loop)
-{
-    return loop.frozenSeconds.value_or(secondsBetween(loop.loopStart, Clock::now()));
-}
-
-/// Une image de la boucle ; `false` quand elle s'arrête (fenêtre fermée, --seconds écoulées).
-bool runFrame(Loop& loop)
-{
-    if (!loop.state.isRunning || secondsBetween(loop.loopStart, Clock::now()) >= loop.loopSeconds ||
-        (loop.steps && loop.frameCount >= *loop.steps))
-    {
-        return false;
-    }
-    DemoScene& scene = loop.scene;
-
-    if (!loop.state.isVisible)
-    {
-#ifdef __EMSCRIPTEN__
-        // Le navigateur n'appelle plus un onglet caché : rien à attendre, et rien ne s'y attend.
-        return true;
-#endif
-        // Pas au-delà de --seconds : masquée sans événement (bureau verrouillé), la boucle
-        // dormirait sinon indéfiniment. L'infini par défaut attend sans limite.
-        const double remainingSeconds =
-            loop.loopSeconds - secondsBetween(loop.loopStart, Clock::now());
-        for (const auto& event : levain::platform::waitEvents(loop.window, remainingSeconds).window)
-        {
-            applyWindowEvent(loop.state, event);
-        }
-
-        // Le temps passé masquée n'est pas une frame. Sans cette remise à l'heure, la
-        // première frame après la restauration durerait toute la minimisation, et le
-        // maximum affiché serait de plusieurs secondes.
-        loop.previousFrameEnd = Clock::now();
-        return true;
-    }
-
-    const Clock::time_point frameStart = Clock::now();
-    double displayWait = 0.0;
-    {
-        LEVAIN_PROFILE_SCOPE_NAMED("événements");
-
-        const levain::platform::Events events = levain::platform::pollEvents(loop.window);
-        for (const auto& event : events.window)
-        {
-            applyWindowEvent(loop.state, event);
-            forgetHiddenTime(loop.previousFrameEnd, event, frameStart);
-        }
-        levain::input::updateInput(loop.input, loop.bindings, events.input,
-                                   static_cast<float>(loop.lastFrameSeconds));
-
-        // La souris ne se capture que pendant le regard : sinon on ne pourrait plus rien
-        // faire d'autre de la fenêtre.
-        const bool looking = levain::input::actionHeld(loop.input, loop.actions.lookEnable);
-        if (looking != loop.mouseCaptured)
-        {
-            levain::platform::setMouseCaptured(loop.window, looking);
-            loop.mouseCaptured = looking;
-        }
-        // Un clic gauche hors du regard sélectionne le corps visé (M6.2).
-        if (!looking && levain::input::actionPressed(loop.input, loop.actions.select))
-        {
-            const levain::platform::CursorPosition cursor =
-                levain::platform::cursorPosition(loop.window);
-            selectAt(scene, levain::platform::windowPixelSize(loop.window), {cursor.x, cursor.y});
-        }
-        // Ce que le joueur demande, posé pour le prochain pas de simulation : au personnage s'il y
-        // en a un (M6.3), sinon à la caméra libre.
-        if (scene.player)
-        {
-            walkInputFrom(scene.player.get_mut<levain::character::WalkInput>(), loop.input,
-                          loop.actions, loop.walk);
-        }
-        else
-        {
-            scene.world.set<levain::scene::FpsInput>(fpsInputFrom(loop.input, loop.actions));
-        }
-    }
-
-    reloadChangedShaders(loop.shaderReload, *loop.gpu.nvrhi, loop.sceneTarget,
-                         scene.renderer.meshPass);
-    levain::app::reloadChangedTextures(loop.textureReload, *loop.gpu.nvrhi, scene.registry,
-                                       scene.modelCache, scene.models, scene.renderer.meshPass,
-                                       *scene.sampler);
-
-    {
-        // Un tour du monde : les pas de simulation que la dernière image a mérités, puis une
-        // passe de rendu qui interpole et compose les matrices monde (ADR-0016). La durée
-        // passée est celle de l'image précédente : celle-ci n'est pas encore finie.
-        LEVAIN_PROFILE_SCOPE_NAMED("monde");
-        levain::scene::advanceWorld(scene.world, scene.fixedStep,
-                                    loop.steps ? scene.fixedStep.stepSeconds
-                                               : static_cast<float>(loop.lastFrameSeconds));
-        updateRenderCamera(scene.camera, scene.cameraEntity);
-    }
-
-    {
-        LEVAIN_PROFILE_SCOPE_NAMED("rendu");
-        if (const auto gpuMs = renderFrame(loop.gpu, loop.window, scene, *loop.commandList,
-                                           sceneSecondsOf(loop), nullptr, &displayWait))
-        {
-            loop.periodGpu.totalMs += *gpuMs;
-            ++loop.periodGpu.samples;
-            loop.totalGpu.totalMs += *gpuMs;
-            ++loop.totalGpu.samples;
-        }
-    }
-
-    // Fin d'image : ce que plus aucune entité n'utilise se décharge, du CPU et du GPU
-    // (ADR-0019). NVRHI garde vivantes les ressources qu'une command list en vol utilise
-    // encore.
-    for (const levain::assets::AssetId& unused : levain::assets::takeUnusedAssets(scene.world))
-    {
-        scene.models.erase(unused);
-        scene.modelCache.models.erase(unused);
-    }
-
-    const Clock::time_point frameEnd = Clock::now();
-    const double frameSeconds = secondsBetween(loop.previousFrameEnd, frameEnd);
-    loop.previousFrameEnd = frameEnd;
-    loop.lastFrameSeconds = frameSeconds;
-    loop.periodEngineSeconds += secondsBetween(frameStart, frameEnd) - displayWait;
-
-    if (const auto summary =
-            levain::core::recordFrame(loop.frameTimes, frameSeconds, FrameTimePeriodSeconds))
-    {
-        LEVAIN_PROFILE_SCOPE_NAMED("titre");
-        const FrameReport report = frameReportOf(*summary, loop.periodEngineSeconds,
-                                                 levain::platform::windowPixelSize(loop.window));
-        levain::platform::setWindowTitle(loop.window,
-                                         describeFrameTimes(report, averageOf(loop.periodGpu)));
-#ifdef __EMSCRIPTEN__
-        reportFrame(report);
-#endif
-        loop.periodGpu = {};
-        loop.periodEngineSeconds = 0.0;
-    }
-
-    ++loop.frameCount;
-    LEVAIN_PROFILE_FRAME();
-    return true;
 }
 
 /// Le nom d'un état du sol, pour le journal.
@@ -2146,72 +1287,30 @@ void logPlayer(flecs::entity player)
                       state ? glm::length(state->velocity) : 0.0f);
 }
 
-/// Le bilan de la boucle, puis la capture demandée ; `false` si elle a échoué.
-bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& capturePath,
-                const std::optional<glm::vec2>& pickPixel)
+/// Les bilans du sandbox, à la fin de la boucle, avant la capture d'`app` ; `false` si `--pick` n'a
+/// rien pu viser.
+bool finishDemo(DemoScene& scene)
 {
     // Demandé sur une vue sans physique, `--pick` ne vérifierait rien : la boucle échoue (règle
-    // n°7).
-    if (pickPixel &&
-        !selectAt(loop.scene, levain::platform::windowPixelSize(loop.window), *pickPixel))
+    // n°7). Avant la capture, que le contour de la sélection apparaisse dessus.
+    if (scene.options.pickPixel &&
+        !selectAt(scene, levain::platform::windowPixelSize(scene.app.window),
+                  *scene.options.pickPixel))
     {
         levain::core::log("sandbox", levain::core::LogLevel::Error,
                           "--pick : cette vue n'a pas de physique, rien à sélectionner");
         return false;
     }
-    // Lu par la CI, qui échoue si la boucle a tourné moins d'une seconde : un démarrage lent
-    // (lavapipe, validation, sanitizers) peut sinon manger tout le délai sans que rien ne rougisse.
-    levain::core::log(
-        "sandbox", levain::core::LogLevel::Info,
-        "boucle arrêtée après {:.1f} s et {} frames ; GPU : {:.3f} ms en moyenne sur {} mesures",
-        secondsBetween(loop.loopStart, Clock::now()), loop.frameCount, averageOf(loop.totalGpu),
-        loop.totalGpu.samples);
-    // Arrêtée avant ses `--steps` (fenêtre fermée, `--seconds` écoulées), la boucle n'a pas joué
-    // ce que la CI vérifie ensuite : elle échoue (règle n°7).
-    if (loop.steps && loop.frameCount < *loop.steps)
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Error,
-                          "--steps : {} pas simulés sur les {} demandés", loop.frameCount,
-                          *loop.steps);
-        return false;
-    }
     // Lu par la CI (M6.3) : où sont les pieds du personnage, et sur quoi, à la fin de `--walk`.
-    if (loop.scene.player)
+    if (scene.player)
     {
-        logPlayer(loop.scene.player);
-    }
-    // Le critère de M5.3 : le temps GPU de la passe d'ombres, quatre cascades.
-    const auto& passTimes = loop.scene.renderer.passTimes;
-    const GpuTimeAverage& shadowGpu = passTimes[1]; // RendererPassNames : « ombres »
-    levain::core::log("sandbox", levain::core::LogLevel::Info,
-                      "ombres : {:.3f} ms GPU en moyenne sur {} mesures", averageOf(shadowGpu),
-                      shadowGpu.samples);
-    // Le critère de #133 : le temps GPU de chaque passe. Une étape où rien n'est inscrit n'est pas
-    // chronométrée, et n'apparaît pas.
-    std::string passes;
-    for (std::size_t pass = 0; pass < levain::render::RendererPassNames.size(); ++pass)
-    {
-        if (passTimes[pass].samples > 0)
-        {
-            passes +=
-                std::format("{}{} {:.3f} ms", passes.empty() ? "" : ", ",
-                            levain::render::RendererPassNames[pass], averageOf(passTimes[pass]));
-        }
-    }
-    levain::core::log("sandbox", levain::core::LogLevel::Info, "passes, GPU en moyenne : {}",
-                      passes);
-    // Le détail des étapes (#295), en build profilé : ce que coûte chaque fonction inscrite,
-    // terrain, herbe, eau, toutes cascades d'ombres comprises.
-    if (loop.scene.renderer.stages.timeFunctions)
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Info, "étapes, GPU en moyenne : {}",
-                          levain::render::describeStageTimes(loop.scene.renderer.stages));
+        logPlayer(scene.player);
     }
     // Le critère de #132 : ce que le frustum culling épargne au GPU, par image.
-    const auto perFrame = [&loop](std::uint64_t count)
-    { return static_cast<double>(count) / std::max(loop.frameCount, 1); };
-    const DrawCount& camera = loop.scene.cameraCulling;
-    const DrawCount& shadows = loop.scene.shadowCulling;
+    const auto perFrame = [&scene](std::uint64_t count)
+    { return static_cast<double>(count) / std::max(scene.app.frameCount, 1); };
+    const DrawCount& camera = scene.cameraCulling;
+    const DrawCount& shadows = scene.shadowCulling;
     levain::core::log(
         "sandbox", levain::core::LogLevel::Info,
         "culling, par image : caméra {:.1f} dessins écartés sur {:.1f}, ombres {:.1f} "
@@ -2227,23 +1326,23 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
     // caisses. La plus haute part de 18,4 m (`HighestCrateStart`) ; retombées, aucune ne dépasse
     // quelques mètres. La CI le vérifie : un pas qui ne tournerait pas laisserait la grille en
     // l'air.
-    if (const auto* physics = loop.scene.world.try_get<levain::physics::PhysicsWorld>())
+    if (const auto* physics = scene.app.world.try_get<levain::physics::PhysicsWorld>())
     {
-        if (const flecs::entity lake = loop.scene.world.lookup("lac"))
+        if (const flecs::entity lake = scene.app.world.lookup("lac"))
         {
             levain::core::log("sandbox", levain::core::LogLevel::Info,
                               "lac : {} caisses dans l'eau",
-                              levain::physics::occupantsOf(loop.scene.world, lake).size());
+                              levain::physics::occupantsOf(scene.app.world, lake).size());
         }
-        const float highest = levain::sandbox::highestCrate(loop.scene.world);
+        const float highest = levain::sandbox::highestCrate(scene.app.world);
         levain::core::log("sandbox", levain::core::LogLevel::Info,
                           "physique : {} corps ; la caisse la plus haute à y = {:.2f} m",
                           levain::physics::bodyCount(*physics), highest);
     }
-    if (loop.scene.terrain)
+    if (scene.terrain)
     {
-        const levain::terrain::TerrainStats& camera = loop.scene.terrainCamera;
-        const levain::terrain::TerrainStats& shadows = loop.scene.terrainShadows;
+        const levain::terrain::TerrainStats& camera = scene.terrainCamera;
+        const levain::terrain::TerrainStats& shadows = scene.terrainShadows;
         levain::core::log("sandbox", levain::core::LogLevel::Info,
                           "terrain, par image : {:.1f} parcelles dessinées sur {:.1f} et {:.0f} "
                           "triangles, ombres {:.1f} sur {:.1f} (4 cascades) et {:.0f} triangles",
@@ -2251,14 +1350,14 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
                           perFrame(camera.triangles), perFrame(shadows.drawn),
                           perFrame(shadows.drawn + shadows.culled), perFrame(shadows.triangles));
     }
-    if (loop.scene.grass)
+    if (scene.grass)
     {
-        const levain::grass::GrassStats& grass = loop.scene.grassStats;
+        const levain::grass::GrassStats& grass = scene.grassStats;
         levain::core::log("sandbox", levain::core::LogLevel::Info,
                           "herbe, par image : {:.1f} parcelles et {:.0f} brins demandés",
                           perFrame(grass.patches), perFrame(grass.blades));
     }
-    const levain::app::SkinningCost& skinning = loop.scene.skinningState.cost;
+    const levain::app::SkinningCost& skinning = scene.app.skinningState.cost;
     if (skinning.frames > 0)
     {
         levain::core::log("sandbox", levain::core::LogLevel::Info,
@@ -2272,62 +1371,93 @@ bool finishLoop(Loop& loop, const std::optional<std::filesystem::path>& captureP
                           skinning.gpuSamples, skinning.maxJointSpeed);
     }
 
-    return !capturePath || captureFrame(loop.gpu, loop.window, loop.scene, *loop.commandList,
-                                        sceneSecondsOf(loop), *capturePath);
+    return true;
 }
 
-#ifdef __EMSCRIPTEN__
-/// Dans le navigateur, main rend la main avant que le device n'arrive (ADR-0023, point 2) : ce que
-/// la boucle utilise vit ici, jusqu'à la fermeture de l'onglet.
-struct WebSandbox
+/// Ce que le joueur demande, à chaque image, avant les pas de simulation : la sélection au clic
+/// gauche (M6.2), puis la marche du personnage s'il y en a un (M6.3), sinon la caméra libre.
+void steerDemo(DemoScene& scene)
 {
-    SandboxOptions options;
-    std::optional<levain::platform::Window> window;
-    std::optional<levain::gpu::GpuDevice> gpu;
-    std::optional<Sandbox> sandbox;
-    std::optional<Loop> loop;
-};
-
-WebSandbox& webSandbox()
-{
-    static WebSandbox instance;
-    return instance;
-}
-
-void runWebFrame()
-{
-    WebSandbox& web = webSandbox();
-    if (!runFrame(*web.loop))
+    levain::app::App& app = scene.app;
+    const bool looking = levain::input::actionHeld(app.input, scene.actions.lookEnable);
+    if (looking != scene.mouseCaptured)
     {
-        std::ignore = finishLoop(*web.loop, std::nullopt, std::nullopt);
-        emscripten_cancel_main_loop();
+        levain::platform::setMouseCaptured(app.window, looking);
+        scene.mouseCaptured = looking;
+    }
+    if (!looking && levain::input::actionPressed(app.input, scene.actions.select))
+    {
+        const levain::platform::CursorPosition cursor =
+            levain::platform::cursorPosition(app.window);
+        selectAt(scene, levain::platform::windowPixelSize(app.window), {cursor.x, cursor.y});
+    }
+    if (scene.player)
+    {
+        walkInputFrom(scene.player.get_mut<levain::character::WalkInput>(), app.input,
+                      scene.actions, scene.options.walk);
+    }
+    else
+    {
+        app.world.set<levain::scene::FpsInput>(fpsInputFrom(app.input, scene.actions));
     }
 }
 
-/// La suite de main, quand le navigateur a donné le device.
-void startWebSandbox(levain::core::Result<levain::gpu::GpuDevice> gpu)
+/// Ce que l'image envoie au GPU avant de dessiner : les poses des modèles animés, les instances
+/// des cubes, et les lumières de la démo.
+void recordDemo(DemoScene& scene, nvrhi::ICommandList& commandList, double seconds)
 {
-    WebSandbox& web = webSandbox();
-    if (!gpu)
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}", gpu.error().message);
-        return;
-    }
-    web.gpu.emplace(std::move(*gpu));
-    auto sandbox = createSandbox(*web.gpu, web.options);
-    if (!sandbox)
-    {
-        levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}",
-                          sandbox.error().message);
-        return;
-    }
-    web.sandbox.emplace(std::move(*sandbox));
-    web.loop.emplace(startLoop(*web.window, *web.gpu, *web.sandbox, web.options.loopSeconds,
-                               web.options.frozenSeconds, web.options.steps, web.options.walk));
-    // 0 : au rythme de requestAnimationFrame, celui de l'écran.
-    emscripten_set_main_loop(runWebFrame, 0, false);
+    levain::app::App& app = scene.app;
+    levain::app::animateModels(
+        *app.gpu.nvrhi, commandList, app.models, app.skinning, app.skinningState,
+        [&scene, seconds](const levain::assets::AssetId& id)
+        { return motionToPlay(scene, id, seconds); }, seconds);
+    // Le renderer dessine ce que contient le monde : les positions du tour qui vient de finir.
+    gatherCubePoses(scene.cubes, scene.cubesTurn, scene.cubePoses);
+    levain::render::updateInstances(commandList, scene.grid, scene.cubePoses);
+    app.lights =
+        scene.demoProps ? demoLightsAt(seconds) : std::vector<levain::render::PointLight>{};
 }
-#endif
+
+/// La fonction de démarrage du sandbox (ADR-0029) : sa scène, ses étapes de rendu, et ses points
+/// d'accroche, qui la gardent jusqu'à la fin.
+levain::core::Result<levain::app::FrameHooks> startSandbox(levain::app::App& app,
+                                                           const SandboxOptions& options)
+{
+    auto actions = cameraActionsOf(app.bindings);
+    if (!actions)
+    {
+        return std::unexpected{std::move(actions.error())};
+    }
+    auto created = createDemoScene(app, options, *actions);
+    if (!created)
+    {
+        return std::unexpected{std::move(created.error())};
+    }
+    const std::shared_ptr<DemoScene> scene = std::move(*created);
+    if (app.world.has<levain::physics::PhysicsWorld>())
+    {
+        // Une vue avec physique : de quoi dessiner le contour de la sélection.
+        auto lines =
+            levain::render::createDebugLinesPass(*app.gpu.nvrhi, levain::render::sceneTargetInfo());
+        if (lines)
+        {
+            scene->debugLines = std::move(*lines);
+        }
+        else
+        {
+            levain::core::log("sandbox", levain::core::LogLevel::Error,
+                              "pas de lignes de debug : {}", lines.error().message);
+        }
+    }
+    addDemoStages(*scene);
+    levain::core::log("sandbox", levain::core::LogLevel::Info,
+                      "clic droit pour regarder, ZQSD ou WASD pour avancer");
+    return levain::app::FrameHooks{
+        .frame = [scene](levain::app::App&) { steerDemo(*scene); },
+        .record = [scene](levain::app::App&, nvrhi::ICommandList& commandList, double seconds)
+        { recordDemo(*scene, commandList, seconds); },
+        .finish = [scene](levain::app::App&) { return finishDemo(*scene); }};
+}
 
 } // namespace
 
@@ -2337,75 +1467,41 @@ int main(int argc, char** argv)
     // invalide, system_error si l'écriture échoue. On rattrape au sommet (ADR-0008).
     try
     {
+        // Les chemins viennent de sandbox/CMakeLists.txt : le dépôt en natif, le système de
+        // fichiers préchargé dans le navigateur, sans sources de shaders à surveiller.
+        levain::app::AppSettings settings;
+        settings.title = "Levain";
+        settings.assetRoots = {LEVAIN_DATA_DIR, LEVAIN_TEST_ASSETS_DIR};
+        settings.bindingsFile = LEVAIN_DATA_DIR "/input.cfg";
+        settings.shaderBuild = {.cmakeCommand = LEVAIN_CMAKE_COMMAND,
+                                .buildDir = LEVAIN_BUILD_DIR,
+                                .sourceDir = LEVAIN_SHADER_SOURCE_DIR};
+        settings.defaultSky = std::filesystem::path{LEVAIN_DEFAULT_SKY};
         const std::optional<SandboxOptions> options =
-            parseOptions(std::span{argv, static_cast<std::size_t>(argc)});
+            parseOptions(std::span{argv, static_cast<std::size_t>(argc)}, settings);
         if (!options)
         {
             std::println(stderr,
-                         "usage : levain_sandbox [--seconds N] [--anisotropy N] [--capture "
-                         "fichier.png] [--model fichier.gltf [--clip nom | --locomotion "
-                         "repos,marche,course] "
-                         "[--model-scale N]] [--time secondes] [--gpu vulkan|webgpu] "
-                         "[--exposure N] [--tonemap clip|aces|agx|neutral] [--sky "
-                         "fichier.hdr|none] [--view demo|khronos|terrain|physics|character|hike] "
-                         "[--camera x,y,z] [--look lacet,tangage] [--sun x,y,z] [--pick x,y] "
-                         "[--walk x,z] [--steps N]");
+                         "usage : levain_sandbox {} [--model fichier.gltf [--clip nom | "
+                         "--locomotion repos,marche,course] [--model-scale N]] "
+                         "[--view demo|khronos|terrain|physics|character|hike] [--camera x,y,z] "
+                         "[--look lacet,tangage] [--pick x,y] [--walk x,z]",
+                         levain::app::CommonOptionsUsage);
             return 2;
+        }
+        if (options->view == SandboxView::Khronos)
+        {
+            // Le ciel tel que l'éclaire le glTF Sample Viewer : son soleil reste dans l'IBL, sans
+            // lumière directionnelle, et le ciel est tourné de 90° (sa rotation par défaut, « +Z
+            // »).
+            settings.skyTurnDegrees = 90.0f;
+            settings.extractSkySun = false;
         }
 
         std::print("Levain {} — {} — __cplusplus {}\n", levain::core::version(),
                    levain::core::toolchain(), __cplusplus);
-
-        // 1920 × 1080 : la résolution du critère de M2.1. En points ; un point vaut un pixel sur la
-        // machine de référence, et le log « redimensionnée » donne les pixels réels.
-        auto window = levain::platform::createWindow("Levain", 1920, 1080);
-        if (!window)
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}",
-                              window.error().message);
-            return 1;
-        }
-
-#ifdef __EMSCRIPTEN__
-        WebSandbox& web = webSandbox();
-        web.options = *options;
-        web.window.emplace(std::move(*window));
-        levain::gpu::requestGpuDevice(*web.window, {.enableValidation = EnableValidation},
-                                      startWebSandbox);
-#else
-        // Déclaré après window, gpu sera détruit avant elle : la surface Vulkan doit disparaître
-        // avant la fenêtre SDL qui la porte.
-        const Clock::time_point deviceStart = Clock::now();
-        auto gpu = levain::gpu::createGpuDevice(
-            *window, {.enableValidation = EnableValidation, .api = options->api});
-        if (!gpu)
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}",
-                              gpu.error().message);
-            return 1;
-        }
-        levain::core::log("sandbox", levain::core::LogLevel::Info, "device créé en {:.1f} ms",
-                          secondsBetween(deviceStart, Clock::now()) * 1000.0);
-
-        auto sandbox = createSandbox(*gpu, *options);
-        if (!sandbox)
-        {
-            levain::core::log("sandbox", levain::core::LogLevel::Critical, "{}",
-                              sandbox.error().message);
-            return 1;
-        }
-
-        Loop loop = startLoop(*window, *gpu, *sandbox, options->loopSeconds, options->frozenSeconds,
-                              options->steps, options->walk);
-        while (runFrame(loop))
-        {
-        }
-        if (!finishLoop(loop, options->capturePath, options->pickPixel))
-        {
-            return 1;
-        }
-        levain::core::log("sandbox", levain::core::LogLevel::Info, "fenêtre fermée");
-#endif
+        return levain::app::runApp(settings, [options = *options](levain::app::App& app)
+                                   { return startSandbox(app, options); });
     }
     catch (const std::exception& e)
     {
@@ -2413,6 +1509,4 @@ int main(int argc, char** argv)
         std::fputc('\n', stderr);
         return 1;
     }
-
-    return 0;
 }

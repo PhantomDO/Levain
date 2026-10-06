@@ -58,8 +58,8 @@ dans le renderer qu'il crée, comme ils le font déjà dans celui du sandbox (AD
 
    `runApp` crée la fenêtre et le device (en natif d'un coup, dans le navigateur quand il les donne,
    ADR-0023), le renderer et le monde, appelle la fonction de démarrage, fait tourner la boucle (la sienne en
-   natif, `emscripten_set_main_loop` dans le navigateur), puis appelle `finish`, journalise le bilan et écrit la
-   capture demandée. En natif, il rend le code de sortie du processus ; dans le navigateur, `main` est déjà
+   natif, `emscripten_set_main_loop` dans le navigateur), puis journalise son bilan, appelle `finish` et écrit
+   la capture demandée. En natif, il rend le code de sortie du processus ; dans le navigateur, `main` est déjà
    revenu (ADR-0023), et un échec s'écrit dans la console.
 
 2. **Les points d'accroche**, `FrameHooks`, que la fonction de démarrage rend, tous facultatifs :

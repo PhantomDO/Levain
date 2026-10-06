@@ -1,12 +1,8 @@
-add_executable(levain_sandbox src/main.cpp src/shader_reload.cpp)
+add_executable(levain_sandbox src/main.cpp)
 target_link_libraries(levain_sandbox PRIVATE
     levain::animation levain::app levain::assets levain::core levain::platform levain::gpu levain::input
     levain::physics levain::render levain::scene plugin::character plugin::grass plugin::terrain
     plugin::water)
-
-# L'explorer web de flecs, en Debug seulement : en Release, le code qui l'active n'est pas compilé,
-# et aucun serveur n'écoute.
-target_compile_definitions(levain_sandbox PRIVATE $<$<CONFIG:Debug>:LEVAIN_ENABLE_EXPLORER=1>)
 
 # Le ciel par défaut (M5.4), s'il a été téléchargé (tools/fetch-assets.sh) : Kloofendal, en 2k en
 # natif, en 1k dans le navigateur, où chaque mégaoctet se télécharge à l'ouverture de la page.
