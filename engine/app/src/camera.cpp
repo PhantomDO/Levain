@@ -30,7 +30,7 @@ renderCameraOf(const flecs::query<const CameraLens, const scene::WorldTransform>
             found = cameraFrom(lens, world.matrix);
             ++count;
         });
-    if (count == 1)
+    if (count == 1 && found)
     {
         return *found;
     }
