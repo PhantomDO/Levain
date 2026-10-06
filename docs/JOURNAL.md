@@ -65,7 +65,9 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 - Décisions de Donnovan, par sondage : la marche dans un plugin ; la collision la plus performante ; la poussée
   selon la masse de la caisse ; la démo du renard, caméra qui suit. ADR-0028.
 - Écarts et problèmes :
-  - la PR de la vue du personnage (#290) dépasse la règle n°2 (590 lignes), signalé ;
+  - cinq PR dépassent la règle n°2, toutes signalées : le personnage (#284, 588 lignes), sa glu flecs (#286,
+    463), la marche (#287, 525), la collision d'un modèle (#288, 575) et la vue du personnage (#290, 590) ; les
+    tests en font souvent près de la moitié ;
   - LeakSanitizer : avec lavapipe installé à côté de RADV, les tests GPU échouent en local sur une fausse fuite si
     un seul pilote n'est pas imposé (`build/GOTCHA.md`, entrée du 05/10) ; la CI n'est pas concernée ;
   - la foulée de Fox n'est pas mesurée : ses pieds peuvent glisser un peu ;

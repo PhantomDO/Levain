@@ -3,7 +3,7 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
-## Une correction de relecture poussée sans le contrôle de format : la CI rougit (2026-10-06)
+## Une correction de relecture poussée sans le contrôle de format : la CI passe au rouge (2026-10-06)
 
 - **Symptôme** : #292 et #293, empilées, rouges sur l'étape « Format » de linux-debug, alors que la
   vérification complète de la pile était verte.
