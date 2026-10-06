@@ -6,15 +6,18 @@ Le socle des programmes du moteur ([ADR-0029](../../docs/adr/0029-module-app.md)
 et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-dessus de tous les autres modules
 (SPECS §7), et sous les programmes.
 
-**État en M6.4 (en cours)** : les **modèles glTF sur le GPU**, sortis du sandbox :
+**État en M6.4 (en cours)** : ce qui était dans le sandbox et que tout programme réécrirait :
 
-- leurs meshes, skinnés ou non, et leurs textures, cuites si possible (ADR-0020) ;
-- un binding set par matériau ;
-- l'animation des modèles skinnés, par leur clip ou leur animateur (ADR-0022), avec la mesure de son coût ;
-- le hot-reload de leurs textures (ADR-0021).
+- **le cycle de vie** (`runApp`) : la fenêtre, le device, le renderer, le monde, la boucle native ou celle du
+  navigateur, le compte rendu des images (le titre, le calque de la page web, Tracy), les bilans et la capture ;
+- **les points d'accroche** (`FrameHooks`) que la fonction de démarrage du programme rend ;
+- **les options communes** de la ligne de commande (`parseCommonOption`) ;
+- **les modèles glTF sur le GPU** : leurs meshes, skinnés ou non, leurs textures, cuites si possible
+  (ADR-0020), un binding set par matériau, l'animation des modèles skinnés (ADR-0022) ;
+- le hot-reload des shaders (ADR-0014) et des textures (ADR-0021).
 
-La suite arrive par les deux PR suivantes de l'issue #300 : d'abord la boucle, la fenêtre et la page web ; puis
-la caméra du rendu, l'input en singleton et `loadModel`.
+La suite arrive par la PR suivante de l'issue #300 : la caméra du rendu par `CameraLens`, l'input en singleton
+et `loadModel`.
 
 ## Invariants
 
@@ -27,10 +30,21 @@ la caméra du rendu, l'input en singleton et `loadModel`.
    animateur par instance.
 3. **Le mouvement d'un modèle animé vient de l'appelant** (`MotionOf`) : le module ne sait pas ce qu'est un
    joueur. Le sandbox donne au renard celui du joueur, aux autres une vitesse de démonstration.
-4. **Un appelant dont l'envoi échoue après `open()`** appelle `submitAbandonedUpload` avant de rendre l'erreur
+4. **L'état du programme meurt avant le device** : les points d'accroche le gardent dans leurs captures, et
+   `FrameHooks` est le dernier champ d'`App`, donc le premier détruit, avant le renderer ; `runApp` détruit `App`
+   avant le device.
+5. **`App` ne bouge pas en mémoire** : il est sur le tas, créé une fois. Les fonctions d'étape et les systèmes
+   du programme peuvent le garder par référence.
+6. **Un appelant dont l'envoi échoue après `open()`** appelle `submitAbandonedUpload` avant de rendre l'erreur
    (voir « Pièges connus »).
 
 ## Pièges connus
+
+- **Le temps où la fenêtre est cachée n'est pas une image** : dans le navigateur, un onglet caché n'est plus
+  appelé, et la première image au retour durerait toute l'absence (`forgetHiddenTime`). En natif, la boucle
+  attend les événements et remet son horloge à l'heure.
+- **Dans le navigateur, `runApp` rend 0 aussitôt** : le device arrive plus tard (ADR-0023). Ce que la boucle
+  utilise vit dans un état statique jusqu'à la fermeture de l'onglet, et un échec ne s'écrit que dans la console.
 
 - **Une command list ouverte puis détruite fuit** jusqu'à la destruction du device, avec tout ce qu'elle a
   enregistré : `open()` l'inscrit dans les ressources de son propre command buffer (NVRHI,
@@ -43,9 +57,12 @@ la caméra du rendu, l'input en singleton et `loadModel`.
 
 | Fichier | Contenu |
 |---|---|
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `AppSettings`, `ShaderBuild`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `App`, `FrameHooks`, `StartFunction`, `runApp` |
 | [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `SkinningState`, `createSkinningState`, `animateModels` |
 | [`include/levain/app/texture_reload.hpp`](include/levain/app/texture_reload.hpp) | `TextureReload`, `startTextureReload`, `reloadChangedTextures` : le hot-reload des textures |
 | [`src/model_textures.hpp`](src/model_textures.hpp) | `textureTargetOf`, `UploadedTexture`, `uploadTexture` : une texture au format que le GPU échantillonne ; interne, partagé par l'envoi et le hot-reload |
+| [`src/app.cpp`](src/app.cpp) | La fenêtre et le device, le ciel, `App`, une image, les bilans, la boucle du navigateur |
+| [`src/shader_reload.hpp`](src/shader_reload.hpp) | Le hot-reload des shaders : relancer leur build, recréer les pipelines ; interne |
 | [`src/models.cpp`](src/models.cpp) | L'envoi des meshes et des textures, les matériaux, l'animation |
 | [`src/texture_reload.cpp`](src/texture_reload.cpp) | Les textures modifiées, rechargées, et les binding sets refaits |
 

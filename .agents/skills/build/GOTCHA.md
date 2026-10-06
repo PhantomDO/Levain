@@ -3,6 +3,17 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Deux worktrees, deux caches d'assets : des captures qui diffèrent sans que le code change (2026-10-06)
+
+- **Symptôme** : en sortant la boucle du sandbox (#300), les captures de l'ancien build et du nouveau, prises
+  avec les mêmes options, diffèrent de 1 à 8 niveaux sur les bords des modèles glTF ; celles sans modèle sont
+  identiques à l'octet.
+- **Cause** : les deux builds venaient de deux worktrees, chacun avec son `assets-cache/`. L'un avait les
+  textures cuites en BC7 (`.cooked/`, ADR-0020), l'autre non : les mêmes modèles n'avaient pas les mêmes texels.
+- **Parade** : comparer deux builds sur les **mêmes** assets. Écarter le `.cooked/` de l'un le temps de la
+  comparaison (le déplacer, puis le remettre), ou cuire les deux. Avec des assets identiques, les captures du
+  sandbox sont identiques à l'octet d'un lancement à l'autre.
+
 ## tracy-csvexport range les zones par emplacement, pas par nom (2026-10-06)
 
 - **Symptôme** : des zones renommées à l'exécution (`ZoneScoped` puis `ZoneName`) sortent toutes sous le nom de
@@ -300,7 +311,7 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   ligne de commande, qui contient `-warnings-as-errors`, et les nouveaux diagnostics de slangc
   (`error[E20001]`) s'étalent sur plusieurs lignes, avec la ligne fautive et un repère. Ninja encadre chaque
   échec : `FAILED: …`, la commande, puis la sortie de la commande jusqu'à la ligne d'état suivante `[n/m]`. Garder
-  la sortie de la première commande en échec (`firstFailure`, `sandbox/src/shader_reload.cpp`) : les deux
+  la sortie de la première commande en échec (`firstFailure`, `engine/app/src/shader_reload.cpp`) : les deux
   points d'entrée d'un fichier échouent sur les mêmes erreurs.
 - **`SV_VertexID` exige `shaderDrawParameters`** (2026-09-21). En HLSL, il compte depuis 0 sans le sommet de base
   du draw ; en Vulkan, il l'inclut. Slang compense en lisant ce sommet de base (capacité SPIR-V

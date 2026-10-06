@@ -11,6 +11,9 @@
 #include "levain/core/log.hpp"
 #include "levain/platform/process.hpp"
 
+namespace levain::app
+{
+
 namespace
 {
 
@@ -44,9 +47,10 @@ std::string firstFailure(const std::string& output)
 
 } // namespace
 
-ShaderReload startShaderReload()
+ShaderReload startShaderReload(const ShaderBuild& build)
 {
-    return ShaderReload{.sources = levain::core::watchDirectory(LEVAIN_SHADER_SOURCE_DIR, ".slang"),
+    return ShaderReload{.build = build,
+                        .sources = levain::core::watchDirectory(build.sourceDir, ".slang"),
                         .nextCheck = Clock::now() + ShaderCheckPeriod};
 }
 
@@ -80,8 +84,9 @@ void reloadChangedShaders(ShaderReload& reload, nvrhi::IDevice& device,
     // ADR-0014 : les commandes exactes du build, dans le dossier de build qui a produit ce binaire.
     // ponytail: bloquant, la boucle s'arrête le temps du build (~350 ms) ; un thread si ça gêne.
     const Clock::time_point buildStart = Clock::now();
-    const std::array<std::string, 5> command{LEVAIN_CMAKE_COMMAND, "--build", LEVAIN_BUILD_DIR,
-                                             "--target", "levain_shaders"};
+    const std::array<std::string, 5> command{reload.build.cmakeCommand, "--build",
+                                             reload.build.buildDir.string(), "--target",
+                                             "levain_shaders"};
     const auto build = levain::platform::runProcess(command);
     if (!build)
     {
@@ -119,3 +124,5 @@ void reloadChangedShaders(ShaderReload& reload, nvrhi::IDevice& device,
     levain::core::log("shaders", levain::core::LogLevel::Info,
                       "pipeline des meshes recréé en {:.1f} ms", millisecondsSince(pipelineStart));
 }
+
+} // namespace levain::app
