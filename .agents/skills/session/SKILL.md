@@ -23,7 +23,9 @@ Lire d'abord [`GOTCHA.md`](GOTCHA.md).
 
 1. Mesurer les critères du milestone et noter les commandes utilisées.
 2. Ouvrir la PR avec le modèle `.github/pull_request_template.md`. Le **guide de lecture** est la partie la plus
-   importante : fichiers dans l'ordre, et pour chacun ce qu'il faut y comprendre.
+   importante : fichiers dans l'ordre, et pour chacun ce qu'il faut y comprendre. En mode autonome, la boucle
+   entière (worktree, vérification, contre-tests, relecture, pile, fusion) est dans le skill
+   [`pr-autonome`](../pr-autonome/SKILL.md).
 3. Ajouter une entrée à `docs/JOURNAL.md` (format dans le fichier), la plus récente en haut.
 4. Mettre à jour le board : Status, et « Passé (h) » dès que Donnovan donne son temps.
 5. Toujours demander à Donnovan, à la fin de la session : « **Combien de temps as-tu passé sur le projet en

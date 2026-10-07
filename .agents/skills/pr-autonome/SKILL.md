@@ -1,0 +1,59 @@
+---
+name: pr-autonome
+description: La boucle d'une PR en mode autonome, quand Donnovan n'est pas là pour relire — travailler dans un worktree, écrire (par un workflow si ultracode est actif), vérifier comme la CI, contre-tester chaque contrôle, faire relire par un subagent, corriger, ouvrir une PR seule ou une pile, fusionner par merge-stack. À utiliser pour chaque PR de code ou de docs en mode autonome, après le skill session.
+---
+
+# Une PR en mode autonome
+
+Lire d'abord [`GOTCHA.md`](GOTCHA.md). Le mode autonome (AGENTS.md, décidé par Donnovan le 2026-10-04) : un subagent
+relit chaque PR à sa place ; l'agent fusionne après corrections et CI verte. Ce skill est la boucle d'une PR ; le
+skill `session` reste le rituel autour (journal, board, temps de Donnovan), le skill `build` les commandes.
+
+## 1. Avant d'écrire
+
+- Lire l'issue, l'ADR qui la porte, et les commentaires de passation de l'issue (`gh issue view N --comments`).
+- **Estimer la taille** : au-delà de 400 lignes (règle n°2), prévoir la pile dès le départ, une branche par étape
+  qui compile et passe ses tests seule. Une PR découpée après coup coûte une passe de plus.
+
+## 2. Où travailler
+
+Un **worktree par pile** quand un autre build tourne (une vérification, une fusion) : changer de branche sous un
+build en cours le fausse.
+
+```bash
+git worktree add ~/Projects/Levain-<sujet> -b m<phase>.<n>/<sujet> <base>
+```
+
+Ses dossiers `build/` sont à lui ; le cache binaire de vcpkg (`~/.cache/vcpkg`) les remplit vite. À la fin :
+`git worktree remove`, puis `git branch -d` des branches fusionnées.
+
+## 3. Écrire
+
+- La forme du code (AGENTS.md) ; un test pour chaque comportement nouveau.
+- Avec ultracode, un **workflow** : une implémentation, puis trois relectures adverses en parallèle — la justesse
+  (sous ASan, UBSan, et GCC quand le code est générique), les règles du projet et la taille, les contrôles qui
+  doivent pouvoir échouer et le build web —, puis une correction. Donner aux agents le chemin du worktree, « ne
+  touchez à aucun autre », les sections de l'ADR, la passation, les prototypes s'il y en a.
+- **Relire soi-même** le code qui en sort, avant d'ouvrir : un agent qui dit « vérifié » a pu vérifier autre chose.
+
+## 4. Vérifier
+
+- `tools/verify.sh` avant **chaque** push, y compris après une petite correction (build/GOTCHA.md) : format de tout
+  l'arbre, trois presets, clang-tidy des fichiers changés, web. `BASE=<précédente>` pour une PR empilée.
+- **Chaque contrôle nouveau a son contre-test** : la faute injectée depuis une copie du fichier, le test rouge, la
+  copie remise, le test vert (build/GOTCHA.md, « Contre-tests »). Le noter dans la PR.
+
+## 5. Relire et corriger
+
+- Un subagent relit la PR, avec des points précis : la couverture (rien d'oublié, rien de trop), les commentaires et
+  la doc, les tests, les règles du projet. « Dire explicitement si rien ne bloque. »
+- Ses corrections : **un commit de plus**, jamais un `--amend` dans une pile (session/GOTCHA.md) ; puis
+  `tools/verify.sh` à nouveau.
+
+## 6. Ouvrir et fusionner
+
+- Le modèle `.github/pull_request_template.md`, le guide de lecture d'abord ; le milestone ; « Partie de #N » ou
+  « Closes #N ». Une pile : `gh pr create --base <branche précédente>`, dans l'ordre.
+- `tools/merge-stack.sh N [N+1 …]` en arrière-plan : il attend les checks de chacune, fusionne en merge commit,
+  passe la base de la suivante à `main`. Puis `git switch main && git merge --ff-only origin/main`.
+- Le board : l'issue passe en Done quand une PR la ferme ; « Passé (h) » quand Donnovan donne son temps.
