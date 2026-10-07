@@ -1,12 +1,17 @@
 // Ouvre une page dans un Firefox lancé par tools/web-smoke.sh, attend que son titre annonce une
 // image rendue, et la capture par WebDriver BiDi. Avec une référence, compare ses premiers pixels à
 // la référence rendue par Vulkan ; avec « - », la page doit seulement tourner (le sandbox, dont le
-// titre donne les images/s). Code de sortie non nul au moindre écart.
-//   node tools/web-smoke.mjs <url> <référence.ppm | -> <capture.png> [port]
+// titre donne les images/s). Avec « ui », les panneaux de l'interface doivent dessiner. Code de
+// sortie non nul au moindre écart.
+//   node tools/web-smoke.mjs <url> <référence.ppm | -> <capture.png> [port] [ui]
 import { readFileSync, writeFileSync } from "node:fs";
 import { decodePng } from "./png.mjs";
 
-const [url, referencePath, capturePath, port = "9222"] = process.argv.slice(2);
+const [url, referencePath, capturePath, port = "9222", expect = ""] = process.argv.slice(2);
+if (expect !== "" && expect !== "ui") {
+  console.error(`ÉCHEC : attente inconnue « ${expect} » (ui ou rien)`);
+  process.exit(1);
+}
 const Tolerance = 2; // comme tests/smoke_render.cpp
 const TimeoutMs = 30000;
 
@@ -69,6 +74,14 @@ if (referencePath === "-") {
   console.log(`calque :\n${text}`);
   const sane = report?.imagesPerSecond > 0 && report.engineMs > 0 && report.enginePercent <= 100 &&
     report.width > 0 && report.height > 0;
+  // L'UI (ADR-0032), demandée par « ui » : les panneaux ouverts dessinent, et leur temps CPU
+  // arrive. ImGui tourne à chaque image, panneaux ou pas : son temps seul ne prouverait rien.
+  const uiSane = expect !== "ui" ||
+    (report?.uiDraws > 0 && report.uiMs > 0 && text.includes("interface :"));
+  if (!uiSane) {
+    console.error("ÉCHEC : les panneaux de l'interface n'ont rien dessiné, ou la page n'en rend pas compte");
+    process.exit(1);
+  }
   if (!sane || !text.includes("images/s") || !text.includes("navigateur :")) {
     console.error("ÉCHEC : le calque des mesures est vide");
     process.exit(1);

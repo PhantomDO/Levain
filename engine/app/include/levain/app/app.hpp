@@ -145,7 +145,8 @@ struct FrameHooks
     /// au repos.
     MotionOf motionOf;
     /// Après les pas de simulation, entre `ImGui::NewFrame` et `ImGui::Render` : les fenêtres
-    /// ImGui du programme (ADR-0032), son HUD comme ses panneaux.
+    /// ImGui du programme (ADR-0032), son HUD comme ses panneaux. Les panneaux du moteur, ouverts
+    /// par F1, passent juste avant.
     std::function<void(App&)> ui{};
 };
 

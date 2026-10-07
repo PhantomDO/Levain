@@ -19,6 +19,7 @@
 
 #include <imgui.h>
 
+#include "panels.hpp"
 #include "shader_reload.hpp"
 
 #include "levain/app/camera.hpp"
@@ -580,10 +581,14 @@ void beginUiFrame(App& app, const platform::Events& events, double frameSeconds)
     ui::followTextInput(app.window, io.WantTextInput, app.ui.textInputActive);
 }
 
-/// La fin d'une image d'UI : les fenêtres du programme, puis `ImGui::Render`. Le rendu de l'image
-/// la dessinera.
+/// La fin d'une image d'UI : les panneaux du moteur s'ils sont ouverts, les fenêtres du programme,
+/// puis `ImGui::Render`. Le rendu de l'image la dessinera.
 void endUiFrame(App& app)
 {
+    if (app.ui.panelsOpen)
+    {
+        drawEnginePanels(app);
+    }
     if (app.hooks.ui)
     {
         app.hooks.ui(app);

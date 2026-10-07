@@ -70,6 +70,10 @@ function levainStatsOverlay(element) {
         `(max ${levainNumber(report.maxMs, 1)})`,
       `moteur : ${levainNumber(report.engineMs, 1)} ms, ${levainNumber(report.enginePercent, 0)} % de l'image`,
       `rendu : ${report.width} × ${report.height} px · écran ×${levainNumber(devicePixelRatio, 2)}`,
+      // Le temps CPU de l'interface (ADR-0032) : ses panneaux s'ouvrent par F1, ou ?args=… --ui on.
+      report.uiMs === undefined
+        ? "interface : non mesuré"
+        : `interface : ${levainNumber(report.uiMs, 2)} ms de CPU par image`,
     ];
     draw();
   };

@@ -411,6 +411,37 @@ jobs:
               || { echo "::error::le renard n'a pas marché vers le lac : $line ($gpu)"; exit 1; }
           done
 
+      # L'interface (M7.1, ADR-0032) : les panneaux de debug ouverts dès le départ (`--ui on`), sur
+      # les deux backends, validation active (Debug). L'UI doit avoir dessiné quelque chose ; sous
+      # Vulkan, son minuteur GPU doit avoir mesuré ; sous WebGPU, notre backend ne relit pas les
+      # minuteurs, et le bilan doit le dire (« non mesuré ») au lieu d'un 0 qui passerait pour une
+      # mesure. Le temps lui-même se juge sur la machine de référence, pas sous lavapipe. La capture
+      # rejoue l'image d'UI que `captureFrame` construit, sous validation elle aussi.
+      - name: L'interface
+        if: matrix.preset == 'linux-debug'
+        env:
+          SDL_VIDEO_DRIVER: offscreen
+        run: |
+          set -euo pipefail
+          for gpu in vulkan webgpu; do
+            timeout --foreground --preserve-status -k 10 300 \
+              ./build/${{ matrix.preset }}/sandbox/levain_sandbox --gpu $gpu --view hike --ui on \
+              --steps 60 --capture ui-$gpu.png | tee ui-$gpu.log
+            test -s ui-$gpu.png || { echo "::error::pas de capture avec l'UI ($gpu)"; exit 1; }
+            line=$(grep -o "ui : CPU .* commandes dessinées" ui-$gpu.log) \
+              || { echo "::error::le sandbox n'a pas rendu compte de l'UI ($gpu)"; exit 1; }
+            draws=$(echo "$line" | grep -o "[0-9]* commandes dessinées" | grep -o "^[0-9]*")
+            [ "$draws" -gt 0 ] || { echo "::error::l'UI n'a rien dessiné : $line ($gpu)"; exit 1; }
+            if [ "$gpu" = vulkan ]; then
+              { echo "$line" | grep -q "GPU [0-9.]* ms en moyenne" \
+                && ! echo "$line" | grep -q "GPU 0\.000 ms"; } \
+                || { echo "::error::le minuteur GPU de l'UI n'a rien mesuré : $line"; exit 1; }
+            else
+              echo "$line" | grep -q "GPU non mesuré" \
+                || { echo "::error::sous WebGPU, le temps GPU de l'UI devrait être non mesuré : $line"; exit 1; }
+            fi
+          done
+
       # Le cuiseur, sans GPU (ADR-0020), en Release seulement : l'encodage UASTC y est 5 fois plus
       # rapide qu'en Debug (1,0 s contre 5,1 s pour la texture du camion), et cuire Sponza en Debug
       # prendrait une dizaine de minutes. Debug et ASan chargent donc les sources, Release le cuit :

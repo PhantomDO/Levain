@@ -52,5 +52,8 @@ grep -q "WebDriver BiDi listening" "$work/firefox.log" \
 
 node "$root/tools/web-smoke.mjs" "http://127.0.0.1:$httpPort/tests/levain_web_cube.html" \
     "$root/tests/data/cube.ppm" "$build/web-smoke.png" "$bidiPort"
-node "$root/tools/web-smoke.mjs" "http://127.0.0.1:$httpPort/sandbox/levain_sandbox.html" \
-    - "$build/web-sandbox.png" "$bidiPort"
+# Les panneaux de l'interface ouverts (ADR-0032) : la capture les montre, ils doivent dessiner, et
+# le calque rendre compte de leur temps CPU.
+node "$root/tools/web-smoke.mjs" \
+    "http://127.0.0.1:$httpPort/sandbox/levain_sandbox.html?args=--view%20hike%20--ui%20on" \
+    - "$build/web-sandbox.png" "$bidiPort" ui
