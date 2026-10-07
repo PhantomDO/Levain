@@ -60,6 +60,8 @@ au chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou
 
 10. **meshoptimizer reste privé** : seul `src/collision.cpp` l'inclut (`deps.asset-libraries-visibility`). Comme
    Jolt, il n'a ses assertions qu'en Debug : ce qu'il reçoit a été vérifié au chargement (`whyNotAValidModel`).
+11. **`MeshRef` est décrit pour l'éditeur, en lecture seule** (ADR-0034) : son JSON écrit le GUID, pas le nom de
+   l'asset. `AssetUsage`, un singleton de conteneurs, ne l'est pas.
 
 ## Points d'entrée
 

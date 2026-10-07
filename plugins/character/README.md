@@ -31,6 +31,8 @@ personnage qui marche :
 - **Les vitesses de `Walker` sont en m/s**, comme celles de la `Locomotion` de son animation : les pieds ne
   glissent pas si les deux concordent.
 - Le plugin dépend d'`animation`, de `physics` et de `scene`, déclarés (`levain_add_plugin`, ADR-0018).
+- **Décrits pour l'éditeur** (ADR-0034, `describeWalkComponents`, qu'appelle `WalkModule`, et *Rando* sans
+  lui) : `Walker` en donnée d'auteur, `WalkInput`, reposé par le jeu à chaque pas, en lecture seule.
 
 ## Points d'entrée
 

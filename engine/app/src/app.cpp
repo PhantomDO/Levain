@@ -549,8 +549,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
                           .timer = render::createGpuTimer(*gpu.nvrhi),
                           .panelsOpen = settings.showUiPanels},
             .hooks = {}});
-    app->world.import<scene::SceneModule>();
-    app->world.import<assets::AssetsModule>();
+    prepareAppWorld(app->world);
 #ifdef LEVAIN_ENABLE_EXPLORER
     enableExplorerOnLoopback(app->world);
 #endif
@@ -1095,6 +1094,14 @@ void startWebApp(core::Result<gpu::GpuDevice> gpu)
 #endif
 
 } // namespace
+
+void prepareAppWorld(flecs::world& world)
+{
+    world.import<scene::SceneModule>();
+    world.import<assets::AssetsModule>();
+    describeAppComponents(world);
+    world.component<PlayerInput>();
+}
 
 std::optional<double> parsePositive(std::string_view text)
 {

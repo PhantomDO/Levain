@@ -69,6 +69,11 @@ struct Walker
 void stepWalk(const Walker& walker, WalkInput& input, const physics::CharacterState& state,
               physics::CharacterVelocity& velocity, scene::Transform& transform, float seconds);
 
+/// Les composants de la marche (ADR-0034) : `Walker`, donnée d'auteur, et `WalkInput`, reposé par
+/// le jeu à chaque pas, en lecture seule. Appelée par `WalkModule`, et par tout module qui reprend
+/// ces types sans l'importer (le `TraversalModule` de *Rando*, ADR-0031).
+void describeWalkComponents(flecs::world& world);
+
 /// Le module flecs de la marche : `world.import<levain::character::WalkModule>()`. Une entité qui a
 /// un `physics::CharacterController`, un `Walker` et un `WalkInput` marche, dans la phase
 /// `Simulation`, avant le pas de physique ; avec un `animation::CharacterMotion`, elle le remplit.

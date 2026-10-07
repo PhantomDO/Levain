@@ -5,9 +5,19 @@
 #include <string>
 
 #include "levain/scene/components.hpp"
+#include "levain/scene/reflection.hpp"
 
 namespace levain::app
 {
+
+void describeAppComponents(flecs::world& world)
+{
+    // Une projection perspective veut un champ entre 0 et 180°, exclus, et un plan proche au-delà
+    // de 0 : la projection et le découpage des grappes de lumières (far / near) en dépendent.
+    scene::describeAuthored<CameraLens>(world)
+        .range(&CameraLens::verticalFovDegrees, 1.0, 179.0)
+        .range(&CameraLens::nearPlane, 0.01, 100.0);
+}
 
 render::Camera cameraFrom(const CameraLens& lens, const glm::mat4& world)
 {

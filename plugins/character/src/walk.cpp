@@ -7,6 +7,7 @@
 
 #include "levain/physics/physics.hpp"
 #include "levain/scene/camera_control.hpp"
+#include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
 
 namespace levain::character
@@ -128,10 +129,26 @@ void stepWalk(const Walker& walker, WalkInput& input, const physics::CharacterSt
     input.jump = false;
 }
 
+void describeWalkComponents(flecs::world& world)
+{
+    // Le glm::vec2 de WalkInput est décrit par SceneModule : un module de jeu qui appelle cette
+    // fonction avant tout import du moteur s'arrêterait sur un champ sans réflexion.
+    world.import<scene::SceneModule>();
+    // airControl est une part de l'accélération. Une accélération négative ferait diverger
+    // `approach`, une vitesse de rotation négative inverserait les bornes du `std::clamp` de
+    // `turnTowards` : d'où leur plancher ; leurs plafonds sont le domaine de l'éditeur.
+    scene::describeAuthored<Walker>(world)
+        .range(&Walker::acceleration, 0.0, 1000.0)
+        .range(&Walker::airControl, 0.0, 1.0)
+        .range(&Walker::turnDegreesPerSecond, 0.0, 3600.0);
+    scene::describe<WalkInput>(world);
+}
+
 WalkModule::WalkModule(flecs::world& world)
 {
     world.module<WalkModule>();
     world.import<physics::PhysicsModule>();
+    describeWalkComponents(world);
 
     // La glu : une instruction par système (ADR-0011). La marche dans la phase Simulation, avant le
     // pas de physique qui la jouera ; elle lit l'état du pas précédent.

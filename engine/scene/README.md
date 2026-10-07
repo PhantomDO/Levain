@@ -113,7 +113,10 @@ Un champ est un nombre, un booléen, une enum, un `flecs::entity`, une feuille g
 **Ce que la scène décrit** : `Transform`, `Velocity` et `FpsController` en données d'auteur ; `WorldTransform`,
 `PreviousTransform`, `RenderAlpha` et `FpsInput` en lecture seule ; à la main, les feuilles glm `vec2`, `vec3`,
 `quat` et `mat4` (un tableau flecs de 16 flottants, que `sameValue` compare élément par élément). Pas
-`SimulationPipeline` ni les phases : un identifiant de pipeline et des étiquettes.
+`SimulationPipeline` ni les phases : un identifiant de pipeline et des étiquettes. Le test
+`tests/described_components_test.cpp` importe tous les modules sans fenêtre ni GPU et vérifie chaque composant
+décrit du moteur ; sa ligne `MESSAGE` est l'inventaire, décrits et non décrits :
+`./build/linux-debug/tests/levain_tests -tc='*inventaire*'`.
 
 Un type imbriqué décrit à son tour n'est pas déclaré : la première description écrit les membres, `Authored` et
 les bornes viennent de chaque déclaration, et deux déclarations contraires arrêtent l'import.
