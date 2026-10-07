@@ -34,7 +34,9 @@ de modification (le hot-reload des shaders, M2.3).
 | [`include/levain/core/version.hpp`](include/levain/core/version.hpp) | `version()` et `toolchain()` — la bannière de démarrage |
 
 **La règle de lecture qui découle de l'ADR-0008** : si une fonction rend un `Result`, elle peut échouer sans que
-ce soit notre faute. Si elle n'en rend pas, tout échec est un bug et s'arrête sur une assertion.
+ce soit notre faute. Si elle n'en rend pas, tout échec est un bug et s'arrête sur une assertion, sauf un refus de
+donnée que personne ne peut recevoir (un corps physique créé par un système) : il va au journal d'erreurs, sans
+assertion ([ADR-0034](../../docs/adr/0034-reflexion-des-composants.md)).
 
 Les en-têtes publics vivent sous `include/levain/core/`, l'implémentation sous `src/`. On inclut donc
 `"levain/core/version.hpp"`, jamais un chemin relatif.

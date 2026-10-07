@@ -668,6 +668,23 @@ TEST_CASE("createBody refuse une masse nulle : aucun corps, et le monde reste in
     CHECK(levain::physics::bodyCount(world) == 0);
 }
 
+// Le seul refus qui vient de Jolt lui-même : un maillage dont tous les triangles sont dégénérés
+// passe `whyNotThisMesh` (indices et sommets valides), puis Jolt le vide et refuse de construire la
+// forme. Une donnée, au journal, sans assertion (ADR-0034).
+TEST_CASE("createBody refuse un maillage que Jolt ne sait pas construire : aucun corps")
+{
+    PhysicsWorld world = levain::physics::createPhysicsWorld();
+    const Collider flat{
+        .shape = levain::physics::MeshShape{
+            std::make_shared<const levain::physics::TriangleMesh>(levain::physics::TriangleMesh{
+                .vertices = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {2.0f, 0.0f, 0.0f}},
+                .indices = {0, 1, 2}})}};
+    REQUIRE_FALSE(levain::physics::whyNotThisShape(flat, nullptr).has_value());
+    const auto refused = levain::physics::createBody(world, flat, nullptr, {}, 1);
+    CHECK(refused.value == levain::physics::BodyHandle::None);
+    CHECK(levain::physics::bodyCount(world) == 0);
+}
+
 TEST_CASE("une entité avec Collider et RigidBody tombe, et son Transform suit")
 {
     flecs::world world = physicsWorld();
@@ -862,8 +879,8 @@ TEST_CASE("déplacer le sol réveille la caisse endormie dessus")
     CHECK(restsOn(crate.get<Transform>().position.y, -2.0f, 0.5f));
 }
 
-// Un refus est une donnée, pas un bug (ADR-0034) : il se teste dans tous les presets, et doit
-// rester bruyant au journal et ne laisser aucun corps.
+// Un refus est une donnée, pas un bug (ADR-0034) : il se teste dans tous les presets, et ne laisse
+// aucun corps. Le journal le dit, ce que ce test ne vérifie pas : il ne capture pas le journal.
 TEST_CASE("un corps refusé n'existe pas : enfant, ou avec une échelle")
 {
     flecs::world world = physicsWorld();

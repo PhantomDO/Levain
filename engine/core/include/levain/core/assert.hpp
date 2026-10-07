@@ -38,7 +38,8 @@ void reportFailedAssert(std::string_view expression, std::string_view message,
 /// `LEVAIN_VERIFY` pour ça.
 ///
 /// Pour un échec qui n'est pas un bug — fichier absent, shader invalide — c'est `Result`
-/// qu'il faut (voir `error.hpp`), pas une assertion.
+/// qu'il faut (voir `error.hpp`), pas une assertion ; ou, sans appelant pour le recevoir, le
+/// journal d'erreurs (ADR-0034).
 #define LEVAIN_ASSERT(expression, message)                                                         \
     do                                                                                             \
     {                                                                                              \
