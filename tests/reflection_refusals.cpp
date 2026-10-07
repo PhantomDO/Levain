@@ -27,7 +27,7 @@ struct WithOptional
 
 struct WithLeaf
 {
-    glm::vec2 offset{0.0f}; // SceneModule ne décrit pas glm::vec2
+    glm::vec4 offset{0.0f}; // SceneModule ne décrit pas glm::vec4
 };
 
 struct WithByte

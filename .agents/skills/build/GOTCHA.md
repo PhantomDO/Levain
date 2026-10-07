@@ -27,7 +27,7 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 - **Cause** : flecs garde la dernière description d'un type. Une feuille glm n'est pas un agrégat :
   `reflection.hpp` ne la lit pas, et ne peut pas voir une seconde description.
 - **Parade** : les feuilles glm se décrivent une fois, dans `SceneModule` (`engine/scene/src/scene.cpp`) ; une
-  nouvelle (`glm::vec2`) s'y ajoute. À vérifier en relecture.
+  nouvelle (`glm::vec4`) s'y ajoute. À vérifier en relecture.
 
 ## Une référence d'entité en `flecs::entity_t` : un nombre, perdu au rechargement (2026-10-07, règle de relecture)
 

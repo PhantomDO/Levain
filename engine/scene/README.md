@@ -88,9 +88,9 @@ seul, liste les entités (`grid` et ses enfants, dont `cube_50_50` au centre) et
 composants. Donner une vitesse à un cube le fait partir : le rendu relit le monde à chaque frame. **Déplacer la
 grille déplace les 10 000 cubes d'un bloc**, sans toucher à leur `Transform` : c'est la hiérarchie de M3.2.
 
-L'explorer affiche des champs, pas des octets, grâce à la **réflexion** (addon meta) : `scene.cpp` décrit chaque
-champ de chaque composant par son type et son décalage. Le JSON de l'explorer, et plus tard celui des scènes
-sauvegardées (phase 7), en dépendent. Vérification : `tools/explorer-check.sh`.
+L'explorer affiche des champs, pas des octets, grâce à la **réflexion** (addon meta) : chaque module décrit ses
+composants (section suivante). Le JSON de l'explorer, et plus tard celui des scènes sauvegardées (phase 7), en
+dépendent. Vérification : `tools/explorer-check.sh`.
 
 ## La réflexion des composants
 
@@ -109,6 +109,11 @@ liaisons structurées (`detail/field_ladder.inc`) est écrite par `tools/generat
 Un champ est un nombre, un booléen, une enum, un `flecs::entity`, une feuille glm décrite à la main dans
 `SceneModule`, ou un agrégat imbriqué, décrit à son tour. Le reste est refusé à la compilation (`static_assert`), ou
 à l'import : le journal nomme la struct et le champ, puis le programme s'arrête, en Release aussi.
+
+**Ce que la scène décrit** : `Transform`, `Velocity` et `FpsController` en données d'auteur ; `WorldTransform`,
+`PreviousTransform`, `RenderAlpha` et `FpsInput` en lecture seule ; à la main, les feuilles glm `vec2`, `vec3`,
+`quat` et `mat4` (un tableau flecs de 16 flottants, que `sameValue` compare élément par élément). Pas
+`SimulationPipeline` ni les phases : un identifiant de pipeline et des étiquettes.
 
 Un type imbriqué décrit à son tour n'est pas déclaré : la première description écrit les membres, `Authored` et
 les bornes viennent de chaque déclaration, et deux déclarations contraires arrêtent l'import.

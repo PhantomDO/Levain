@@ -192,6 +192,11 @@ bool sameValue(const flecs::world& world, flecs::entity_t type, const void* firs
         }
         return true;
     }
+    // Un tableau flecs, décrit à la main (la glm::mat4 de SceneModule) : élément par élément.
+    if (const auto* array = ecs_get(world, type, EcsArray))
+    {
+        return sameElements(world, array->type, array->count, left, right);
+    }
     // Un flecs::entity porte le monde à côté de l'identifiant, et du remplissage en wasm32.
     if (type == world.id<flecs::entity>())
     {
