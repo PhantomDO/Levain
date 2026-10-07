@@ -169,7 +169,7 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
     {
         return core::makeError(core::ErrorCode::Unsupported,
                                "couches de validation Vulkan absentes, exigées en Debug : "
-                               "sudo pacman -S vulkan-validation-layers");
+                               "sudo apt install vulkan-validationlayers");
     }
     if (!instance)
     {
