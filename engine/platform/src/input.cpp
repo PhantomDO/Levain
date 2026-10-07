@@ -48,6 +48,14 @@ void appendMouseMotion(std::vector<InputEvent>& events, const SDL_MouseMotionEve
                       .value = motion.yrel});
 }
 
+/// La densité de pixels de la fenêtre `windowId` : 1 si SDL ne la connaît pas.
+float pixelDensityOf(SDL_WindowID windowId)
+{
+    SDL_Window* window = SDL_GetWindowFromID(windowId);
+    const float density = window != nullptr ? SDL_GetWindowPixelDensity(window) : 0.0f;
+    return density > 0.0f ? density : 1.0f;
+}
+
 /// Un axe de manette va de -32768 à 32767 chez SDL ; le moteur ne connaît que [-1, 1]. La division
 /// par 32767 laisserait -1,00003 sur la butée basse, d'où le maximum.
 float normalizedAxis(std::int16_t value)
@@ -123,6 +131,105 @@ void setMouseCaptured(const Window& window, bool captured)
     if (!SDL_SetWindowRelativeMouseMode(window.handle.get(), captured))
     {
         core::log("platform", core::LogLevel::Warning, "souris non capturée : {}", SDL_GetError());
+    }
+}
+
+void startTextInput(const Window& window)
+{
+    if (!SDL_StartTextInput(window.handle.get()))
+    {
+        core::log("platform", core::LogLevel::Warning, "saisie de texte refusée : {}",
+                  SDL_GetError());
+    }
+}
+
+void stopTextInput(const Window& window)
+{
+    SDL_StopTextInput(window.handle.get());
+}
+
+std::string clipboardText()
+{
+    // SDL rend une chaîne à libérer, vide (jamais nulle) si le presse-papiers n'a pas de texte.
+    char* text = SDL_GetClipboardText();
+    std::string copy = text != nullptr ? text : "";
+    SDL_free(text);
+    return copy;
+}
+
+void setClipboardText(const std::string& text)
+{
+    if (!SDL_SetClipboardText(text.c_str()))
+    {
+        core::log("platform", core::LogLevel::Warning, "presse-papiers refusé : {}",
+                  SDL_GetError());
+    }
+}
+
+float displayScale(const Window& window)
+{
+    // 0 : SDL n'a pas su la lire. On garde l'échelle 1 plutôt qu'une interface invisible.
+    const float scale = SDL_GetWindowDisplayScale(window.handle.get());
+    return scale > 0.0f ? scale : 1.0f;
+}
+
+void appendUiEvent(Events& events, const SDL_Event& event, std::uint32_t windowId)
+{
+    std::vector<UiEvent>& ui = events.ui;
+    switch (event.type)
+    {
+    case SDL_EVENT_MOUSE_MOTION:
+    {
+        // En pixels de l'image, comme `cursorPosition` : sans la densité, un clic sur un écran
+        // HiDPI viserait la moitié haute gauche de l'interface.
+        const float density = pixelDensityOf(event.motion.windowID);
+        ui.push_back({.type = UiEventType::MouseMoved,
+                      .x = event.motion.x * density,
+                      .y = event.motion.y * density});
+        break;
+    }
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        ui.push_back({.type = UiEventType::MouseButton,
+                      .button = event.button.button,
+                      .down = event.button.down});
+        break;
+    case SDL_EVENT_MOUSE_WHEEL:
+    {
+        // Telle quelle : SDL la donne déjà dans le sens que le joueur a choisi. Le défilement
+        // « naturel » d'un pavé tactile (SDL_MOUSEWHEEL_FLIPPED) y est compris ; le défaire
+        // ferait défiler l'UI à l'inverse de toutes les autres applications.
+        ui.push_back({.type = UiEventType::MouseWheel, .x = event.wheel.x, .y = event.wheel.y});
+        break;
+    }
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP:
+        ui.push_back({.type = UiEventType::Key,
+                      .keycode = event.key.key,
+                      .scancode = static_cast<std::uint16_t>(event.key.scancode),
+                      .down = event.key.down,
+                      .modifiers = {.ctrl = (event.key.mod & SDL_KMOD_CTRL) != 0,
+                                    .shift = (event.key.mod & SDL_KMOD_SHIFT) != 0,
+                                    .alt = (event.key.mod & SDL_KMOD_ALT) != 0,
+                                    .super = (event.key.mod & SDL_KMOD_GUI) != 0}});
+        break;
+    case SDL_EVENT_TEXT_INPUT:
+        events.text += event.text.text;
+        break;
+    case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+        if (event.window.windowID == windowId)
+        {
+            ui.push_back({.type = event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE
+                                      ? UiEventType::MouseLeft
+                                      : (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED
+                                             ? UiEventType::FocusGained
+                                             : UiEventType::FocusLost)});
+        }
+        break;
+    default:
+        break;
     }
 }
 

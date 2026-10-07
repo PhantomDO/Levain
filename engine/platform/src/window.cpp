@@ -43,8 +43,8 @@ std::optional<WindowEvent> translateEvent(const SDL_Event& event, SDL_WindowID w
         return WindowEvent{.type = WindowEventType::CloseRequested};
     }
 
-    // Le filtre sur l'identifiant servira quand l'éditeur ouvrira des fenêtres secondaires
-    // (viewports d'ImGui, M7.1) : fermer l'une d'elles ne doit pas quitter le moteur.
+    // Le filtre sur l'identifiant garde le moteur des fenêtres qu'il n'a pas ouvertes. Celles
+    // d'ImGui (ses viewports) ne sont pas utilisées : une fenêtre à la fois (ADR-0032).
     if (!isWindowEvent(event) || event.window.windowID != windowId)
     {
         return std::nullopt;
@@ -86,6 +86,7 @@ void appendEvent(Events& events, const SDL_Event& event, SDL_WindowID windowId)
         events.window.push_back(*translated);
     }
     appendInputEvent(events.input, event);
+    appendUiEvent(events, event, windowId);
 }
 
 /// SDL compte en millisecondes sur 32 bits, -1 pour « sans limite ». Une durée finie au-delà (24

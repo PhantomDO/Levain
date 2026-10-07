@@ -25,3 +25,19 @@ TEST_CASE("waitEvents rend la main à l'échéance quand aucun événement n'arr
     CHECK(elapsed >= 40ms); // a bien dormi, pas une attente nulle
     CHECK(elapsed < 5s);
 }
+
+TEST_CASE("ce qu'une interface demande à la fenêtre : l'échelle, le presse-papiers, la saisie")
+{
+    auto window = levain::platform::createWindow("Levain", 64, 64);
+    REQUIRE(window.has_value());
+    // Une échelle lisible, jamais nulle : une interface à l'échelle 0 serait invisible.
+    CHECK(levain::platform::displayScale(*window) >= 1.0f);
+    // Le texte du presse-papiers revient tel quel, accents compris.
+    levain::platform::setClipboardText("Lève-toi, renard");
+    CHECK(levain::platform::clipboardText() == "Lève-toi, renard");
+    // La saisie s'ouvre et se ferme sans erreur, sans clavier physique.
+    levain::platform::startTextInput(*window);
+    const levain::platform::Events events = levain::platform::pollEvents(*window);
+    CHECK(events.text.empty());
+    levain::platform::stopTextInput(*window);
+}

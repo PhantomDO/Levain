@@ -26,7 +26,7 @@ clavier, de la souris et des manettes, avec la résolution des noms de SDL dont 
 |---|---|
 | [`include/levain/platform/window.hpp`](include/levain/platform/window.hpp) | `createWindow`, `windowPixelSize`, `pollEvents`, `waitEvents`, `setWindowTitle` |
 | [`include/levain/platform/process.hpp`](include/levain/platform/process.hpp) | `runProcess` — lance un programme, attend sa fin, rend sa sortie (standard et erreur mêlées) et son code de retour |
-| [`include/levain/platform/input.hpp`](include/levain/platform/input.hpp) | `InputEvent` (appuis, axes, souris), `keyCodeFromName` et ses cousines, `setMouseCaptured`, `cursorPosition` (la souris en pixels de la swapchain, pour viser à l'écran) |
+| [`include/levain/platform/input.hpp`](include/levain/platform/input.hpp) | `InputEvent` (appuis, axes, souris), `keyCodeFromName` et ses cousines, `setMouseCaptured`, `cursorPosition` (la souris en pixels de la swapchain, pour viser à l'écran) ; pour une interface (ADR-0032) : `UiEvent`, `startTextInput`, `stopTextInput`, `clipboardText`, `setClipboardText`, `displayScale` |
 
 ## Trois choses à savoir sur l'input brut
 
@@ -43,6 +43,20 @@ que le temps d'une image. `engine/input` accumule l'un et remet l'autre à zéro
 rien à maintenir ici. Mais la table des boutons est restée celle d'une manette Xbox — `SDL_GetGamepadButtonFromString("south")`
 rend −1 alors que l'énumération s'appelle `SDL_GAMEPAD_BUTTON_SOUTH`. Les fichiers de liaisons écrivent donc
 `pad:a`, et un nom refusé fait échouer le chargement.
+
+## Ce qu'une interface demande en plus (ADR-0032)
+
+Le jeu lit des actions ; une interface (ImGui, `engine/ui`) a besoin d'autre chose, que `Events` donne à part :
+`ui`, une liste de `UiEvent`, et `text`, le texte tapé. Ce module ne sait rien d'ImGui.
+
+- **La touche selon la disposition du clavier** (`keycode`), en plus du scancode. Le jeu veut la position
+  physique d'une touche (ZQSD sur un AZERTY, WASD sur un QWERTY, la même place) ; une interface veut la lettre
+  qu'elle tape, pour que Ctrl+Z annule sur tous les claviers.
+- **Les répétitions d'une touche tenue** passent ici, sans dommage (ImGui écarte un appui répété et produit ses
+  propres répétitions), mais pas dans `InputEvent`, où une action ne doit partir qu'au vrai appui.
+- **Le texte n'arrive qu'entre `startTextInput` et `stopTextInput`.** C'est aussi ce qui ouvre le clavier d'un
+  téléphone.
+- **La position de la souris est en pixels de l'image**, densité comprise, comme `cursorPosition`.
 
 ## Trois choses à savoir sur les fenêtres
 

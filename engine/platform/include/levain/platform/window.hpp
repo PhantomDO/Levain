@@ -62,12 +62,15 @@ struct Window
 /// surface Vulkan n'y connaît pas sa propre taille, et c'est à l'application de la donner.
 [[nodiscard]] PixelSize windowPixelSize(const Window& window);
 
-/// Ce qu'une pompe d'événements a récolté : ce qui concerne la fenêtre, et ce qui vient des
-/// périphériques. Les deux sortent du même appel parce qu'ils sortent de la même file SDL.
+/// Ce qu'une pompe d'événements a récolté : ce qui concerne la fenêtre, ce qui vient des
+/// périphériques, et ce que demande une interface (ADR-0032). Tous sortent du même appel parce
+/// qu'ils sortent de la même file SDL.
 struct Events
 {
     std::vector<WindowEvent> window;
     std::vector<InputEvent> input;
+    std::vector<UiEvent> ui;
+    std::string text; ///< Le texte tapé, en UTF-8, entre `startTextInput` et `stopTextInput`.
 };
 
 /// Les événements arrivés depuis le dernier appel, sans attendre.
