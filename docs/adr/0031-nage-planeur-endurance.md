@@ -2,7 +2,8 @@
 
 - **Statut** : accepté le 2026-10-07, sur les réponses de Donnovan aux sondages du jour (le planeur, la jauge,
   la noyade, les animations, puis la noyade après un vol) ; relu par un subagent, dont la relecture a corrigé la
-  largeur du lac, la recharge au sol, la caméra dans l'eau et le retour à la rive après un vol
+  largeur du lac, la recharge au sol, la caméra dans l'eau et le retour à la rive après un vol ; précisé le
+  2026-10-07, à la clôture de M6.5 (la caméra qui coupe, son premier bras, `--glide`)
 - **Date** : 2026-10-07
 - **Milestone** : M6.5
 
@@ -217,6 +218,24 @@ marcherait au fond du lac, ne dépenserait rien, et ressortirait sur l'autre riv
 Le jeu, en CI, joue en plus la descente pendant quelques centaines de pas (`--glide`, qui scripte le saut et
 le second appui) ; l'étape lit dans le journal le nombre de pas en vol et de traits de la jauge, et échoue
 s'ils sont nuls.
+
+## Précisions du 2026-10-07 — clôture de M6.5
+
+Ce que l'implémentation (*Rando* #10 à #13) et sa relecture ont fixé, sans changer de décision :
+
+- **La caméra coupe quand le joueur est téléporté** (`targetJumped`) : après une noyade, la cible saute de
+  30 m en un pas. Interpolée, la caméra traverserait la vallée en une image ; au-delà de 5 m en un pas, la
+  glu remet son état précédent sur sa nouvelle pose.
+- **Le premier bras de la caméra se mesure sur la heightmap** (`heightmapArmCast`, dans le jeu) : la physique
+  ne crée le relief qu'au premier pas, et un sphere cast lancé au démarrage ne touche rien. Sur le versant du
+  promontoire, la caméra partait dans la roche (marge −0,301 m dès la première image). L'ADR-0030 le disait
+  déjà (« elle part du bout de son bras, contre la roche s'il y en a ») ; son scénario de CI, au pied d'un
+  versant, ne le montrait pas.
+- **Sans point sec, la noyade en cherche un** : un joueur posé dans l'eau au départ n'a jamais eu pied ;
+  `nearestShore` est appelé comme pour une entrée par les airs, sinon il flotterait sans fin à bout de forces.
+- **`--glide N`** compte en pas, un par image : il est refusé sans `--steps`, où une image sans pas effacerait
+  l'appui scripté avant qu'un pas le lise.
+- La noyade sur place prend **une minute** de nage : 60,0 s mesurées (`rando_tests -tc='*sur place*'`).
 
 ## Conséquences
 

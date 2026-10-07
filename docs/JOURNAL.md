@@ -27,8 +27,87 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 | 4 | 8,25 | **6,0** | **0,73** |
 | 4 (M4.6) | 3,5 | **4,5** | **1,29** |
 | 5 | 11,0 | **10,0** | **0,91** |
+| 6 | 9,65 | **11,25** | **1,17** |
 
 ---
+
+## 2026-10-07 — M6.5 — Clôture : le renard plane du promontoire, traverse le lac, et s'y noie ; fin de la phase 6
+
+- **Temps Donnovan : 1,0 h** (estimé 1,25 h), ratio 0,80. Le 07/10, Donnovan a donné « About 1h » depuis la
+  clôture de M6.4 : les sondages, la lecture des PR. Tout sur *Rando* #3. Mode autonome : deux sondages pour
+  l'ADR-0031 (le planeur, la jauge, la noyade, les animations, puis la noyade après un vol), un pour la phase 8
+  (Windows).
+- Sessions Claude Code : 1 (la même que M6.1 à M6.4)
+- Fait, en 1 PR dans le moteur (#306) et 4 dans le jeu (*Rando* #10 à #13, ferme *Rando* #3) :
+  - **l'ADR-0031** (#306) : un état à la fois décide de la vitesse du joueur (les *movement modes* d'Unreal),
+    le lac pour l'eau, la jauge en lignes de debug ; la relecture a corrigé la largeur du lac, la recharge en
+    l'air, deux tests qui ne prouvaient rien, la caméra dans l'eau, et posé une question tranchée par
+    Donnovan : après un vol, la noyade ramène sur la rive la plus proche de l'amerrissage ;
+  - **le plugin `traversal`** (*Rando* #10, #11) : marcher (la marche du moteur, telle quelle), planer
+    (second appui de saut en l'air), nager en surface, l'endurance et son épuisement, la noyade ;
+  - **la vallée sans rendu** (*Rando* #12) : le jeu et ses tests la partagent, et le critère se joue dans les
+    tests, sur la vraie collision, sans GPU ;
+  - **le jeu** (*Rando* #13) : la caméra allonge son bras à 6 m en vol, ne descend pas sous l'eau, coupe quand
+    le renard est téléporté ; la jauge près de sa tête ; `--glide` et une étape de CI.
+- Mesures :
+  - **critère de M6.5** (`rando_tests`, sur la vallée et sa collision, en CI) :
+    - descendre du promontoire en planant : 226,7 m en 38,0 s, jamais plus de 2,00 m/s de descente, 16 %
+      d'endurance à l'amerrissage ; sans le second appui, le même saut retombe à moins de 20 m ;
+    - traverser le lac : 48,3 s de nage, la jauge au plus bas à 0,20, les pieds jamais à plus de 0,45 m sous
+      l'eau, sans noyade ;
+    - se noyer si l'endurance s'épuise : en 60,0 s de nage sur place, retour à moins d'un mètre du dernier
+      point sec ; après le vol, retour à 30,1 m de l'amerrissage, sur la rive ouest ;
+  - le jeu complet (`rando --start 70,280 --walk 1,0 --glide 60 --steps 400`, en CI) : 319 images en vol, le
+    bras à 6,00 m, 10 240 traits de jauge, la caméra à 0,318 m au moins du relief ;
+  - le critère de M6.4, inchangé : 0,258 m, et −1,702 m sans collision ;
+  - le cache de vcpkg (*Rando* #9, Levain #305) : 26 paquets restaurés, 3 min au lieu de 25 à 37 par job ;
+  - tests de *Rando* : 34 cas, dont les 6 de la vallée en 4,9 s en Debug.
+- Décisions de Donnovan, par sondage : re-sauter en l'air pour planer ; la jauge près du renard ; la noyade
+  ramène sur la rive ; on garde le renard ; après un vol, la rive la plus proche ; les binaires Windows de M8.2
+  vérifiés sur son PC de travail.
+- Écarts et problèmes :
+  - **un défaut latent de M6.4** : la caméra partait dans la roche sur une pente, la physique ne créant le
+    relief qu'au premier pas. Le scénario de CI de M6.4, au pied d'un versant, ne pouvait pas le voir ; le
+    départ du promontoire l'a montré (marge −0,301 m). Corrigé dans *Rando* #13 (ADR-0031, précisions) ;
+  - trois PR dépassent la règle n°2, signalées : *Rando* #10 (522 lignes, dont 173 de tests), #13 (500) ;
+    #12 en a 392 ;
+  - le nombre de tests de *Rando* est compté par cas doctest : ctest n'en voit qu'un.
+- Prochaine étape : la phase 7, l'éditeur, en commençant par M7.1 (ImGui).
+
+## 2026-10-07 — Phase 6 — Clôture : physique et traversée
+
+| Milestone | Estimé | Passé |
+|---|---:|---:|
+| M6.1 Intégration Jolt | 1,75 h | 2,96 h |
+| M6.2 Colliders, requêtes, debug draw | 1,5 h | 2,54 h |
+| M6.3 Character controller | 1,65 h | 2,75 h |
+| M6.4 Caméra à la troisième personne | 3,5 h | 2,0 h |
+| M6.5 Nage, planeur et endurance | 1,25 h | 1,0 h |
+| **Phase 6** | **9,65 h** | **11,25 h** — ratio **1,17** |
+
+**Dans la fourchette 0,8–1,25 : aucun recalibrage.** M6.1 à M6.3 avaient pris 1,68 fois leur estimation ; M6.4
+(0,57) et M6.5 (0,80) ont compensé, le mode autonome laissant à Donnovan les sondages et la relecture. Le ratio
+cumulé des phases 0 à 6, (5,0 + 3,0 + 4,25 + 5,25 + 6,0 + 4,5 + 10,0 + 11,25) / (6,0 + 4,5 + 3,75 + 4,5 + 8,25
++ 3,5 + 11,0 + 9,65) = 49,25 / 51,15 = **0,96**, est aussi dans la fourchette. La fin visée reste le 16/05/2027.
+
+- L'étude de la phase, [E6](etudes/E6-physique.md), a été écrite en M6.3.
+- **La phase 8 est détaillée** : 16 issues, au total des estimations de la ROADMAP (8,25 h). Dans Levain, M8.1
+  (#307 à #309) et M8.3 (#310 à #312) ; dans *Rando*, M8.2 (*Rando* #14 à #23), avec son milestone. Phase et
+  estimation sur le board.
+
+### Ce que la phase 6 a appris
+
+- **Un scénario de CI ne voit que l'endroit où il joue.** La caméra de M6.4 partait dans la roche sur une
+  pente : son scénario, au pied d'un versant, ne pouvait pas le voir. Un second scénario, ailleurs, l'a montré
+  dès la première image.
+- **Un test doit prouver qu'il a fait ce qu'il dit.** Deux relectures ont trouvé des tests qui passaient sans
+  rien vérifier : un renard qui ne nagerait jamais aurait marché au fond du lac et traversé quand même. Chaque
+  test de la vallée vérifie maintenant ce qu'il a traversé, et le planeur a son témoin sans planeur.
+- **Le gameplay se teste sans GPU** : les tests de la vallée jouent des minutes de jeu en quelques secondes,
+  quand le jeu complet n'en rend que quelques centaines d'images sous lavapipe.
+- **Les corps physiques naissent au premier pas** : une requête lancée au démarrage ne voit rien, sans erreur.
+- **Le cache d'une CI se vérifie comme le code** : sans `restore-keys`, l'arrivée de Jolt a coûté 25 à 37 min
+  par job, et Donnovan l'a vu avant moi.
 
 ## 2026-10-06 — M6.4 — Clôture : *Rando* montre la vallée, et sa caméra ne traverse pas la roche
 
