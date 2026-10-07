@@ -24,6 +24,12 @@
     },
     "fastgltf",
     "glm",
+    {
+      "name": "imgui",
+      "features": [
+        "docking-experimental"
+      ]
+    },
     "joltphysics",
     "ktx",
     "meshoptimizer",

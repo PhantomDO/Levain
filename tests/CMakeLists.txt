@@ -40,6 +40,7 @@ set(nativeTests
     tangent_test.cpp
     process_test.cpp
     texture_test.cpp
+    ui_test.cpp
     water_test.cpp
     webgpu_test.cpp
     window_test.cpp)
@@ -70,8 +71,8 @@ else()
     add_executable(levain_tests doctest_main.cpp ${cpuTests} ${nativeTests})
     target_link_libraries(levain_tests PRIVATE
         levain::animation levain::app levain::assets levain::core levain::gpu levain::input levain::physics
-        levain::platform levain::render levain::scene plugin::character plugin::grass plugin::terrain plugin::water
-        doctest::doctest)
+        levain::platform levain::render levain::scene levain::ui plugin::character plugin::grass plugin::terrain
+        plugin::water doctest::doctest)
     # La scène du lac de la démo (sandbox/src/lake_shore.hpp), que terrain_test.cpp simule sans GPU.
     target_include_directories(levain_tests PRIVATE ${PROJECT_SOURCE_DIR}/sandbox/src)
     # Le WGSL produit par le build, que webgpu_test.cpp fait compiler au backend WebGPU.
@@ -167,6 +168,11 @@ target_link_libraries(levain_environment PRIVATE levain::gpu levain::platform le
 add_test(NAME gpu.environment.vulkan COMMAND levain_environment vulkan)
 set_tests_properties(gpu.environment.vulkan PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 add_test(NAME gpu.environment.webgpu COMMAND levain_environment webgpu)
+
+# ImGui reste dans ui/ et au-dessus, et SDL hors de ui/ (SPECS §7, ADR-0032).
+add_test(NAME deps.imgui-visibility
+         COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_imgui_visibility.cmake)
 
 # Un programme qui ne relie que levain::gpu (gpu_alone.cpp) : une dépendance manquante ou mal ordonnée
 # casse le build, comme elle casserait celui d'un jeu.
