@@ -31,6 +31,43 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-07 — M7.2 — L'ADR-0034, la réflexion des composants ; la CI et la boîte de dev sur Ubuntu 26.04
+
+- **Temps Donnovan : 3 h** depuis le « Environ 1 h » de M7.1 (ses réponses au sondage de fin de session) :
+  **0,5 h pour l'ADR-0034** (#252, estimé 0,25 h : le sondage et la lecture), et **2,5 h hors milestone** : la
+  migration vers Ubuntu 26.04 menée avec une autre session (#322, le sondage de l'ADR-0033, la boîte Arch
+  supprimée), *Rando* #25 et la clôture de M7.1 (#323). Le ratio de M7.2 se calcule à sa clôture.
+- Sessions Claude Code : 2 (celle-ci, reprise par passation ; `projects-fe`, qui a mené la migration)
+- Fait :
+  - **la fin de la migration** : #322 relue deux fois par un subagent et fusionnée après trois corrections de la
+    CI : `ktx` ne compilait plus (le GCC de la variante amd64v3 de l'image vise `x86-64-v3`, ADR-0033), la clé du
+    cache vcpkg ne suivait pas le compilateur, et LeakSanitizer voyait une fuite dans lavapipe (15 tests). Dix
+    caches que plus rien ne restaurait, supprimés. *Rando* #25, la même migration, relue puis fusionnée ;
+  - **la clôture de M7.1** (#323) : le tag `m7.1`, sa release avec les deux captures, le milestone fermé ;
+  - **l'[ADR-0034](adr/0034-reflexion-des-composants.md)** (#324) : un composant devient éditable par une ligne
+    dans le module qui le possède, ses champs lus dans la struct ; l'éditeur n'écrit que par `set`. Écrit par un
+    workflow : quatre études, avec des prototypes compilés (clang 23, GCC 15, em++, sous ASan et UBSan), trois
+    conceptions indépendantes, un juge, deux relectures adverses (39 points), puis condensé de 486 à 299 lignes.
+    Ce qui en est sorti est en commentaire de #253, #254, #255, #258 et de *Rando* #24 ; #254 est retitrée.
+- Mesures : aucune. Les chiffres de l'ADR-0034 sont indicatifs (règle n°6) : la PR du moteur versionnera ceux
+  qu'elle garde.
+- Décisions de Donnovan, par sondage : les champs lus dans la struct (1B) ; un refus de la physique écrit au
+  journal, sans assertion (5B, qui amende l'ADR-0026) ; **la hiérarchie et l'inspecteur dans la bibliothèque
+  éditeur, contre la recommandation** (6B) : l'ADR a été revu pour ce choix, puis relu.
+- Écarts et problèmes :
+  - l'ADR sorti du workflow faisait 486 lignes pour 0,25 h de lecture, et son sondage annonçait « 120 lignes »
+    pour un lecteur qui en compte ≈ 220, plus une échelle de 190 : condensé, et le sondage corrigé, avant de les
+    montrer ;
+  - la passation réservait « 0013 » à l'ADR de M7.2, numéro déjà pris par les binding sets : c'est 0034 ;
+  - les milestones M7.2 à M7.6 gardaient sur GitHub des estimations anciennes (2,0, 2,0, 2,5, 1,5 h) : alignées
+    sur la ROADMAP ;
+  - la session tourne dans `dev-ubuntu` : l'enveloppe `distrobox enter` de la passation y échoue ;
+  - le worktree de la clôture pointait vers `/var/home`, le chemin de l'hôte : réparé (`git worktree repair`),
+    puis retiré ; six branches locales `m7.1/*`, versions d'avant relecture, gardées ;
+  - la CI de *Rando* fige encore LLVM 22 et un contrôle de version trop lâche : noté sur *Rando* #24, qui
+    touchera sa CI.
+- Prochaine étape : la PR des refus de la physique (5B), la première des cinq PR de M7.2.
+
 ## 2026-10-07 — M7.1 — Clôture : ImGui dans le moteur, et les panneaux de debug autour de l'image
 
 - **Temps Donnovan : 1,0 h** (estimé 1,1 h : 1,0 pour #251, 0,1 pour #298, ajoutée au milestone le 06/10),
