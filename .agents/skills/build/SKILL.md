@@ -166,3 +166,4 @@ puis déclarer `http://127.0.0.1:47380/mcp` auprès de l'agent.
 
 `.github/workflows/ci.yml` : une matrice `linux-debug`, `linux-release`, `linux-asan`, chacun compilé, testé et
 lancé 3 s ; format et clang-tidy sur `linux-debug`. Les trois sont des checks requis pour fusionner sur `main`.
+`linux-release` compile aussi le build profilé (`-DLEVAIN_PROFILING=ON`, sandbox et tests), sans le lancer (#298).

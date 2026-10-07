@@ -500,6 +500,29 @@ jobs:
             exit 1
           fi
 
+      # Le build profilé (#298) : les macros de profilage n'y sont pas vides (`LEVAIN_PROFILE_SCOPE_TEXT`,
+      # `LEVAIN_PROFILE_PLOT`, le bloc de `plotStageTimes`), et aucun autre build ne les compile. Sans
+      # lui, une erreur n'y paraîtrait qu'au premier profilage, en local. Le sandbox et les tests
+      # seulement, dans un dossier à part, avec les paquets vcpkg déjà installés. Les tests ne sont pas
+      # lancés, mais le binaire des tests démarre une fois : doctest y liste ses cas après le lien, et son
+      # client Tracy sort sans attendre de profileur. Les symboles de Tracy prouvent que
+      # l'instrumentation y est : sans eux, l'étape compilerait un build ordinaire et resterait verte
+      # (règle n°7).
+      - name: Compiler le build profilé
+        if: matrix.preset == 'linux-release'
+        run: |
+          set -euo pipefail
+          cmake --preset linux-release -B build/prof -DLEVAIN_PROFILING=ON \
+            -DVCPKG_INSTALLED_DIR="$PWD/build/linux-release/vcpkg_installed"
+          cmake --build build/prof --target levain_sandbox levain_tests
+          # Les symboles lus d'abord, puis cherchés : `nm | grep -q` échouerait sous pipefail, grep
+          # fermant le tube avant la fin de nm (build/GOTCHA.md).
+          for binary in sandbox/levain_sandbox tests/levain_tests; do
+            symbols=$(nm -C build/prof/$binary)
+            grep -q "tracy::" <<< "$symbols" \
+              || { echo "::error::$binary sans Tracy : le build profilé ne profile rien"; exit 1; }
+          done
+
       # Format et analyse statique une seule fois : ce sont des propriétés des sources, pas
       # de la configuration de build.
       - name: Format
