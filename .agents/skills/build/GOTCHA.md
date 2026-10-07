@@ -99,6 +99,9 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   `libvulkan_lvp.so` pour lancer les tests de fumée comme la CI (`VK_DRIVER_FILES` seul pour un build sans
   sanitizer). Vérifié dans `dev-ubuntu` le 2026-10-07 (`linux-asan`, `ctest`) : sans la parade, 25 tests sur
   285 échouent sur la même fuite de 128 octets ; avec l'un ou l'autre pilote préchargé, 285 sur 285 passent.
+  La CI `ubuntu-26.04` y tombe aussi (15 tests, des fuites indirectes de 2 × 56 octets nées d'un thread du
+  pilote) : `ci.yml` pose `VK_DRIVER_FILES` sur lavapipe pour tous les presets, et `LD_PRELOAD` sur les
+  étapes Vulkan de `linux-asan`.
 
 ## Jolt n'a ses assertions qu'en Debug (2026-10-04, corrigé le 2026-10-05)
 

@@ -49,6 +49,14 @@ jobs:
       # runner, le programme s'arrêterait en erreur au lieu de sauter la détection en silence.
       ASAN_OPTIONS: detect_leaks=1
       UBSAN_OPTIONS: print_stacktrace=1
+      # Le runner n'a pas de GPU : lavapipe est le seul pilote utile. Désigné seul, il évite au loader
+      # d'énumérer puis de décharger les sept autres pilotes de mesa-vulkan-drivers (Ubuntu 26.04).
+      VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
+      # Sous ASan, le pilote est aussi préchargé : déchargé par le loader avant le rapport de
+      # LeakSanitizer, sa mémoire paraîtrait perdue (build/GOTCHA.md, « LeakSanitizer et lavapipe
+      # installé à côté de RADV »). Posé seulement sur les étapes qui lancent du Vulkan : cmake, ninja
+      # et clang n'ont pas à le charger.
+      ASAN_VK_PRELOAD: ${{ matrix.preset == 'linux-asan' && '/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so' || '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -181,6 +189,8 @@ jobs:
       # --timeout 120 : un test bloqué échoue en 2 min plutôt qu'au délai par défaut de ctest (1 500 s).
       # Le plus lent mesure 5,75 s (smoke.triangle, démarrage de lavapipe), qui varie de 1 à plus de 10 s.
       - name: Tests
+        env:
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: ctest --test-dir build/${{ matrix.preset }} --output-on-failure --timeout 120
 
       # Les assets de test tiers (tools/assets.lock), jamais versionnés : téléchargés et vérifiés
@@ -218,6 +228,7 @@ jobs:
       - name: Lancer le sandbox
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           timeout --foreground --preserve-status -k 10 60 \
@@ -237,6 +248,7 @@ jobs:
         if: matrix.preset == 'linux-release'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
           SANDBOX: ./build/${{ matrix.preset }}/sandbox/levain_sandbox
         run: ./tools/texture-hot-reload.sh
 
@@ -250,6 +262,7 @@ jobs:
         if: matrix.preset == 'linux-debug'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           timeout --foreground --preserve-status -k 10 60 \
@@ -294,6 +307,7 @@ jobs:
         if: matrix.preset == 'linux-debug'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           for gpu in vulkan webgpu; do
@@ -339,6 +353,7 @@ jobs:
       - name: Lancer le sandbox avec la physique
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           for gpu in vulkan webgpu; do
@@ -361,6 +376,7 @@ jobs:
         if: matrix.preset == 'linux-debug'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           timeout --foreground --preserve-status -k 10 120 \
@@ -387,6 +403,7 @@ jobs:
       - name: Lancer le sandbox avec le personnage
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           timeout --foreground --preserve-status -k 10 300 \
@@ -411,6 +428,7 @@ jobs:
         if: matrix.preset == 'linux-debug'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           for gpu in vulkan webgpu; do
@@ -439,6 +457,7 @@ jobs:
         if: matrix.preset == 'linux-debug'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           for gpu in vulkan webgpu; do
@@ -498,6 +517,7 @@ jobs:
         if: matrix.preset == 'linux-release'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           timeout --foreground --preserve-status -k 10 120 \
