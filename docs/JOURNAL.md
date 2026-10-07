@@ -31,6 +31,81 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-07 — M7.1 — Clôture : ImGui dans le moteur, et les panneaux de debug autour de l'image
+
+- **Temps Donnovan : 1,0 h** (estimé 1,1 h : 1,0 pour #251, 0,1 pour #298, ajoutée au milestone le 06/10),
+  ratio 0,91. Le 07/10, Donnovan a donné « Environ 1 h » depuis la clôture de M6.5 : le sondage de l'ADR-0032,
+  la lecture des PR. Mode autonome : un sondage pour l'ADR (le module, l'input, les fenêtres, le calque web) ;
+  l'ADR, comme chaque PR, relu par un subagent. Le sondage de l'ADR-0033 (#322, hors milestone), venu après,
+  n'est pas compté ici.
+- Sessions Claude Code : 2 (celle de M6.5, puis sa reprise après une passation, le 07/10)
+- Fait, en 8 PR (#314 à #321, ferme #251 et #298) :
+  - **l'ADR-0032** (#314) : Dear ImGui 1.92 dans un module `ui` du moteur, sans aucun de ses backends ; le rendu
+    par NVRHI, l'input par `platform`, des fenêtres ancrées ; `App` possède la capture de la souris ;
+  - **`platform`** (#315) : ce qu'une interface demande en plus du jeu, la position et la molette de la souris,
+    les touches selon la disposition du clavier, le texte tapé, le presse-papiers, l'échelle de l'écran ;
+  - **le module `ui`** : son contexte (#318) ; son rendu (#316), adapté de celui de Donut, avec les textures
+    d'ImGui 1.92, qui rastérise ses polices à la taille de l'écran ; son input (#317), la table des touches
+    reprise du backend SDL3 d'ImGui ;
+  - **la boucle** (#319) : une image d'UI à chaque image, dessinée après le tonemapping ; ce que l'UI prend de
+    l'input, le jeu ne le voit pas ; `--ui on|off` ; le coût de l'UI au bilan ;
+  - **les panneaux** (#320) : Image, Passes et Scène, ancrés autour de l'image, que F1 montre et cache ;
+    vérifiés en CI (Vulkan et WebGPU) et dans la page web ;
+  - **le build profilé en CI** (#321) : `linux-release` compile une fois le sandbox et les tests avec
+    `LEVAIN_PROFILING=ON`, et exige les symboles de Tracy.
+- Mesures :
+  - **critère de M7.1** (Release, machine de référence, les trois panneaux ouverts,
+    `levain_sandbox --view hike --ui on --seconds 10`, trois lancements, distrobox Arch et Mesa 26.2.4) : le
+    temps CPU de l'UI à **0,066 à 0,068 ms** en moyenne (0,78 au pire), son temps GPU à **0,028 à 0,029 ms**
+    (0,045 au pire), pour 0,5 ms visées en moyenne. Le temps CPU est la somme des tranches de l'UI (l'input,
+    `NewFrame`, les fenêtres, `Render`, sa passe), pas l'image entière ;
+  - Debug, validation active (l'étape de CI « L'interface », en local sur RADV) : 236 commandes dessinées sous
+    Vulkan comme sous WebGPU, 0,030 ms de GPU sous Vulkan, « non mesuré » sous WebGPU, zéro erreur ;
+  - la couleur relue (`levain_ui_gpu`) : (200, 100, 50) exacte dans une cible sRGB et UNORM, sous Vulkan et
+    Dawn ; 72 niveaux d'écart si la linéarisation est coupée à la main ;
+  - la page web (`tools/web-smoke.sh`, Firefox 157, WebGPU) : « interface : 0,20 ms de CPU par image » ;
+  - les captures sans `--ui` : identiques à l'octet avant et après (`--capture`) ;
+  - le build profilé en CI (run 37610645809 de #321, `gh run view`) : 3 min 17 s de plus pour `linux-release`
+    (11 min 26 s), la durée de la CI inchangée (`linux-debug`, le plus long, 19 min 50 s) ; 488 symboles
+    `tracy::` dans le sandbox comme dans les tests, 0 dans le build ordinaire ;
+  - tests : 285 Debug, 289 Release, 285 ASan, 172 web ; format et tidy.
+- Décisions de Donnovan, par sondage : un module `ui` dans le moteur ; `platform` s'enrichit et `ui` traduit ;
+  plusieurs fenêtres ancrées ; on garde le calque HTML de la page web à côté des panneaux ; hors milestone, la
+  cible `x86-64` des ports vcpkg (ADR-0033).
+- Écarts et problèmes :
+  - trois PR dépassent la règle n°2, signalées : le rendu (#316, 807 lignes : le renderer de Donut et son test
+    GPU), l'input (#317, 469 : la table des touches) et la boucle (#319, 489) ;
+  - la relecture a trouvé, entre autres : un nombre impair d'index faisait lire 2 octets après les données, et
+    écrire au-delà d'un buffer juste plein (sous Vulkan, NVRHI arrondit ses écritures à 4 octets) ; dans le
+    navigateur, une touche relâchée sous Maj restait enfoncée pour ImGui (son keycode change) ; la molette
+    retournée deux fois ; le temps CPU de l'UI reporté sur l'image suivante quand une image n'est pas
+    présentée ; une assertion sur la taille de l'image, fausse le temps d'un redimensionnement sous X11 ; un
+    contrôle de la page web qui ne pouvait pas échouer ; une courbe GPU à 0 sous WebGPU. Tous corrigés avant la
+    fusion ;
+  - une relecture interrompue par la limite de session du subagent, relancée à la réinitialisation ;
+  - ImGui étale les événements sur plusieurs images (`ConfigInputTrickleEventQueue`) : ses tests en jouent
+    quatre (`framesWith`, `tests/ui_test.cpp`) ;
+  - `nm | grep -q` peut échouer sous `pipefail` quand la sortie dépasse le tampon du tube, 64 Kio
+    (build/GOTCHA.md) ;
+  - l'issue #251 parlait d'un module `engine/editor` : l'ADR-0032 a choisi `engine/ui`, l'éditeur viendra
+    au-dessus ;
+  - *Rando* doit, à sa prochaine montée de version du moteur, ajouter `imgui[docking-experimental]` à son
+    `vcpkg.json` et poser `app.mouseCaptureWanted` au lieu de capturer la souris lui-même (*Rando* #24,
+    0,1 h : M8.2 passe de 6,0 à 6,1 h) ;
+  - la synthèse de la ROADMAP montrait encore la phase 6 à son estimation (9,65 h) : oubli de la clôture #313,
+    corrigé ici (11,25 h réelles) ;
+  - pendant la clôture, la boîte de dev et la CI sont passées à Ubuntu 26.04 (#322, menée par une autre
+    session) : l'image du runner active la variante amd64v3 des paquets d'Ubuntu, dont le GCC vise `x86-64-v3`
+    par défaut, et le code SSE de basisu (dans `ktx`) refuse alors de compiler.
+    L'[ADR-0033](adr/0033-cible-processeur-x86-64.md) fixe la cible des ports vcpkg à `-march=x86-64`, choix de
+    Donnovan par sondage ; vcpkg recompile tout une fois. Ce n'est pas le plancher du jeu : Jolt impose AVX2 et
+    FMA à `levain_physics` (`x86-64-v3`), ce que le sondage taisait, corrigé dans l'ADR ;
+  - sur 26.04, LeakSanitizer a fait échouer 15 tests GPU en CI : le faux positif d'un pilote que le loader
+    Vulkan décharge avant le rapport (build/GOTCHA.md). Parade : lavapipe seul pour les trois presets, préchargé
+    sous ASan sur les étapes qui lancent du Vulkan ; aucun sanitizer coupé.
+- Prochaine étape : M7.2, la réflexion des composants et l'inspecteur, en commençant par son ADR (l'addon meta
+  de flecs).
+
 ## 2026-10-07 — M6.5 — Clôture : le renard plane du promontoire, traverse le lac, et s'y noie ; fin de la phase 6
 
 - **Temps Donnovan : 1,0 h** (estimé 1,25 h), ratio 0,80. Le 07/10, Donnovan a donné « About 1h » depuis la

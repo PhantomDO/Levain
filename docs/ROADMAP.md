@@ -1,6 +1,12 @@
 # Roadmap v1
 
-> Version 0.12 — 06/10/2026 — statut : **validé par Donnovan** (sondage du 06/10)
+> Version 0.13 — 07/10/2026 — statut : **validé par Donnovan** (sondage du 06/10) ; la v0.13, comptable, à relire
+>
+> v0.13 : **clôture de M7.1**. La phase 6 passe à son temps réel dans la synthèse (11,25 h) et reçoit sa
+> section au recalibrage (ratio 1,17), deux oublis de la clôture de la phase 6 (#313) ; M7.1 compte #298
+> (1,0 → **1,1 h**), M8.2 compte *Rando* #24, la montée du moteur après M7.1 (6,0 → **6,1 h**). Total :
+> **63,4 h → 65,2 h** ; échéances inchangées. Au tableau des ADR : l'ADR-0033, et les vrais numéros de ceux
+> de M2.1, M3.3 et M4.2 ; celui de M7.2 n'a plus de numéro réservé (0013 est pris).
 >
 > v0.12 : **le module `app` avant la caméra** ([ADR-0029](adr/0029-module-app.md)), choisi par Donnovan : *Rando*
 > n'affichait qu'un ciel bleu, et la boucle, les modèles et la page web vivaient dans le sandbox. Ils passent dans un
@@ -73,15 +79,15 @@
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
 | 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
 | 5 | Rendu PBR et monde | 10,0 (réel, 11,0 estimées) | 13 | fini le 03/10/2026 |
-| 6 | Physique et traversée | 9,65 | 6 | 28/02/2027 |
-| 7 | Éditeur | 7,5 | 8 | 04/04/2027 |
-| 8 | Audio et le jeu | 8,25 | 8 | 16/05/2027 |
-| **Total** | | **63,4** | **65** | |
+| 6 | Physique et traversée | 11,25 (réel, 9,65 estimées) | 6 | fini le 07/10/2026 |
+| 7 | Éditeur | 7,6 | 8 | 04/04/2027 |
+| 8 | Audio et le jeu | 8,35 | 8 | 16/05/2027 |
+| **Total** | | **65,2** | **65** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante après la phase 5 (25,4 h) selon le rythme : **2 h/sem. → 13 semaines** (début janvier 2027) ·
-**1,5 h/sem. → 17 semaines** (fin janvier 2027) · **1 h/sem. → 26 semaines** (début avril 2027).
+Durée restante après la phase 6 (15,95 h) selon le rythme : **2 h/sem. → 8 semaines** (début décembre 2026) ·
+**1,5 h/sem. → 11 semaines** (fin décembre 2026) · **1 h/sem. → 16 semaines** (fin janvier 2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 09/05/2027.
@@ -361,7 +367,7 @@ pourquoi c'est presque toujours une bibliothèque.
 
 | Milestone | Heures D. | Sessions | Échéance |
 |---|---:|---:|---|
-| M7.1 ImGui et panneaux de debug | 1,0 | 1 | 07/03/2027 |
+| M7.1 ImGui et panneaux de debug | 1,0 (réel, 1,1 estimées) | 1 | fini le 07/10/2026 |
 | M7.2 Réflexion et inspecteur | 1,25 | 1 | 14/03/2027 |
 | M7.3 Sérialisation et undo/redo | 1,25 | 2 | 21/03/2027 |
 | M7.4 Gizmos et picking | 1,75 | 2 | 28/03/2027 |
@@ -399,7 +405,7 @@ de flecs.
 | Milestone | Heures D. | Sessions | Échéance |
 |---|---:|---:|---|
 | M8.1 Audio | 1,0 | 1 | 11/04/2027 |
-| M8.2 Le jeu (vertical slice) | 6,0 | 6 | 09/05/2027 |
+| M8.2 Le jeu (vertical slice) | 6,1 | 6 | 09/05/2027 |
 | M8.3 Bilan v1 | 1,25 | 1 | 16/05/2027 |
 
 **M8.1 — Audio.** miniaudio, composants AudioSource et AudioListener, spatialisation 3D.
@@ -434,9 +440,9 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | ADR | Sujet | Milestone |
 |---|---|---|
 | 0008 | Gestion d'erreurs (exceptions ou codes de retour) | M0.3 |
-| 0009 | Stratégie de binding (binding sets ou bindless) | M2.1 |
-| 0010 | Boucle à pas fixe et interpolation | M3.3 |
-| 0011 | Identifiants d'assets et format `.meta` | M4.2 |
+| 0013 | Stratégie de binding (binding sets ou bindless) | M2.1 |
+| 0016 | Boucle à pas fixe et interpolation | M3.3 |
+| 0019 | Identifiants d'assets et format `.meta` | M4.2 |
 | 0024 | Forward ou forward+ (forward+ en clusters) | M5.1 |
 | 0025 | Des passes de rendu venues d'un plugin (registre par étape, éclairage partagé) | M5.6 |
 | 0026 | Intégrer Jolt (Collider et RigidBody, autorité de Jolt, phases de simulation, couches fixes) | M6.1 |
@@ -446,7 +452,8 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0030 | La caméra à la troisième personne de *Rando* (sphere cast, retour amorti, recentrage) | M6.4 |
 | 0031 | La nage, le planeur et l'endurance de *Rando* (un état à la fois, le lac pour l'eau, la jauge en lignes de debug) | M6.5 |
 | 0032 | Dear ImGui dans le moteur : le module `ui`, l'input par `platform`, le rendu par NVRHI, des fenêtres ancrées | M7.1 |
-| 0013 | Réflexion des composants (addon meta de flecs) | M7.2 |
+| 0033 | La cible processeur des dépendances : `-march=x86-64` dans le triplet vcpkg (CI sur Ubuntu 26.04) | M7.1 |
+| à numéroter | Réflexion des composants (addon meta de flecs) | M7.2 |
 
 ## Numérotation des ADR
 
@@ -467,6 +474,21 @@ dans le journal, puis :
 décisions en font partie (voir la définition des « Heures Donnovan » plus haut). La phase 0 l'a appris à ses
 dépens — mesurée d'abord à 3,0 h en ne comptant que les relectures, contre **4,9 h réelles**. Le ratio erroné de
 0,50 aurait amputé la roadmap de 30 % sans raison.
+
+### Phase 6 — ratio 1,17, aucun recalibrage
+
+| Milestone | Estimé | Passé |
+|---|---:|---:|
+| M6.1 Intégration Jolt | 1,75 h | 2,96 h |
+| M6.2 Colliders, requêtes, debug draw | 1,5 h | 2,54 h |
+| M6.3 Character controller | 1,65 h | 2,75 h |
+| M6.4 Caméra à la troisième personne | 3,5 h | 2,0 h |
+| M6.5 Nage, planeur et endurance | 1,25 h | 1,0 h |
+| **Phase 6** | **9,65 h** | **11,25 h** — ratio **1,17** |
+
+Dans la fourchette : rien à changer. M6.1 à M6.3 avaient pris 1,68 fois leur estimation ; M6.4 (0,57) et M6.5
+(0,80) ont compensé, le mode autonome laissant à Donnovan les sondages et la relecture. Le ratio cumulé des
+phases 0 à 6, 49,25 / 51,15 = **0,96**, est aussi dans la fourchette (détail au journal, clôture de la phase 6).
 
 ### Phase 5 — ratio 0,91, aucun recalibrage
 
