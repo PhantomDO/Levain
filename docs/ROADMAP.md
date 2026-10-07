@@ -326,7 +326,7 @@ profondeur) ; de l'herbe dense instanciée sur GPU, répartie par une carte de d
 | M6.2 Colliders, requêtes, debug draw | 2,54 (réel, 1,5 estimées) | 1 | fini le 05/10/2026 |
 | M6.3 Character controller | 2,75 (réel, 1,65 estimées) | 1 | fini le 06/10/2026 |
 | M6.4 Caméra à la troisième personne | 2 (réel, 3,5 estimées) | 1 | fini le 06/10/2026 |
-| M6.5 Nage, planeur et endurance | 1,25 | 1 | 28/02/2027 |
+| M6.5 Nage, planeur et endurance | 1,0 (réel, 1,25 estimées) | 1 | fini le 07/10/2026 |
 
 **M6.1 — Intégration Jolt.** Monde physique, corps statiques et dynamiques, synchronisation flecs ↔ Jolt au pas
 fixe.
@@ -407,7 +407,9 @@ de flecs.
 **M8.2 — Le jeu (vertical slice).** Le jeu choisi en M3.5 ([JEU.md](https://github.com/PhantomDO/Rando/blob/main/docs/JEU.md)), dans son propre dépôt, fait
 uniquement avec le moteur et l'éditeur. Il comprend le gameplay de santé (cœurs, pièges, pommes, points de
 contrôle) et les énigmes câblées par composants.
-*Critères* : 5 à 10 minutes de jeu ; binaires Windows et Linux produits par la CI et publiés en Release.
+*Critères* : 5 à 10 minutes de jeu ; binaires Windows et Linux produits par la CI et publiés en Release, avec
+la page web. Windows n'a pas de machine de référence (ADR-0011) : Donnovan lance le binaire sur son PC de
+travail (sondage du 07/10/2026).
 
 **M8.3 — Bilan v1.** Mesures finales, rétrospective estimé vs réel, roadmap v2.
 
