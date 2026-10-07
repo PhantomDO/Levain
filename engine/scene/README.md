@@ -57,6 +57,7 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/fixed_step.hpp`](include/levain/scene/fixed_step.hpp) | `FixedStep` et `planSteps` — l'accumulateur et son plafond, testables sans monde |
 | [`include/levain/scene/camera_control.hpp`](include/levain/scene/camera_control.hpp) | La caméra libre : `FpsController`, `FpsInput`, `applyFpsInput`, et les pièges nommés `normalizeOrZero`, `clampPitch`, `horizontalBasisFrom` |
 | [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` |
+| [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : les champs d'un agrégat, leur nombre, leurs noms et leurs décalages (`FieldCount`, `fieldName`, `offsetInProbe`) |
 
 ## Trois notions de flecs
 
@@ -91,6 +92,22 @@ L'explorer affiche des champs, pas des octets, grâce à la **réflexion** (addo
 champ de chaque composant par son type et son décalage. Le JSON de l'explorer, et plus tard celui des scènes
 sauvegardées (phase 7), en dépendent. Vérification : `tools/explorer-check.sh`.
 
+## La réflexion des composants
+
+Les champs d'un composant sont lus dans sa struct, un agrégat de 32 champs au plus (ADR-0034). L'échelle de
+liaisons structurées (`detail/field_ladder.inc`) est écrite par `tools/generate_field_ladder.py`, que le test
+`scene.field-ladder` relance.
+
+| Piège | Son nom |
+|---|---|
+| Le nom d'un champ, lu dans le `__PRETTY_FUNCTION__` d'une fonction instanciée sur son adresse ; un autre format (MSVC) | `fieldName`, refusé à la compilation par `isIdentifier` |
+| L'objet `extern` jamais défini de Boost.PFR, que `-Wundefined-var-template` signale | `FakeObject`, une union jamais construite |
+| Le décalage d'un champ calculé depuis un pointeur nul (la surcharge `member(nom, &T::champ)` de flecs) | `offsetInProbe`, une différence d'adresses dans un vrai `T` |
+
+Ailleurs : Unreal lit les `UPROPERTY` par son Unreal Header Tool, un générateur de code ; Unity sérialise les champs
+C# par la réflexion du langage, et `[Range]` borne l'inspecteur ; Godot les décrit à la main (`ADD_PROPERTY` dans
+`_bind_methods`), comme nos feuilles glm (**documenté**, sources dans l'ADR-0034).
+
 ## Pièges connus (flecs 4.1.6)
 
 | Piège | Parade |
@@ -98,7 +115,7 @@ sauvegardées (phase 7), en dépendent. Vérification : `tools/explorer-check.sh
 | `b.set(a.get<T>())` : la référence rendue par `get` pointe dans la table de `a` ; si `b` rejoint la même table, l'ajout la réalloue, et `set` lit de la mémoire libérée. Invisible en Debug, trouvé par ASan (M4.2) | Copier la valeur dans une variable locale avant le `set` |
 | Un composant avec un hook `on_replace` (le `MeshRef` d'`assets`) interdit `get_mut`, `ensure`, `emplace`… et `entity.clone()`, qui passe par `get_mut` : assertion de flecs | Poser et copier par `set` ; partager par un prefab (`IsA`) plutôt que cloner |
 | `member<T>(nom, 1, décalage)` fait un **tableau** d'un élément, sérialisé `"x":[2.5]` | `ScalarMember` (0) : c'est 0 qui veut dire scalaire |
-| La surcharge `member(nom, &Type::champ)` calcule son décalage en déréférençant un pointeur nul | `offsetof`, que UBSan ne signale pas |
+| La surcharge `member(nom, &Type::champ)` calcule son décalage en déréférençant un pointeur nul | `offsetof` pour une description à la main, `offsetInProbe` pour la réflexion |
 | `EcsRest::ipaddr` : flecs en prend la propriété et le **libère** à la destruction du monde | `ecs_os_strdup` ; une chaîne statique finissait en « double free » |
 | `group_by` **ne trie pas** les groupes : il les parcourt dans l'ordre inverse de leur création, donc un petit-enfant avant son parent | ajouter `query_flags(EcsQueryGroupByOrdered)` ; un test construit une hiérarchie dans le désordre |
 | Une requête `(ChildOf, parent)` **combinée à un composant** ne se résout pas table par table quand la hiérarchie est dans `flecs::Parent` : 212 µs pour 10 000 cubes, contre 8 | filtrer autrement (un tag, comme `Cube` dans le sandbox), ou interroger `flecs::Parent` |
