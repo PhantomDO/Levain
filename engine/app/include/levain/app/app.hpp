@@ -20,6 +20,7 @@
 
 #include "levain/app/camera.hpp"
 #include "levain/app/models.hpp"
+#include "levain/app/ui_layer.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/gltf.hpp"
 #include "levain/assets/registry.hpp"
@@ -88,6 +89,9 @@ struct AppSettings
     std::optional<glm::vec3> sunDirection; ///< `--sun x,y,z` : un soleil blanc d'intensité 1.
     float maxAnisotropy = 16.0f;           ///< `--anisotropy N` : le filtrage des modèles.
     render::TonemapSettings tonemap;       ///< `--exposure N`, `--tonemap clip|aces|agx|neutral`.
+    /// `--ui on|off` : les panneaux de debug ouverts dès le départ, pour la CI et les captures.
+    /// F1 les ouvre et les ferme (ADR-0032).
+    bool showUiPanels = false;
 };
 
 /// Ce que `parseCommonOption` a fait d'une option.
@@ -112,7 +116,7 @@ enum class OptionUse : std::uint8_t
 inline constexpr std::string_view CommonOptionsUsage =
     "[--seconds N] [--steps N] [--time secondes] [--capture fichier.png] [--gpu vulkan|webgpu] "
     "[--sky fichier.hdr|none] [--sun x,y,z] [--exposure N] [--tonemap clip|aces|agx|neutral] "
-    "[--anisotropy N]";
+    "[--anisotropy N] [--ui on|off]";
 
 struct App;
 
@@ -140,6 +144,9 @@ struct FrameHooks
     /// Le mouvement que jouent les modèles qui ont une locomotion (`loadModel`). Sans, ils restent
     /// au repos.
     MotionOf motionOf;
+    /// Après les pas de simulation, entre `ImGui::NewFrame` et `ImGui::Render` : les fenêtres
+    /// ImGui du programme (ADR-0032), son HUD comme ses panneaux.
+    std::function<void(App&)> ui{};
 };
 
 /// Ce que la boucle anime, et que le programme lit ou remplit. Ses champs ne bougent pas en
@@ -195,6 +202,16 @@ struct App
     render::GpuTimer frameTimer;     ///< Le temps GPU d'une image entière.
     render::GpuTimeAverage totalGpu; ///< Depuis le début de la boucle, journalisé à la fin.
     int frameCount = 0;
+
+    /// **`App` possède la capture de la souris** (ADR-0032) : le programme pose ce qu'il veut,
+    /// et la boucle seule capture, sauf quand les panneaux de debug sont ouverts. Le programme lit
+    /// l'état réel dans `mouseCaptured`, celui de la fin de l'image précédente : la boucle capture
+    /// après `FrameHooks::frame`.
+    bool mouseCaptureWanted = false;
+    bool mouseCaptured = false;
+    /// ImGui et ses panneaux. Avant les points d'accroche, donc détruite après eux, et avec
+    /// `App`, avant le device dont elle tient des ressources (ADR-0029).
+    UiLayer ui;
 
     /// Le dernier champ, donc le premier détruit : l'état du programme part avant le reste.
     FrameHooks hooks;

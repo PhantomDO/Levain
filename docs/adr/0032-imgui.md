@@ -86,7 +86,8 @@ ImGui 1.92 rastérise ses polices **à la demande**, à la taille voulue : c'est
 - `WantDestroy` la libère, **avec son binding set**. Le cache de Donut, indexé par texture et jamais vidé,
   garderait sinon chaque atlas en vie.
 
-À l'arrêt, `destroyUiTextures` libère celles qui restent, avant le device. Le chemin ancien de Donut
+À l'arrêt, la passe part avant le contexte et avant le device, ses textures avec elle ; `destroyUiTextures`
+sert à qui détruit la passe en gardant le contexte (un test, une passe recréée). Le chemin ancien de Donut
 (`GetTexDataAsRGBA32`, un atlas cuit une fois) figerait les tailles de police.
 
 **La police** est celle d'ImGui, ProggyClean, rastérisée à la taille de l'écran : nette mais carrée, et limitée
@@ -121,7 +122,7 @@ Dans `runFrame` :
 2. `feedInput` : les événements à ImGui ;
 3. `NewFrame` : c'est lui qui traite ces événements, et après lui seulement `WantCaptureMouse` et
    `WantCaptureKeyboard` sont à jour ;
-4. le filtre `uiTakesInput` (plus bas) ;
+4. le filtre `gameInputOf` (plus bas) ;
 5. `input::updateInput`, puis `hooks.frame`, puis les pas de simulation ;
 6. `hooks.ui` et les panneaux du moteur, puis `ImGui::Render` ;
 7. `renderFrame` : la passe de l'UI après le tonemapping, sur l'image finale, avant la copie d'une capture.
@@ -154,7 +155,7 @@ version du moteur.
 
 ### Les pièges, et leur nom
 
-- **`uiTakesInput`** : quand ImGui veut la souris ou le clavier, le jeu ne les voit pas ; sinon, un clic dans
+- **`gameInputOf`** : quand ImGui veut la souris ou le clavier, le jeu ne les voit pas ; sinon, un clic dans
   une fenêtre tire aussi dans la scène, et taper un nombre fait marcher le renard. Le filtre ne retire que les
   appuis et les mouvements, **jamais un relâchement** : l'input du moteur garde l'état des touches tenues, et un
   relâchement perdu laisserait W enfoncé pour toujours. Quand ImGui prend le clavier ou la souris, tout ce qui

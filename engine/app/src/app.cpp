@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <memory>
 #include <string>
@@ -15,6 +16,8 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #endif
+
+#include <imgui.h>
 
 #include "shader_reload.hpp"
 
@@ -35,6 +38,8 @@
 #include "levain/render/stages.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/scene.hpp"
+#include "levain/ui/context.hpp"
+#include "levain/ui/input.hpp"
 
 namespace levain::app
 {
@@ -156,19 +161,23 @@ std::string describeFrameTimes(std::string_view title, const FrameReport& report
 // d'Emscripten, « Interacting with code », section « Calling JavaScript from C/C++ »).
 // clang-format off
 EM_JS(void, reportFrameToPage, (double imagesPerSecond, double averageMs, double maxMs,
-                                double engineMs, double enginePercent, int width, int height), {
+                                double engineMs, double enginePercent, int width, int height,
+                                double uiMs, int uiDraws), {
     if (Module.onFrameReport) {
         Module.onFrameReport({imagesPerSecond, averageMs, maxMs, engineMs, enginePercent, width,
-                              height});
+                              height, uiMs, uiDraws});
     }
 });
 // clang-format on
 
-void reportFrame(const FrameReport& report)
+/// `uiMs` : le temps CPU moyen de l'UI depuis le départ (ADR-0032) ; `uiDraws`, les commandes de
+/// sa dernière image, que `tools/web-smoke.mjs` veut non nulles quand les panneaux sont ouverts.
+/// Son temps GPU n'y est pas : le backend WebGPU ne relit pas les minuteurs.
+void reportFrame(const FrameReport& report, double uiMs, std::uint32_t uiDraws)
 {
     reportFrameToPage(report.imagesPerSecond, report.times.averageMs, report.times.maxMs,
                       report.engineMs, report.enginePercent, report.pixels.width,
-                      report.pixels.height);
+                      report.pixels.height, uiMs, static_cast<int>(uiDraws));
 }
 #endif
 
@@ -491,6 +500,13 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
         return std::unexpected(bindings.error());
     }
     input::InputState inputState = input::makeInputState(*bindings);
+    // L'UI dessine sur l'image finale, après le tonemapping (ADR-0032).
+    auto uiPass = ui::createUiPass(
+        *gpu.nvrhi, nvrhi::FramebufferInfo().addColorFormat(gpu::swapchainFormat(gpu)));
+    if (!uiPass)
+    {
+        return std::unexpected(uiPass.error());
+    }
     const render::SamplerSettings sampler{.maxAnisotropy = settings.maxAnisotropy};
     core::log("app", core::LogLevel::Info, "filtrage anisotrope : {}",
               render::clampAnisotropy(sampler.maxAnisotropy));
@@ -525,6 +541,12 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .frameTimer = render::createGpuTimer(*gpu.nvrhi),
             .totalGpu = {},
             .frameCount = 0,
+            .mouseCaptureWanted = false,
+            .mouseCaptured = false,
+            .ui = UiLayer{.context = ui::createUiContext(platform::displayScale(window)),
+                          .pass = std::move(*uiPass),
+                          .timer = render::createGpuTimer(*gpu.nvrhi),
+                          .panelsOpen = settings.showUiPanels},
             .hooks = {}});
     app->world.import<scene::SceneModule>();
     app->world.import<assets::AssetsModule>();
@@ -540,6 +562,78 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
               app->bindings.actions.size(), app->bindings.axes.size(),
               settings.bindingsFile.filename().string());
     return app;
+}
+
+/// Le début d'une image d'UI (ADR-0032, « L'ordre d'une image ») : ImGui reçoit l'input, puis
+/// `NewFrame` le traite ; ce n'est qu'après que `WantCaptureMouse` et `WantCaptureKeyboard` sont à
+/// jour. F1 ouvre ou ferme les panneaux ; la saisie de texte suit ce que veut ImGui.
+void beginUiFrame(App& app, const platform::Events& events, double frameSeconds)
+{
+    ImGuiIO& io = ImGui::GetIO();
+    ui::feedInput(io, events, app.ui.pressedKeys);
+    ui::prepareUiFrame(io, platform::windowPixelSize(app.window), frameSeconds);
+    ImGui::NewFrame();
+    if (ImGui::IsKeyPressed(ImGuiKey_F1, false))
+    {
+        app.ui.panelsOpen = !app.ui.panelsOpen;
+    }
+    ui::followTextInput(app.window, io.WantTextInput, app.ui.textInputActive);
+}
+
+/// La fin d'une image d'UI : les fenêtres du programme, puis `ImGui::Render`. Le rendu de l'image
+/// la dessinera.
+void endUiFrame(App& app)
+{
+    if (app.hooks.ui)
+    {
+        app.hooks.ui(app);
+    }
+    ImGui::Render();
+    app.ui.frameReady = true;
+}
+
+/// La souris, capturée ou non selon ce que veut le programme et ce que montre l'UI. La boucle seule
+/// appelle `setMouseCaptured` : un programme qui la capturait lui-même se croirait encore capturé
+/// quand l'UI la libère, et ne la reprendrait jamais.
+void applyMouseCapture(App& app)
+{
+    const bool captured = mouseShouldBeCaptured(app.mouseCaptureWanted, app.ui.panelsOpen);
+    if (captured != app.mouseCaptured)
+    {
+        platform::setMouseCaptured(app.window, captured);
+        app.mouseCaptured = captured;
+    }
+}
+
+/// L'UI de l'image, dans la command list, sur l'image finale : ses textures, ses sommets, ses
+/// dessins, et son minuteur GPU quand elle dessine quelque chose. Son temps CPU s'ajoute aux
+/// tranches de l'image, que `runFrame` compte.
+void recordUiFrame(App& app, nvrhi::ICommandList& commandList, nvrhi::ITexture& backBuffer)
+{
+    const Clock::time_point start = Clock::now();
+    ImDrawData& drawData = *ImGui::GetDrawData();
+    const bool drawsSomething = drawData.TotalVtxCount > 0;
+    std::optional<double> gpuMs;
+    if (drawsSomething)
+    {
+        gpuMs = render::beginGpuTimer(*app.gpu.nvrhi, commandList, app.ui.timer);
+    }
+    const nvrhi::FramebufferHandle target =
+        app.gpu.nvrhi->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(&backBuffer));
+    app.ui.lastDraw = ui::recordUi(*app.gpu.nvrhi, commandList, app.ui.pass, drawData, *target);
+    if (drawsSomething)
+    {
+        render::endGpuTimer(commandList, app.ui.timer);
+    }
+    if (gpuMs)
+    {
+        app.ui.cost.gpu.totalMs += *gpuMs;
+        ++app.ui.cost.gpu.samples;
+        app.ui.cost.gpuMaxMs = std::max(app.ui.cost.gpuMaxMs, *gpuMs);
+    }
+    app.ui.totalDraws += app.ui.lastDraw.draws;
+    app.ui.frameCpuMs += secondsBetween(start, Clock::now()) * 1000.0;
+    app.ui.frameReady = false;
 }
 
 /// Enregistre l'image, la présente, et rend le temps GPU d'une image précédente, dès qu'il est
@@ -584,6 +678,11 @@ std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList, do
                              .background = app.background,
                              .seconds = seconds},
                             *backBuffer);
+        // Après le tonemapping, sur l'image finale, et avant la copie d'une capture (ADR-0032).
+        if (app.ui.frameReady)
+        {
+            recordUiFrame(app, commandList, *backBuffer);
+        }
         if (capture != nullptr)
         {
             *capture = render::copyForReadback(*app.gpu.nvrhi, commandList, *backBuffer);
@@ -611,6 +710,9 @@ bool captureFrame(App& app, nvrhi::ICommandList& commandList, double seconds,
                   const std::filesystem::path& path)
 {
     nvrhi::StagingTextureHandle staging;
+    // Une image d'UI pour la capture, sans input : avec `--ui on`, les panneaux s'y voient.
+    beginUiFrame(app, {}, app.fixedStep.stepSeconds);
+    endUiFrame(app);
     // std::addressof et non « & » : le RefCountPtr de NVRHI surcharge l'opérateur & (il rend
     // l'adresse du pointeur brut, comme les ComPtr de COM).
     static_cast<void>(renderFrame(app, commandList, seconds, std::addressof(staging)));
@@ -728,7 +830,14 @@ bool runFrame(Loop& loop)
             applyWindowEvent(loop.state, event);
             forgetHiddenTime(loop.previousFrameEnd, event, frameStart);
         }
-        input::updateInput(app.input, app.bindings, events.input,
+        // ImGui d'abord : ce qu'il garde de l'input, le jeu ne le voit pas (`gameInputOf`).
+        const Clock::time_point uiStart = Clock::now();
+        beginUiFrame(app, events, loop.lastFrameSeconds);
+        const ImGuiIO& io = ImGui::GetIO();
+        const std::vector<platform::InputEvent> gameEvents =
+            gameInputOf(events.input, app.input.raw, io.WantCaptureMouse, io.WantCaptureKeyboard);
+        app.ui.frameCpuMs += secondsBetween(uiStart, Clock::now()) * 1000.0;
+        input::updateInput(app.input, app.bindings, gameEvents,
                            static_cast<float>(loop.lastFrameSeconds));
         takeFrameInput(app.world.get_mut<PlayerInput>(), app.input);
         // Ce que le joueur demande, posé pour le prochain pas de simulation.
@@ -736,6 +845,7 @@ bool runFrame(Loop& loop)
         {
             app.hooks.frame(app);
         }
+        applyMouseCapture(app);
     }
 
     reloadChangedShaders(loop.shaderReload, *app.gpu.nvrhi, loop.sceneTarget,
@@ -762,16 +872,30 @@ bool runFrame(Loop& loop)
     }
 
     {
+        LEVAIN_PROFILE_SCOPE_NAMED("interface");
+        const Clock::time_point uiStart = Clock::now();
+        endUiFrame(app);
+        app.ui.frameCpuMs += secondsBetween(uiStart, Clock::now()) * 1000.0;
+    }
+
+    std::optional<float> frameGpuMs;
+    {
         LEVAIN_PROFILE_SCOPE_NAMED("rendu");
         if (const auto gpuMs =
                 renderFrame(app, *loop.commandList, sceneSecondsOf(loop), nullptr, &displayWait))
         {
+            frameGpuMs = static_cast<float>(*gpuMs);
             loop.periodGpu.totalMs += *gpuMs;
             ++loop.periodGpu.samples;
             app.totalGpu.totalMs += *gpuMs;
             ++app.totalGpu.samples;
         }
     }
+    // Le coût CPU de l'UI (le critère de M7.1), compté à chaque image, présentée ou non : sans
+    // image à dessiner (fenêtre réduite, swapchain à recréer), ses tranches s'ajouteraient sinon
+    // à l'image suivante, qui paraîtrait coûter toute l'attente.
+    recordUiCpu(app.ui.cost, app.ui.frameCpuMs);
+    app.ui.frameCpuMs = 0.0;
 
     // Fin d'image : ce que plus aucune entité n'utilise se décharge, du CPU et du GPU
     // (ADR-0019). NVRHI garde vivantes les ressources qu'une command list en vol utilise encore.
@@ -786,6 +910,7 @@ bool runFrame(Loop& loop)
     loop.previousFrameEnd = frameEnd;
     loop.lastFrameSeconds = frameSeconds;
     loop.periodEngineSeconds += secondsBetween(frameStart, frameEnd) - displayWait;
+    recordHistory(app.ui.history, static_cast<float>(frameSeconds * 1000.0), frameGpuMs);
 
     if (const auto summary =
             core::recordFrame(loop.frameTimes, frameSeconds, FrameTimePeriodSeconds))
@@ -796,7 +921,9 @@ bool runFrame(Loop& loop)
         platform::setWindowTitle(app.window, describeFrameTimes(settings.title, report,
                                                                 render::averageOf(loop.periodGpu)));
 #ifdef __EMSCRIPTEN__
-        reportFrame(report);
+        const UiCost& uiCost = app.ui.cost;
+        reportFrame(report, uiCost.cpuSamples > 0 ? uiCost.cpuTotalMs / uiCost.cpuSamples : 0.0,
+                    app.ui.lastDraw.draws);
 #endif
         loop.periodGpu = {};
         loop.periodEngineSeconds = 0.0;
@@ -848,6 +975,17 @@ bool finishLoop(Loop& loop)
         }
     }
     core::log("app", core::LogLevel::Info, "passes, GPU en moyenne : {}", passes);
+    // Le critère de M7.1 (ADR-0032) : le coût de l'UI. Sous WebGPU, notre backend ne relit pas les
+    // minuteurs : « non mesuré », jamais 0.
+    const UiCost& ui = app.ui.cost;
+    const std::string uiGpu = ui.gpu.samples > 0
+                                  ? std::format("{:.3f} ms en moyenne, {:.3f} au pire",
+                                                render::averageOf(ui.gpu), ui.gpuMaxMs)
+                                  : std::string{"non mesuré"};
+    core::log("app", core::LogLevel::Info,
+              "ui : CPU {:.3f} ms en moyenne, {:.3f} au pire ; GPU {} ; {} commandes dessinées",
+              ui.cpuSamples > 0 ? ui.cpuTotalMs / ui.cpuSamples : 0.0, ui.cpuMaxMs, uiGpu,
+              app.ui.totalDraws);
     // Le détail des étapes (#295), en build profilé : ce que coûte chaque fonction inscrite,
     // terrain, herbe, eau, toutes cascades d'ombres comprises.
     if (app.renderer.stages.timeFunctions)
@@ -1012,6 +1150,15 @@ OptionUse parseCommonOption(AppSettings& settings, std::string_view name, std::s
             return OptionUse::Invalid;
         }
         settings.tonemap.tonemapper = found->second;
+        return OptionUse::Taken;
+    }
+    if (name == "--ui")
+    {
+        if (value != "on" && value != "off")
+        {
+            return OptionUse::Invalid;
+        }
+        settings.showUiPanels = value == "on";
         return OptionUse::Taken;
     }
     if (name == "--sun")
