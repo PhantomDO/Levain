@@ -23,9 +23,9 @@ jobs:
     # UndefinedBehaviorSanitizer, puis lance tests et sandbox : une fuite ou un comportement
     # indéfini fait échouer le job.
     name: ${{ matrix.preset }}
-    # L'image de la machine de référence (SPECS §10), en toutes lettres : `ubuntu-latest` change
-    # de version quand GitHub le décide, et la CI s'écarterait de la boîte de dev sans un mot.
-    # Elle est aussi dans les clés du cache vcpkg : changer les deux ensemble.
+    # La version d'Ubuntu de la machine de référence (SPECS §10), en toutes lettres : `ubuntu-latest`
+    # change de version quand GitHub le décide, et la CI s'écarterait de la boîte de dev sans un mot.
+    # Les clés du cache vcpkg la relisent sur le runner (étape « Image du runner »).
     runs-on: ubuntu-26.04
 
     strategy:
@@ -52,6 +52,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # La version d'Ubuntu, lue sur le runner : les clés du cache vcpkg la suivent quand `runs-on`
+      # change, sans qu'on ait à la recopier.
+      - name: Image du runner
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          echo "IMAGE=$ID-$VERSION_ID" >> "$GITHUB_ENV"
 
       # zip est indispensable au bootstrap de vcpkg et manque sur l'image.
       #
@@ -142,8 +150,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-ubuntu-26.04-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**') }}
-          restore-keys: vcpkg-ubuntu-26.04-${{ env.VCPKG_TAG }}-
+          key: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**') }}
+          restore-keys: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-
 
       # vcpkg refuse de démarrer si le dossier de cache binaire n'existe pas. Cette étape
       # doit rester APRÈS la restauration : avant, le dossier existerait déjà et le cache
@@ -551,7 +559,7 @@ jobs:
   # Pas encore un check requis par la protection de `main` : à décider avec Donnovan.
   web:
     name: web
-    # Même image que les jobs natifs, et pour la même raison.
+    # La même version d'Ubuntu que les jobs natifs, et pour la même raison.
     runs-on: ubuntu-26.04
 
     env:
@@ -563,6 +571,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # La version d'Ubuntu, lue sur le runner : les clés du cache vcpkg la suivent quand `runs-on`
+      # change, sans qu'on ait à la recopier.
+      - name: Image du runner
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          echo "IMAGE=$ID-$VERSION_ID" >> "$GITHUB_ENV"
 
       - name: Outils
         run: sudo apt-get update && sudo apt-get install -y ninja-build zip unzip
@@ -607,9 +623,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-web-ubuntu-26.04-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
+          key: vcpkg-web-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
           # Comme pour les jobs natifs : un manifeste modifié ne recompile que ce qui manque.
-          restore-keys: vcpkg-web-ubuntu-26.04-${{ env.VCPKG_TAG }}-
+          restore-keys: vcpkg-web-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-
 
       - name: Créer le dossier de cache
         run: mkdir -p vcpkg-cache
@@ -670,6 +686,7 @@ jobs:
   pages:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: web
+    # Rien n'y compile : la version d'Ubuntu n'y change rien, `ubuntu-latest` suffit.
     runs-on: ubuntu-latest
     permissions:
       pages: write
