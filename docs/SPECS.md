@@ -109,7 +109,7 @@ consoles, mobile, macOS (NVRHI n'a pas de backend Metal), VR.
 | Profiling | Tracy | CPU et GPU, standard de l'industrie |
 | Logs | spdlog | — |
 | Tests | doctest | Léger, rapide à compiler |
-| Sérialisation | JSON de flecs (addon meta) | Réflexion et JSON intégrés ; format binaire des assets en phase 4 |
+| Sérialisation | JSON de flecs (addon meta) pour les valeurs ; l'enveloppe et le chargeur des scènes à nous ([ADR-0034](adr/0034-reflexion-des-composants.md)) | Réflexion et JSON intégrés ; format binaire des assets en phase 4 |
 
 ## 7. Architecture cible
 
@@ -127,7 +127,7 @@ engine/
 ├── input/      actions et axes au-dessus de platform
 ├── ui/         Dear ImGui : son contexte, son rendu par NVRHI, l'input venu de platform (ADR-0032)
 └── app/        boucle principale, cycle de vie, modèles sur le GPU (ADR-0029)
-editor/         bibliothèque de l'éditeur ; l'exécutable est construit par le jeu (ADR-0018)
+editor/         bibliothèque de l'éditeur ; le jeu et le sandbox en construisent l'exécutable (ADR-0018, ADR-0034)
 plugins/        plugins moteur : terrain, eau, végétation, marche du personnage (ADR-0018, ADR-0028)
 sandbox/        une démo par milestone
 shaders/        sources Slang
@@ -144,6 +144,7 @@ core ← scene (flecs) ← assets, physics, audio, input
 assets ← animation
 platform, gpu, render ← ui (ADR-0032)
 tout ce qui précède ← app ← editor, sandbox, jeu (ADR-0029)
+editor ← exécutables éditeur du sandbox et du jeu (ADR-0034)
 moteur ← plugins moteur ← jeu (autre dépôt) et ses plugins gameplay
 ```
 

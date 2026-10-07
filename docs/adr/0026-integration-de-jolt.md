@@ -1,7 +1,8 @@
 # ADR-0026 — Intégrer Jolt : des corps qui suivent les entités, au pas fixe
 
 - **Statut** : accepté le 2026-10-04 (options choisies par Donnovan sur sondage ; forme finale relue par un
-  subagent, en mode autonome, et corrigée selon sa relecture)
+  subagent, en mode autonome, et corrigée selon sa relecture) ; amendé par
+  l'[ADR-0034](0034-reflexion-des-composants.md) (2026-10-07) : un corps refusé s'écrit au journal, sans assertion
 - **Date** : 2026-10-04
 - **Milestone** : M6.1
 
