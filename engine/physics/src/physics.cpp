@@ -13,6 +13,7 @@
 #include "levain/physics/character.hpp"
 #include "levain/physics/components.hpp"
 #include "levain/scene/components.hpp"
+#include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
 
 namespace levain::physics
@@ -167,6 +168,35 @@ flecs::observer ownedBy(flecs::observer observer, flecs::entity volume)
     return observer;
 }
 
+/// Les composants de la physique (ADR-0034), ici et non dans leurs en-têtes, qui ne voient pas
+/// flecs. Les planchers suivent les refus de `whyNotThisShape` et de `whyNotThisCharacter` (masse
+/// et dimensions > 0, pente entre 0 et 90° exclus) ; les plafonds (1e6 kg, 10 m) et le [0, 1] du
+/// frottement et du rebond sont le domaine de l'éditeur, que rien ne refuse au-delà. Un champ à
+/// plancher seul (hauteur de marche, distance de collage, poussée) n'a pas de borne : ses refus
+/// vont au journal (ADR-0034, 5B). Pas décrits : `Collider` (un `std::variant` de formes, sans
+/// réflexion), les handles (des identifiants de Jolt, opaques), les étiquettes, et les singletons
+/// du module (le monde Jolt, des tampons).
+void describePhysicsComponents(flecs::world& world)
+{
+    // Motion, une enum : une liste déroulante sans rien déclarer.
+    scene::describeAuthored<RigidBody>(world)
+        .range(&RigidBody::mass, 0.001, 1.0e6)
+        .range(&RigidBody::friction, 0.0, 1.0)
+        .range(&RigidBody::restitution, 0.0, 1.0);
+    // Une pente de 0 ou de 90° et plus est refusée.
+    scene::describeAuthored<CharacterController>(world)
+        .range(&CharacterController::maxSlopeDegrees, 1.0, 89.0)
+        .range(&CharacterController::mass, 0.001, 1.0e6);
+    // Décrite par récursion dans CharacterController ; ses bornes valent pour tout champ Capsule
+    // (aujourd'hui celui de CharacterController).
+    scene::describe<Capsule>(world)
+        .range(&Capsule::halfHeight, 0.01, 10.0)
+        .range(&Capsule::radius, 0.01, 10.0);
+    scene::describe<CharacterState>(world); // posé par le module à chaque pas
+    // Écrite par le gameplay à chaque pas, comme une entrée : lecture seule (ADR-0034).
+    scene::describe<CharacterVelocity>(world);
+}
+
 } // namespace
 
 flecs::observer onEnter(flecs::world& world, flecs::entity volume,
@@ -201,6 +231,7 @@ PhysicsModule::PhysicsModule(flecs::world& world)
 {
     world.module<PhysicsModule>();
     world.import<scene::SceneModule>();
+    describePhysicsComponents(world);
 
     const PhysicsSettings* settings = world.try_get<PhysicsSettings>();
     world.set<PhysicsWorld>(

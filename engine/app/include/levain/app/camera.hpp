@@ -23,6 +23,11 @@ struct CameraLens
     float farPlane = 1000.0f;
 };
 
+/// Les composants d'`app` (ADR-0034) : `CameraLens`, donnée d'auteur. `PlayerInput` n'est pas
+/// décrit : il porte un pointeur et des conteneurs, et `app` le repose à chaque image. Appelée par
+/// `prepareAppWorld` (app.hpp).
+void describeAppComponents(flecs::world& world);
+
 /// La caméra du rendu, d'un objectif et de la matrice monde de son entité : celle-ci est déjà
 /// interpolée entre deux pas de simulation (ADR-0016). Lire le `Transform` ferait saccader le
 /// regard dès que le rendu va plus vite que la simulation.

@@ -218,6 +218,11 @@ struct App
     FrameHooks hooks;
 };
 
+/// Le monde d'une application, sans fenêtre ni GPU : la scène, les assets, les composants d'`app`
+/// décrits (ADR-0034), et `PlayerInput` enregistré (`createApp` le pose ensuite). Appelée par
+/// `createApp`, et par le test des composants décrits, qui voit ainsi le monde de l'application.
+void prepareAppWorld(flecs::world& world);
+
 /// Pose la scène du programme, `App` étant prêt, et rend ses points d'accroche. Elle **doit**
 /// poser la caméra : une seule entité qui porte un `CameraLens` (camera.hpp) et un `Transform`.
 /// Un échec arrête le programme avec son message.

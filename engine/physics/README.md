@@ -88,6 +88,12 @@ plugin `character`.
       le téléporte, remet sa vitesse voulue à zéro et relit son sol. Il est refusé, comme un corps, s'il est
       enfant ou mis à l'échelle, et aussi s'il porte un `Collider`.
 
+13. **Décrits pour l'éditeur** (ADR-0034, `describePhysicsComponents`) : `RigidBody` et `CharacterController`
+    en données d'auteur ; `Capsule`, `CharacterState` et `CharacterVelocity` en lecture seule. Les planchers
+    des bornes suivent les refus de `whyNotThisShape` et `whyNotThisCharacter` ; les plafonds et le [0, 1] du
+    frottement et du rebond sont le domaine de l'éditeur, que rien ne refuse au-delà. Pas `Collider` (un
+    `std::variant`, sans réflexion), ni les handles, les étiquettes et les singletons.
+
 ## Les volumes déclencheurs, par l'exemple
 
 Le gameplay parle du point de vue du volume (choix de Donnovan, ADR-0027) :

@@ -50,6 +50,9 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    rendu, l'UI après le tonemapping.
 10. **Un appelant dont l'envoi échoue après `open()`** appelle `submitAbandonedUpload` avant de rendre l'erreur
    (voir « Pièges connus »).
+11. **`CameraLens` est décrit pour l'éditeur** (ADR-0034, `describeAppComponents`, par `prepareAppWorld`, que
+   `createApp` appelle et le test des composants décrits aussi), pas `PlayerInput`, qui porte un pointeur et
+   des conteneurs et que `app` repose à chaque image.
 
 ## Pièges connus
 

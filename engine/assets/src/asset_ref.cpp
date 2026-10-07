@@ -6,6 +6,7 @@
 #include "levain/assets/cooked.hpp"
 #include "levain/core/log.hpp"
 #include "levain/core/profile.hpp"
+#include "levain/scene/reflection.hpp"
 
 namespace levain::assets
 {
@@ -63,6 +64,10 @@ AssetsModule::AssetsModule(flecs::world& world)
             })
         .on_remove([](flecs::entity entity, MeshRef& ref)
                    { removeReference(entity.world().get_mut<AssetUsage>(), ref.mesh); });
+    // En lecture seule (ADR-0034). Le JSON écrit le GUID de l'asset, deux entiers de 64 bits, et
+    // l'indice du mesh, pas son nom : c'est le dessinateur d'asset de l'éditeur qui le nommera.
+    // `AssetUsage`, un singleton de conteneurs, n'est pas décrit.
+    scene::describe<MeshRef>(world);
 }
 
 int referenceCount(const flecs::world& world, AssetId asset)
