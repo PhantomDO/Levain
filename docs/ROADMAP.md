@@ -4,7 +4,7 @@
 >
 > v0.14 : **l'ADR-0034**, accepté par sondage. M7.2 ouvre la bibliothèque éditeur (`editor/`, choix de
 > Donnovan) ; M7.3 écrit l'enveloppe et le chargeur de ses scènes, le JSON de flecs ne servant qu'aux valeurs, et
-> son estimation se revoit à son ouverture. Totaux et échéances inchangés.
+> son estimation se revoit à son ouverture ; M7.2 garde 1,25 h, en cinq PR. Totaux et échéances inchangés.
 >
 > v0.13 : **clôture de M7.1**. La phase 6 passe à son temps réel dans la synthèse (11,25 h) et reçoit sa
 > section au recalibrage (ratio 1,17), deux oublis de la clôture de la phase 6 (#313) ; M7.1 compte #298

@@ -170,7 +170,8 @@ Un plugin, du moteur ou de *Rando*, voit `describe`, `describeAuthored`, `.range
   sa cible runtime de lier l'éditeur ou ImGui** : elle est dans `levain_scene` ;
 - **il ne peut pas** contredire un type du moteur (l'import s'arrête), écrire autrement que par `set`, ni ajouter
   un dessinateur de champ : ceux de M7.2 (quaternion en angles, asset et entité par leur nom) sont dans l'éditeur,
-  celui d'un plugin ira dans sa cible éditeur (ADR-0018) ; restent à sa charge les trois règles de relecture.
+  et celui d'un plugin ira plus tard dans sa cible éditeur (ADR-0018) ; restent à sa charge les trois règles de
+  relecture.
 
 ### Le chemin d'une modification
 
@@ -244,22 +245,22 @@ exécutable dont la sortie doit nommer la struct et le champ (`WILL_FAIL` passer
 à la compilation, par une cible `EXCLUDE_FROM_ALL` par cas, que CTest construit et dont la sortie doit contenir le
 texte du `static_assert`.
 
-La frontière de 6B se vérifie : au configure, `levain_check_plugin_boundaries` (ADR-0018, lancé aussi par
-*Rando*) parcourt `editor/` comme `engine/` et refuse qu'une cible du moteur ou un plugin lie `levain_editor` ;
-`build.no-editor` refuse un symbole `levain::editor` dans `levain_sandbox` (`nm`, comme `build.no-tracy`). En
-CI, `levain_sandbox_editor --select <nom>` tourne sous linux-debug et linux-asan, et l'étape échoue si la ligne
-« éditeur : N entités, M champs dessinés » manque ou compte zéro. La PR de la hiérarchie l'introduit (celle de
-l'inspecteur y ajoute les champs) et ajoute `editor` aux contrôles qui listent leurs dossiers (format et
-clang-tidy de la CI, `HeaderFilterRegex`, `check_asset_libraries_visibility.cmake`, commande du GOTCHA du skill
-build), qui resteraient sinon verts sans le lire (règle n°7).
+La frontière de 6B se vérifie : au configure, `levain_check_plugin_boundaries` (ADR-0018, lancé aussi par *Rando*)
+parcourt `editor/` comme `engine/` et refuse qu'une cible du moteur ou la cible runtime d'un plugin lie
+`levain_editor` ; `build.no-editor` refuse un symbole `levain::editor` dans `levain_sandbox` (`nm`, comme
+`build.no-tracy`). En CI, `levain_sandbox_editor --select <nom>` tourne sous linux-debug et linux-asan, et l'étape
+échoue si la ligne « éditeur : N entités, M champs dessinés » manque ou compte zéro. La PR de la hiérarchie
+l'introduit (celle de l'inspecteur y ajoute les champs) et ajoute `editor` aux contrôles qui listent leurs dossiers
+(format et clang-tidy de la CI, `HeaderFilterRegex`, `check_asset_libraries_visibility.cmake`, commande du GOTCHA
+du skill build), qui resteraient sinon verts sans le lire (règle n°7).
 
 ## Conséquences
 
 - **Pas de nouvelle dépendance** : flecs 4.1.6 compile déjà meta et json partout, web compris
   (`FLECS_CUSTOM_BUILD` n'est pas posé) ; le `vcpkg.json` de *Rando* ne change pas pour la réflexion.
-- **Un lecteur de champs propre au compilateur**, vérifié sous clang 23 (natif et emsdk) et GCC 15. MSVC
-  (ADR-0011) échouera à la compilation, jamais en silence : Boost.PFR remplacera alors l'intérieur de l'en-tête,
-  et P2996 quand clang l'aura, sans toucher un appel.
+- **Un lecteur de champs propre au compilateur**, vérifié sous clang 23 et GCC 15, et sous le clang 24 d'emsdk
+  (em++ 6.0.11). MSVC (ADR-0011) échouera à la compilation, jamais en silence : Boost.PFR remplacera alors
+  l'intérieur de l'en-tête, et P2996 quand clang l'aura, sans toucher un appel.
 - **Un composant décrit reste un agrégat, une donnée d'auteur se copie octet par octet** : ni `std::string` ni
   `std::optional` avant un ADR (M7.6 et M8.2 en voudront peut-être). Une étiquette (le `Cube` du sandbox) entre
   par `describeAuthored` ; les paires restent hors de la scène.
@@ -269,11 +270,11 @@ build), qui resteraient sinon verts sans le lire (règle n°7).
 - **Les refus de la physique** (5B) passent de `LEVAIN_ASSERT(false)` au journal d'erreurs, le corps ou le
   personnage restant refusé (physics.cpp:39, physics_world.cpp:280 et 286, character_sync.cpp:52,
   character.cpp:157) ; les gardes `#if !LEVAIN_ASSERTIONS_ENABLED` de physics_test.cpp (l. 660 et 867) tombent, les
-  commentaires de `createCharacter` et d'assert.hpp se corrigent ; les assertions restent aux vrais bugs. Cette PR
-  précède celles de la réflexion, des modules, de la hiérarchie (avec la bibliothèque éditeur, son squelette de
-  100 à 150 lignes, et `levain_sandbox_editor`) et de l'inspecteur, chacune sous 400 lignes, l'échelle générée
-  hors compte (règle n°2) ; si la PR de `reflection.hpp` passe 400 lignes, ses tests de refus à la compilation
-  partent dans une PR à eux.
+  commentaires de `createCharacter` et d'assert.hpp se corrigent ; les assertions restent aux vrais bugs. La PR de
+  ces refus précède celles de la réflexion, des modules, de la hiérarchie (avec la bibliothèque éditeur, son
+  squelette de 100 à 150 lignes, et `levain_sandbox_editor`) et de l'inspecteur, chacune sous 400 lignes, l'échelle
+  générée hors compte (règle n°2) ; si la PR de `reflection.hpp` passe 400 lignes, ses tests de refus à la
+  compilation partent dans une PR à eux. Le détail de ces PR est dans #253.
 - **Pour *Rando***, à sa montée de version : `ThirdPersonCamera` se coupe (ce que chaque image réécrit passe
   dans `CameraOrbit`, `armLength` devient deux réglages, marche et vol plané, `target` un `flecs::entity`) ;
   `TraversalModule` appelle `describeWalkComponents` ; l'imgui de l'ADR-0032 entre dans son `vcpkg.json` ; la
