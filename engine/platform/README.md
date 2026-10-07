@@ -82,7 +82,7 @@ pixels, parce que c'est ce dont la swapchain aura besoin.
 |---|---|---|
 | Titre non ASCII sous X11 (`SDL_x11window.c:2300`) | En locale C, SDL renonce **sans rien dire** à tout titre qu'il ne sait pas convertir, et fuit la mémoire de la conversion. « — » et « × » échouent, « é » passe. | Assertion ASCII dans `setWindowTitle`. Aussi présent sur la branche `main` de SDL. |
 | Deux signaux rapprochés (`SDL_quit.c:171`) | Une assertion du SDL compilé en Debug saute, et SDL ouvre une boîte de dialogue qui attend une réponse. | `timeout --foreground`, qui n'envoie qu'un signal. Ctrl+C n'en envoie qu'un par appui. |
-| LeakSanitizer sous X11 | 50 052 octets « perdus » en 913 allocations : la mémoire permanente de libX11, que SDL décharge par `dlclose` à la sortie. Une fois la bibliothèque déchargée, plus rien ne semble la retenir. | Faux positif : précharger libX11 (`LD_PRELOAD=/usr/lib/libX11.so.6:…`) le fait disparaître, **sans masquer les vraies fuites** (celle du titre restait signalée). Zéro fuite sous Wayland et en offscreen, là où tourne la CI. |
+| LeakSanitizer sous X11 | 50 052 octets « perdus » en 913 allocations : la mémoire permanente de libX11, que SDL décharge par `dlclose` à la sortie. Une fois la bibliothèque déchargée, plus rien ne semble la retenir. | Faux positif : précharger libX11 (`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libX11.so.6:…`) le fait disparaître, **sans masquer les vraies fuites** (celle du titre restait signalée). Zéro fuite sous Wayland et en offscreen, là où tourne la CI. |
 
 ## Équivalents ailleurs
 

@@ -52,7 +52,9 @@ ctest --test-dir build/web --output-on-failure
 ```
 
 Le triplet `triplets/wasm32-emscripten.cmake` reprend celui de la communauté vcpkg, avec une parade pour ktx
-(GOTCHA). Les tests lisent le disque par `-sNODERAWFS` : les chemins de `tests/data` restent ceux de la machine.
+(GOTCHA). Le triplet natif `triplets/x64-linux.cmake` reprend celui de vcpkg et écrit `-march=x86-64` pour
+tous les ports (ADR-0033). Les tests lisent le disque par `-sNODERAWFS` : les chemins de `tests/data` restent
+ceux de la machine.
 
 Le backend WebGPU dans un vrai navigateur : `tools/web-smoke.sh` sert `build/web`, ouvre les pages dans un
 Firefox headless au profil jetable (WebGPU activé, le profil de Donnovan n'est pas touché), compare le cube à

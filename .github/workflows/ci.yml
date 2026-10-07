@@ -23,7 +23,10 @@ jobs:
     # UndefinedBehaviorSanitizer, puis lance tests et sandbox : une fuite ou un comportement
     # indéfini fait échouer le job.
     name: ${{ matrix.preset }}
-    runs-on: ubuntu-latest
+    # La version d'Ubuntu de la machine de référence (SPECS §10), en toutes lettres : `ubuntu-latest`
+    # change de version quand GitHub le décide, et la CI s'écarterait de la boîte de dev sans un mot.
+    # Les clés du cache vcpkg la relisent sur le runner (étape « Image du runner »).
+    runs-on: ubuntu-26.04
 
     strategy:
       fail-fast: false
@@ -46,6 +49,14 @@ jobs:
       # runner, le programme s'arrêterait en erreur au lieu de sauter la détection en silence.
       ASAN_OPTIONS: detect_leaks=1
       UBSAN_OPTIONS: print_stacktrace=1
+      # Le runner n'a pas de GPU : lavapipe est le seul pilote utile. Désigné seul, il évite au loader
+      # d'énumérer puis de décharger les sept autres pilotes de mesa-vulkan-drivers (Ubuntu 26.04).
+      VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
+      # Sous ASan, le pilote est aussi préchargé : déchargé par le loader avant le rapport de
+      # LeakSanitizer, sa mémoire paraîtrait perdue (build/GOTCHA.md, « LeakSanitizer et lavapipe
+      # installé à côté de RADV »). Posé seulement sur les étapes qui lancent du Vulkan : cmake, ninja
+      # et clang n'ont pas à le charger.
+      ASAN_VK_PRELOAD: ${{ matrix.preset == 'linux-asan' && '/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so' || '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -124,6 +135,18 @@ jobs:
       - name: Bootstrap vcpkg
         run: ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
+      # Ce que vcpkg met dans l'ABI de chaque paquet et qui tient au runner : la version d'Ubuntu, et
+      # l'empreinte du compilateur (vcpkg hache son binaire). Un GCC mis à jour dans l'image, ou la
+      # variante amd64v3 activée ou retirée (ADR-0033), change toutes les ABI : sous une clé inchangée,
+      # vcpkg recompilerait tout à chaque exécution et le cache ne serait jamais réécrit. Lu juste
+      # avant le cache, après les installations de « Outils ».
+      - name: Image du runner
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          cc_sha=$(cat "$(readlink -f "$(command -v cc)")" "$(readlink -f "$(command -v c++)")" | sha1sum | cut -c1-12)
+          echo "IMAGE=$ID-$VERSION_ID-$cc_sha" >> "$GITHUB_ENV"
+
       # On cache les archives binaires de vcpkg, pas ses sources : 19 Mo mesurés pour
       # nvrhi + flecs + doctest, contre 23 s de compilation à froid (journal, M0.2).
       # ports/ fait partie de la clé : un port overlay modifié change l'ABI du paquet, et un
@@ -132,12 +155,15 @@ jobs:
       # reprend une archive que si l'ABI de son paquet n'a pas changé, et ne compile que ce qui
       # manque (Rando#9 : 3 min au lieu de 25 à 37 quand Jolt est arrivé). Les archives périmées
       # restent : le cache grossit un peu à chaque changement du manifeste.
+      # L'image du runner est dans la clé (étape précédente), et le triplet x64-linux aussi : ses
+      # options de compilation entrent dans l'ABI de chaque paquet. Le triplet wasm n'y est pas : le
+      # changer ne doit pas jeter les caches natifs.
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**') }}
-          restore-keys: vcpkg-${{ env.VCPKG_TAG }}-
+          key: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/x64-linux.cmake') }}
+          restore-keys: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-
 
       # vcpkg refuse de démarrer si le dossier de cache binaire n'existe pas. Cette étape
       # doit rester APRÈS la restauration : avant, le dossier existerait déjà et le cache
@@ -163,6 +189,8 @@ jobs:
       # --timeout 120 : un test bloqué échoue en 2 min plutôt qu'au délai par défaut de ctest (1 500 s).
       # Le plus lent mesure 5,75 s (smoke.triangle, démarrage de lavapipe), qui varie de 1 à plus de 10 s.
       - name: Tests
+        env:
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: ctest --test-dir build/${{ matrix.preset }} --output-on-failure --timeout 120
 
       # Les assets de test tiers (tools/assets.lock), jamais versionnés : téléchargés et vérifiés
@@ -200,6 +228,7 @@ jobs:
       - name: Lancer le sandbox
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           timeout --foreground --preserve-status -k 10 60 \
@@ -219,6 +248,7 @@ jobs:
         if: matrix.preset == 'linux-release'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
           SANDBOX: ./build/${{ matrix.preset }}/sandbox/levain_sandbox
         run: ./tools/texture-hot-reload.sh
 
@@ -232,6 +262,7 @@ jobs:
         if: matrix.preset == 'linux-debug'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           timeout --foreground --preserve-status -k 10 60 \
@@ -276,6 +307,7 @@ jobs:
         if: matrix.preset == 'linux-debug'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           for gpu in vulkan webgpu; do
@@ -321,6 +353,7 @@ jobs:
       - name: Lancer le sandbox avec la physique
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           for gpu in vulkan webgpu; do
@@ -343,6 +376,7 @@ jobs:
         if: matrix.preset == 'linux-debug'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           timeout --foreground --preserve-status -k 10 120 \
@@ -369,6 +403,7 @@ jobs:
       - name: Lancer le sandbox avec le personnage
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           timeout --foreground --preserve-status -k 10 300 \
@@ -393,6 +428,7 @@ jobs:
         if: matrix.preset == 'linux-debug'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           for gpu in vulkan webgpu; do
@@ -421,6 +457,7 @@ jobs:
         if: matrix.preset == 'linux-debug'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           for gpu in vulkan webgpu; do
@@ -480,6 +517,7 @@ jobs:
         if: matrix.preset == 'linux-release'
         env:
           SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
         run: |
           set -euo pipefail
           timeout --foreground --preserve-status -k 10 120 \
@@ -545,7 +583,8 @@ jobs:
   # Pas encore un check requis par la protection de `main` : à décider avec Donnovan.
   web:
     name: web
-    runs-on: ubuntu-latest
+    # La même version d'Ubuntu que les jobs natifs, et pour la même raison.
+    runs-on: ubuntu-26.04
 
     env:
       VCPKG_TAG: "2026.07.29"
@@ -594,15 +633,27 @@ jobs:
       - name: Bootstrap vcpkg
         run: ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
+      # Ce que vcpkg met dans l'ABI de chaque paquet et qui tient au runner : la version d'Ubuntu, et
+      # l'empreinte du compilateur (vcpkg hache son binaire). Un GCC mis à jour dans l'image, ou la
+      # variante amd64v3 activée ou retirée (ADR-0033), change toutes les ABI : sous une clé inchangée,
+      # vcpkg recompilerait tout à chaque exécution et le cache ne serait jamais réécrit. Lu juste
+      # avant le cache, après les installations de « Outils ».
+      - name: Image du runner
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          cc_sha=$(cat "$(readlink -f "$(command -v cc)")" "$(readlink -f "$(command -v c++)")" | sha1sum | cut -c1-12)
+          echo "IMAGE=$ID-$VERSION_ID-$cc_sha" >> "$GITHUB_ENV"
+
       # Une clé à part des jobs natifs : les paquets wasm32-emscripten ne leur servent pas, et deux
-      # jobs qui écrivent la même clé se la disputent.
+      # jobs qui écrivent la même clé se la disputent. L'image du runner y est aussi, comme pour eux.
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-web-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
+          key: vcpkg-web-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
           # Comme pour les jobs natifs : un manifeste modifié ne recompile que ce qui manque.
-          restore-keys: vcpkg-web-${{ env.VCPKG_TAG }}-
+          restore-keys: vcpkg-web-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-
 
       - name: Créer le dossier de cache
         run: mkdir -p vcpkg-cache
@@ -663,6 +714,7 @@ jobs:
   pages:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: web
+    # Rien n'y compile : la version d'Ubuntu n'y change rien, `ubuntu-latest` suffit.
     runs-on: ubuntu-latest
     permissions:
       pages: write
