@@ -3,6 +3,34 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Une feuille glm redécrite à la main : flecs réinterprète les bits (2026-10-07, règle de relecture)
+
+- **Symptôme** : un champ `glm::vec3` lu et écrit à d'autres places que celles de la struct, sans erreur
+  (études de l'ADR-0034, flecs 4.1.6).
+- **Cause** : flecs garde la dernière description d'un type. Une feuille glm n'est pas un agrégat :
+  `reflection.hpp` ne la lit pas, et ne peut pas voir une seconde description.
+- **Parade** : les feuilles glm se décrivent une fois, dans `SceneModule` (`engine/scene/src/scene.cpp`) ; une
+  nouvelle (`glm::vec2`) s'y ajoute. À vérifier en relecture.
+
+## Une référence d'entité en `flecs::entity_t` : un nombre, perdu au rechargement (2026-10-07, règle de relecture)
+
+- **Symptôme** : `"target":496` au lieu de `"target":"player"` dans le JSON ; une autre entité, ou aucune,
+  après un rechargement.
+- **Cause** : un `flecs::entity_t` est un entier, que rien ne distingue d'un compteur ; un `flecs::entity`
+  s'écrit par son chemin.
+- **Parade** : un champ qui désigne une entité est un `flecs::entity`. Exception connue : `CharacterGround::body`,
+  en lecture seule (les en-têtes de physics ne voient pas flecs). À vérifier en relecture.
+
+## Une valeur d'enum hors de ses constantes : flecs vide tout le JSON de l'entité (2026-10-07, règle de relecture)
+
+- **Symptôme** : `to_json` rend une chaîne vide pour toute l'entité, avec « enumeration value '3' … is not a
+  valid constant » au journal.
+- **Cause** : flecs écrit une enum par le nom de sa valeur, et ne lit les constantes que de 0 à 126
+  (`FLECS_ENUM_MAX`). Une combinaison de drapeaux (`A | B`), une constante au-delà de 126, ou une enum sans
+  constante (`std::byte`) n'ont pas de nom.
+- **Parade** : une enum de composant ne prend que ses constantes déclarées, entre 0 et 126 ; ni drapeaux ni
+  `std::byte`. Une enum sans constante est refusée à l'import (`hasReflection`) ; le reste se vérifie en relecture.
+
 ## basisu refuse de compiler sur `ubuntu-26.04` : le GCC de la variante amd64v3 vise x86-64-v3 (2026-10-07)
 
 - **Symptôme** : vcpkg échoue en construisant ktx sur le runner `ubuntu-26.04`, sur `basisu_kernels_sse.cpp:27:

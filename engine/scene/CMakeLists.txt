@@ -1,7 +1,7 @@
 find_package(flecs CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 
-add_library(levain_scene STATIC src/camera_control.cpp src/scene.cpp)
+add_library(levain_scene STATIC src/camera_control.cpp src/reflection.cpp src/scene.cpp)
 add_library(levain::scene ALIAS levain_scene)
 
 target_include_directories(levain_scene PUBLIC include)
