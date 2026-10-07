@@ -223,8 +223,9 @@ Relevé le 20/09/2026 avec `vulkaninfo --summary`, `uname -r`, `/proc/cpuinfo` e
 05/10/2026 après le passage de la machine sous Bazzite (`uname -r`, `/etc/os-release`, la ligne `[gpu]` du journal
 du moteur, `clang++ --version`). Le matériel n'a pas changé.
 Mis à jour le 07/10/2026 au passage de la distrobox Arch à Ubuntu 26.04 (`vulkaninfo --summary`,
-`clang++ --version`, `cmake --version`). Les mesures d'avant cette date ont été prises avec Mesa 26.2.4 et
-Clang 23.1.1 : un écart de performance GPU entre les deux périodes peut venir du pilote, pas du moteur.
+`clang++ --version`, `cmake --version`). Les mesures jusqu'à M7.1 compris ont été prises dans la boîte Arch,
+avec Mesa 26.2.4 et Clang 23.1.1 : un écart de performance GPU entre les deux périodes peut venir du pilote,
+pas du moteur.
 
 Outils GPU sur cette machine : RenderDoc (captures), Tracy (profiling CPU et GPU), Radeon GPU Profiler (outil
 du constructeur).
