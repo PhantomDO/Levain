@@ -75,14 +75,17 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 - **Symptôme** : sous ASan, tous les tests GPU échouent d'un coup sur 128 à 256 octets perdus, dont la pile
   finit dans `<unknown module>` sous `libvulkan.so.1`, alors que `LD_PRELOAD=/usr/lib/libvulkan_radeon.so` est
   posé (entrée « LeakSanitizer et RADV » plus bas).
-- **Cause** : lavapipe (`vulkan-swrast`), installé dans la distrobox pour reproduire le pilote de la CI. Le
-  loader le charge avec les autres pilotes pour les énumérer, puis le décharge, puisqu'il n'est pas
+- **Cause** : lavapipe (`vulkan-swrast`), installé dans la distrobox Arch pour reproduire le pilote de la CI.
+  Le loader le charge avec les autres pilotes pour les énumérer, puis le décharge, puisqu'il n'est pas
   préchargé : sa globale paraît perdue, le même faux positif que celui de RADV. Les pilotes Intel, présents
-  avant lui, ne le provoquaient pas.
+  avant lui, ne le provoquaient pas. Sous Ubuntu, `mesa-vulkan-drivers` installe d'office les huit pilotes de
+  Mesa, lavapipe compris : la parade y devient obligatoire pour chaque lancement ASan sur la machine de
+  référence.
 - **Parade** : un seul pilote, et préchargé : `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/radeon_icd.json` avec
-  `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libvulkan_radeon.so` (le chemin d'Ubuntu ; `/usr/lib/` sous Arch), ou
-  `lvp_icd.json` avec `libvulkan_lvp.so` pour lancer les tests
-  de fumée comme la CI (`VK_DRIVER_FILES` seul pour un build sans sanitizer). Les deux passent sous ASan.
+  `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libvulkan_radeon.so` (`/usr/lib/` sous Arch), ou `lvp_icd.json` avec
+  `libvulkan_lvp.so` pour lancer les tests de fumée comme la CI (`VK_DRIVER_FILES` seul pour un build sans
+  sanitizer). Vérifié dans `dev-ubuntu` le 2026-10-07 (`linux-asan`, `ctest`) : sans la parade, 25 tests sur
+  285 échouent sur la même fuite de 128 octets ; avec l'un ou l'autre pilote préchargé, 285 sur 285 passent.
 
 ## Jolt n'a ses assertions qu'en Debug (2026-10-04, corrigé le 2026-10-05)
 
@@ -129,12 +132,14 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 - **Symptôme** : sur la machine de référence, `clang++`, `cmake --preset` ou `clang-format` échouent depuis le
   shell de l'agent, alors que `build/linux-debug/CMakeCache.txt` désigne bien `clang++`.
 - **Cause** : l'hôte est une Fedora Atomic (`ogc`), sans chaîne de compilation. Tout s'outille dans la
-  distrobox `dev-ubuntu` (Ubuntu 26.04, l'image de la CI, depuis le 2026-10-07 ; avant, la boîte Arch `dev`) :
-  clang 23, CMake 4.2, vcpkg et emsdk y sont, avec le même `$HOME`.
-- **Parade** : `distrobox enter dev-ubuntu -- bash -lc 'cd <dépôt> && <commande>'`. Une variable du shell de l'agent
-  n'y passe pas : écrire les chemins en toutes lettres dans la commande. `gh`, `git`, `curl` et les scripts de
-  `tools/` qui ne compilent rien tournent aussi sur l'hôte. Les assets de test (`assets-cache/`) ne sont pas
-  partagés entre worktrees : `tools/fetch-assets.sh` dans chacun.
+  distrobox `dev-ubuntu` (Ubuntu 26.04, la même version que la CI, depuis le 2026-10-07 ; avant, la boîte
+  Arch `dev`) : clang 23, CMake 4.2, vcpkg et emsdk y sont, avec le même `$HOME`.
+- **Parade** : `distrobox enter dev-ubuntu -- bash -lc 'cd <dépôt> && <commande>'`. Une variable du shell de
+  l'agent n'y passe pas : écrire les chemins en toutes lettres dans la commande. `~/.local/bin` exporte de la
+  boîte `cmake`, `ninja`, `clangd`, `gdb`, `lldb`, `lldb-dap`, `gh` et `git-lfs` : `cmake --preset` marche
+  depuis l'hôte, mais pas `ctest`, `clang++`, `clang-format` ni `clang-tidy`, qui passent par la commande
+  ci-dessus. `git`, `curl` et les scripts de `tools/` qui ne compilent rien tournent aussi sur l'hôte. Les
+  assets de test (`assets-cache/`) ne sont pas partagés entre worktrees : `tools/fetch-assets.sh` dans chacun.
 
 ## Une lecture de texture dans une branche : refusée en WGSL (2026-10-03)
 
@@ -388,16 +393,16 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   écrit à la main (`engine/assets/src/image.cpp`). stb_image, le décodeur, passe sous ASan et UBSan.
 - **LeakSanitizer et RADV : 128 octets** (2026-09-21). Le loader Vulkan décharge le pilote à la destruction de
   l'instance ; la mémoire que RADV gardait dans une globale paraît alors perdue. Diagnostic : la fuite
-  disparaît avec `LD_PRELOAD=/usr/lib/libvulkan_radeon.so`, persiste sans couche de validation et sans
-  `device_select`. Vérification sans faux positif : **Wayland + RADV préchargé**, code 0.
+  disparaît avec `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libvulkan_radeon.so`, persiste sans couche de
+  validation et sans `device_select`. Vérification sans faux positif : **Wayland + RADV préchargé**, code 0.
 - **Ne pas précharger RADV et libX11 ensemble sous X11** : `SDL_CreateWindow` bloque dans `X11_ShowWindow`
   (`XIfEvent` attend un `MapNotify` qui ne vient pas). Configuration de diagnostic seulement, sans incidence sur
   un lancement normal.
 
 - **Faux positifs LeakSanitizer sous X11** : ~50 Ko en ~900 allocations, la mémoire permanente de libX11 que SDL
   décharge par `dlclose`. Pour vérifier qu'il ne reste rien de vrai, précharger les bibliothèques X11
-  (`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libX11.so.6:…`) : les faux positifs disparaissent, les vraies fuites restent. La CI
-  tourne en offscreen et n'est pas concernée.
+  (`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libX11.so.6:…`) : les faux positifs disparaissent, les vraies fuites
+  restent. La CI tourne en offscreen et n'est pas concernée.
 - **Pile tronquée à une bibliothèque système** : `ASAN_OPTIONS=fast_unwind_on_malloc=0` pour une pile complète.
 - **Un code de sortie lu à travers un pipe** est celui du dernier programme (`| tail` rend 0). Rediriger vers
   un fichier, puis lire `$?`.

@@ -211,7 +211,7 @@ d'un milestone à l'autre.
 
 | Élément | Valeur |
 |---|---|
-| OS et version | Bazzite 44 (Fedora Kinoite, immuable), noyau 7.2.7-ogc1.1.fc44 ; les builds et les mesures dans une distrobox Ubuntu 26.04 (`dev-ubuntu`), l'image de la CI |
+| OS et version | Bazzite 44 (Fedora Kinoite, immuable), noyau 7.2.7-ogc1.1.fc44 ; les builds et les mesures dans une distrobox Ubuntu 26.04 (`dev-ubuntu`), la même version d'Ubuntu que la CI |
 | CPU | AMD Ryzen 7 7800X3D (8 cœurs / 16 threads) |
 | GPU | AMD Radeon RX 9070 XT (RDNA 4, GFX1201, `0x1002:0x7550`) |
 | Pilote Vulkan | Mesa RADV 26.0.8-1ubuntu0.3 (dans la distrobox), Vulkan 1.4.335 sur le GPU |
