@@ -142,7 +142,7 @@ docs/           SPECS, ROADMAP, JOURNAL, LECTURES, QA, SETUP, adr/, etudes/
 core ← platform ← gpu ← render
 core ← scene (flecs) ← assets, physics, audio, input
 assets ← animation
-platform, render, scene ← ui (ADR-0032)
+platform, gpu, render ← ui (ADR-0032)
 tout ce qui précède ← app ← editor, sandbox, jeu (ADR-0029)
 moteur ← plugins moteur ← jeu (autre dépôt) et ses plugins gameplay
 ```
@@ -154,8 +154,9 @@ jamais d'un plugin ; un plugin peut dépendre d'un autre s'il le déclare
 Visibilité des bibliothèques :
 
 - SDL3 : uniquement dans `platform/` (et `gpu/` pour la création de surface).
-- NVRHI : dans `gpu/`, `render/`, et `ui/` pour le rendu d'ImGui (ADR-0032).
-- Dear ImGui : dans `ui/` et au-dessus (`app`, `editor`, le sandbox, le jeu) ; jamais dessous.
+- NVRHI : dans `gpu/`, `render/`, `ui/` et au-dessus (`app`, les plugins de rendu, le sandbox).
+- Dear ImGui : dans `ui/` et au-dessus (`app`, `editor`, le sandbox, le jeu) ; jamais dessous (contrôlé par
+  `deps.imgui-visibility`, ADR-0032).
 - flecs : c'est l'API du modèle objet, visible dans `scene/` et tout ce qui est au-dessus ; jamais dans `core/`,
   `platform/` ni `gpu/`.
 - Jolt : uniquement dans `physics/`.

@@ -1,7 +1,9 @@
 # ADR-0032 — Dear ImGui dans le moteur : le module `ui`
 
 - **Statut** : accepté le 2026-10-07, sur les réponses de Donnovan au sondage du jour (le module, l'input, les
-  fenêtres ancrées, le calque de la page web)
+  fenêtres ancrées, le calque de la page web) ; relu par un subagent, dont la relecture a ajouté la souris
+  possédée par `App`, l'ordre d'une image, les touches traduites, les textures d'ImGui 1.92 et les limites
+  de WebGPU
 - **Date** : 2026-10-07
 - **Milestone** : M7.1
 
@@ -58,96 +60,167 @@ Les réponses de Donnovan au sondage, mot pour mot :
 
 ### Le module
 
-**`engine/ui`**, au-dessus de `platform`, `render` et `scene`, sous `app` (SPECS §6) :
+**`engine/ui`**, au-dessus de `platform`, `gpu` et `render`, sous `app` (SPECS §7). Il ne voit pas flecs : les
+panneaux, qui lisent `App`, vivent dans `app`.
 
 - **ImGui 1.92 par vcpkg**, avec la fonctionnalité `docking-experimental` et **sans aucun de ses backends** :
-  le rendu et l'input sont les nôtres ;
-- **`UiPass`** : le renderer de Donut adapté (son en-tête de licence MIT gardé, avec celui d'ImGui), ses deux
-  shaders en Slang. Le pipeline, l'atlas des polices, un buffer de sommets et d'index qui grandit au besoin,
-  un ciseau par commande de dessin ;
-- **`feedInput`** : les événements de `platform` traduits pour ImGui ;
-- **la glu** : une `UiLayer` dans `App`, dont la boucle appelle `NewFrame` puis `Render` à chaque image, et un
-  point d'accroche de plus, `FrameHooks::ui`, où le programme ajoute ses fenêtres.
+  le rendu et l'input sont les nôtres.
+- **Le rendu** : le renderer de Donut (`imgui_nvrhi.cpp`) adapté, son en-tête de licence MIT gardé avec celui
+  d'ImGui. Sa classe devient des fonctions libres, comme nos passes (ADR-0011) : `createUiPass`,
+  `recordUi(commandList, pass, drawData, target)`, `destroyUiTextures`. Ses deux shaders sont réécrits en Slang.
+- **L'input** : `feedInput`, qui traduit les événements de `platform` pour ImGui.
+- **La glu** : une `UiLayer` dans `App`, et un point d'accroche de plus, `FrameHooks::ui`, où le programme
+  ajoute ses fenêtres. La `UiLayer` tient des ressources du GPU : elle est déclarée avant les points
+  d'accroche et meurt avant le device (le piège de l'ordre, ADR-0029). Le contexte d'ImGui est global : un
+  seul à la fois, comme la fenêtre de `platform`.
+
+### Les textures d'ImGui 1.92
+
+ImGui 1.92 rastérise ses polices **à la demande**, à la taille voulue : c'est ce qui rend l'UI nette sur un
+écran dense. Il faut pour cela que le renderer gère les textures. `recordUi` déclare
+`ImGuiBackendFlags_RendererHasTextures`, et traite `ImDrawData::Textures` avant ses dessins :
+
+- `WantCreate` crée la texture NVRHI et donne son identifiant à ImGui (`SetTexID`) ;
+- `WantUpdates` la renvoie **entière** : le `writeTexture` de NVRHI écrit une sous-ressource entière, sans
+  rectangle, et c'est rare ;
+- `WantDestroy` la libère, **avec son binding set**. Le cache de Donut, indexé par texture et jamais vidé,
+  garderait sinon chaque atlas en vie.
+
+À l'arrêt, `destroyUiTextures` libère celles qui restent, avant le device. Le chemin ancien de Donut
+(`GetTexDataAsRGBA32`, un atlas cuit une fois) figerait les tailles de police.
+
+**La police** est celle d'ImGui, ProggyClean, rastérisée à la taille de l'écran : nette mais carrée, et limitée
+au Latin-1 (pas de « œ » ni de « — » dans les panneaux). Une vraie police, sous licence permissive, viendra avec
+le HUD de *Rando* (M8.2).
 
 ### L'input
 
-`platform` ajoute trois événements, sans rien savoir d'ImGui :
+`platform` ajoute ce qu'il faut à ImGui, sans rien savoir de lui :
 
-- la **position de la souris**, en pixels de la fenêtre ;
-- la **molette** ;
-- le **texte tapé**, en UTF-8, entre `startTextInput` et `stopTextInput` : SDL n'en envoie pas sans, et le
-  clavier virtuel d'un téléphone s'ouvre avec.
+- la **position de la souris**, en pixels de l'image, densité comprise (comme `cursorPosition`) ;
+- la **molette**, dans un événement à part : en axes 2 et 3 de la souris, elle changerait `MouseAxisCount`, qui
+  dimensionne les tableaux d'`engine/input` ;
+- le **texte tapé**, en UTF-8, dans une liste à part (`Events::text`), entre `startTextInput` et
+  `stopTextInput` : SDL n'en envoie pas sans ;
+- avec chaque touche, en plus du scancode, le **code de la touche selon la disposition du clavier** (un
+  `uint32` : les `SDLK_` de SDL sont des points de code Unicode) et les **modificateurs** (Ctrl, Maj, Alt,
+  Super) ;
+- la **sortie de la souris** de la fenêtre et la **perte du focus**, sans quoi un survol resterait collé ;
+- le **presse-papiers** (`clipboardText`, `setClipboardText`), sans quoi ImGui ne copierait qu'en lui-même.
 
-`ui` les traduit. Ses codes de touche sont ceux de `platform`, c'est-à-dire les **scancodes USB HID** que SDL
-reprend : la table des touches d'ImGui, adaptée de `imgui_impl_sdl3` (MIT), est une table de nombres, sans en-tête
-SDL.
+`ui` traduit. **ImGui attend des touches traduites** : `ImGuiKey_A` est la touche qui tape « A ». La table
+reprise de `imgui_impl_sdl3` (MIT) part donc du code de disposition, et non du scancode, comme ce backend : sur
+l'AZERTY de Donnovan, Ctrl+Z est bien la touche marquée Z. Seul le pavé numérique part du scancode. Ces codes
+sont des nombres : `ui` n'inclut pas SDL.
 
-### L'image
+### L'ordre d'une image
 
-L'UI se dessine **après le tonemapping**, sur l'image finale, dans la même command list, avec son minuteur GPU
-comme chaque passe. Elle est **cachée au démarrage** : F1 l'ouvre et la ferme ; `--ui on` l'ouvre dès le
-départ, pour la CI et les captures. Les captures des CI, prises sans elle, ne changent pas.
+Dans `runFrame` :
 
-Les fenêtres sont **ancrées** (branche docking) dans un espace qui couvre l'image et laisse voir la scène
-au centre :
+1. `pollEvents` ;
+2. `feedInput` : les événements à ImGui ;
+3. `NewFrame` : c'est lui qui traite ces événements, et après lui seulement `WantCaptureMouse` et
+   `WantCaptureKeyboard` sont à jour ;
+4. le filtre `uiTakesInput` (plus bas) ;
+5. `input::updateInput`, puis `hooks.frame`, puis les pas de simulation ;
+6. `hooks.ui` et les panneaux du moteur, puis `ImGui::Render` ;
+7. `renderFrame` : la passe de l'UI après le tonemapping, sur l'image finale, avant la copie d'une capture.
 
-- **Image** : images/s, temps CPU et GPU de l'image, leur courbe sur les dernières secondes ;
-- **Passes** : le temps GPU de chaque passe du renderer (ombres, opaques, ciel, transparents, tonemapping) et
-  de l'UI elle-même ;
-- **Scène** : les entités, les modèles, les corps physiques ; le programme y ajoute les siens (*Rando* : le
-  terrain, l'herbe, le renard et son état).
+### Ce que l'on voit
 
-La disposition se recrée à chaque lancement (`DockBuilder`), sans fichier `imgui.ini` : un fichier écrit par
-une session changerait l'image de la suivante.
+- **La couche `ui` tourne dès qu'un programme dessine avec elle** (le HUD de *Rando*, M8.2). **F1 montre et
+  cache les panneaux de debug** du moteur, cachés au démarrage ; `--ui on` les ouvre dès le départ, pour la CI
+  et les captures. F1 est consommé par l'UI : le jeu ne le voit pas.
+- Les panneaux sont des **fenêtres ancrées** (branche docking) dans un espace qui couvre l'image et laisse voir
+  la scène au centre. La disposition se construit par `DockBuilder`, une API interne d'ImGui
+  (`imgui_internal.h`) qui peut changer d'une version à l'autre ; vcpkg la fige.
+  - **Image** : images/s, temps CPU et GPU de l'image, leur courbe sur les dernières secondes ;
+  - **Passes** : le temps GPU de chaque passe du renderer, et le coût de l'UI elle-même ;
+  - **Scène** : les entités et les modèles ; le programme y ajoute les siens (*Rando* : le terrain, l'herbe,
+    le renard et son état ; les corps physiques, que `app` ne voit pas).
+- **Pas de fenêtres hors de la fenêtre principale** (les *viewports* multiples d'ImGui) : `platform` n'a
+  qu'une fenêtre (son README).
+- Les captures des CI, prises sans les panneaux, ne changent pas.
+
+### La souris
+
+Aujourd'hui, chaque programme capture la souris lui-même (le sandbox, *Rando*). Si la boucle la libérait
+derrière eux pour l'UI, leur état deviendrait faux : *Rando* continuerait de tourner la caméra avec la
+souris, et ne la reprendrait jamais à la fermeture. **`App` possède donc la capture** : le programme pose
+`app.mouseCaptureWanted`, et la boucle seule appelle `setMouseCaptured(window, voulue && !panneauxOuverts)`
+quand cette valeur change. Le programme lit `app.mouseCaptured`, l'état réel. Cela change le tableau des
+points d'accroche de l'ADR-0029 (« *Rando* la capture de la souris »), et *Rando* suit à sa prochaine montée de
+version du moteur.
 
 ### Les pièges, et leur nom
 
-- **`uiTakesInput`** : quand ImGui veut la souris ou le clavier (`WantCaptureMouse`, `WantCaptureKeyboard`), le
-  jeu ne les voit pas. Sinon, un clic dans une fenêtre tire aussi dans la scène, et taper un nombre fait
-  marcher le renard. L'UI ouverte, la boucle **libère la souris** ; un jeu qui la capture (*Rando*) la
-  reprend à la fermeture.
-- **`linearOnSrgbTarget`** : les couleurs d'ImGui sont en sRGB. L'image finale est une cible sRGB, qui convertit
-  en écrivant : la swapchain native (`SBGRA8_UNORM`) comme la page web (une vue sRGB du canevas). Écrites
-  telles quelles, les couleurs seraient converties deux fois, et l'UI délavée. Le shader les linéarise quand
-  la cible est sRGB, et les laisse sur une cible `UNORM` (le repli de la swapchain Vulkan). La vérification
-  porte sur un pixel connu d'une capture, sous Vulkan et sous WebGPU.
-- **L'échelle de l'écran** : sur un écran dense (un téléphone ×3), ImGui serait illisible. La taille des
-  polices et du style suit le facteur d'échelle de l'écran, que `platform` donnera (`displayScale`, de
+- **`uiTakesInput`** : quand ImGui veut la souris ou le clavier, le jeu ne les voit pas ; sinon, un clic dans
+  une fenêtre tire aussi dans la scène, et taper un nombre fait marcher le renard. Le filtre ne retire que les
+  appuis et les mouvements, **jamais un relâchement** : l'input du moteur garde l'état des touches tenues, et un
+  relâchement perdu laisserait W enfoncé pour toujours. Quand ImGui prend le clavier ou la souris, tout ce qui
+  était tenu est relâché.
+- **`linearOnSrgbTarget`** : les couleurs d'ImGui sont en sRGB. Sur une cible sRGB, qui convertit en écrivant,
+  elles seraient converties deux fois, et l'UI délavée. Le shader les linéarise quand la cible est sRGB, et
+  les laisse sur une cible `UNORM`. Le format se lit sur la cible, pas sur la plateforme : la swapchain native
+  est en `SBGRA8_UNORM`, son repli en `BGRA8_UNORM`, le rendu hors écran de `--gpu webgpu` en `SRGBA8_UNORM`,
+  et un canevas de téléphone peut être en `RGBA8`. Le mélange se fait alors en espace linéaire : les fonds
+  translucides et le bord des lettres diffèrent un peu du rendu habituel d'ImGui. La vérification porte sur
+  un pixel **opaque** connu, dans une capture native et dans celle de `web-smoke`.
+- **`clampScissorToTarget`** : les rectangles de découpe d'ImGui peuvent sortir de l'image ou être négatifs.
+  Passés tels quels, ils sont une erreur de validation, sous WebGPU comme sous Vulkan (règle n°4). Chacun est
+  borné à la cible, et un rectangle vide n'est pas dessiné.
+- **Pas de push constants** : notre backend WebGPU ne les a pas, et Donut y passe la taille de l'image. Elle va
+  dans un constant buffer écrit une fois par image, avec le drapeau sRGB.
+- **L'échelle de l'écran** : sur un écran dense (un téléphone ×3), l'UI serait minuscule. La taille de la police
+  et du style suit le facteur d'échelle de l'écran, que `platform` donne (`displayScale`, de
   `SDL_GetWindowDisplayScale`).
+- **`imgui.ini`** : ImGui écrit par défaut sa disposition dans le dossier courant, et une session changerait
+  l'image de la suivante. `io.IniFilename = nullptr` ; la disposition se reconstruit à chaque lancement.
 - **Le texte tapé** n'existe qu'entre `startTextInput` et `stopTextInput` : `ui` les appelle selon
-  `WantTextInput`, sinon un champ de texte ne recevrait rien, sans erreur.
+  `WantTextInput`, sinon un champ de texte ne recevrait rien, sans erreur. Que cela ouvre le clavier d'un
+  téléphone sous Emscripten reste à vérifier.
 
 ### Le critère, mesuré
 
-- Le **temps CPU de l'UI** : de `NewFrame` à la fin de l'enregistrement de sa passe ;
-- son **temps GPU** : son minuteur NVRHI.
-
-Les deux, en moyenne et au pire, sont dans le bilan de fin du programme. Sur la machine de référence, avec les
-trois fenêtres ouvertes (`levain_sandbox --view hike --ui on --seconds 10`), **chacun doit rester sous
-0,5 ms**. La CI vérifie que la mesure existe, que l'UI s'est dessinée, et qu'elle a fait zéro erreur de
-validation ; elle ne juge pas le temps, que lavapipe ne mesure pas comme un GPU. La page web l'affiche aussi
-(`tools/web-smoke.mjs`).
+- **Le temps CPU de l'UI** est la somme de ses tranches : `feedInput`, `NewFrame`, `hooks.ui` et les panneaux,
+  `ImGui::Render`, et l'enregistrement de sa passe. Pas l'image entière, qui contient la simulation et la
+  scène.
+- **Son temps GPU** est son minuteur NVRHI, sous Vulkan. Sous WebGPU, notre backend ne relit pas les minuteurs :
+  le bilan dit « non mesuré », jamais 0.
+- Les deux, en moyenne et au pire (un maximum gardé à côté du total), sont dans une ligne du bilan de fin :
+  « ui : CPU … ms en moyenne, … au pire ; GPU … ms en moyenne, … au pire ».
+- **Le critère** : sur la machine de référence, en Release, avec les trois fenêtres ouvertes
+  (`levain_sandbox --view hike --ui on --seconds 10`), **chacun reste sous 0,5 ms** en moyenne.
+- **La CI** (Vulkan, `--ui on`) échoue si l'UI n'a dessiné aucune commande, si son minuteur GPU n'a aucune
+  mesure, ou s'il y a une erreur de validation. Elle ne juge pas le temps, que lavapipe ne mesure pas comme un
+  GPU. La page web reçoit le temps CPU de l'UI, et `web-smoke` le vérifie avec `--ui on`.
+- **`deps.imgui-visibility`** : un contrôle de configuration, sur le modèle de celui de flecs, échoue si un
+  module sous `ui` inclut ImGui, ou si `ui` inclut SDL ; et bruyamment si un des dossiers qu'il surveille
+  n'existe plus.
 
 ## Conséquences
 
 - **`ui` est le premier module qui dessine une interface** : le HUD de *Rando* (M8.2) et l'éditeur (M7.2 à
   M7.6) s'en serviront sans rien redemander.
+- **La capture de la souris passe des programmes à `App`** : le sandbox et *Rando* changent.
+- **_Rando_ ajoute `imgui[docking-experimental]` à son `vcpkg.json`** à sa prochaine montée de version du
+  moteur, dans la même PR : le contrôle de l'ADR-0018 (`CheckVcpkgManifest.cmake`) refuse sinon de configurer.
 - La branche docking d'ImGui est marquée expérimentale ; vcpkg la fige à la version de sa baseline, comme le
   reste.
 - Le calque HTML de la page web reste : il s'affiche avant WebGPU, et sur un téléphone, où F1 n'existe pas.
-- `--ui on` sert aussi à prendre une capture avec l'UI, pour la montrer.
 
 ## Ce que font les autres moteurs
 
 - **Unreal** : son interface est **Slate**, « a completely custom and platform agnostic user interface
   framework that is designed to make building the user interfaces for tools and applications such as Unreal
   Editor, or in-game user interfaces, fun and efficient » [1]. Le même cadre sert donc à l'éditeur et au jeu,
-  rendu par le RHI : c'est la place qu'on donne à `ui`, au-dessus de NVRHI. ImGui n'y arrive que par des
-  plugins de la communauté.
+  rendu par le RHI : c'est la place qu'on donne à `ui`, au-dessus de NVRHI. Epic ne documente pas ImGui comme
+  interface de l'éditeur.
 - **Unity** : son **IMGUI** est un mode immédiat, comme ImGui : « a code-driven GUI system, and is mainly
   intended as a tool for programmers », pour « in-game debugging displays and tools », les inspecteurs et
-  les fenêtres de l'éditeur [2]. Il déconseille d'en faire l'interface du joueur ; notre HUD de M8.2 restera
-  simple.
+  les fenêtres de l'éditeur [2]. Unity le dit « not generally intended to be used for normal in-game user
+  interfaces » : un HUD fait avec ImGui est un choix d'outil, pas d'interface de jeu. Le nôtre sera simple (des
+  cœurs, une jauge, un message), et une vraie UI de jeu reste en v2 (JEU.md).
 - **Godot** : « The Godot editor runs on the game engine. It uses the engine's own UI system » [3]. L'éditeur
   est un programme du moteur, comme le nôtre (ADR-0018).
 
