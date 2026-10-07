@@ -2,10 +2,20 @@
 #include <imgui.h>
 
 #include "levain/ui/context.hpp"
+#include "levain/ui/input.hpp"
 #include "levain/ui/ui_pass.hpp"
+
+using levain::platform::UiEvent;
+using levain::platform::UiEventType;
 
 namespace
 {
+
+/// Les `SDLK_` d'une touche qui ne tape rien : son scancode, bit 30 posé.
+constexpr std::uint32_t special(std::uint32_t scancode)
+{
+    return scancode | (1U << 30U);
+}
 
 /// Un drapeau d'ImGui posé : ses drapeaux sont des `int`, lus en non signé.
 bool hasFlag(int flags, int flag)
@@ -13,7 +23,38 @@ bool hasFlag(int flags, int flag)
     return (static_cast<unsigned>(flags) & static_cast<unsigned>(flag)) != 0;
 }
 
+/// Des images d'ImGui, juste pour qu'il traite les événements en file. ImGui les étale sur
+/// plusieurs images quand il en arrive beaucoup à la fois (`ConfigInputTrickleEventQueue`) : un
+/// clic rapide reste visible au moins une image. Quatre suffisent ici.
+void framesWith(const levain::platform::Events& events, levain::ui::PressedKeys& pressed)
+{
+    ImGuiIO& io = ImGui::GetIO();
+    levain::ui::feedInput(io, events, pressed);
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        levain::ui::prepareUiFrame(io, {.width = 640, .height = 480}, 1.0 / 60.0);
+        ImGui::NewFrame();
+        ImGui::EndFrame();
+    }
+}
+
 } // namespace
+
+TEST_CASE("ImGui reçoit la touche selon la disposition du clavier, pas sa position")
+{
+    // Sur un AZERTY, la touche marquée A est à la place du Q d'un QWERTY (scancode 20) : c'est A.
+    CHECK(levain::ui::imguiKeyOf('a', 20) == ImGuiKey_A);
+    CHECK(levain::ui::imguiKeyOf('z', 26) == ImGuiKey_Z);
+    // Les touches qui ne tapent rien : leur scancode, bit 30 posé.
+    CHECK(levain::ui::imguiKeyOf(special(58), 58) == ImGuiKey_F1);
+    CHECK(levain::ui::imguiKeyOf(special(115), 115) == ImGuiKey_F24);
+    CHECK(levain::ui::imguiKeyOf(special(80), 80) == ImGuiKey_LeftArrow);
+    CHECK(levain::ui::imguiKeyOf('\r', 40) == ImGuiKey_Enter);
+    // Le pavé numérique, par position : son keycode est celui du chiffre.
+    CHECK(levain::ui::imguiKeyOf('1', 89) == ImGuiKey_Keypad1);
+    // Une touche inconnue : rien, plutôt qu'une touche au hasard.
+    CHECK(levain::ui::imguiKeyOf(special(300), 300) == ImGuiKey_None);
+}
 
 TEST_CASE("le contexte est réglé pour le moteur : ancrage, pas d'imgui.ini, textures, échelle")
 {
@@ -24,6 +65,41 @@ TEST_CASE("le contexte est réglé pour le moteur : ancrage, pas d'imgui.ini, te
     CHECK(hasFlag(io.BackendFlags, ImGuiBackendFlags_RendererHasTextures));
     CHECK(hasFlag(io.BackendFlags, ImGuiBackendFlags_RendererHasVtxOffset));
     CHECK(ImGui::GetStyle().FontScaleDpi == 2.0f);
+}
+
+TEST_CASE("la souris, les touches et le texte arrivent à ImGui")
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::PressedKeys pressed{};
+    levain::platform::Events events;
+    events.ui.push_back({.type = UiEventType::MouseMoved, .x = 120.0f, .y = 40.0f});
+    events.ui.push_back({.type = UiEventType::MouseButton, .button = 3, .down = true});
+    events.ui.push_back({.type = UiEventType::Key,
+                         .keycode = 'z',
+                         .scancode = 26,
+                         .down = true,
+                         .modifiers = {.ctrl = true}});
+    framesWith(events, pressed);
+    const ImGuiIO& io = ImGui::GetIO();
+    CHECK(io.MousePos.x == 120.0f);
+    CHECK(io.MousePos.y == 40.0f);
+    CHECK(ImGui::IsMouseDown(ImGuiMouseButton_Right)); // le bouton 3 de SDL
+    CHECK(ImGui::IsKeyDown(ImGuiKey_Z));
+    CHECK(io.KeyCtrl);
+    // Le texte tapé, en UTF-8 : ImGui le donne à l'image suivante, et le vide à sa fin.
+    levain::platform::Events typed;
+    typed.text = "é";
+    levain::ui::feedInput(ImGui::GetIO(), typed, pressed);
+    levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 640, .height = 480}, 1.0 / 60.0);
+    ImGui::NewFrame();
+    REQUIRE(io.InputQueueCharacters.Size == 1);
+    CHECK(io.InputQueueCharacters[0] == 0xE9);
+    ImGui::EndFrame();
+    // La souris quitte la fenêtre : plus rien n'est survolé.
+    levain::platform::Events left;
+    left.ui.push_back({.type = UiEventType::MouseLeft});
+    framesWith(left, pressed);
+    CHECK_FALSE(ImGui::IsMousePosValid());
 }
 
 TEST_CASE("la découpe d'ImGui est bornée à l'image, et une découpe vide ne dessine rien")
@@ -49,4 +125,27 @@ TEST_CASE("les couleurs d'ImGui ne sont linéarisées que sur une cible sRGB")
     CHECK(levain::ui::linearOnSrgbTarget(nvrhi::Format::SRGBA8_UNORM));
     CHECK_FALSE(levain::ui::linearOnSrgbTarget(nvrhi::Format::BGRA8_UNORM));
     CHECK_FALSE(levain::ui::linearOnSrgbTarget(nvrhi::Format::RGBA8_UNORM));
+}
+
+TEST_CASE("une touche relâchée sous Maj, dans le navigateur, est bien relâchée pour ImGui")
+{
+    // Le navigateur donne le keycode modifié : « a » à l'appui, « A » au relâchement si Maj est
+    // venue entre les deux. ImGui doit voir A appuyée, puis relâchée, et non enfoncée pour
+    // toujours.
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::PressedKeys pressed{};
+    levain::platform::Events down;
+    down.ui.push_back({.type = UiEventType::Key, .keycode = 'a', .scancode = 4, .down = true});
+    framesWith(down, pressed);
+    CHECK(ImGui::IsKeyDown(ImGuiKey_A));
+    levain::platform::Events up;
+    up.ui.push_back({.type = UiEventType::Key,
+                     .keycode = 'A',
+                     .scancode = 4,
+                     .down = false,
+                     .modifiers = {.shift = true}});
+    framesWith(up, pressed);
+    CHECK_FALSE(ImGui::IsKeyDown(ImGuiKey_A));
+    // Et une majuscule seule, sous Maj : la touche A.
+    CHECK(levain::ui::imguiKeyOf('A', 4) == ImGuiKey_A);
 }

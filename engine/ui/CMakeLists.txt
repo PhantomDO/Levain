@@ -1,4 +1,4 @@
-add_library(levain_ui STATIC src/context.cpp src/ui_pass.cpp)
+add_library(levain_ui STATIC src/context.cpp src/input.cpp src/ui_pass.cpp)
 add_library(levain::ui ALIAS levain_ui)
 
 target_include_directories(levain_ui PUBLIC include)
