@@ -23,7 +23,10 @@ jobs:
     # UndefinedBehaviorSanitizer, puis lance tests et sandbox : une fuite ou un comportement
     # indéfini fait échouer le job.
     name: ${{ matrix.preset }}
-    runs-on: ubuntu-latest
+    # L'image de la machine de référence (SPECS §10), en toutes lettres : `ubuntu-latest` change
+    # de version quand GitHub le décide, et la CI s'écarterait de la boîte de dev sans un mot.
+    # Elle est aussi dans les clés du cache vcpkg : changer les deux ensemble.
+    runs-on: ubuntu-26.04
 
     strategy:
       fail-fast: false
@@ -132,12 +135,15 @@ jobs:
       # reprend une archive que si l'ABI de son paquet n'a pas changé, et ne compile que ce qui
       # manque (Rando#9 : 3 min au lieu de 25 à 37 quand Jolt est arrivé). Les archives périmées
       # restent : le cache grossit un peu à chaque changement du manifeste.
+      # L'image du runner est dans la clé : une archive compilée sous une autre version d'Ubuntu n'a
+      # plus la même ABI. Sous la même clé, vcpkg la recompilerait à chaque exécution, et le cache,
+      # déjà présent pour cette clé, ne serait jamais réécrit.
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**') }}
-          restore-keys: vcpkg-${{ env.VCPKG_TAG }}-
+          key: vcpkg-ubuntu-26.04-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**') }}
+          restore-keys: vcpkg-ubuntu-26.04-${{ env.VCPKG_TAG }}-
 
       # vcpkg refuse de démarrer si le dossier de cache binaire n'existe pas. Cette étape
       # doit rester APRÈS la restauration : avant, le dossier existerait déjà et le cache
@@ -545,7 +551,8 @@ jobs:
   # Pas encore un check requis par la protection de `main` : à décider avec Donnovan.
   web:
     name: web
-    runs-on: ubuntu-latest
+    # Même image que les jobs natifs, et pour la même raison.
+    runs-on: ubuntu-26.04
 
     env:
       VCPKG_TAG: "2026.07.29"
@@ -595,14 +602,14 @@ jobs:
         run: ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
       # Une clé à part des jobs natifs : les paquets wasm32-emscripten ne leur servent pas, et deux
-      # jobs qui écrivent la même clé se la disputent.
+      # jobs qui écrivent la même clé se la disputent. L'image du runner y est aussi, comme pour eux.
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-web-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
+          key: vcpkg-web-ubuntu-26.04-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
           # Comme pour les jobs natifs : un manifeste modifié ne recompile que ce qui manque.
-          restore-keys: vcpkg-web-${{ env.VCPKG_TAG }}-
+          restore-keys: vcpkg-web-ubuntu-26.04-${{ env.VCPKG_TAG }}-
 
       - name: Créer le dossier de cache
         run: mkdir -p vcpkg-cache
