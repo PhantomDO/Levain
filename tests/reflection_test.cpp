@@ -1,16 +1,20 @@
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <string>
 #include <string_view>
 #include <utility>
 
 #include <doctest/doctest.h>
 #include <flecs.h>
 
+#include "levain/assets/asset_ref.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
 
 using levain::scene::rangeOf;
+using levain::scene::sameValue;
 
 namespace reflection_test
 {
@@ -49,6 +53,12 @@ struct Mover
     flecs::entity target{};
 };
 
+struct Padded
+{
+    bool flag = false;
+    float value = 0.0f;
+};
+
 struct Marker // une étiquette, sans champ, entre aussi par sa déclaration
 {
 };
@@ -63,6 +73,7 @@ struct ReflectionTestModule
         world.import<levain::scene::SceneModule>(); // les feuilles glm
         levain::scene::describeAuthored<Mover>(world).range(&Mover::speed, 0.0, 10.0);
         levain::scene::describe<Capsule>(world).range(&Capsule::radius, 0.01, 10.0);
+        levain::scene::describe<Padded>(world);
         levain::scene::describeAuthored<Marker>(world);
     }
 };
@@ -73,6 +84,7 @@ using reflection_test::Capsule;
 using reflection_test::Gait;
 using reflection_test::Marker;
 using reflection_test::Mover;
+using reflection_test::Padded;
 using reflection_test::Probe;
 
 namespace
@@ -197,4 +209,98 @@ TEST_CASE("le JSON d'une entité écrit chaque champ, l'enum par son nom et l'en
               R"("rotation":{"x":0, "y":0, "z":0, "w":1}, "gait":"Run", "grounded":false, )"
               R"("shape":{"halfHeight":0.5, "radius":0.25}, "speed":4.5, "target":"player"})") !=
           std::string_view::npos);
+}
+
+TEST_CASE("setComponentValue déclenche OnSet une fois, sur un composant à hook on_replace aussi")
+{
+    flecs::world world;
+    world.import<reflection_test::ReflectionTestModule>();
+    world.import<levain::assets::AssetsModule>();
+    int moverSets = 0;
+    int meshSets = 0;
+    world.observer<const Mover>()
+        .event(flecs::OnSet)
+        .each([&moverSets](const Mover&) { ++moverSets; });
+    world.observer<const levain::assets::MeshRef>()
+        .event(flecs::OnSet)
+        .each([&meshSets](const levain::assets::MeshRef&) { ++meshSets; });
+    const levain::assets::AssetId before{.high = 1, .low = 1};
+    const levain::assets::AssetId after{.high = 2, .low = 2};
+    const flecs::entity hero =
+        world.entity("hero").set(Mover{}).set(levain::assets::MeshRef{.mesh = {.asset = before}});
+    moverSets = 0;
+    meshSets = 0;
+
+    // L'inspecteur édite une copie, jamais la table, puis l'écrit d'un bloc.
+    Mover mover = hero.get<Mover>();
+    mover.speed = 7.0f;
+    levain::scene::setComponentValue(world, hero, world.id<Mover>(), &mover);
+    const levain::assets::MeshRef mesh{.mesh = {.asset = after}};
+    levain::scene::setComponentValue(world, hero, world.id<levain::assets::MeshRef>(), &mesh);
+
+    CHECK(moverSets == 1);
+    CHECK(hero.get<Mover>().speed == doctest::Approx(7.0f));
+    CHECK(meshSets == 1);
+    CHECK(levain::assets::referenceCount(world, before) == 0); // le hook a vu les deux valeurs
+    CHECK(levain::assets::referenceCount(world, after) == 1);
+}
+
+TEST_CASE("sameValue compare feuille par feuille, sans voir le remplissage")
+{
+    flecs::world world;
+    world.import<reflection_test::ReflectionTestModule>();
+
+    // Deux Padded égaux dont les trois octets de remplissage diffèrent : memcmp les dit différents.
+    static_assert(offsetof(Padded, value) > sizeof(bool));
+    alignas(Padded) std::byte zeros[sizeof(Padded)]{};
+    alignas(Padded) std::byte ones[sizeof(Padded)]{};
+    std::memset(ones, 0xff, sizeof ones);
+    const Padded value{.flag = true, .value = 1.5f};
+    for (std::byte* bytes : {zeros, ones})
+    {
+        std::memcpy(bytes + offsetof(Padded, flag), &value.flag, sizeof value.flag);
+        std::memcpy(bytes + offsetof(Padded, value), &value.value, sizeof value.value);
+    }
+    REQUIRE(std::memcmp(zeros, ones, sizeof zeros) != 0);
+    CHECK(sameValue(world, world.id<Padded>(), zeros, ones));
+    const Padded other{.flag = true, .value = 2.0f};
+    CHECK_FALSE(sameValue(world, world.id<Padded>(), zeros, &other));
+
+    // Un type imbriqué, une entité, une feuille glm : chaque feuille compte.
+    const Mover mover{.target = world.entity("player")};
+    Mover moved = mover;
+    CHECK(sameValue(world, world.id<Mover>(), &mover, &moved));
+    moved.shape.radius = 0.5f;
+    CHECK_FALSE(sameValue(world, world.id<Mover>(), &mover, &moved));
+    moved = mover;
+    moved.target = world.entity("other");
+    CHECK_FALSE(sameValue(world, world.id<Mover>(), &mover, &moved));
+    moved = mover;
+    moved.rotation.w = 0.5f;
+    CHECK_FALSE(sameValue(world, world.id<Mover>(), &mover, &moved));
+
+    // Un champ tableau en ligne (les 16 flottants de WorldTransform), une étiquette sans valeur.
+    const levain::scene::WorldTransform matrix{};
+    levain::scene::WorldTransform shifted{};
+    CHECK(sameValue(world, world.id<levain::scene::WorldTransform>(), &matrix, &shifted));
+    shifted.matrix[3][2] = 1.0f;
+    CHECK_FALSE(sameValue(world, world.id<levain::scene::WorldTransform>(), &matrix, &shifted));
+    const Marker marker{};
+    CHECK(sameValue(world, world.id<Marker>(), &marker, &marker));
+}
+
+TEST_CASE("la clé d'un composant est son symbole, relu comme symbole, pas son chemin")
+{
+    flecs::world world;
+    world.import<reflection_test::ReflectionTestModule>();
+    const flecs::entity_t mover = world.id<Mover>();
+
+    // Enregistré dans la portée du module, son chemin dépend de qui l'a enregistré en premier.
+    const std::string path = world.entity(mover).path(".", "").c_str();
+    CHECK(path == "reflection_test.ReflectionTestModule.Mover");
+    CHECK(levain::scene::stableKeyOf(world, mover) == "reflection_test.Mover");
+    CHECK(levain::scene::componentOfKey(world, levain::scene::stableKeyOf(world, mover)) == mover);
+    CHECK(levain::scene::componentOfKey(world, path) == 0);
+    const flecs::entity_t transform = world.id<levain::scene::Transform>();
+    CHECK(levain::scene::componentOfKey(world, "levain.scene.Transform") == transform);
 }

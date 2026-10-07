@@ -246,10 +246,27 @@ template <class T> Description<T> describeAuthored(flecs::world& world)
     return {world, component};
 }
 
+/// setComponentValue : la seule écriture de l'éditeur (inspecteur, annulation, chargement, gizmos,
+/// Stop). Un `set` d'une copie entière : `OnSet` part une fois, comme pour le code du jeu, hook
+/// `on_replace` compris. Une écriture par référence, elle, ne déclenche rien : un corps déplacé
+/// ainsi diverge en silence.
+void setComponentValue(flecs::world& world, flecs::entity_t entity, flecs::entity_t component,
+                       const void* value);
+
+/// sameValue : deux valeurs d'un type décrit, comparées feuille par feuille en suivant `EcsStruct`,
+/// jamais par `memcmp` de la struct : ses octets de remplissage diffèrent entre deux valeurs
+/// égales. Deux étiquettes, sans valeur, sont égales. Une feuille se compare par ses octets (NaN
+/// égale NaN, -0 diffère de 0) : une commande d'annulation n'est jetée que si rien n'a bougé.
+[[nodiscard]] bool sameValue(const flecs::world& world, flecs::entity_t type, const void* first,
+                             const void* second);
+
 /// stableKeyOf : la clé d'un composant dans une sauvegarde, son symbole (le nom C++,
 /// `levain.scene.Transform`), quel que soit le module qui l'a enregistré en premier. Pas son
 /// chemin, qui en dépend (`levain.scene.SceneModule.Transform`). Vide pour une entité sans symbole.
 [[nodiscard]] std::string_view stableKeyOf(const flecs::world& world, flecs::entity_t component);
+
+/// componentOfKey : le composant d'une clé, relue comme symbole, jamais comme chemin ; 0 sinon.
+[[nodiscard]] flecs::entity_t componentOfKey(const flecs::world& world, std::string_view key);
 
 /// rangeOf : les bornes d'un champ, s'il en a. flecs écrit une borne absente `[0, 0]` ; une borne
 /// posée a toujours min < max, l'import refuse les autres.

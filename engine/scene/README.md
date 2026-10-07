@@ -57,7 +57,7 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/fixed_step.hpp`](include/levain/scene/fixed_step.hpp) | `FixedStep` et `planSteps` — l'accumulateur et son plafond, testables sans monde |
 | [`include/levain/scene/camera_control.hpp`](include/levain/scene/camera_control.hpp) | La caméra libre : `FpsController`, `FpsInput`, `applyFpsInput`, et les pièges nommés `normalizeOrZero`, `clampPitch`, `horizontalBasisFrom` |
 | [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` |
-| [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf` |
+| [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf`, `componentOfKey`, puis `setComponentValue` et `sameValue` |
 
 ## Trois notions de flecs
 
@@ -121,6 +121,9 @@ les bornes viennent de chaque déclaration, et deux déclarations contraires arr
 | Un champ sans réflexion (`std::optional`, `std::variant`, conteneur, feuille glm non décrite, enum sans constante comme `std::byte`), que flecs écarterait du JSON d'une ligne de journal | `hasReflection` et `refuseFieldWithoutReflection`, puis `exitOnRefusedDescription` |
 | Un membre référence fait échouer toute accolade : zéro champ lu ; un `std::array` s'ouvre, mais son nom se lit `_M_elems[2]` | refusés à la compilation dans `describeFields` et par `IsStdArray` |
 | Une borne absente se lit `[0, 0]` ; vide ou inversée, l'inspecteur cesserait de borner | `rangeOf` ; l'import refuse min ≥ max |
+| Le remplissage diffère entre deux valeurs égales : `memcmp` les dirait différentes | `sameValue`, feuille par feuille |
+| Le chemin d'un composant dépend du module qui l'enregistre en premier (`levain.scene.SceneModule.Transform`) | `stableKeyOf` et `componentOfKey` : le symbole, relu comme symbole |
+| Une écriture par référence ne déclenche pas `OnSet` ; `ensure` sur un composant à hook `on_replace` est refusé | `setComponentValue`, un `set` d'une copie entière |
 
 Ailleurs : Unreal lit les `UPROPERTY` par son Unreal Header Tool, un générateur de code ; Unity sérialise les champs
 C# par la réflexion du langage, et `[Range]` borne l'inspecteur ; Godot les décrit à la main (`ADD_PROPERTY` dans

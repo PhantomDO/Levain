@@ -2,9 +2,11 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <string>
 
+#include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
 
 namespace levain::scene
@@ -65,6 +67,21 @@ ecs_member_t* memberAt(flecs::world& world, flecs::entity_t component, std::size
             return member;
         }
     }
+}
+
+/// `count` feuilles contiguës d'un même type (un champ tableau), une à une.
+bool sameElements(const flecs::world& world, flecs::entity_t type, std::int32_t count,
+                  const std::byte* first, const std::byte* second)
+{
+    const auto size = static_cast<std::size_t>(ecs_get_type_info(world, type)->size);
+    for (std::size_t i = 0; std::cmp_less(i, count); ++i)
+    {
+        if (!sameValue(world, type, first + (i * size), second + (i * size)))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -143,10 +160,61 @@ void setFieldRange(flecs::world& world, flecs::entity_t component, std::size_t o
 
 } // namespace detail
 
+void setComponentValue(flecs::world& world, flecs::entity_t entity, flecs::entity_t component,
+                       const void* value)
+{
+    const ecs_type_info_t* info = ecs_get_type_info(world, component);
+    LEVAIN_ASSERT(info != nullptr && info->size > 0, "setComponentValue : pas un composant valué");
+    ecs_set_id(world, entity, component, static_cast<std::size_t>(info->size), value);
+}
+
+bool sameValue(const flecs::world& world, flecs::entity_t type, const void* first,
+               const void* second)
+{
+    if (ecs_get_type_info(world, type) == nullptr)
+    {
+        LEVAIN_ASSERT(ecs_has(world, type, EcsComponent), "sameValue : pas un type");
+        return true; // une étiquette (`describeAuthored<Cube>`) n'a pas de valeur
+    }
+    const auto* left = static_cast<const std::byte*>(first);
+    const auto* right = static_cast<const std::byte*>(second);
+    if (const auto* description = ecs_get(world, type, EcsStruct))
+    {
+        const auto* members = static_cast<const ecs_member_t*>(description->members.array);
+        for (std::int32_t i = 0; i < description->members.count; ++i)
+        {
+            const ecs_member_t& member = members[i]; // count : 0 pour un scalaire, N en ligne
+            if (!sameElements(world, member.type, member.count > 0 ? member.count : 1,
+                              left + member.offset, right + member.offset))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    // Un flecs::entity porte le monde à côté de l'identifiant, et du remplissage en wasm32.
+    if (type == world.id<flecs::entity>())
+    {
+        return static_cast<const flecs::entity*>(first)->id() ==
+               static_cast<const flecs::entity*>(second)->id();
+    }
+    LEVAIN_ASSERT(ecs_has(world, type, EcsPrimitive) || ecs_has(world, type, EcsEnum) ||
+                      ecs_has(world, type, EcsBitmask),
+                  "sameValue : une feuille sans remplissage, nombre, booléen ou enum");
+    return std::memcmp(left, right,
+                       static_cast<std::size_t>(ecs_get_type_info(world, type)->size)) == 0;
+}
+
 std::string_view stableKeyOf(const flecs::world& world, flecs::entity_t component)
 {
     const char* symbol = ecs_get_symbol(world, component);
     return symbol != nullptr ? std::string_view{symbol} : std::string_view{};
+}
+
+flecs::entity_t componentOfKey(const flecs::world& world, std::string_view key)
+{
+    // Ni chemin en second essai, ni remontée des portées : une clé se relit comme elle s'écrit.
+    return ecs_lookup_symbol(world, std::string{key}.c_str(), false, false);
 }
 
 std::optional<ecs_member_value_range_t> rangeOf(const ecs_member_t& member)
