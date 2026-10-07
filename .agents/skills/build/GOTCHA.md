@@ -3,6 +3,23 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## `PASS_REGULAR_EXPRESSION` : CTest ne lit plus le code de sortie (2026-10-07)
+
+- **Symptôme** : les tests des refus de la réflexion (#327) restaient verts quand le refus écrivait son message
+  puis laissait le programme continuer : la règle n°7 n'était vérifiée qu'à moitié.
+- **Cause** : avec `PASS_REGULAR_EXPRESSION`, CTest juge le test sur sa seule sortie et ignore le code de sortie.
+- **Parade** : le programme de test écrit une ligne témoin s'il arrive au bout (« aucun refus »), et le test la
+  refuse par `FAIL_REGULAR_EXPRESSION`. Jamais `WILL_FAIL`, qui passe sur n'importe quel code de sortie non
+  nul, quel que soit le message.
+
+## Un arrêt par `std::abort` : un plantage pour CTest, quelle que soit la sortie (2026-10-07)
+
+- **Symptôme** : « Subprocess aborted » sur un test de refus dont la sortie contenait pourtant le message attendu
+  par `PASS_REGULAR_EXPRESSION`.
+- **Cause** : CTest compte un processus tué par un signal (`SIGABRT`) comme un échec avant de lire la sortie.
+- **Parade** : un refus attendu sort par `std::_Exit(EXIT_FAILURE)` après le journal (`exitOnRefusedDescription`,
+  `engine/scene/src/reflection.cpp`) : spdlog a déjà vidé sa sortie, et le code de sortie reste un échec.
+
 ## Une feuille glm redécrite à la main : flecs réinterprète les bits (2026-10-07, règle de relecture)
 
 - **Symptôme** : un champ `glm::vec3` lu et écrit à d'autres places que celles de la struct, sans erreur

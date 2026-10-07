@@ -82,6 +82,7 @@ rencontre (symptôme, cause, parade, date).
 |---|---|
 | [`session`](.agents/skills/session/SKILL.md) | Début et fin de session, branche, PR, journal, board, temps de Donnovan |
 | [`build`](.agents/skills/build/SKILL.md) | Compiler, tester, sanitizers, profilage, CI, tests manuels de la fenêtre |
+| [`pr-autonome`](.agents/skills/pr-autonome/SKILL.md) | Chaque PR en mode autonome : worktree, workflow, vérification, contre-tests, relecture, pile, fusion |
 | [`cloture`](.agents/skills/cloture/SKILL.md) | Clôture d'un milestone ou d'une phase : tag, release, ratio, recalibrage |
 | [`questions`](.agents/skills/questions/SKILL.md) | Répondre à une question de Donnovan, comparer avec les autres moteurs |
 
