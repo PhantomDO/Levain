@@ -125,6 +125,7 @@ engine/
 ├── physics/    intégration Jolt
 ├── audio/      intégration miniaudio
 ├── input/      actions et axes au-dessus de platform
+├── ui/         Dear ImGui : son contexte, son rendu par NVRHI, l'input venu de platform (ADR-0032)
 └── app/        boucle principale, cycle de vie, modèles sur le GPU (ADR-0029)
 editor/         bibliothèque de l'éditeur ; l'exécutable est construit par le jeu (ADR-0018)
 plugins/        plugins moteur : terrain, eau, végétation, marche du personnage (ADR-0018, ADR-0028)
@@ -141,6 +142,7 @@ docs/           SPECS, ROADMAP, JOURNAL, LECTURES, QA, SETUP, adr/, etudes/
 core ← platform ← gpu ← render
 core ← scene (flecs) ← assets, physics, audio, input
 assets ← animation
+platform, gpu, render ← ui (ADR-0032)
 tout ce qui précède ← app ← editor, sandbox, jeu (ADR-0029)
 moteur ← plugins moteur ← jeu (autre dépôt) et ses plugins gameplay
 ```
@@ -152,7 +154,9 @@ jamais d'un plugin ; un plugin peut dépendre d'un autre s'il le déclare
 Visibilité des bibliothèques :
 
 - SDL3 : uniquement dans `platform/` (et `gpu/` pour la création de surface).
-- NVRHI : dans `gpu/`, `render/`, et `editor/` pour le rendu d'ImGui.
+- NVRHI : dans `gpu/`, `render/`, `ui/` et au-dessus (`app`, les plugins de rendu, le sandbox).
+- Dear ImGui : dans `ui/` et au-dessus (`app`, `editor`, le sandbox, le jeu) ; jamais dessous (contrôlé par
+  `deps.imgui-visibility`, ADR-0032).
 - flecs : c'est l'API du modèle objet, visible dans `scene/` et tout ce qui est au-dessus ; jamais dans `core/`,
   `platform/` ni `gpu/`.
 - Jolt : uniquement dans `physics/`.
