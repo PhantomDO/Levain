@@ -284,10 +284,10 @@ build), qui resteraient sinon verts sans le lire (règle n°7).
   `flecs::Parent`, `from_json` s'arrête en Debug sur `MeshRef` (`on_replace`), et une clé inconnue y devient une
   étiquette sans erreur. Un type ou un champ renommé casse une scène, et `set_json` ignore un champ inconnu en
   silence : M7.3 rend ce cas bruyant ; son estimation (1,25 h) se revoit à son ouverture. L'ADR lui donne les clés
-  stables, `setComponentValue` et `sameValue` ; le reste, indicatif (règle n°6), ira dans #254 et #255.
+  stables, `setComponentValue` et `sameValue` ; le reste, indicatif (règle n°6), est consigné dans #254 et #255.
 - **Pour M7.4** : les gizmos lisent `WorldTransform` et écrivent le `Transform` local par `setComponentValue`.
 - **Pour M7.5** : Play/Stop vit dans l'exécutable éditeur (ADR-0029), pas dans le jeu ; il garde les octets
-  `Authored` et compare par `sameValue` ; le détail ira dans #258. **Pour M7.6** : les outils de terrain vont dans
+  `Authored` et compare par `sameValue` ; le détail est dans #258. **Pour M7.6** : les outils de terrain vont dans
   la cible éditeur du plugin terrain (ADR-0018), au-dessus de `levain_editor`.
 
 ## Ce que font les autres moteurs
