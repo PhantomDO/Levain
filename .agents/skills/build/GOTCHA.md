@@ -80,7 +80,8 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   préchargé : sa globale paraît perdue, le même faux positif que celui de RADV. Les pilotes Intel, présents
   avant lui, ne le provoquaient pas.
 - **Parade** : un seul pilote, et préchargé : `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/radeon_icd.json` avec
-  `LD_PRELOAD=/usr/lib/libvulkan_radeon.so`, ou `lvp_icd.json` avec `libvulkan_lvp.so` pour lancer les tests
+  `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libvulkan_radeon.so` (le chemin d'Ubuntu ; `/usr/lib/` sous Arch), ou
+  `lvp_icd.json` avec `libvulkan_lvp.so` pour lancer les tests
   de fumée comme la CI (`VK_DRIVER_FILES` seul pour un build sans sanitizer). Les deux passent sous ASan.
 
 ## Jolt n'a ses assertions qu'en Debug (2026-10-04, corrigé le 2026-10-05)
@@ -128,8 +129,9 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 - **Symptôme** : sur la machine de référence, `clang++`, `cmake --preset` ou `clang-format` échouent depuis le
   shell de l'agent, alors que `build/linux-debug/CMakeCache.txt` désigne bien `clang++`.
 - **Cause** : l'hôte est une Fedora Atomic (`ogc`), sans chaîne de compilation. Tout s'outille dans la
-  distrobox `dev` (Arch) : clang 23, CMake 4.4, vcpkg et emsdk y sont, avec le même `$HOME`.
-- **Parade** : `distrobox enter dev -- bash -lc 'cd <dépôt> && <commande>'`. Une variable du shell de l'agent
+  distrobox `dev-ubuntu` (Ubuntu 26.04, l'image de la CI, depuis le 2026-10-07 ; avant, la boîte Arch `dev`) :
+  clang 23, CMake 4.2, vcpkg et emsdk y sont, avec le même `$HOME`.
+- **Parade** : `distrobox enter dev-ubuntu -- bash -lc 'cd <dépôt> && <commande>'`. Une variable du shell de l'agent
   n'y passe pas : écrire les chemins en toutes lettres dans la commande. `gh`, `git`, `curl` et les scripts de
   `tools/` qui ne compilent rien tournent aussi sur l'hôte. Les assets de test (`assets-cache/`) ne sont pas
   partagés entre worktrees : `tools/fetch-assets.sh` dans chacun.
@@ -394,7 +396,7 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 
 - **Faux positifs LeakSanitizer sous X11** : ~50 Ko en ~900 allocations, la mémoire permanente de libX11 que SDL
   décharge par `dlclose`. Pour vérifier qu'il ne reste rien de vrai, précharger les bibliothèques X11
-  (`LD_PRELOAD=/usr/lib/libX11.so.6:…`) : les faux positifs disparaissent, les vraies fuites restent. La CI
+  (`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libX11.so.6:…`) : les faux positifs disparaissent, les vraies fuites restent. La CI
   tourne en offscreen et n'est pas concernée.
 - **Pile tronquée à une bibliothèque système** : `ASAN_OPTIONS=fast_unwind_on_malloc=0` pour une pile complète.
 - **Un code de sortie lu à travers un pipe** est celui du dernier programme (`| tail` rend 0). Rediriger vers
