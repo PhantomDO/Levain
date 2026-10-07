@@ -34,9 +34,10 @@ void rebuildBody(PhysicsWorld& physics, flecs::entity entity, const Collider& co
     entity.remove<BodyDirty>();
     if (const auto reason = whyNotABody(transform, entity.has<flecs::Parent>()))
     {
-        // Un corps manquant ne se voit pas à l'écran avant qu'un objet ne traverse le décor.
+        // Un corps manquant ne se voit pas à l'écran avant qu'un objet ne traverse le décor : d'où
+        // l'erreur. Pas d'assertion : une donnée refusée n'est pas un bug, et l'inspecteur peut la
+        // taper (ADR-0034).
         core::log("physics", core::LogLevel::Error, "{} : {}", entity.path().c_str(), *reason);
-        LEVAIN_ASSERT(false, "entité refusée comme corps physique");
         // L'ancien corps, s'il y en a un, part avec son BodyHandle (observateur DestroyBody) : le
         // détruire aussi ici le détruirait deux fois.
         entity.remove<BodyHandle>();

@@ -276,14 +276,16 @@ BodyHandle createBody(PhysicsWorld& world, const Collider& collider, const Rigid
         whyNotThisShape(collider, body).or_else([&] { return whyNotThisLayer(collider, body); });
     if (refusal.has_value())
     {
+        // Pas d'assertion : une donnée refusée n'est pas un bug, et l'inspecteur peut la taper
+        // (ADR-0034). Le plafond de corps, plus bas, en reste un.
         core::log(LogCategory, core::LogLevel::Error, "corps refusé : {}", *refusal);
-        LEVAIN_ASSERT(false, "corps physique refusé");
         return {};
     }
     const JPH::RefConst<JPH::Shape> shape = createShape(*world.state, collider.shape);
     if (shape == nullptr)
     {
-        LEVAIN_ASSERT(false, "forme refusée par Jolt");
+        // Un maillage ou un terrain que Jolt refuse : une donnée, déjà au journal (`built`), pas un
+        // bug (ADR-0034).
         return {};
     }
     const Layer layer = effectiveLayer(collider, body);

@@ -58,8 +58,9 @@ PhysicsWorld createPhysicsWorld(const PhysicsSettings& settings = {});
 
 /// Crée un corps et l'ajoute au monde. `body` nul : un corps statique. `entity` est gardé par le
 /// corps, et rendu par `collectMovedBodies` pour retrouver l'entité qui le porte. Une forme, une
-/// masse ou une couche invalide (`whyNotThisShape`, `whyNotThisLayer`), ou le plafond de corps
-/// atteint : une erreur au journal, une assertion en Debug, et `BodyHandle::None`.
+/// masse ou une couche invalide (`whyNotThisShape`, `whyNotThisLayer`), ou une forme que Jolt
+/// refuse : une erreur au journal et `BodyHandle::None`, sans assertion, car c'est une donnée et
+/// non un bug (ADR-0034). Le plafond de corps atteint, lui, en est un : une assertion en Debug.
 BodyHandle createBody(PhysicsWorld& world, const Collider& collider, const RigidBody* body,
                       const BodyPose& pose, std::uint64_t entity);
 

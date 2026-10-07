@@ -129,8 +129,8 @@ struct CharacterState
 
 /// Crée un personnage à `pose` (ses pieds), avec un corps intérieur sur la couche `Character` que
 /// les volumes déclencheurs et les rayons voient, et qui rend `entity` (ADR-0028). Des réglages
-/// refusés (`whyNotThisCharacter`) : une erreur au journal, une assertion
-/// en Debug, et `CharacterHandle::None`.
+/// refusés (`whyNotThisCharacter`) : une erreur au journal et `CharacterHandle::None`, sans
+/// assertion, car c'est une donnée et non un bug (ADR-0034).
 CharacterHandle createCharacter(PhysicsWorld& world, const CharacterController& controller,
                                 const BodyPose& pose, std::uint64_t entity);
 

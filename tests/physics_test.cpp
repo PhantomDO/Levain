@@ -657,9 +657,8 @@ TEST_CASE("la physique donne le même état au bit près, sur un thread ou sur t
                       single.size() * sizeof(levain::physics::BodyPose)) == 0);
 }
 
-#if !LEVAIN_ASSERTIONS_ENABLED
-// En Debug, le refus s'arrête sur une assertion : il ne se teste qu'en Release, où il doit laisser
-// le monde intact et rendre « aucun corps ».
+// Un refus est une donnée, pas un bug (ADR-0034) : il se teste dans tous les presets, sans
+// assertion, et doit laisser le monde intact.
 TEST_CASE("createBody refuse une masse nulle : aucun corps, et le monde reste intact")
 {
     PhysicsWorld world = levain::physics::createPhysicsWorld();
@@ -668,7 +667,6 @@ TEST_CASE("createBody refuse une masse nulle : aucun corps, et le monde reste in
     CHECK(refused.value == levain::physics::BodyHandle::None);
     CHECK(levain::physics::bodyCount(world) == 0);
 }
-#endif
 
 TEST_CASE("une entité avec Collider et RigidBody tombe, et son Transform suit")
 {
@@ -864,9 +862,8 @@ TEST_CASE("déplacer le sol réveille la caisse endormie dessus")
     CHECK(restsOn(crate.get<Transform>().position.y, -2.0f, 0.5f));
 }
 
-#if !LEVAIN_ASSERTIONS_ENABLED
-// En Debug, le refus s'arrête sur une assertion : il ne se teste qu'en Release, où il doit rester
-// bruyant au journal et ne laisser aucun corps.
+// Un refus est une donnée, pas un bug (ADR-0034) : il se teste dans tous les presets, et doit
+// rester bruyant au journal et ne laisser aucun corps.
 TEST_CASE("un corps refusé n'existe pas : enfant, ou avec une échelle")
 {
     flecs::world world = physicsWorld();
@@ -906,7 +903,6 @@ TEST_CASE("un corps refusé n'existe pas : enfant, ou avec une échelle")
     advance(world, 1);
     CHECK(crate.has<levain::physics::BodyHandle>());
 }
-#endif
 
 namespace
 {
