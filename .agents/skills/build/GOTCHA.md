@@ -3,6 +3,18 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## `nm | grep -q` sous `pipefail` : un symbole trouvé, et pourtant un échec (2026-10-07)
+
+- **Symptôme** : en préparant l'étape du build profilé (#298), `nm -C levain_sandbox | grep -q "tracy::"` échoue
+  sous `set -euo pipefail`, alors que le binaire contient 488 symboles `tracy::`.
+- **Cause** : `grep -q` sort dès la première ligne trouvée et ferme le tube ; `nm`, qui écrit encore, meurt de
+  SIGPIPE (code 141). Avec `pipefail`, ce code est celui du tube entier : trouver le symbole fait échouer. Seule
+  une sortie plus grande que le tampon du tube (64 Kio) y est exposée : `$t --version | grep -q` ne l'est pas, et
+  le `nm | grep -q` de l'étape ASan ne tient que parce que cette étape tourne sans `pipefail`. Y ajouter
+  `set -euo pipefail` la ferait échouer.
+- **Parade** : lire la sortie d'abord (`symbols=$(nm -C …)`), puis `grep -q … <<< "$symbols"`. Ou `grep -c`,
+  qui lit tout. Un contrôle qui échoue à tort finit désactivé : ce n'est pas mieux qu'un contrôle muet.
+
 ## Deux worktrees, deux caches d'assets : des captures qui diffèrent sans que le code change (2026-10-06)
 
 - **Symptôme** : en sortant la boucle du sandbox (#300), les captures de l'ancien build et du nouveau, prises
