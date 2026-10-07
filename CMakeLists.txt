@@ -64,6 +64,7 @@ add_subdirectory(engine/render)
 
 add_subdirectory(engine/platform)
 add_subdirectory(engine/input)
+add_subdirectory(engine/ui)
 # Le socle des programmes, au-dessus de tous les modules (ADR-0029).
 add_subdirectory(engine/app)
 # Les plugins moteur (ADR-0018), après le moteur dont ils dépendent.
