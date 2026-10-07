@@ -10,6 +10,8 @@
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
 
+using levain::scene::rangeOf;
+
 namespace reflection_test
 {
 
@@ -47,14 +49,21 @@ struct Mover
     flecs::entity target{};
 };
 
+struct Marker // une étiquette, sans champ, entre aussi par sa déclaration
+{
+};
+
 /// Des déclarations dans la portée d'un module : le chemin de leurs types n'est pas leur symbole.
+/// `Capsule`, décrit par récursion dans `Mover`, se déclare après lui.
 struct ReflectionTestModule
 {
     explicit ReflectionTestModule(flecs::world& world)
     {
         world.module<ReflectionTestModule>();
         world.import<levain::scene::SceneModule>(); // les feuilles glm
-        levain::scene::describe<Mover>(world);
+        levain::scene::describeAuthored<Mover>(world).range(&Mover::speed, 0.0, 10.0);
+        levain::scene::describe<Capsule>(world).range(&Capsule::radius, 0.01, 10.0);
+        levain::scene::describeAuthored<Marker>(world);
     }
 };
 
@@ -62,8 +71,27 @@ struct ReflectionTestModule
 
 using reflection_test::Capsule;
 using reflection_test::Gait;
+using reflection_test::Marker;
 using reflection_test::Mover;
 using reflection_test::Probe;
+
+namespace
+{
+
+const ecs_member_t& memberOf(flecs::world& world, flecs::entity_t type, const char* name)
+{
+    const ecs_member_t* member = ecs_struct_get_member(world, type, name);
+    REQUIRE(member != nullptr); // lève : pas de déréférencement nul
+    return *member;
+}
+
+bool sameRange(const ecs_member_t& member, double min, double max)
+{
+    const auto range = rangeOf(member).value_or(ecs_member_value_range_t{});
+    return range.min == min && range.max == max;
+}
+
+} // namespace
 
 TEST_CASE("les champs d'un agrégat se lisent dans la struct : nombre, noms, décalages")
 {
@@ -118,6 +146,38 @@ TEST_CASE("une déclaration lit les champs dans la struct : noms, décalages, ty
         CHECK(members[i].count == 0); // un scalaire, pas un tableau d'un élément
     }
     CHECK(world.entity(world.id<Gait>()).has<flecs::Enum>());
+}
+
+TEST_CASE("une déclaration pose Authored et ses bornes, un type imbriqué déclaré après aussi")
+{
+    flecs::world world;
+    world.import<reflection_test::ReflectionTestModule>();
+
+    CHECK(world.entity(world.id<Mover>()).has<levain::scene::Authored>());
+    CHECK_FALSE(world.entity(world.id<Capsule>()).has<levain::scene::Authored>());
+    CHECK(world.entity(world.id<Marker>()).has<levain::scene::Authored>());
+    CHECK(sameRange(memberOf(world, world.id<Mover>(), "speed"), 0.0, 10.0));
+    CHECK(sameRange(memberOf(world, world.id<Capsule>(), "radius"), 0.01, 10.0));
+    CHECK_FALSE(rangeOf(memberOf(world, world.id<Mover>(), "gait")).has_value());
+    CHECK_FALSE(rangeOf(memberOf(world, world.id<Capsule>(), "halfHeight")).has_value());
+}
+
+TEST_CASE("décrire deux fois garde les membres et les bornes, un type imbriqué déclaré avant aussi")
+{
+    // Les mêmes déclarations deux fois, comme deux modules qui appellent la même fonction.
+    flecs::world world;
+    world.import<levain::scene::SceneModule>();
+    for (int declaration = 0; declaration < 2; ++declaration)
+    {
+        levain::scene::describe<Capsule>(world).range(&Capsule::radius, 0.01, 10.0);
+        levain::scene::describeAuthored<Mover>(world).range(&Mover::speed, 0.0, 10.0);
+    }
+
+    CHECK(world.entity(world.id<Capsule>()).get<flecs::Struct>().members.count == 2);
+    CHECK(world.entity(world.id<Mover>()).get<flecs::Struct>().members.count == 7);
+    CHECK(sameRange(memberOf(world, world.id<Capsule>(), "radius"), 0.01, 10.0));
+    CHECK(sameRange(memberOf(world, world.id<Mover>(), "speed"), 0.0, 10.0));
+    CHECK_FALSE(world.entity(world.id<Capsule>()).has<levain::scene::Authored>());
 }
 
 TEST_CASE("le JSON d'une entité écrit chaque champ, l'enum par son nom et l'entité par son chemin")
