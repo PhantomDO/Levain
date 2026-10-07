@@ -6,6 +6,7 @@
 #include <flecs.h>
 #include <glm/gtc/constants.hpp>
 
+#include "levain/scene/camera_control.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/fixed_step.hpp"
 #include "levain/scene/motion.hpp"
@@ -201,9 +202,16 @@ TEST_CASE("le WorldTransform vient avec le Transform, et se lit en JSON")
     FixedStep step;
     levain::scene::advanceWorld(world, step, 0.0f);
 
-    // Et l'explorer le voit, comme les autres composants (réflexion de la matrice).
+    // Et l'explorer le voit, comme les autres composants : la glm::mat4, un tableau flecs, s'écrit
+    // comme les 16 flottants en ligne qu'elle remplace, à l'octet près.
     const flecs::string json = entity.to_json();
-    CHECK(std::string_view{json.c_str()}.find(R"("matrix":[)") != std::string_view::npos);
+    CHECK(std::string_view{json.c_str()}.find(
+              R"("matrix":[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2, 0, 0, 1]})") !=
+          std::string_view::npos);
+    // La glm::vec2, décrite à la main elle aussi : chaque flottant à sa place.
+    entity.set(levain::scene::FpsInput{.move{1.0f, 2.0f}});
+    CHECK(std::string_view{entity.to_json().c_str()}.find(R"("move":{"x":1, "y":2})") !=
+          std::string_view::npos);
 }
 
 TEST_CASE("planSteps découpe le temps des images en pas entiers")

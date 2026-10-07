@@ -7,6 +7,7 @@
 #include "levain/scene/camera_control.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/motion.hpp"
+#include "levain/scene/reflection.hpp"
 #include "levain/scene/transform.hpp"
 
 namespace levain::scene
@@ -15,22 +16,22 @@ namespace levain::scene
 namespace
 {
 
-/// La réflexion (addon meta de flecs) : les champs de chaque composant, par leur décalage.
-/// L'explorer s'en sert pour afficher les valeurs et les modifier, la sérialisation JSON aussi.
-///
-/// Décalages explicites plutôt que l'ordre de déclaration : glm::quat range ses floats (x, y, z, w)
-/// en mémoire, pas dans l'ordre de son constructeur (w, x, y, z). La surcharge par pointeur de
-/// membre de flecs calcule le sien en déréférençant un pointeur nul : formellement indéfini, même
-/// si UBSan ne l'a vu ni sous clang 23 ni sous GCC 15 (ADR-0034).
 /// Le nombre d'éléments d'un champ, pour flecs : 0 est un scalaire. 1 en ferait un tableau d'un
 /// élément, sérialisé « "x":[2.5] » au lieu de « "x":2.5 ».
 constexpr std::int32_t ScalarMember = 0;
 
-/// Les 16 flottants d'une glm::mat4, en colonnes : l'explorer les affiche en tableau.
+/// Les 16 flottants d'une glm::mat4, en colonnes : un tableau flecs, que l'explorer affiche ainsi.
 constexpr std::int32_t Mat4Floats = 16;
 
-void describeComponents(flecs::world& world)
+/// Les feuilles glm, décrites à la main : ce ne sont pas des agrégats, `reflection.hpp` ne les lit
+/// pas. Décalages explicites plutôt que l'ordre de déclaration : glm::quat range ses floats
+/// (x, y, z, w) en mémoire, pas dans l'ordre de son constructeur (w, x, y, z). Une seule
+/// description par feuille, ici : flecs garderait la dernière (GOTCHA du skill build).
+void describeGlmLeaves(flecs::world& world)
 {
+    world.component<glm::vec2>("vec2")
+        .member<float>("x", ScalarMember, offsetof(glm::vec2, x))
+        .member<float>("y", ScalarMember, offsetof(glm::vec2, y));
     world.component<glm::vec3>("vec3")
         .member<float>("x", ScalarMember, offsetof(glm::vec3, x))
         .member<float>("y", ScalarMember, offsetof(glm::vec3, y))
@@ -40,18 +41,26 @@ void describeComponents(flecs::world& world)
         .member<float>("y", ScalarMember, offsetof(glm::quat, y))
         .member<float>("z", ScalarMember, offsetof(glm::quat, z))
         .member<float>("w", ScalarMember, offsetof(glm::quat, w));
-    world.component<Transform>()
-        .member<glm::vec3>("position", ScalarMember, offsetof(Transform, position))
-        .member<glm::quat>("rotation", ScalarMember, offsetof(Transform, rotation))
-        .member<glm::vec3>("scale", ScalarMember, offsetof(Transform, scale));
-    world.component<Velocity>().member<glm::vec3>("linear", ScalarMember,
-                                                  offsetof(Velocity, linear));
-    world.component<WorldTransform>().member<float>("matrix", Mat4Floats,
-                                                    offsetof(WorldTransform, matrix));
-    world.component<PreviousTransform>().member<Transform>("transform", ScalarMember,
-                                                           offsetof(PreviousTransform, transform));
-    world.component<RenderAlpha>().member<float>("value", ScalarMember,
-                                                 offsetof(RenderAlpha, value));
+    // Le même JSON que les 16 flottants en ligne qui décrivaient `WorldTransform::matrix`, à
+    // l'octet près (scene_test.cpp).
+    world.component<glm::mat4>("mat4").array<float>(Mat4Floats);
+}
+
+/// Les composants de la scène (ADR-0034). Les bornes ne vont qu'à un champ qui a un vrai domaine.
+void describeSceneComponents(flecs::world& world)
+{
+    describeGlmLeaves(world);
+    describeAuthored<Transform>(world);
+    describeAuthored<Velocity>(world);
+    // Au-delà de ±90°, la caméra passe par-dessus la tête et le monde se retourne (`clampPitch`).
+    describeAuthored<FpsController>(world)
+        .range(&FpsController::minPitchDegrees, -90.0, 90.0)
+        .range(&FpsController::maxPitchDegrees, -90.0, 90.0)
+        .range(&FpsController::pitchDegrees, -90.0, 90.0);
+    describe<WorldTransform>(world);
+    describe<PreviousTransform>(world);
+    describe<RenderAlpha>(world);
+    describe<FpsInput>(world); // reposé par l'application à chaque image
 }
 
 /// La matrice monde du parent, ou l'identité pour une racine (`parent` nul) et pour un parent sans
@@ -78,7 +87,7 @@ const glm::mat4& parentWorldMatrix(const flecs::world_t* world, const flecs::Par
 SceneModule::SceneModule(flecs::world& world)
 {
     world.module<SceneModule>();
-    describeComponents(world);
+    describeSceneComponents(world);
 
     // Les systèmes de simulation, dans leur pipeline à part (ADR-0016) : ils tournent N fois par
     // image, toujours avec le même pas. Dans un pipeline, flecs exécute les systèmes dans l'ordre

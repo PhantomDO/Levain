@@ -63,6 +63,11 @@ struct Marker // une étiquette, sans champ, entre aussi par sa déclaration
 {
 };
 
+struct Weights // un tableau C : décrit à la main, en tableau en ligne
+{
+    float w[4] = {};
+};
+
 /// Des déclarations dans la portée d'un module : le chemin de leurs types n'est pas leur symbole.
 /// `Capsule`, décrit par récursion dans `Mover`, se déclare après lui.
 struct ReflectionTestModule
@@ -86,6 +91,7 @@ using reflection_test::Marker;
 using reflection_test::Mover;
 using reflection_test::Padded;
 using reflection_test::Probe;
+using reflection_test::Weights;
 
 namespace
 {
@@ -279,12 +285,19 @@ TEST_CASE("sameValue compare feuille par feuille, sans voir le remplissage")
     moved.rotation.w = 0.5f;
     CHECK_FALSE(sameValue(world, world.id<Mover>(), &mover, &moved));
 
-    // Un champ tableau en ligne (les 16 flottants de WorldTransform), une étiquette sans valeur.
+    // Un tableau flecs (la glm::mat4 de WorldTransform), un champ tableau en ligne, décrit à la
+    // main, et une étiquette sans valeur.
     const levain::scene::WorldTransform matrix{};
     levain::scene::WorldTransform shifted{};
     CHECK(sameValue(world, world.id<levain::scene::WorldTransform>(), &matrix, &shifted));
     shifted.matrix[3][2] = 1.0f;
     CHECK_FALSE(sameValue(world, world.id<levain::scene::WorldTransform>(), &matrix, &shifted));
+    world.component<Weights>().member<float>("w", 4, offsetof(Weights, w));
+    const Weights weights{};
+    Weights heavier{};
+    CHECK(sameValue(world, world.id<Weights>(), &weights, &heavier));
+    heavier.w[3] = 1.0f;
+    CHECK_FALSE(sameValue(world, world.id<Weights>(), &weights, &heavier));
     const Marker marker{};
     CHECK(sameValue(world, world.id<Marker>(), &marker, &marker));
 }
