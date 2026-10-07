@@ -133,6 +133,24 @@ add_executable(levain_physics_bench physics_bench.cpp)
 target_include_directories(levain_physics_bench PRIVATE ${PROJECT_SOURCE_DIR}/sandbox/src)
 target_link_libraries(levain_physics_bench PRIVATE levain::physics levain::scene)
 
+# Les refus de la réflexion à l'import (ADR-0034), un cas par lancement : la sortie doit nommer la
+# struct et le champ. PASS_REGULAR_EXPRESSION, jamais WILL_FAIL, qui passerait sur n'importe quel
+# plantage ; et FAIL_REGULAR_EXPRESSION, car CTest ignore alors le code de sortie : un refus qui
+# laisserait continuer le programme irait jusqu'à « aucun refus » (règle n°7).
+add_executable(levain_reflection_refusals reflection_refusals.cpp)
+target_link_libraries(levain_reflection_refusals PRIVATE levain::scene)
+set(reflectionRefusals optional glm-leaf byte)
+set(reflectionRefusalOutputs
+    "« maybe » de refusals[.]WithOptional a un type sans réflexion"
+    "« offset » de refusals[.]WithLeaf a un type sans réflexion"
+    "« raw » de refusals[.]WithByte a un type sans réflexion")
+foreach(refusal output IN ZIP_LISTS reflectionRefusals reflectionRefusalOutputs)
+    add_test(NAME scene.reflection-refuses.${refusal}
+             COMMAND levain_reflection_refusals ${refusal})
+    set_tests_properties(scene.reflection-refuses.${refusal} PROPERTIES
+        PASS_REGULAR_EXPRESSION "${output}" FAIL_REGULAR_EXPRESSION "aucun refus")
+endforeach()
+
 # L'échelle de liaisons de la réflexion est écrite par un script : le fichier versionné doit rester
 # sa sortie, sinon le test échoue (règle n°7).
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

@@ -57,7 +57,7 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/fixed_step.hpp`](include/levain/scene/fixed_step.hpp) | `FixedStep` et `planSteps` — l'accumulateur et son plafond, testables sans monde |
 | [`include/levain/scene/camera_control.hpp`](include/levain/scene/camera_control.hpp) | La caméra libre : `FpsController`, `FpsInput`, `applyFpsInput`, et les pièges nommés `normalizeOrZero`, `clampPitch`, `horizontalBasisFrom` |
 | [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` |
-| [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : les champs d'un agrégat, leur nombre, leurs noms et leurs décalages (`FieldCount`, `fieldName`, `offsetInProbe`) |
+| [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, qui écrit les champs d'un composant dans flecs, `stableKeyOf` |
 
 ## Trois notions de flecs
 
@@ -94,15 +94,28 @@ sauvegardées (phase 7), en dépendent. Vérification : `tools/explorer-check.sh
 
 ## La réflexion des composants
 
+Un composant devient visible de l'explorer, du JSON et de l'éditeur par **une ligne dans le module qui le
+possède** ([ADR-0034](../../docs/adr/0034-reflexion-des-composants.md)) :
+
+```cpp
+scene::describe<CharacterState>(world); // réécrit par le moteur : lecture seule, jamais sauvegardé
+```
+
 Les champs d'un composant sont lus dans sa struct, un agrégat de 32 champs au plus (ADR-0034). L'échelle de
 liaisons structurées (`detail/field_ladder.inc`) est écrite par `tools/generate_field_ladder.py`, que le test
 `scene.field-ladder` relance.
+
+Un champ est un nombre, un booléen, une enum, un `flecs::entity`, une feuille glm décrite à la main dans
+`SceneModule`, ou un agrégat imbriqué, décrit à son tour. Le reste est refusé à la compilation (`static_assert`), ou
+à l'import : le journal nomme la struct et le champ, puis le programme s'arrête, en Release aussi.
 
 | Piège | Son nom |
 |---|---|
 | Le nom d'un champ, lu dans le `__PRETTY_FUNCTION__` d'une fonction instanciée sur son adresse ; un autre format (MSVC) | `fieldName`, refusé à la compilation par `isIdentifier` |
 | L'objet `extern` jamais défini de Boost.PFR, que `-Wundefined-var-template` signale | `FakeObject`, une union jamais construite |
 | Le décalage d'un champ calculé depuis un pointeur nul (la surcharge `member(nom, &T::champ)` de flecs) | `offsetInProbe`, une différence d'adresses dans un vrai `T` |
+| Un champ sans réflexion (`std::optional`, `std::variant`, conteneur, feuille glm non décrite, enum sans constante comme `std::byte`), que flecs écarterait du JSON d'une ligne de journal | `hasReflection` et `refuseFieldWithoutReflection`, puis `exitOnRefusedDescription` |
+| Un membre référence fait échouer toute accolade : zéro champ lu ; un `std::array` s'ouvre, mais son nom se lit `_M_elems[2]` | refusés à la compilation dans `describeFields` et par `IsStdArray` |
 
 Ailleurs : Unreal lit les `UPROPERTY` par son Unreal Header Tool, un générateur de code ; Unity sérialise les champs
 C# par la réflexion du langage, et `[Range]` borne l'inspecteur ; Godot les décrit à la main (`ADD_PROPERTY` dans

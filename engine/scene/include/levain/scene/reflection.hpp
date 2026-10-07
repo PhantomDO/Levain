@@ -1,10 +1,13 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+#include <flecs.h>
 
 /// La réflexion des composants (ADR-0034) : une ligne dans le module qui possède le composant lit
 /// ses champs dans la struct et les écrit dans celle de flecs (addon meta), que lisent l'explorer,
@@ -117,6 +120,74 @@ template <class T, class F> std::size_t offsetInProbe(const T& probe, const F& f
                                     reinterpret_cast<const std::byte*>(&probe));
 }
 
+/// Ajoute un champ à la description de `owner` ; un type sans réflexion arrête l'import
+/// (`hasReflection` et `refuseFieldWithoutReflection`, dans reflection.cpp).
+void addField(flecs::world& world, flecs::entity_t owner, std::string_view name,
+              flecs::entity_t type, std::size_t offset);
+
+template <class T> flecs::entity_t describeFields(flecs::world& world);
+
+template <class F> inline constexpr bool IsStdArray = false;
+template <class E, std::size_t N> inline constexpr bool IsStdArray<std::array<E, N>> = true;
+
+/// Le type flecs d'un champ. Un agrégat se décrit à son tour, ce qui n'est pas une déclaration :
+/// ni `Authored`, ni bornes. Nombres, booléens, enums (flecs les lit seul), `flecs::entity` et
+/// feuilles glm décrites à la main ont leur réflexion ; le reste n'en a pas, et `addField` le
+/// refuse. Un pointeur s'arrête sur le `static_assert` de flecs.
+template <class F> flecs::entity_t fieldTypeOf(flecs::world& world)
+{
+    // IsStdArray : les liaisons l'ouvrent, mais `fieldName` y lirait « _M_elems[2] ».
+    static_assert(!IsStdArray<F>, "réflexion : un std::array se décrit à la main, en tableau flecs "
+                                  "(array<float>(N)), ou devient une feuille glm (ADR-0034)");
+    if constexpr (std::is_class_v<F> && std::is_aggregate_v<F>)
+    {
+        return describeFields<F>(world);
+    }
+    else
+    {
+        return world.component<F>().id();
+    }
+}
+
+template <class T> flecs::entity_t describeFields(flecs::world& world)
+{
+    static_assert(std::is_aggregate_v<T>,
+                  "réflexion : pas un agrégat (un constructeur, un membre privé) : décrire ses "
+                  "champs à la main, comme les feuilles glm de SceneModule (ADR-0034)");
+    // Un membre référence fait échouer toute accolade : zéro champ lu, et rien d'écrit en silence.
+    static_assert(FieldCount<T> > 0 || std::is_empty_v<T>,
+                  "réflexion : aucun champ lu dans une struct qui en a (un membre référence ?) : "
+                  "décrire ses champs à la main (ADR-0034)");
+    const flecs::entity_t component = world.component<T>().id();
+    // Décrire deux fois : la première description écrit les membres, les suivantes n'y touchent
+    // pas. Une seconde description de flecs réinterpréterait les bits en silence.
+    if constexpr (FieldCount<T> > 0)
+    {
+        if (!flecs::entity(world, component).has<flecs::Struct>())
+        {
+            const T probe{};
+            [&]<std::size_t... I>(std::index_sequence<I...>)
+            {
+                (addField(world, component, fieldName<T, I>(), fieldTypeOf<FieldType<T, I>>(world),
+                          offsetInProbe(probe, std::get<I>(tieFields(probe)))),
+                 ...);
+            }(std::make_index_sequence<FieldCount<T>>{});
+        }
+    }
+    return component;
+}
+
 } // namespace detail
+
+/// Décrit les champs de `T` dans flecs : l'explorer et le JSON les lisent.
+template <class T> void describe(flecs::world& world)
+{
+    detail::describeFields<T>(world);
+}
+
+/// stableKeyOf : la clé d'un composant dans une sauvegarde, son symbole (le nom C++,
+/// `levain.scene.Transform`), quel que soit le module qui l'a enregistré en premier. Pas son
+/// chemin, qui en dépend (`levain.scene.SceneModule.Transform`). Vide pour une entité sans symbole.
+[[nodiscard]] std::string_view stableKeyOf(const flecs::world& world, flecs::entity_t component);
 
 } // namespace levain::scene
