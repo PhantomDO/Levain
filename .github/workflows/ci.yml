@@ -53,14 +53,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # La version d'Ubuntu, lue sur le runner : les clés du cache vcpkg la suivent quand `runs-on`
-      # change, sans qu'on ait à la recopier.
-      - name: Image du runner
-        run: |
-          set -euo pipefail
-          . /etc/os-release
-          echo "IMAGE=$ID-$VERSION_ID" >> "$GITHUB_ENV"
-
       # zip est indispensable au bootstrap de vcpkg et manque sur l'image.
       #
       # Vulkan : le runner n'a pas de GPU. mesa-vulkan-drivers apporte lavapipe, le Vulkan
@@ -135,6 +127,18 @@ jobs:
       - name: Bootstrap vcpkg
         run: ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
+      # Ce que vcpkg met dans l'ABI de chaque paquet et qui tient au runner : la version d'Ubuntu, et
+      # l'empreinte du compilateur (vcpkg hache son binaire). Un GCC mis à jour dans l'image, ou la
+      # variante amd64v3 activée ou retirée (ADR-0033), change toutes les ABI : sous une clé inchangée,
+      # vcpkg recompilerait tout à chaque exécution et le cache ne serait jamais réécrit. Lu juste
+      # avant le cache, après les installations de « Outils ».
+      - name: Image du runner
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          cc_sha=$(cat "$(readlink -f "$(command -v cc)")" "$(readlink -f "$(command -v c++)")" | sha1sum | cut -c1-12)
+          echo "IMAGE=$ID-$VERSION_ID-$cc_sha" >> "$GITHUB_ENV"
+
       # On cache les archives binaires de vcpkg, pas ses sources : 19 Mo mesurés pour
       # nvrhi + flecs + doctest, contre 23 s de compilation à froid (journal, M0.2).
       # ports/ fait partie de la clé : un port overlay modifié change l'ABI du paquet, et un
@@ -143,15 +147,14 @@ jobs:
       # reprend une archive que si l'ABI de son paquet n'a pas changé, et ne compile que ce qui
       # manque (Rando#9 : 3 min au lieu de 25 à 37 quand Jolt est arrivé). Les archives périmées
       # restent : le cache grossit un peu à chaque changement du manifeste.
-      # L'image du runner est dans la clé : une archive compilée sous une autre version d'Ubuntu n'a
-      # plus la même ABI. Sous la même clé, vcpkg la recompilerait à chaque exécution, et le cache,
-      # déjà présent pour cette clé, ne serait jamais réécrit. Le triplet x64-linux (triplets/) y est
-      # pour la même raison : ses options de compilation entrent dans l'ABI de chaque paquet.
+      # L'image du runner est dans la clé (étape précédente), et le triplet x64-linux aussi : ses
+      # options de compilation entrent dans l'ABI de chaque paquet. Le triplet wasm n'y est pas : le
+      # changer ne doit pas jeter les caches natifs.
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
+          key: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/x64-linux.cmake') }}
           restore-keys: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-
 
       # vcpkg refuse de démarrer si le dossier de cache binaire n'existe pas. Cette étape
@@ -573,14 +576,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # La version d'Ubuntu, lue sur le runner : les clés du cache vcpkg la suivent quand `runs-on`
-      # change, sans qu'on ait à la recopier.
-      - name: Image du runner
-        run: |
-          set -euo pipefail
-          . /etc/os-release
-          echo "IMAGE=$ID-$VERSION_ID" >> "$GITHUB_ENV"
-
       - name: Outils
         run: sudo apt-get update && sudo apt-get install -y ninja-build zip unzip
 
@@ -617,6 +612,18 @@ jobs:
 
       - name: Bootstrap vcpkg
         run: ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+
+      # Ce que vcpkg met dans l'ABI de chaque paquet et qui tient au runner : la version d'Ubuntu, et
+      # l'empreinte du compilateur (vcpkg hache son binaire). Un GCC mis à jour dans l'image, ou la
+      # variante amd64v3 activée ou retirée (ADR-0033), change toutes les ABI : sous une clé inchangée,
+      # vcpkg recompilerait tout à chaque exécution et le cache ne serait jamais réécrit. Lu juste
+      # avant le cache, après les installations de « Outils ».
+      - name: Image du runner
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          cc_sha=$(cat "$(readlink -f "$(command -v cc)")" "$(readlink -f "$(command -v c++)")" | sha1sum | cut -c1-12)
+          echo "IMAGE=$ID-$VERSION_ID-$cc_sha" >> "$GITHUB_ENV"
 
       # Une clé à part des jobs natifs : les paquets wasm32-emscripten ne leur servent pas, et deux
       # jobs qui écrivent la même clé se la disputent. L'image du runner y est aussi, comme pour eux.

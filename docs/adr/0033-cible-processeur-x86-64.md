@@ -20,13 +20,20 @@ la variante, vise `x86-64`, comme la boîte Arch et les runners 24.04 avant elle
 
 Ni le dépôt ni vcpkg n'écrivaient de cible : elle dépendait du compilateur de la machine.
 
+Cette cible n'est que la base des ports qui ne choisissent pas la leur. Jolt choisit : son port garde
+`USE_AVX2`, `USE_F16C` et `USE_FMADD`, actifs par défaut, et exporte `-mavx2 -mbmi -mpopcnt -mlzcnt -mf16c
+-mfma` dans ses `INTERFACE_COMPILE_OPTIONS`. Les sources de `levain_physics` compilent donc en AVX2 et FMA :
+tout binaire qui lie la physique demande déjà un processeur de niveau `x86-64-v3`, avant comme après cet ADR.
+
 ## Options envisagées
 
 | Option | Pour | Contre |
 |---|---|---|
-| **A. `-march=x86-64` dans le triplet x64-linux** | Ce que tous les builds faisaient déjà : rien ne change, sinon que c'est écrit | Ne profite pas des instructions récentes |
+| **A. `-march=x86-64` dans le triplet x64-linux** | Ce que tous les builds faisaient déjà pour les ports : rien ne change, sinon que c'est écrit | Ne profite pas des instructions récentes (sauf Jolt, qui choisit les siennes) |
 | B. `-march=x86-64-v2` (SSE4.2, POPCNT) | Un peu plus de performance possible ; ce que la doc de Godot 4.5 exige | Un vrai changement de cible, sans mesure qui le demande |
 | C. Revenir à `ubuntu-24.04` en CI | Aucun triplet | La CI ne serait plus sur la version d'Ubuntu de la machine de référence |
+| D. Un port overlay de ktx, `-mno-avx` sur le fichier de basisu | Corrige ktx seul | La CI garderait en silence une autre cible que la machine de référence pour tous les autres ports |
+| E. Les ports compilés par clang (`CC`, `CXX`) | Le même compilateur que le moteur | Change le compilateur de tous les ports, pour régler un défaut de cible |
 
 `x86-64-v3` est exclu : basisu refuse précisément de compiler ses noyaux SSE sous AVX.
 
@@ -34,6 +41,8 @@ Ni le dépôt ni vcpkg n'écrivaient de cible : elle dépendait du compilateur d
 
 **A** : `triplets/x64-linux.cmake` reprend le triplet de vcpkg et pose `VCPKG_C_FLAGS` et `VCPKG_CXX_FLAGS` à
 `-march=x86-64`. *Rando* reçoit le même triplet. La réponse de Donnovan, mot pour mot : « x86-64 (Recommended) ».
+Le sondage présentait A par « le jeu tourne sur tout PC 64 bits » : c'est faux à cause de Jolt (Contexte), ce
+qui a été corrigé auprès de Donnovan après le vote. A reste le statu quo pour les ports, ce qu'il a choisi.
 
 ## Conséquences
 
@@ -41,10 +50,11 @@ Ni le dépôt ni vcpkg n'écrivaient de cible : elle dépendait du compilateur d
 - Le triplet change l'ABI de chaque paquet : tout vcpkg se recompile une fois, en local comme en CI. Les clés
   du cache vcpkg des jobs natifs comprennent maintenant `triplets/**`, sans quoi un triplet modifié serait
   restauré sous l'ancienne clé, recompilé à chaque exécution et jamais réécrit.
-- Le code du moteur, compilé par le clang d'apt.llvm.org, garde sa cible par défaut (`x86-64`) : la variante
-  ne touche que les paquets d'Ubuntu. À écrire aussi dans les presets si cela change un jour.
-- Monter la cible (v2, v3) reste possible : ce sera un nouvel ADR, avec une mesure qui le justifie, et pour v3
-  une parade pour basisu.
+- Le plancher réel du jeu reste celui de Jolt : `x86-64-v3` (AVX2, FMA, F16C, BMI, LZCNT) pour tout binaire
+  qui lie `levain_physics`. Le reste du moteur, compilé par le clang d'apt.llvm.org, vise `x86-64` par défaut.
+  Abaisser ce plancher, c'est couper les options `USE_*` de Jolt : un autre ADR.
+- Monter la base des ports (v2, v3) reste possible : ce sera un nouvel ADR, avec une mesure qui le justifie,
+  et pour v3 une parade pour basisu.
 
 ## Ce que font les autres moteurs
 

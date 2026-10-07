@@ -3,6 +3,19 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## basisu refuse de compiler sur `ubuntu-26.04` : le GCC de la variante amd64v3 vise x86-64-v3 (2026-10-07)
+
+- **Symptôme** : vcpkg échoue en construisant ktx sur le runner `ubuntu-26.04`, sur `basisu_kernels_sse.cpp:27:
+  #error Please check your compiler options`, alors que la ligne de compilation ne porte que `-msse4.1`. Suit
+  un « CMake was unable to find a build program corresponding to "Ninja" » : CMake abandonne dans `project()`
+  après l'échec de vcpkg, ninja est bien là.
+- **Cause** : l'image du runner active la variante amd64v3 des paquets d'Ubuntu, dont le GCC vise
+  `-march=x86-64-v3` par défaut : `__AVX__` est défini, et basisu refuse de compiler ses noyaux SSE sous AVX.
+  La distrobox, sans la variante, vise `x86-64` : le même port compile en local.
+- **Parade** : `triplets/x64-linux.cmake` pose `-march=x86-64` pour tous les ports (ADR-0033). Pour
+  reproduire : `ubuntu:26.04`, `APT::Architecture-Variants "amd64v3";` dans `/etc/apt/apt.conf.d/`,
+  `apt-get update && apt-get install g++`, puis `g++ -Q --help=target | grep march=`.
+
 ## `nm | grep -q` sous `pipefail` : un symbole trouvé, et pourtant un échec (2026-10-07)
 
 - **Symptôme** : en préparant l'étape du build profilé (#298), `nm -C levain_sandbox | grep -q "tracy::"` échoue
@@ -73,8 +86,8 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 ## LeakSanitizer et lavapipe installé à côté de RADV : des fuites dans un « module inconnu » (2026-10-05)
 
 - **Symptôme** : sous ASan, tous les tests GPU échouent d'un coup sur 128 à 256 octets perdus, dont la pile
-  finit dans `<unknown module>` sous `libvulkan.so.1`, alors que `LD_PRELOAD=/usr/lib/libvulkan_radeon.so` est
-  posé (entrée « LeakSanitizer et RADV » plus bas).
+  finit dans `<unknown module>` sous `libvulkan.so.1`, alors que `LD_PRELOAD=/usr/lib/libvulkan_radeon.so` (sous
+  Arch) est posé (entrée « LeakSanitizer et RADV » plus bas).
 - **Cause** : lavapipe (`vulkan-swrast`), installé dans la distrobox Arch pour reproduire le pilote de la CI.
   Le loader le charge avec les autres pilotes pour les énumérer, puis le décharge, puisqu'il n'est pas
   préchargé : sa globale paraît perdue, le même faux positif que celui de RADV. Les pilotes Intel, présents
