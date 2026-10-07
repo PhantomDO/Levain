@@ -145,12 +145,13 @@ jobs:
       # restent : le cache grossit un peu à chaque changement du manifeste.
       # L'image du runner est dans la clé : une archive compilée sous une autre version d'Ubuntu n'a
       # plus la même ABI. Sous la même clé, vcpkg la recompilerait à chaque exécution, et le cache,
-      # déjà présent pour cette clé, ne serait jamais réécrit.
+      # déjà présent pour cette clé, ne serait jamais réécrit. Le triplet x64-linux (triplets/) y est
+      # pour la même raison : ses options de compilation entrent dans l'ABI de chaque paquet.
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**') }}
+          key: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
           restore-keys: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-
 
       # vcpkg refuse de démarrer si le dossier de cache binaire n'existe pas. Cette étape
