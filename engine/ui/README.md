@@ -11,6 +11,7 @@ Il ne garde pas d'arbre de widgets. Ce module fait le reste :
 
 - **le rendu** (`ui_pass.hpp`) : une passe NVRHI de plus, sous Vulkan comme sous WebGPU, adaptée du renderer
   de Donut ;
+- **l'input** (`input.hpp`) : les événements de `platform` traduits pour ImGui ;
 - **le contexte** (`context.hpp`) : créé et réglé pour le moteur.
 
 La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI garde pour elle.
@@ -30,9 +31,10 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 | Fichier | Contenu |
 |---|---|
 | [`include/levain/ui/ui_pass.hpp`](include/levain/ui/ui_pass.hpp) | `UiPass`, `createUiPass`, `recordUi`, `updateUiTextures`, `destroyUiTextures` ; les pièges `linearOnSrgbTarget` et `clampScissorToTarget` |
+| [`include/levain/ui/input.hpp`](include/levain/ui/input.hpp) | `feedInput`, `imguiKeyOf`, `PressedKeys` |
 | [`include/levain/ui/context.hpp`](include/levain/ui/context.hpp) | `UiContext`, `createUiContext`, `prepareUiFrame`, `followTextInput` |
 
-Les tests : `tests/ui_test.cpp` (le contexte, la découpe, le choix sRGB), et `levain_ui_gpu [vulkan|webgpu]`
+Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB), et `levain_ui_gpu [vulkan|webgpu]`
 (`gpu.ui.*` dans ctest), qui relit la couleur d'un rectangle dessiné dans une cible sRGB puis UNORM.
 
 ## Pièges connus
@@ -44,9 +46,17 @@ Les tests : `tests/ui_test.cpp` (le contexte, la découpe, le choix sRGB), et `l
   erreur de validation.
 - **Pas de push constants** : notre backend WebGPU ne les a pas. La taille de l'image et le drapeau sRGB
   passent par un constant buffer.
+- **ImGui attend des touches traduites** (`imguiKeyOf`) : `ImGuiKey_A` est la touche qui tape « A ». Sur un
+  AZERTY, la partir du scancode mettrait Ctrl+Z sur la touche W.
+- **Dans le navigateur, le keycode est modifié par Maj** : appuyer sur A, puis Maj, puis relâcher A donne « a »
+  puis « A ». `feedInput` retient la touche d'ImGui envoyée à l'appui de chaque scancode (`PressedKeys`), et
+  relâche celle-là : sinon, `ImGuiKey_A` resterait enfoncée.
 - **Écrire dans un buffer arrondit à 4 octets** sous Vulkan (`vkCmdUpdateBuffer`) : un nombre impair d'index
   sur 16 bits ferait lire après la fin des données. `recordUi` en ajoute un, et arrondit la taille de ses
   buffers ; le test GPU dessine un triangle lissé (21 index), et ASan le vérifie en CI.
+- **ImGui étale les événements sur plusieurs images** quand il en arrive beaucoup à la fois
+  (`ConfigInputTrickleEventQueue`) : un clic très court reste visible au moins une image. Un test qui envoie
+  plusieurs événements doit jouer plusieurs images.
 
 ## Équivalents ailleurs
 

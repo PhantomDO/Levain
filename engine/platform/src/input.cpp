@@ -20,6 +20,23 @@ static_assert(SDL_SCANCODE_COUNT <= KeyCodeCount);
 static_assert(SDL_GAMEPAD_BUTTON_COUNT <= PadButtonCount);
 static_assert(SDL_GAMEPAD_AXIS_COUNT <= PadAxisCount);
 
+// `engine/ui` traduit les touches pour ImGui avec des nombres, sans en-tête SDL (ADR-0032) : ceux
+// sur lesquels sa table repose. Une version de SDL qui les changerait casserait le build ici.
+// Une touche qui ne tape rien : son scancode, plus 2^30 (le bit 30, `SDLK_SCANCODE_MASK`).
+static_assert(SDLK_F1 == 0x40000000U + 58 && SDL_SCANCODE_F1 == 58);
+static_assert(SDL_SCANCODE_F13 == 104 && SDL_SCANCODE_F24 == 115);
+static_assert(SDLK_LEFT == 0x40000000U + 80 && SDLK_LCTRL == 0x40000000U + 224);
+static_assert(SDLK_CAPSLOCK == 0x40000000U + 57 && SDLK_PRINTSCREEN == 0x40000000U + 70 &&
+              SDLK_PAGEDOWN == 0x40000000U + 78 && SDLK_RGUI == 0x40000000U + 231);
+static_assert(SDLK_APPLICATION == 0x40000000U + 101 && SDLK_AC_BACK == 0x40000000U + 282 &&
+              SDLK_AC_FORWARD == 0x40000000U + 283);
+static_assert(SDLK_A == 'a' && SDLK_0 == '0' && SDLK_TAB == '\t' && SDLK_RETURN == '\r');
+static_assert(SDLK_ESCAPE == 0x1B && SDLK_BACKSPACE == 0x08 && SDLK_DELETE == 0x7F);
+static_assert(SDL_SCANCODE_KP_0 == 98 && SDL_SCANCODE_KP_1 == 89 && SDL_SCANCODE_KP_EQUALS == 103);
+static_assert(SDL_SCANCODE_GRAVE == 53 && SDL_SCANCODE_SLASH == 56 &&
+              SDL_SCANCODE_NONUSBACKSLASH == 100);
+static_assert(SDL_BUTTON_LEFT == 1 && SDL_BUTTON_MIDDLE == 2 && SDL_BUTTON_RIGHT == 3);
+
 namespace
 {
 
