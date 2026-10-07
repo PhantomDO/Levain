@@ -1,6 +1,10 @@
 # Roadmap v1
 
-> Version 0.13 — 07/10/2026 — statut : **validé par Donnovan** (sondage du 06/10) ; la v0.13, comptable, à relire
+> Version 0.14 — 07/10/2026 — statut : **validé par Donnovan** (sondage du 07/10, ADR-0034)
+>
+> v0.14 : **l'ADR-0034**, accepté par sondage. M7.2 ouvre la bibliothèque éditeur (`editor/`, choix de
+> Donnovan) ; M7.3 écrit l'enveloppe et le chargeur de ses scènes, le JSON de flecs ne servant qu'aux valeurs, et
+> son estimation se revoit à son ouverture. Totaux et échéances inchangés.
 >
 > v0.13 : **clôture de M7.1**. La phase 6 passe à son temps réel dans la synthèse (11,25 h) et reçoit sa
 > section au recalibrage (ratio 1,17), deux oublis de la clôture de la phase 6 (#313) ; M7.1 compte #298
@@ -379,11 +383,13 @@ moteur ; l'input par `platform` ; panneaux de statistiques et de profiling, en f
 ([ADR-0032](adr/0032-imgui.md)).
 *Critère* : coût de l'UI inférieur à 0,5 ms par frame.
 
-**M7.2 — Réflexion et inspecteur.** Réflexion des composants via l'addon meta de flecs (**ADR à écrire**), panneau de
-hiérarchie, inspecteur de composants.
+**M7.2 — Réflexion et inspecteur.** Réflexion des composants via l'addon meta de flecs, une ligne par composant
+([ADR-0034](adr/0034-reflexion-des-composants.md)) ; panneau de hiérarchie et inspecteur de composants, dans la
+bibliothèque éditeur (`editor/`).
 *Critère* : un nouveau composant devient éditable en une seule déclaration.
 
-**M7.3 — Sérialisation et undo/redo.** Scènes en JSON via le sérialiseur de flecs, pattern Command.
+**M7.3 — Sérialisation et undo/redo.** Scènes en JSON : les valeurs par le JSON de flecs, l'enveloppe et le
+chargeur à nous (ADR-0034) ; pattern Command.
 *Critères* : sauvegarde puis chargement donnent une scène identique (test) ; 100 niveaux d'annulation.
 
 **M7.4 — Gizmos et picking.** ImGuizmo, sélection à la souris par buffer d'identifiants.
@@ -453,7 +459,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0031 | La nage, le planeur et l'endurance de *Rando* (un état à la fois, le lac pour l'eau, la jauge en lignes de debug) | M6.5 |
 | 0032 | Dear ImGui dans le moteur : le module `ui`, l'input par `platform`, le rendu par NVRHI, des fenêtres ancrées | M7.1 |
 | 0033 | La cible processeur des dépendances : `-march=x86-64` dans le triplet vcpkg (CI sur Ubuntu 26.04) | M7.1 |
-| à numéroter | Réflexion des composants (addon meta de flecs) | M7.2 |
+| 0034 | La réflexion des composants : une déclaration, les champs lus dans la struct, rangés dans flecs | M7.2 |
 
 ## Numérotation des ADR
 

@@ -1,7 +1,8 @@
 # ADR-0034 — La réflexion des composants : une déclaration, les champs lus dans la struct, rangés dans flecs
 
-- **Statut** : proposé ; Donnovan le valide par sondage (1, le lecteur de champs ; 5, les refus de la
-  physique ; 6, la place des panneaux)
+- **Statut** : accepté le 2026-10-07, sur les réponses de Donnovan au sondage du jour (1B, le lecteur de
+  champs ; 5B, les refus de la physique ; 6B, contre la recommandation : les panneaux dans la bibliothèque
+  éditeur) ; écrit par un workflow (études, trois conceptions, un juge, relectures adverses), puis condensé
 - **Modifie** : [ADR-0026](0026-integration-de-jolt.md), § 4 de sa décision (« une assertion en Debug » sur un
   corps refusé)
 - **Date** : 2026-10-07
@@ -61,7 +62,6 @@ reflectable entity », de même sous le clang 24 d'emsdk, et la page de statut d
 GCC 15.2 refuse l'option ; GCC 16.1 l'a, mais Levain ne compile qu'en clang. **B plutôt que A** : le critère de
 M7.2 compte les déclarations, et A en demande une par champ, sans pouvoir détecter l'oubli. **B plutôt que C** :
 la technique de PFR, en ≈ 220 lignes à nous, plus l'échelle, sans dépendance ni define.
-B et C gardent la porte de C++26 ouverte : le jour où clang l'aura, seul l'intérieur de l'en-tête change.
 
 | 2. Ce qui sépare la donnée d'auteur du reste | Pour | Contre |
 |---|---|---|
@@ -82,22 +82,22 @@ B et C gardent la porte de C++26 ouverte : le jour où clang l'aura, seul l'int�
 
 | 5. Les refus de la physique, quand l'inspecteur tape une valeur refusée | Pour | Contre |
 |---|---|---|
-| A. Garder l'assertion, et que l'inspecteur interdise plus (une borne par champ, un `whyNot…` avant chaque `set`) | L'ADR-0026 ne bouge pas | Chaque règle de la physique écrite deux fois, dans `app` et dans physics ; une règle oubliée tue le Debug |
+| A. Garder l'assertion, et que l'inspecteur interdise plus (une borne par champ, un `whyNot…` avant chaque `set`) | L'ADR-0026 ne bouge pas | Chaque règle de la physique écrite deux fois, dans l'inspecteur et dans physics ; une règle oubliée tue le Debug |
 | **B. Le seul journal d'erreurs, le corps ou le personnage restant refusé** | Une valeur tapée se lit au journal et se corrige ; les refus se testent en Debug | Modifie l'ADR-0026 ; un refus ne s'arrête plus dans le débogueur |
 | C. Un `Result` rendu par la création | Ce que demande assert.hpp pour un échec qui n'est pas un bug | Les corps se créent dans les systèmes du module, qui n'ont personne à qui le rendre : le refus finirait au journal |
 
 | 6. La place des panneaux de hiérarchie et d'inspecteur | Pour | Contre |
 |---|---|---|
-| **A. Dans `app`, derrière F1, dans tous les builds, comme ceux de M7.1** | *Rando* les a en jouant, pour régler son game feel ; la page web aussi, où l'explorer n'existe pas ; aucune cible de plus | Le jeu livré les embarque, jusqu'au jour où il devra s'en passer (sans date) |
-| B. La bibliothèque éditeur de l'ADR-0018, dès maintenant | La séparation runtime et éditeur, telle que décidée | Une cible et un exécutable de plus dans *Rando* avant qu'il y ait un éditeur à y mettre (M7.5) ; régler en jouant les demande quand même dans le jeu |
+| A. Dans `app`, derrière F1, dans tous les builds, comme ceux de M7.1 | *Rando* les a en jouant, pour régler son game feel ; la page web aussi, où l'explorer n'existe pas ; aucune cible de plus | Le jeu livré les embarque, jusqu'au jour où il devra s'en passer (sans date) |
+| **B. La bibliothèque éditeur de l'ADR-0018, dès maintenant** | La séparation runtime et éditeur de l'ADR-0018 dès le premier panneau : le jeu livré et la page web n'embarquent aucun code d'éditeur ; Play/Stop (M7.5) et les outils de terrain (M7.6) trouvent leur application | Une bibliothèque et deux exécutables de plus (un pour le sandbox, un pour *Rando*) avant l'éditeur complet (M7.5) ; régler le game feel passe par l'exécutable éditeur ; pas d'inspecteur dans le navigateur |
 | C. En Debug seulement | Rien dans le jeu livré | Ni la page web (Release) ni `linux-release` ; le game feel se règle à la cadence du Debug |
 
 ## Décision
 
-**1B, 2A, 3A, 4A, 5B, 6A.** Un composant devient visible de l'éditeur par **une ligne dans le module qui le
+**1B, 2A, 3A, 4A, 5B, 6B.** Un composant devient visible de l'éditeur par **une ligne dans le module qui le
 possède**, qui lit ses champs dans la struct et les écrit dans la réflexion de flecs. Cette ligne dit aussi s'il
 est donnée d'auteur. L'éditeur n'écrit que par `set`. Un refus de la physique s'écrit au journal sans arrêter le
-Debug, et les panneaux vivent dans `app`, dans tous les builds.
+Debug. Les panneaux vivent dans la bibliothèque éditeur : le jeu livré garde la réflexion, pas l'éditeur.
 
 ### La déclaration
 
@@ -166,15 +166,17 @@ Un plugin, du moteur ou de *Rando*, voit `describe`, `describeAuthored`, `.range
 - **il écrit** une ligne par composant dans la fonction de description de son module, que le constructeur, son
   seul point d'entrée (ADR-0018), appelle : ni inscription statique, ni code généré ;
 - **il obtient**, sans une ligne de plus, sa section de l'inspecteur, sa place dans la scène sous son nom C++
-  (`rando.traversal.TraversalRules`), l'annulation, les gizmos et Play/Stop, sans ImGui ni dépendre de l'éditeur ;
+  (`rando.traversal.TraversalRules`), l'annulation, les gizmos et Play/Stop, **sans que la réflexion demande à
+  sa cible runtime de lier l'éditeur ou ImGui** : elle est dans `levain_scene` ;
 - **il ne peut pas** contredire un type du moteur (l'import s'arrête), écrire autrement que par `set`, ni ajouter
-  un dessinateur de champ : les trois de M7.2 (quaternion en angles, asset et entité par leur nom) sont dans `app`,
-  celui d'un plugin vivra dans sa cible éditeur (ADR-0018) ; restent à sa charge les trois règles de relecture.
+  un dessinateur de champ : ceux de M7.2 (quaternion en angles, asset et entité par leur nom) sont dans l'éditeur,
+  celui d'un plugin ira dans sa cible éditeur (ADR-0018) ; restent à sa charge les trois règles de relecture.
 
 ### Le chemin d'une modification
 
 Une seule fonction écrit, pour l'inspecteur, l'annulation, le chargement, les gizmos et Stop :
-`setComponentValue(world, entity, component, const void* value)`, un `set` qui déclenche `OnSet` comme le jeu.
+`setComponentValue(world, entity, component, const void* value)`, un `set` qui déclenche `OnSet` comme le jeu,
+dans `levain_scene` avec `reflection.hpp` (comme `sameValue`) : le chargeur de M7.3 tourne dans le jeu livré.
 
 - **Copier, puis `set`** : les widgets éditent une copie, jamais la table, où un pointeur gardé pendrait ; `OnSet`
   part une fois par écriture, `on_replace` compris (vérifié), sans `modified()` ;
@@ -187,11 +189,21 @@ Une seule fonction écrit, pour l'inspecteur, l'annulation, le chargement, les g
 
 ### Les panneaux
 
-Dans `app`, derrière F1, comme ceux de M7.1 : *Rando* les a en jouant, et la page web aussi ; la bibliothèque
-éditeur de l'ADR-0018 viendra avec le premier outil à garder hors du jeu (le terrain, M7.6), et la hiérarchie et
-l'inspecteur y passeront le jour où le jeu livré devra s'en passer, pas forcément en M7.6. **La hiérarchie**
-montre les entités à `Transform`, rangées par `flecs::Parent`, et un nœud *Singletons* ; en M7.2, elle sélectionne.
-**L'inspecteur** dessine un widget par champ, grise un composant sans `Authored`, et nomme un composant non décrit.
+Dans **la bibliothèque éditeur** (ADR-0018, SPECS §7) : `editor/`, la cible `levain_editor`, qui lie `app` et
+jamais un plugin, et qu'aucun module ni cible runtime de plugin ne lie (contrôlé) ; un jeu qui récupère Levain la
+reçoit (hors du bloc `PROJECT_IS_TOP_LEVEL`, sous `if(NOT EMSCRIPTEN)` comme le cuiseur). **La hiérarchie**
+montre les entités à `Transform`, rangées par `flecs::Parent`, et un nœud *Singletons* ; en M7.2, elle
+sélectionne. **L'inspecteur** dessine un widget par champ, grise un composant sans `Authored`, et nomme un
+composant non décrit.
+
+- **Le branchement** : `editor::withEditor(start)` enveloppe la fonction de démarrage du programme (ADR-0029)
+  et son `FrameHooks::ui`, sans changer la boucle ; seule extension d'`app`, `UiLayer` garde les nœuds de sa
+  disposition, où ancrer les deux fenêtres. F1 les ouvre avec ceux de M7.1 ; le `main` éditeur pose
+  `settings.showUiPanels = true` avant de lire les options : `--ui off` les ferme encore.
+- **L'exécutable, construit par le jeu** : son `main.cpp` compilé une seconde fois, avec une définition qui
+  enveloppe son démarrage, et lié à `levain::editor`. Levain construit `levain_sandbox_editor` (dans `sandbox/`,
+  en natif) pour ses démos et sa CI ; *Rando*, `rando_editor` à côté de `rando`, dont la cible ne change pas.
+- **`app` garde** les panneaux de M7.1 partout ; **le navigateur**, sans éditeur, n'a ni inspecteur ni explorer.
 
 ### Ce que M7.2 décrit
 
@@ -220,7 +232,7 @@ montre les entités à `Transform`, rangées par `flecs::Parent`, et un nœud *S
 - **une référence d'entité est un `flecs::entity`** — écrite par son chemin (sauf `CharacterGround::body`, un
   entier dans `CharacterState`, en lecture seule : les en-têtes de physics ne voient pas flecs) ;
 - **les pièges des panneaux** — `isEngineInternal`, `eulerHint`, `selectedIfAlive`, `nameTakenAmongSiblings`,
-  `pushEntityId` : la PR de l'inspecteur les écrit dans le README d'`app`, celle de `reflection.hpp` ceux de la
+  `pushEntityId` : les PR des panneaux les écrivent dans `editor/README.md`, celle de `reflection.hpp` ceux de la
   réflexion dans le README de scene, et les règles de relecture vont au GOTCHA du skill build.
 
 ### Les contrôles
@@ -231,6 +243,15 @@ aussi un type imbriqué après le type qui le contient. *Rando* ajoute le même.
 exécutable dont la sortie doit nommer la struct et le champ (`WILL_FAIL` passerait sur tout plantage) ; un refus
 à la compilation, par une cible `EXCLUDE_FROM_ALL` par cas, que CTest construit et dont la sortie doit contenir le
 texte du `static_assert`.
+
+La frontière de 6B se vérifie : au configure, `levain_check_plugin_boundaries` (ADR-0018, lancé aussi par
+*Rando*) parcourt `editor/` comme `engine/` et refuse qu'une cible du moteur ou un plugin lie `levain_editor` ;
+`build.no-editor` refuse un symbole `levain::editor` dans `levain_sandbox` (`nm`, comme `build.no-tracy`). En
+CI, `levain_sandbox_editor --select <nom>` tourne sous linux-debug et linux-asan, et l'étape échoue si la ligne
+« éditeur : N entités, M champs dessinés » manque ou compte zéro. La PR de la hiérarchie l'introduit (celle de
+l'inspecteur y ajoute les champs) et ajoute `editor` aux contrôles qui listent leurs dossiers (format et
+clang-tidy de la CI, `HeaderFilterRegex`, `check_asset_libraries_visibility.cmake`, commande du GOTCHA du skill
+build), qui resteraient sinon verts sans le lire (règle n°7).
 
 ## Conséquences
 
@@ -244,26 +265,30 @@ texte du `static_assert`.
   par `describeAuthored` ; les paires restent hors de la scène.
 - **Le coût** : une dizaine de microsecondes par composant à l'import (Release), rien par entité ; ≈ 0,1 s
   d'include, puis 0,3 s pour 20 structs de 4 champs. **Le web** : le même code, essayé sous em++ 6.0.11 (la CI
-  fige 6.0.10, non essayé) ; l'explorer n'existant qu'en Debug natif, l'inspecteur y sera la seule vue du monde.
+  fige 6.0.10, non essayé).
 - **Les refus de la physique** (5B) passent de `LEVAIN_ASSERT(false)` au journal d'erreurs, le corps ou le
   personnage restant refusé (physics.cpp:39, physics_world.cpp:280 et 286, character_sync.cpp:52,
   character.cpp:157) ; les gardes `#if !LEVAIN_ASSERTIONS_ENABLED` de physics_test.cpp (l. 660 et 867) tombent, les
   commentaires de `createCharacter` et d'assert.hpp se corrigent ; les assertions restent aux vrais bugs. Cette PR
-  précède celles de la réflexion, des modules, de la hiérarchie et de l'inspecteur, chacune sous 400 lignes,
-  l'échelle générée hors compte (règle n°2) ; si la PR de `reflection.hpp` passe 400 lignes, ses tests de refus à
-  la compilation partent dans une PR à eux.
+  précède celles de la réflexion, des modules, de la hiérarchie (avec la bibliothèque éditeur, son squelette de
+  100 à 150 lignes, et `levain_sandbox_editor`) et de l'inspecteur, chacune sous 400 lignes, l'échelle générée
+  hors compte (règle n°2) ; si la PR de `reflection.hpp` passe 400 lignes, ses tests de refus à la compilation
+  partent dans une PR à eux.
 - **Pour *Rando***, à sa montée de version : `ThirdPersonCamera` se coupe (ce que chaque image réécrit passe
   dans `CameraOrbit`, `armLength` devient deux réglages, marche et vol plané, `target` un `flecs::entity`) ;
-  `TraversalModule` appelle `describeWalkComponents` ; l'imgui de l'ADR-0032 entre dans son `vcpkg.json`.
-- **Pour M7.3** : sa ligne de la ROADMAP (« Scènes en JSON via le sérialiseur de flecs ») et SPECS §6 changent : le
-  JSON de flecs ne sert plus qu'aux valeurs ; l'enveloppe et le chargeur sont à nous, car `world.from_json`
-  s'arrête en Debug et plante en Release sur `flecs::Parent`, `from_json` s'arrête en Debug sur `MeshRef`
-  (`on_replace`), et une clé inconnue y devient une étiquette sans erreur. Un type ou un champ renommé casse une
-  scène, et `set_json` ignore un champ inconnu en silence : M7.3 rend ce cas bruyant. Son estimation (1,25 h) est à
-  revoir à son ouverture. L'ADR lui donne les clés stables, `setComponentValue` et `sameValue` ; le reste,
-  indicatif (règle n°6), sera consigné dans #254 et #255.
+  `TraversalModule` appelle `describeWalkComponents` ; l'imgui de l'ADR-0032 entre dans son `vcpkg.json` ; la
+  cible `rando_editor` (son `main.cpp`, ses plugins et `levain::editor`) s'ajoute à côté de `rando`, dont la
+  cible ne change pas, et sa CI le lance comme `rando` (`--steps N`).
+- **Pour M7.3** (sa ligne de la ROADMAP et SPECS §6 changent) : le JSON de flecs ne sert plus qu'aux valeurs ;
+  l'enveloppe et le chargeur sont à nous, car `world.from_json` s'arrête en Debug et plante en Release sur
+  `flecs::Parent`, `from_json` s'arrête en Debug sur `MeshRef` (`on_replace`), et une clé inconnue y devient une
+  étiquette sans erreur. Un type ou un champ renommé casse une scène, et `set_json` ignore un champ inconnu en
+  silence : M7.3 rend ce cas bruyant ; son estimation (1,25 h) se revoit à son ouverture. L'ADR lui donne les clés
+  stables, `setComponentValue` et `sameValue` ; le reste, indicatif (règle n°6), ira dans #254 et #255.
 - **Pour M7.4** : les gizmos lisent `WorldTransform` et écrivent le `Transform` local par `setComponentValue`.
-- **Pour M7.5** : Play/Stop garde les octets `Authored` et compare par `sameValue` ; le détail ira dans #258.
+- **Pour M7.5** : Play/Stop vit dans l'exécutable éditeur (ADR-0029), pas dans le jeu ; il garde les octets
+  `Authored` et compare par `sameValue` ; le détail ira dans #258. **Pour M7.6** : les outils de terrain vont dans
+  la cible éditeur du plugin terrain (ADR-0018), au-dessus de `levain_editor`.
 
 ## Ce que font les autres moteurs
 
@@ -271,11 +296,14 @@ texte du `static_assert`.
   Header Tool, « a custom parsing and code generation tool » (**documenté** [2]) ; le panneau Details parcourt ses
   descripteurs (`FProperty`) sans connaître la classe (**supposé**, d'après le code source, non revérifié). C'est
   notre option 1F ; nos bornes sont son `ClampMin`, `describeAuthored` son `EditAnywhere`, `describe` son
-  `VisibleAnywhere` avec `Transient` : chez lui, une `UPROPERTY` est sauvegardée, éditable ou non.
+  `VisibleAnywhere` avec `Transient` : chez lui, une `UPROPERTY` est sauvegardée, éditable ou non. Le panneau
+  Details vit dans un module Editor (**supposé**), qui « will only be loaded when the editor is starting up »
+  (**documenté** [12]) : notre 6B.
 - **Unity** : un champ public ou `[SerializeField]` est sérialisé (**documenté** [3]), et l'inspecteur « accesses
   the serialized backing field directly » (**documenté** [4]) : une vue du sérialiseur, comme le nôtre. `[Range]`
   en fait un curseur (**documenté** [5]) ; ses *property bags* font notre arbitrage : la réflexion par défaut, la
-  génération de code en option, contre « longer compilation times » (**documenté** [6]).
+  génération de code en option, contre « longer compilation times » (**documenté** [6]). Ses scripts d'éditeur
+  « aren't available in Player builds at runtime » (**documenté** [13]) : l'inspecteur reste hors du jeu livré.
 - **Godot** : en C++, accesseur, mutateur et `ADD_PROPERTY(PropertyInfo(…))` dans `_bind_methods`, avec un usage
   (éditeur, stockage) (**documenté** [7]), notre option 1A ; en GDScript, `@export` suffit (**documenté** [8]).
 - **flecs** : « Types are stored as entities, with components that store the reflection data » (**documenté**
@@ -297,3 +325,5 @@ texte du `static_assert`.
 9. flecs 4.1.6, `include/flecs/addons/meta.h`, commentaire d'en-tête.
 10. flecs 4.1.6, `docs/FAQ.md`.
 11. Clang, *C++ Support in Clang* (P2996 : « No ») — https://clang.llvm.org/cxx_status.html
+12. Epic Games, *Plugins* — https://dev.epicgames.com/documentation/en-us/unreal-engine/plugins-in-unreal-engine
+13. Unity, *Special folder names* — https://docs.unity3d.com/Manual/SpecialFolders.html
