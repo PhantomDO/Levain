@@ -402,9 +402,6 @@ struct DemoScene
     levain::terrain::TerrainStats terrainShadows;
     DrawCount cameraCulling;
     DrawCount shadowCulling; ///< Les quatre cascades ensemble.
-    /// La souris ne se capture que pendant le regard : sinon on ne pourrait plus rien faire
-    /// d'autre de la fenêtre.
-    bool mouseCaptured = false;
 };
 
 /// Un modèle que la scène charge : son fichier, sa place, et pour un modèle skinné, le clip qu'il
@@ -782,8 +779,7 @@ createDemoScene(levain::app::App& app, const SandboxOptions& options, const Came
                   .terrainCamera = {},
                   .terrainShadows = {},
                   .cameraCulling = {},
-                  .shadowCulling = {},
-                  .mouseCaptured = false});
+                  .shadowCulling = {}});
 }
 
 /// Huit lumières de couleur qui tournent autour du modèle (`modelPlacement`), un tour en 12 s :
@@ -1208,12 +1204,10 @@ bool finishDemo(DemoScene& scene)
 void steerDemo(DemoScene& scene)
 {
     levain::app::App& app = scene.app;
+    // La souris ne se capture que pendant le regard : sinon on ne pourrait plus rien faire d'autre
+    // de la fenêtre. `App` la capture (ADR-0032), sauf panneaux ouverts : on y regarde quand même.
     const bool looking = levain::input::actionHeld(app.input, scene.actions.lookEnable);
-    if (looking != scene.mouseCaptured)
-    {
-        levain::platform::setMouseCaptured(app.window, looking);
-        scene.mouseCaptured = looking;
-    }
+    app.mouseCaptureWanted = looking;
     if (!looking && levain::input::actionPressed(app.input, scene.actions.select))
     {
         const levain::platform::CursorPosition cursor =

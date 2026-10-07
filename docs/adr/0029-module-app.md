@@ -2,7 +2,8 @@
 
 - **Statut** : accepté le 2026-10-06, sur les réponses de Donnovan aux sondages du jour (« Un module app dans le
   moteur », puis l'exception de taille pour les déplacements) ; relu par un subagent, dont la relecture a
-  ajouté les points d'accroche, les réglages et le piège des appuis entre deux pas
+  ajouté les points d'accroche, les réglages et le piège des appuis entre deux pas ; complété le 2026-10-07 par
+  l'ADR-0032 (le point d'accroche `ui`, la souris possédée par `App`)
 - **Date** : 2026-10-06
 - **Milestone** : M6.4
 
@@ -67,8 +68,9 @@ dans le renderer qu'il crée, comme ils le font déjà dans celui du sandbox (AD
    | Point | Quand | Ce que le sandbox y met |
    |---|---|---|
    | (le démarrage) | une fois, tout étant prêt | ses vues, ses modèles, ses plugins ; *Rando* sa vallée et son joueur |
-   | `frame(App&)` | à chaque image, après l'input, avant les pas | la sélection à la souris, `FpsInput`, `WalkInput` ; *Rando* la capture de la souris |
+   | `frame(App&)` | à chaque image, après l'input, avant les pas | la sélection à la souris, `FpsInput`, `WalkInput` ; la souris voulue (`mouseCaptureWanted`, ADR-0032), que `App` capture |
    | `record(App&, commandList, seconds)` | à chaque image, avant le rendu | les instances des cubes, les lumières de la démo |
+   | `ui(App&)` | à chaque image, après les pas, avant `ImGui::Render` (ADR-0032) | les fenêtres ImGui du programme ; *Rando* son HUD (M8.2) |
    | `finish(App&)` | à la fin de la boucle | `--pick`, la position du renard, ses bilans ; `false` fait échouer le programme |
 
    Le reste passe par ce que le moteur a déjà : les **systèmes** flecs pour le gameplay, les **étapes** du

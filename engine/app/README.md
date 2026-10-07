@@ -17,7 +17,10 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
   qui porte un `MeshRef`, et `app` anime les modèles skinnés (ADR-0022) ;
 - **la caméra du rendu** : l'unique entité qui porte un `CameraLens` ;
 - **l'input du joueur en singleton du monde** (`PlayerInput`), avec les appuis qu'aucun pas n'a encore vus ;
-- le hot-reload des shaders (ADR-0014) et des textures (ADR-0021).
+- le hot-reload des shaders (ADR-0014) et des textures (ADR-0021) ;
+- **l'interface** (M7.1, ADR-0032) : ImGui, par le module `ui`, chaque image ; F1 ou `--ui on`, qui
+  ouvriront les panneaux de debug du moteur (M7.1, à venir) ; le point d'accroche `ui`, où le
+  programme ajoute ses fenêtres ; et la capture de la souris, que `App` possède.
 
 ## Invariants
 
@@ -40,7 +43,12 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 7. **Un modèle skinné ne se charge qu'une fois** : l'animation est rangée par asset, et `loadModel` refuse un
    modèle skinné déjà chargé. Un modèle statique s'instancie de nouveau, sur les mêmes données GPU. Un nom
    d'entité déjà pris est refusé : la racine écraserait l'entité qui le porte.
-8. **Un appelant dont l'envoi échoue après `open()`** appelle `submitAbandonedUpload` avant de rendre l'erreur
+8. **La souris se capture par `App`** : le programme pose `mouseCaptureWanted`, la boucle appelle
+   `setMouseCaptured`, et le programme lit `mouseCaptured`. Les panneaux ouverts, elle n'est pas capturée.
+9. **L'ordre d'une image** (ADR-0032) : les événements, ImGui (`NewFrame`), ce que l'UI garde pour elle
+   (`gameInputOf`), l'input du jeu, `frame`, la souris, les pas, les fenêtres (`ui`), `ImGui::Render`, puis le
+   rendu, l'UI après le tonemapping.
+10. **Un appelant dont l'envoi échoue après `open()`** appelle `submitAbandonedUpload` avant de rendre l'erreur
    (voir « Pièges connus »).
 
 ## Pièges connus
@@ -70,6 +78,9 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
   enregistré : `open()` l'inscrit dans les ressources de son propre command buffer (NVRHI,
   `vulkan-commandlist.cpp`), un cycle que seule la file rompt. Un envoi abandonné se ferme et se soumet quand
   même (`submitAbandonedUpload`, `.agents/skills/build/GOTCHA.md`).
+- **Ce que l'UI garde, le jeu ne le voit pas** (`gameInputOf`) : un clic dans une fenêtre ne tire pas dans la
+  scène. Mais un relâchement passe toujours, et ce qui était tenu est relâché quand l'UI prend l'appareil :
+  l'input garde l'état des touches, et un relâchement perdu laisserait une touche enfoncée pour toujours.
 - **Les données ne sont pas des couleurs** : la rugosité-métal et les normal maps se chargent en UNORM, les
   couleurs en sRGB. Une même image peut donc exister en deux textures (`TextureKey`).
 
@@ -77,11 +88,12 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `AppSettings`, `ShaderBuild`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf`), `StartFunction`, `runApp` |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `AppSettings`, `ShaderBuild`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
 | [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf` : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
 | [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `SkinningState`, `createSkinningState`, `animateModels` |
+| [`include/levain/app/ui_layer.hpp`](include/levain/app/ui_layer.hpp) | `UiLayer`, `UiCost`, `FrameHistory`, `PanelsKey`, `gameInputOf`, `mouseShouldBeCaptured`, `recordHistory`, `recordUiCpu` : l'interface dans la boucle |
 | [`include/levain/app/texture_reload.hpp`](include/levain/app/texture_reload.hpp) | `TextureReload`, `startTextureReload`, `reloadChangedTextures` : le hot-reload des textures |
 | [`src/model_textures.hpp`](src/model_textures.hpp) | `textureTargetOf`, `UploadedTexture`, `uploadTexture` : une texture au format que le GPU échantillonne ; interne, partagé par l'envoi et le hot-reload |
 | [`src/app.cpp`](src/app.cpp) | La fenêtre et le device, le ciel, `App`, une image, les bilans, la boucle du navigateur |
