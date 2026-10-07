@@ -139,11 +139,19 @@ target_link_libraries(levain_physics_bench PRIVATE levain::physics levain::scene
 # laisserait continuer le programme irait jusqu'à « aucun refus » (règle n°7).
 add_executable(levain_reflection_refusals reflection_refusals.cpp)
 target_link_libraries(levain_reflection_refusals PRIVATE levain::scene)
-set(reflectionRefusals optional glm-leaf byte)
+set(reflectionRefusals optional glm-leaf byte empty-range inverted-range nan-range two-ranges
+    range-unknown-field read-only-then-authored authored-then-read-only)
 set(reflectionRefusalOutputs
     "« maybe » de refusals[.]WithOptional a un type sans réflexion"
     "« offset » de refusals[.]WithLeaf a un type sans réflexion"
-    "« raw » de refusals[.]WithByte a un type sans réflexion")
+    "« raw » de refusals[.]WithByte a un type sans réflexion"
+    "borne \\[1, 1\\] du champ « speed » de refusals[.]Ranged est vide ou inversée"
+    "borne \\[2, 1\\] du champ « speed » de refusals[.]Ranged est vide ou inversée"
+    "borne \\[nan, 1\\] du champ « speed » de refusals[.]Ranged est vide ou inversée"
+    "« speed » de refusals[.]Ranged a deux bornes"
+    "range sur le champ au décalage 4 de refusals[.]HandMade, absent de sa description"
+    "refusals[.]Ranged est déclaré par describe et par describeAuthored"
+    "refusals[.]Ranged est déclaré par describe et par describeAuthored")
 foreach(refusal output IN ZIP_LISTS reflectionRefusals reflectionRefusalOutputs)
     add_test(NAME scene.reflection-refuses.${refusal}
              COMMAND levain_reflection_refusals ${refusal})

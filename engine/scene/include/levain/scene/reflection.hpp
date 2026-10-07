@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
@@ -12,8 +13,17 @@
 /// La réflexion des composants (ADR-0034) : une ligne dans le module qui possède le composant lit
 /// ses champs dans la struct et les écrit dans celle de flecs (addon meta), que lisent l'explorer,
 /// le JSON, l'inspecteur et la sauvegarde.
+///
+///     scene::describeAuthored<RigidBody>(world).range(&RigidBody::mass, 0.001, 1.0e6);
 namespace levain::scene
 {
+
+/// Posée sur l'entité d'un composant par `describeAuthored` : la donnée d'auteur, que l'inspecteur
+/// édite, que la scène sauvegarde (M7.3) et que Play/Stop restaure (M7.5). Sans elle, le composant
+/// est en lecture seule et n'est pas sauvegardé : un oubli se voit.
+struct Authored
+{
+};
 
 namespace detail
 {
@@ -125,6 +135,14 @@ template <class T, class F> std::size_t offsetInProbe(const T& probe, const F& f
 void addField(flecs::world& world, flecs::entity_t owner, std::string_view name,
               flecs::entity_t type, std::size_t offset);
 
+/// Pose la déclaration ; `describe` et `describeAuthored` sur un même type arrêtent l'import.
+void declare(flecs::world& world, flecs::entity_t component, bool authored);
+
+/// Pose la borne du champ à ce décalage ; vide, inversée, ou autre que celle d'une déclaration
+/// précédente, elle arrête l'import.
+void setFieldRange(flecs::world& world, flecs::entity_t component, std::size_t offset, double min,
+                   double max);
+
 template <class T> flecs::entity_t describeFields(flecs::world& world);
 
 template <class F> inline constexpr bool IsStdArray = false;
@@ -179,15 +197,62 @@ template <class T> flecs::entity_t describeFields(flecs::world& world)
 
 } // namespace detail
 
-/// Décrit les champs de `T` dans flecs : l'explorer et le JSON les lisent.
-template <class T> void describe(flecs::world& world)
+/// Ce que rend une déclaration, pour y poser les bornes de ses champs.
+template <class T> class Description
 {
-    detail::describeFields<T>(world);
+public:
+    Description(flecs::world& world, flecs::entity_t component)
+        : m_world(&world), m_component(component)
+    {
+    }
+
+    /// Les bornes d'un champ nombre, que l'inspecteur impose : flecs ne borne rien. Le champ se
+    /// désigne par pointeur de membre, une faute de frappe ne compile pas.
+    template <class F> Description& range(F T::* field, double min, double max)
+    {
+        static_assert(std::is_arithmetic_v<F> && !std::is_same_v<std::remove_cv_t<F>, bool>,
+                      "réflexion : une borne sur un nombre seulement (ADR-0034)");
+        const T probe{};
+        detail::setFieldRange(*m_world, m_component, detail::offsetInProbe(probe, probe.*field),
+                              min, max);
+        return *this;
+    }
+
+private:
+    flecs::world* m_world;
+    flecs::entity_t m_component;
+};
+
+/// Ce que le moteur ou le jeu réécrit (`WorldTransform`, une entrée reposée à chaque image) :
+/// visible de l'éditeur en lecture seule, jamais sauvegardé.
+template <class T> Description<T> describe(flecs::world& world)
+{
+    const flecs::entity_t component = detail::describeFields<T>(world);
+    detail::declare(world, component, false);
+    return {world, component};
+}
+
+/// La donnée d'auteur : éditée, sauvegardée, restaurée, et gardée en octets par l'annulation et
+/// Play/Stop, d'où la copie octet par octet.
+template <class T> Description<T> describeAuthored(flecs::world& world)
+{
+    static_assert(std::is_trivially_copyable_v<T>,
+                  "réflexion : une donnée d'auteur se copie octet par octet (ADR-0034)");
+    static_assert(std::is_copy_assignable_v<T>,
+                  "réflexion : une donnée d'auteur s'écrit par set, ni membre const ni référence "
+                  "(ADR-0034)");
+    const flecs::entity_t component = detail::describeFields<T>(world);
+    detail::declare(world, component, true);
+    return {world, component};
 }
 
 /// stableKeyOf : la clé d'un composant dans une sauvegarde, son symbole (le nom C++,
 /// `levain.scene.Transform`), quel que soit le module qui l'a enregistré en premier. Pas son
 /// chemin, qui en dépend (`levain.scene.SceneModule.Transform`). Vide pour une entité sans symbole.
 [[nodiscard]] std::string_view stableKeyOf(const flecs::world& world, flecs::entity_t component);
+
+/// rangeOf : les bornes d'un champ, s'il en a. flecs écrit une borne absente `[0, 0]` ; une borne
+/// posée a toujours min < max, l'import refuse les autres.
+[[nodiscard]] std::optional<ecs_member_value_range_t> rangeOf(const ecs_member_t& member);
 
 } // namespace levain::scene
