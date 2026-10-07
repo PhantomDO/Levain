@@ -153,8 +153,9 @@ CharacterHandle createCharacter(PhysicsWorld& world, const CharacterController& 
     LEVAIN_ASSERT(!state.stepping, "un personnage se crée hors du pas de physique");
     if (const auto refusal = whyNotThisCharacter(controller); refusal.has_value())
     {
+        // Pas d'assertion : une donnée refusée n'est pas un bug, et l'inspecteur peut la taper
+        // (ADR-0034).
         core::log(LogCategory, core::LogLevel::Error, "personnage refusé : {}", *refusal);
-        LEVAIN_ASSERT(false, "personnage refusé");
         return {};
     }
     const JPH::RefConst<JPH::Shape> shape = standingCapsule(controller.shape);

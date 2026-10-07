@@ -3,7 +3,6 @@
 #include <optional>
 #include <string_view>
 
-#include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
 #include "levain/core/profile.hpp"
 #include "levain/physics/body_rules.hpp"
@@ -48,8 +47,9 @@ void rebuildCharacter(PhysicsWorld& physics, flecs::entity entity,
     entity.remove<CharacterDirty>();
     if (const auto reason = whyNotACharacter(entity, transform))
     {
+        // Pas d'assertion : une donnée refusée n'est pas un bug, et l'inspecteur peut la taper
+        // (ADR-0034).
         core::log("physics", core::LogLevel::Error, "{} : {}", entity.path().c_str(), *reason);
-        LEVAIN_ASSERT(false, "entité refusée comme personnage");
         // L'ancien personnage, s'il y en a un, part avec son CharacterHandle (observateur
         // DestroyCharacter).
         forgetCharacter(entity);

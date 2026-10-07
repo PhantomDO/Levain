@@ -200,8 +200,7 @@ TEST_CASE("retirer le CharacterController ou détruire l'entité détruit le per
     CHECK(levain::physics::characterCount(physicsOf(world)) == 0);
 }
 
-#ifdef NDEBUG
-// En Debug, l'assertion arrête le programme avant : c'est voulu (règle n°7).
+// Un refus est une donnée, pas un bug (ADR-0034) : il se teste dans tous les presets.
 TEST_CASE("un personnage avec un Collider, ou enfant d'une autre entité, est refusé")
 {
     flecs::world world = characterWorld();
@@ -217,4 +216,3 @@ TEST_CASE("un personnage avec un Collider, ou enfant d'une autre entité, est re
     CHECK_FALSE(child.has<CharacterHandle>());
     CHECK(levain::physics::characterCount(physicsOf(world)) == 0);
 }
-#endif

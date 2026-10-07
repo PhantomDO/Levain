@@ -462,8 +462,7 @@ TEST_CASE("des réglages de personnage impossibles sont refusés, avec leur rais
     CHECK(whyNotThisCharacter({.maxPushForce = -1.0f}).has_value());
 }
 
-#ifdef NDEBUG
-// En Debug, l'assertion arrête le programme avant : c'est voulu (règle n°7).
+// Un refus est une donnée, pas un bug (ADR-0034) : il se teste dans tous les presets.
 TEST_CASE("createCharacter refuse une masse nulle : aucun personnage, et le monde reste intact")
 {
     PhysicsWorld world = worldWithGround();
@@ -472,4 +471,3 @@ TEST_CASE("createCharacter refuse une masse nulle : aucun personnage, et le mond
     CHECK(levain::physics::characterCount(world) == 0);
     CHECK(levain::physics::bodyCount(world) == 1);
 }
-#endif

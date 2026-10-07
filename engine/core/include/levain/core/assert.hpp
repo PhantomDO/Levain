@@ -15,8 +15,10 @@ void reportFailedAssert(std::string_view expression, std::string_view message,
 
 } // namespace levain::core
 
-/// Arrêt dans le débogueur. `__builtin_debugtrap` rend la main si aucun débogueur n'est
-/// attaché, là où le `__builtin_trap` de GCC termine le processus — d'où les deux branches.
+/// Arrêt dans le débogueur. `__builtin_debugtrap` émet un point d'arrêt (`int3`) que le débogueur
+/// peut passer pour continuer ; **sans débogueur, SIGTRAP termine le processus** (code 133,
+/// vérifié). Le `__builtin_trap` de GCC émet une instruction invalide, qu'on ne passe pas. Une
+/// assertion n'est donc que pour un bug : une donnée refusée va au journal (ADR-0034).
 #if defined(__clang__)
 #define LEVAIN_DEBUG_BREAK() __builtin_debugtrap()
 #elif defined(__GNUC__)
@@ -36,7 +38,8 @@ void reportFailedAssert(std::string_view expression, std::string_view message,
 /// `LEVAIN_VERIFY` pour ça.
 ///
 /// Pour un échec qui n'est pas un bug — fichier absent, shader invalide — c'est `Result`
-/// qu'il faut (voir `error.hpp`), pas une assertion.
+/// qu'il faut (voir `error.hpp`), pas une assertion ; ou, sans appelant pour le recevoir, le
+/// journal d'erreurs (ADR-0034).
 #define LEVAIN_ASSERT(expression, message)                                                         \
     do                                                                                             \
     {                                                                                              \
