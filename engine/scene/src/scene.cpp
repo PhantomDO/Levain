@@ -20,7 +20,8 @@ namespace
 ///
 /// Décalages explicites plutôt que l'ordre de déclaration : glm::quat range ses floats (x, y, z, w)
 /// en mémoire, pas dans l'ordre de son constructeur (w, x, y, z). La surcharge par pointeur de
-/// membre de flecs calcule le sien en déréférençant un pointeur nul, ce que UBSan signalerait.
+/// membre de flecs calcule le sien en déréférençant un pointeur nul : formellement indéfini, même
+/// si UBSan ne l'a vu ni sous clang 23 ni sous GCC 15 (ADR-0034).
 /// Le nombre d'éléments d'un champ, pour flecs : 0 est un scalaire. 1 en ferait un tableau d'un
 /// élément, sérialisé « "x":[2.5] » au lieu de « "x":2.5 ».
 constexpr std::int32_t ScalarMember = 0;

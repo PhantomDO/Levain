@@ -19,6 +19,7 @@ set(cpuTests
     image_test.cpp
     log_test.cpp
     physics_test.cpp
+    reflection_test.cpp
     registry_test.cpp
     scene_test.cpp
     version_test.cpp
@@ -131,6 +132,13 @@ target_link_libraries(levain_scene_bench PRIVATE levain::scene)
 add_executable(levain_physics_bench physics_bench.cpp)
 target_include_directories(levain_physics_bench PRIVATE ${PROJECT_SOURCE_DIR}/sandbox/src)
 target_link_libraries(levain_physics_bench PRIVATE levain::physics levain::scene)
+
+# L'échelle de liaisons de la réflexion est écrite par un script : le fichier versionné doit rester
+# sa sortie, sinon le test échoue (règle n°7).
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME scene.field-ladder
+         COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/generate_field_ladder.py --check
+                 ${PROJECT_SOURCE_DIR}/engine/scene/include/levain/scene/detail/field_ladder.inc)
 
 # SPECS §7 : flecs n'apparaît pas sous scene/. Un contrôle des sources plutôt que du link : les
 # en-têtes de vcpkg sont visibles de tous les modules, un #include <flecs.h> compilerait partout.

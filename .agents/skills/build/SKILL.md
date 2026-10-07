@@ -10,7 +10,8 @@ Lire d'abord [`GOTCHA.md`](GOTCHA.md).
 ## Prérequis, une seule fois
 
 vcpkg cloné et bootstrappé, puis `VCPKG_ROOT` exporté : les presets lisent cette variable, et le
-`CMakeLists.txt` racine refuse de se configurer sans la toolchain vcpkg.
+`CMakeLists.txt` racine refuse de se configurer sans la toolchain vcpkg. `python3` aussi, pour le build natif :
+le test `scene.field-ladder` relance `tools/generate_field_ladder.py`.
 
 ```bash
 git clone https://github.com/microsoft/vcpkg ~/vcpkg && ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics

@@ -223,7 +223,7 @@ composant non décrit.
 - **`describeAuthored` ou `describe`** — la déclaration force le choix, un `Authored` oublié se voit (grisé) ;
 - **`refuseFieldWithoutReflection`** — un champ sans réflexion arrête l'import en le nommant ;
 - **`fieldName`** et **`isIdentifier`** — le nom lu dans `__PRETTY_FUNCTION__`, tout autre format refusé ;
-- **`fakeObject`** — une union jamais construite, pas l'objet `extern` de Boost.PFR et son pragma (règle n°4) ;
+- **`FakeObject`** — une union jamais construite, pas l'objet `extern` de Boost.PFR et son pragma (règle n°4) ;
 - **`offsetInProbe`** — le décalage dans un vrai `T`, jamais depuis un pointeur nul ;
 - **`stableKeyOf`** et **`componentOfKey`** — la clé est le symbole, relu comme symbole, jamais comme chemin ;
 - **`setComponentValue`** — la seule écriture ;
