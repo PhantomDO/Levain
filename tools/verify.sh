@@ -14,6 +14,7 @@
 # de Mesa, LeakSanitizer voit une fuite dans ceux que le loader décharge (build/GOTCHA.md, « LeakSanitizer et
 # lavapipe »). VK_DRIVER_FILES et LEVAIN_VK_PRELOAD changent de pilote, lavapipe pour refaire la CI.
 set -u
+cd "$(dirname "$0")/.." || exit 1
 
 logs=build/verify
 mkdir -p "$logs"
@@ -23,7 +24,7 @@ step() { # $1 = nom de l'étape, $2 = OK ou FAIL, $3 = détail
     [ "$2" = OK ] || failed=1
 }
 
-if find engine plugins sandbox tests tools $(ls -d editor 2> /dev/null) -name '*.cpp' -o -name '*.hpp' \
+if find engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' \
     | xargs clang-format --dry-run --Werror > "$logs/format.log" 2>&1; then
     step format OK
 else
@@ -37,7 +38,9 @@ for preset in ${PRESETS:-linux-debug linux-release linux-asan}; do
         step "$preset" FAIL "build, $logs/build-$preset.log"
         continue
     fi
-    LD_PRELOAD=$preload ctest --test-dir "build/$preset" -j8 > "$logs/ctest-$preset.log" 2>&1
+    # Comme la CI : un test bloqué échoue en 2 min, et son journal dit pourquoi.
+    LD_PRELOAD=$preload ctest --test-dir "build/$preset" -j8 --timeout 120 --output-on-failure \
+        > "$logs/ctest-$preset.log" 2>&1
     summary=$(grep -E 'tests passed' "$logs/ctest-$preset.log")
     if grep -q ', 0 tests failed' <<< "$summary"; then
         step "$preset" OK "$summary"
@@ -47,12 +50,24 @@ for preset in ${PRESETS:-linux-debug linux-release linux-asan}; do
 done
 
 # clang-tidy sur les seuls .cpp changés que le build natif compile : ceux du navigateur ne s'analysent pas sans
-# leurs options (build/GOTCHA.md).
-python3 -c 'import json; print("\n".join(e["file"] for e in json.load(open(
-    "build/linux-debug/compile_commands.json"))))' | sort -u > "$logs/tidy-compiled.txt"
-{ git diff --name-only "${BASE:-origin/main}" -- '*.cpp'; git ls-files --others --exclude-standard -- '*.cpp'; } \
-    | sed "s|^|$PWD/|" | grep -F -x -f - "$logs/tidy-compiled.txt" > "$logs/tidy-files.txt" || true
-if [ ! -s "$logs/tidy-files.txt" ]; then
+# leurs options (build/GOTCHA.md). Une base inconnue ou un build Debug absent échouent : sans eux, la liste serait
+# vide, et l'étape dirait « aucun fichier changé » sans avoir rien analysé.
+base=${BASE:-origin/main}
+tidy=listed
+if ! git rev-parse --verify -q "$base^{commit}" > /dev/null; then
+    step clang-tidy FAIL "BASE inconnue : $base"
+    tidy=refused
+elif ! python3 -c 'import json; print("\n".join(sorted({e["file"] for e in json.load(open(
+        "build/linux-debug/compile_commands.json"))})))' > "$logs/tidy-compiled.txt" 2>&1; then
+    step clang-tidy FAIL "pas de build/linux-debug/compile_commands.json"
+    tidy=refused
+else
+    { git diff --name-only "$base" -- '*.cpp'; git ls-files --others --exclude-standard -- '*.cpp'; } \
+        | sed "s|^|$PWD/|" | grep -F -x -f - "$logs/tidy-compiled.txt" > "$logs/tidy-files.txt" || true
+fi
+if [ "$tidy" = refused ]; then
+    : # l'étape a déjà dit pourquoi
+elif [ ! -s "$logs/tidy-files.txt" ]; then
     step clang-tidy OK "aucun fichier changé"
 elif xargs clang-tidy -p build/linux-debug --warnings-as-errors='*' < "$logs/tidy-files.txt" \
     > "$logs/tidy.log" 2>&1; then
@@ -64,7 +79,7 @@ fi
 if [ -z "${NO_WEB:-}" ]; then
     source ~/emsdk/emsdk_env.sh > /dev/null 2>&1
     if { cmake --preset web && cmake --build --preset web; } > "$logs/build-web.log" 2>&1; then
-        ctest --test-dir build/web -j8 > "$logs/ctest-web.log" 2>&1
+        ctest --test-dir build/web -j8 --timeout 120 --output-on-failure > "$logs/ctest-web.log" 2>&1
         summary=$(grep -E 'tests passed' "$logs/ctest-web.log")
         if grep -q ', 0 tests failed' <<< "$summary"; then
             step web OK "$summary"
@@ -74,6 +89,8 @@ if [ -z "${NO_WEB:-}" ]; then
     else
         step web FAIL "build, $logs/build-web.log"
     fi
+else
+    echo "web : SAUTÉ (NO_WEB)"
 fi
 
 exit $failed

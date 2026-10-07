@@ -5,9 +5,9 @@ description: La boucle d'une PR en mode autonome, quand Donnovan n'est pas là p
 
 # Une PR en mode autonome
 
-Lire d'abord [`GOTCHA.md`](GOTCHA.md). Le mode autonome (AGENTS.md, décidé par Donnovan le 2026-10-04) : un subagent
-relit chaque PR à sa place ; l'agent fusionne après corrections et CI verte. Ce skill est la boucle d'une PR ; le
-skill `session` reste le rituel autour (journal, board, temps de Donnovan), le skill `build` les commandes.
+Lire d'abord [`GOTCHA.md`](GOTCHA.md). Le mode autonome (AGENTS.md, décidé par Donnovan le 2026-10-04) : un
+subagent relit chaque PR à sa place ; l'agent fusionne après corrections et CI verte. Ce skill est la boucle d'une
+PR ; le skill `session` reste le rituel autour (journal, board, temps de Donnovan), le skill `build` les commandes.
 
 ## 1. Avant d'écrire
 
@@ -45,15 +45,16 @@ Ses dossiers `build/` sont à lui ; le cache binaire de vcpkg (`~/.cache/vcpkg`)
 
 ## 5. Relire et corriger
 
-- Un subagent relit la PR, avec des points précis : la couverture (rien d'oublié, rien de trop), les commentaires et
-  la doc, les tests, les règles du projet. « Dire explicitement si rien ne bloque. »
-- Ses corrections : **un commit de plus**, jamais un `--amend` dans une pile (session/GOTCHA.md) ; puis
-  `tools/verify.sh` à nouveau.
+- Un subagent relit la PR, avec des points précis : la couverture (rien d'oublié, rien de trop), les commentaires
+  et la doc, les tests, les règles du projet. « Dire explicitement si rien ne bloque. »
+- Ses corrections : **un commit de plus**, propagé aussitôt aux branches suivantes d'une pile
+  (`git rebase --update-refs <branche> <sommet>`) ; pas de `--amend`, qui oblige à noter l'ancien SHA
+  (session/GOTCHA.md). Puis `tools/verify.sh` à nouveau.
 
 ## 6. Ouvrir et fusionner
 
 - Le modèle `.github/pull_request_template.md`, le guide de lecture d'abord ; le milestone ; « Partie de #N » ou
   « Closes #N ». Une pile : `gh pr create --base <branche précédente>`, dans l'ordre.
 - `tools/merge-stack.sh N [N+1 …]` en arrière-plan : il attend les checks de chacune, fusionne en merge commit,
-  passe la base de la suivante à `main`. Puis `git switch main && git merge --ff-only origin/main`.
+  passe la base de la suivante à `main`. Puis, dans le dépôt principal : `git pull --ff-only`.
 - Le board : l'issue passe en Done quand une PR la ferme ; « Passé (h) » quand Donnovan donne son temps.

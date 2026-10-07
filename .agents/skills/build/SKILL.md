@@ -35,8 +35,9 @@ ctest --test-dir build/linux-debug --output-on-failure
 Le premier `cmake --preset` est long : vcpkg compile les dépendances depuis les sources. Les suivants sont
 instantanés (cache `~/.cache/vcpkg`). Pour clangd : `ln -sf build/linux-debug/compile_commands.json .`
 
-Tout ce que la CI vérifie, d'un coup, avant chaque push : `tools/verify.sh` (format, trois presets, clang-tidy
-des fichiers changés, web ; code de sortie non nul dès qu'une étape échoue). Le détail, étape par étape :
+Les contrôles de la CI sur les sources et les tests, d'un coup, avant chaque push : `tools/verify.sh` (format,
+trois presets, clang-tidy des fichiers changés, web ; code de sortie non nul dès qu'une étape échoue). Il ne
+lance pas le sandbox comme la CI (Fox, Sponza, terrain, hot-reload). Le détail, étape par étape :
 
 Format et analyse statique, comme la CI :
 

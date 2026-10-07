@@ -9,7 +9,8 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   puis laissait le programme continuer : la règle n°7 n'était vérifiée qu'à moitié.
 - **Cause** : avec `PASS_REGULAR_EXPRESSION`, CTest juge le test sur sa seule sortie et ignore le code de sortie.
 - **Parade** : le programme de test écrit une ligne témoin s'il arrive au bout (« aucun refus »), et le test la
-  refuse par `FAIL_REGULAR_EXPRESSION`. Jamais `WILL_FAIL`, qui passe sur n'importe quel plantage.
+  refuse par `FAIL_REGULAR_EXPRESSION`. Jamais `WILL_FAIL`, qui passe sur n'importe quel code de sortie non
+  nul, quel que soit le message.
 
 ## Un arrêt par `std::abort` : un plantage pour CTest, quelle que soit la sortie (2026-10-07)
 
