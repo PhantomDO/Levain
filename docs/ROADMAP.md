@@ -368,8 +368,9 @@ pourquoi c'est presque toujours une bibliothèque.
 | M7.5 Play/Stop dans l'éditeur | 1,0 | 1 | 04/04/2027 |
 | M7.6 Outils de terrain | 1,25 | 1 | 04/04/2027 |
 
-**M7.1 — ImGui et panneaux de debug.** Renderer ImGui pour NVRHI (adapté de Donut), backend SDL3, panneaux de
-statistiques et de profiling.
+**M7.1 — ImGui et panneaux de debug.** Renderer ImGui pour NVRHI (adapté de Donut), dans un module `ui` du
+moteur ; l'input par `platform` ; panneaux de statistiques et de profiling, en fenêtres ancrées
+([ADR-0032](adr/0032-imgui.md)).
 *Critère* : coût de l'UI inférieur à 0,5 ms par frame.
 
 **M7.2 — Réflexion et inspecteur.** Réflexion des composants via l'addon meta de flecs (**ADR à écrire**), panneau de
@@ -444,6 +445,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0029 | Le module `app` : la boucle, les modèles et la page web sortent du sandbox | M6.4 |
 | 0030 | La caméra à la troisième personne de *Rando* (sphere cast, retour amorti, recentrage) | M6.4 |
 | 0031 | La nage, le planeur et l'endurance de *Rando* (un état à la fois, le lac pour l'eau, la jauge en lignes de debug) | M6.5 |
+| 0032 | Dear ImGui dans le moteur : le module `ui`, l'input par `platform`, le rendu par NVRHI, des fenêtres ancrées | M7.1 |
 | 0013 | Réflexion des composants (addon meta de flecs) | M7.2 |
 
 ## Numérotation des ADR
