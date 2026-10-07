@@ -228,8 +228,8 @@ Ce que l'implémentation (*Rando* #10 à #13) et sa relecture ont fixé, sans ch
   glu remet son état précédent sur sa nouvelle pose.
 - **Le premier bras de la caméra se mesure sur la heightmap** (`heightmapArmCast`, dans le jeu) : la physique
   ne crée le relief qu'au premier pas, et un sphere cast lancé au démarrage ne touche rien. Sur le versant du
-  promontoire, la caméra partait dans la roche (marge −0,301 m dès la première image). L'ADR-0030 le disait
-  déjà (« elle part du bout de son bras, contre la roche s'il y en a ») ; son scénario de CI, au pied d'un
+  promontoire, la caméra partait dans la roche (marge −0,301 m dès la première image). L'ADR-0030 ne le
+  prévoyait pas : son bras part du pivot et suppose que le relief existe. Son scénario de CI, au pied d'un
   versant, ne le montrait pas.
 - **Sans point sec, la noyade en cherche un** : un joueur posé dans l'eau au départ n'a jamais eu pied ;
   `nearestShore` est appelé comme pour une entrée par les airs, sinon il flotterait sans fin à bout de forces.

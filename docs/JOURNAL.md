@@ -69,8 +69,8 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   - **un défaut latent de M6.4** : la caméra partait dans la roche sur une pente, la physique ne créant le
     relief qu'au premier pas. Le scénario de CI de M6.4, au pied d'un versant, ne pouvait pas le voir ; le
     départ du promontoire l'a montré (marge −0,301 m). Corrigé dans *Rando* #13 (ADR-0031, précisions) ;
-  - trois PR dépassent la règle n°2, signalées : *Rando* #10 (522 lignes, dont 173 de tests), #13 (500) ;
-    #12 en a 392 ;
+  - deux PR dépassent la règle n°2, signalées : *Rando* #10 (522 lignes, dont 173 de tests) et #13 (500) ;
+    #11 (393) et #12 (392) restent dessous ;
   - le nombre de tests de *Rando* est compté par cas doctest : ctest n'en voit qu'un.
 - Prochaine étape : la phase 7, l'éditeur, en commençant par M7.1 (ImGui).
 
