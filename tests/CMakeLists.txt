@@ -169,6 +169,13 @@ add_test(NAME gpu.environment.vulkan COMMAND levain_environment vulkan)
 set_tests_properties(gpu.environment.vulkan PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 add_test(NAME gpu.environment.webgpu COMMAND levain_environment webgpu)
 
+# L'UI d'ImGui dessinée par NVRHI, couleurs et découpe relues (ADR-0032), sur les deux backends.
+add_executable(levain_ui_gpu ui_gpu.cpp)
+target_link_libraries(levain_ui_gpu PRIVATE levain::gpu levain::platform levain::render levain::ui)
+add_test(NAME gpu.ui.vulkan COMMAND levain_ui_gpu vulkan)
+set_tests_properties(gpu.ui.vulkan PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+add_test(NAME gpu.ui.webgpu COMMAND levain_ui_gpu webgpu)
+
 # ImGui reste dans ui/ et au-dessus, et SDL hors de ui/ (SPECS §7, ADR-0032).
 add_test(NAME deps.imgui-visibility
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
