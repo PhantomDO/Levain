@@ -55,8 +55,8 @@ struct ShaderBuild
     std::filesystem::path sourceDir;
 };
 
-/// Le système où tourne ce programme : la cible du build, pas l'hôte de CMake, qui est Linux pour un
-/// exe Windows compilé dans une distro. Un paramètre plutôt qu'un `#ifdef` dans la fonction : le
+/// Le système où tourne ce programme : la cible du build, pas l'hôte de CMake, qui est Linux pour
+/// un exe Windows compilé dans une distro. Un paramètre plutôt qu'un `#ifdef` dans la fonction : le
 /// test couvre ainsi les deux depuis Linux.
 enum class ExeSystem : std::uint8_t
 {

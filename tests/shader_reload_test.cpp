@@ -16,21 +16,27 @@ using levain::app::WslBuild;
 namespace
 {
 
-const levain::app::ShaderBuild Build{.cmakeCommand = "/usr/bin/cmake",
-                                     .buildDir = "/home/dev/Levain/build/windows-debug",
-                                     .sourceDir = "/home/dev/Levain/shaders"};
+levain::app::ShaderBuild aBuild()
+{
+    return {.cmakeCommand = "/usr/bin/cmake",
+            .buildDir = "/home/dev/Levain/build/windows-debug",
+            .sourceDir = "/home/dev/Levain/shaders"};
+}
 
-const WslBuild InDistro{.distro = "levain-dev", .winsysroot = "/home/dev/winsysroot"};
+WslBuild inDistro()
+{
+    return {.distro = "levain-dev", .winsysroot = "/home/dev/winsysroot"};
+}
 
 } // namespace
 
 TEST_CASE("sous Linux, le build se relance par cmake, tel qu'avant")
 {
     // Ce que l'arbre sait de WSL n'entre pas dans la commande : un exe Linux lance cmake lui-même.
-    for (const WslBuild& wsl : {WslBuild{}, InDistro})
+    for (const WslBuild& wsl : {WslBuild{}, inDistro()})
     {
         CAPTURE(wsl.distro);
-        const auto command = shaderReloadCommand(Build, ExeSystem::Linux, wsl);
+        const auto command = shaderReloadCommand(aBuild(), ExeSystem::Linux, wsl);
         REQUIRE(command.has_value());
         CHECK(command->arguments == std::vector<std::string>{"/usr/bin/cmake", "--build",
                                                              "/home/dev/Levain/build/windows-debug",
@@ -41,7 +47,7 @@ TEST_CASE("sous Linux, le build se relance par cmake, tel qu'avant")
 
 TEST_CASE("un exe Windows compilé dans une distro relance cmake par wsl.exe, dans cette distro")
 {
-    const auto command = shaderReloadCommand(Build, ExeSystem::Windows, InDistro);
+    const auto command = shaderReloadCommand(aBuild(), ExeSystem::Windows, inDistro());
     REQUIRE(command.has_value());
     // --exec : sans shell ; env : le winsysroot que ~/.bashrc ne donne pas à --exec.
     CHECK(command->arguments ==
@@ -59,9 +65,9 @@ TEST_CASE("le dossier de build va tel quel à wsl.exe, sans shell")
 {
     // « -- » passerait la commande au shell de la distro, où « ; » la couperait et « $ » se
     // développerait : --exec garde chaque argument entier.
-    levain::app::ShaderBuild build = Build;
+    levain::app::ShaderBuild build = aBuild();
     build.buildDir = "/home/dev/Mes Jeux;$HOME/build/windows-debug";
-    const auto command = shaderReloadCommand(build, ExeSystem::Windows, InDistro);
+    const auto command = shaderReloadCommand(build, ExeSystem::Windows, inDistro());
     REQUIRE(command.has_value());
     CHECK(command->arguments.at(3) == "--exec");
     CHECK(command->arguments.at(8) == "/home/dev/Mes Jeux;$HOME/build/windows-debug");
@@ -70,7 +76,7 @@ TEST_CASE("le dossier de build va tel quel à wsl.exe, sans shell")
 TEST_CASE("un exe Windows sans distro refuse de recharger, et le dit")
 {
     // L'exe de la CI : compilé hors d'une distro, il ne sait lancer ni cmake ni slangc.
-    const auto command = shaderReloadCommand(Build, ExeSystem::Windows, WslBuild{});
+    const auto command = shaderReloadCommand(aBuild(), ExeSystem::Windows, WslBuild{});
     REQUIRE_FALSE(command.has_value());
     CHECK(command.error().code == levain::core::ErrorCode::Unsupported);
     CHECK(command.error().message.contains("WSL"));

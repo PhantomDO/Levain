@@ -122,12 +122,13 @@ ShaderReload startShaderReload(const ShaderBuild& build)
         // Règle n°7 : une surveillance qui ne voit rien ne doit pas passer pour une surveillance
         // qui ne voit aucun changement. Sous Windows, un chemin « /home/… » ne se résout que si le
         // dossier courant est celui de la distro (lancer l'exe depuis elle).
-        levain::core::log("shaders", levain::core::LogLevel::Warning,
-                          "aucune source .slang lisible dans {} : le rechargement ne verra rien{}",
-                          build.sourceDir.string(),
-                          CompiledSystem == ExeSystem::Windows
-                              ? " (un exe Windows compilé dans une distro doit être lancé depuis elle)"
-                              : "");
+        levain::core::log(
+            "shaders", levain::core::LogLevel::Warning,
+            "aucune source .slang lisible dans {} : le rechargement ne verra rien{}",
+            build.sourceDir.string(),
+            CompiledSystem == ExeSystem::Windows
+                ? " (un exe Windows compilé dans une distro doit être lancé depuis elle)"
+                : "");
     }
     return reload;
 }
