@@ -19,6 +19,9 @@ struct WebGpuOptions
     /// Où vont les messages de NVRHI et les erreurs de WebGPU. Par défaut, nos logs et une
     /// assertion sur toute erreur. Doit survivre au device.
     nvrhi::IMessageCallback* messageCallback = nullptr;
+    /// Pour le test du refus (tests/webgpu_test.cpp) : demande à Dawn son backend Null, que
+    /// `createWebGpuDevice` doit refuser. En natif seulement.
+    bool forceNullBackend = false;
 };
 
 using WebGpuDeviceCallback = std::function<void(core::Result<nvrhi::DeviceHandle>)>;
@@ -29,7 +32,8 @@ using WebGpuDeviceCallback = std::function<void(core::Result<nvrhi::DeviceHandle
 void requestWebGpuDevice(const WebGpuOptions& options, const WebGpuDeviceCallback& onDevice);
 
 #ifndef __EMSCRIPTEN__
-/// En natif seulement, la même chose sans callback : pour dessiner hors écran (tests).
+/// En natif seulement, la même chose sans callback : pour dessiner hors écran (tests). Refuse le
+/// backend Null de Dawn, qui accepte tout et ne dessine rien (create.cpp).
 [[nodiscard]] core::Result<nvrhi::DeviceHandle> createWebGpuDevice(const WebGpuOptions& options);
 #else
 /// La surface d'un canvas HTML : l'image où dessiner à chaque frame. Le navigateur la présente

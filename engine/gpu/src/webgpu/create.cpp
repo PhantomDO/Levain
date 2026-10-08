@@ -107,6 +107,22 @@ nvrhi::DeviceHandle wrap(wgpu::Instance instance, wgpu::Adapter adapter, wgpu::D
 
 #ifndef __EMSCRIPTEN__
 
+namespace
+{
+
+/// Dawn n'échoue pas quand aucun pilote ne se charge : il propose son backend Null, qui accepte
+/// tout et ne dessine rien (sous Windows, un vulkan-1.dll introuvable, ADR-0035). Un test qui ne
+/// relit pas d'image passerait dessus sans rien avoir vérifié (règle n°7), et un jeu afficherait du
+/// noir : on le refuse en le nommant. (Natif seulement : le navigateur n'a pas de Null.)
+bool isNullBackend(const wgpu::Adapter& adapter)
+{
+    wgpu::AdapterInfo info;
+    adapter.GetInfo(&info);
+    return info.backendType == wgpu::BackendType::Null;
+}
+
+} // namespace
+
 core::Result<nvrhi::DeviceHandle> createWebGpuDevice(const WebGpuOptions& options)
 {
     nvrhi::IMessageCallback* messages = messagesOf(options);
@@ -140,6 +156,10 @@ core::Result<nvrhi::DeviceHandle> createWebGpuDevice(const WebGpuOptions& option
         wgpu::RequestAdapterOptions adapterOptions{};
         adapterOptions.powerPreference = wgpu::PowerPreference::HighPerformance;
         adapterOptions.forceFallbackAdapter = fallback;
+        if (options.forceNullBackend)
+        {
+            adapterOptions.backendType = wgpu::BackendType::Null;
+        }
         instance.WaitAny(instance.RequestAdapter(&adapterOptions, wgpu::CallbackMode::WaitAnyOnly,
                                                  [&](wgpu::RequestAdapterStatus status,
                                                      wgpu::Adapter found, wgpu::StringView message)
@@ -163,6 +183,12 @@ core::Result<nvrhi::DeviceHandle> createWebGpuDevice(const WebGpuOptions& option
                                std::format("aucun adaptateur WebGPU : {}", failure));
     }
     logAdapter(adapter);
+    if (isNullBackend(adapter))
+    {
+        return core::makeError(core::ErrorCode::Unsupported,
+                               "adaptateur WebGPU refusé : le backend Null de Dawn ne dessine rien "
+                               "(Dawn y retombe quand aucun pilote graphique ne se charge)");
+    }
 
     std::vector<wgpu::FeatureName> features;
     const wgpu::DeviceDescriptor deviceDesc = deviceDescriptorOf(adapter, messages, features);
