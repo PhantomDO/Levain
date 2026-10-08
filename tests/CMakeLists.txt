@@ -83,6 +83,13 @@ else()
     # Le WGSL produit par le build, que webgpu_test.cpp fait compiler au backend WebGPU.
     target_compile_definitions(levain_tests PRIVATE LEVAIN_SHADER_DIR="${LEVAIN_SHADER_DIR}")
     add_dependencies(levain_tests levain_shaders)
+
+    # Le programme que lancent les tests de runProcess : de la cible, comme levain_tests, donc le même sous
+    # Windows que sous Linux (process_helper.cpp). Le cmake de l'hôte, qu'ils lançaient, est un binaire Linux.
+    add_executable(levain_process_helper process_helper.cpp)
+    add_dependencies(levain_tests levain_process_helper)
+    target_compile_definitions(levain_tests PRIVATE
+        LEVAIN_PROCESS_HELPER="$<TARGET_FILE:levain_process_helper>")
 endif()
 
 # La macro qui génère le main de doctest ne doit s'appliquer qu'à une seule unité de
@@ -96,8 +103,7 @@ set_source_files_properties(doctest_main.cpp
 target_compile_definitions(levain_tests PRIVATE
     LEVAIN_EXPECTED_VERSION="${PROJECT_VERSION}"
     LEVAIN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
-    LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
-    LEVAIN_CMAKE_COMMAND="${CMAKE_COMMAND}")
+    LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 
 # doctest_discover_tests lance le binaire à la compilation pour lister ses cas, et en
 # déclare un par TEST_CASE à ctest. Une régression pointe donc le cas précis plutôt qu'un

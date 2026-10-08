@@ -7,11 +7,13 @@
 
 using levain::platform::runProcess;
 
-// `cmake -E` fournit des commandes portables : le test tourne partout où le projet se compile.
+// LEVAIN_PROCESS_HELPER (tests/CMakeLists.txt) : un programme de la cible, compilé avec les tests
+// (tests/process_helper.cpp). Le test lance donc la même chose sous Linux et sous Windows ; le
+// cmake de l'hôte, lui, n'est pas un programme que l'exe Windows sache lancer.
 
 TEST_CASE("runProcess rend la sortie et le code de retour d'un programme")
 {
-    const std::array<std::string, 4> command{LEVAIN_CMAKE_COMMAND, "-E", "echo", "bonjour"};
+    const std::array<std::string, 3> command{LEVAIN_PROCESS_HELPER, "echo", "bonjour"};
     const auto result = runProcess(command);
 
     REQUIRE(result.has_value());
@@ -21,11 +23,11 @@ TEST_CASE("runProcess rend la sortie et le code de retour d'un programme")
 
 TEST_CASE("runProcess rend le code d'échec d'un programme qui échoue")
 {
-    const std::array<std::string, 3> command{LEVAIN_CMAKE_COMMAND, "-E", "false"};
+    const std::array<std::string, 3> command{LEVAIN_PROCESS_HELPER, "exit", "3"};
     const auto result = runProcess(command);
 
     REQUIRE(result.has_value());
-    CHECK(result->exitCode != 0);
+    CHECK(result->exitCode == 3);
 }
 
 TEST_CASE("runProcess signale un programme introuvable comme un échec récupérable")
