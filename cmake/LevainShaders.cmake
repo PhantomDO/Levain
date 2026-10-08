@@ -40,6 +40,20 @@ set(LEVAIN_VULKAN_SHIFTS
 set(LEVAIN_SHADER_FLAGS -matrix-layout-column-major -warnings-as-errors all -I "${LEVAIN_ENGINE_SHADERS}"
     CACHE INTERNAL "")
 
+# enable_testing() n'agit que sur son dossier et sur ceux qu'on ajoute après lui. Dans un dossier configuré avant,
+# add_test réussit et le test n'existe nulle part (pas de CTestTestfile.cmake) : c'est ce qui a rendu les dxil.*
+# invisibles jusqu'à #354 (build/GOTCHA.md). La propriété TESTS du dossier ne trahit pas la perte, elle liste aussi
+# les tests qui ne mènent nulle part ; CMAKE_TESTING_ENABLED, que pose enable_testing(), la trahit. Non documentée
+# par CMake : si elle change de nom, chaque configuration échoue, au lieu de rester verte sans rien dire (règle n°7).
+# Seul le moteur à la racine est tenu d'activer ses tests : inclus par un jeu, c'est au jeu de le faire.
+function(levain_require_testing_enabled)
+    if(Levain_IS_TOP_LEVEL AND NOT CMAKE_TESTING_ENABLED)
+        message(FATAL_ERROR "Les tests de ${CMAKE_CURRENT_SOURCE_DIR} se perdraient sans un mot : enable_testing() n'a "
+                            "pas été appelé avant ce dossier. Le CMakeLists.txt racine doit l'appeler avant ses "
+                            "add_subdirectory (build/GOTCHA.md, « enable_testing() après un add_subdirectory »).")
+    endif()
+endfunction()
+
 # levain_add_shader(triangle vertexMain vertex) produit triangle.vertexMain.spv, .dxil et .wgsl, depuis
 # le fichier triangle.slang du dossier qui l'appelle, et ajoute ces fichiers à `shaderOutputs`, dont
 # l'appelant fait une cible.
@@ -69,10 +83,14 @@ function(levain_add_shader name entry stage)
 
     # Le DXIL n'a pas encore de backend pour l'exécuter (ADR-0011). Le désassembler en test vérifie
     # au moins qu'il est bien formé, plutôt que de produire des fichiers que rien ne relit.
-    add_test(NAME "dxil.${name}.${entry}" COMMAND "${LEVAIN_DXC}" -dumpbin "${dxil}")
-    # dxc est un outil de l'hôte (ci-dessus) : le label de levain_add_host_test (tests/CMakeLists.txt). Ces
-    # tests ne s'enregistrent pas encore : enable_testing() vient après ce dossier (#354, build/GOTCHA.md).
-    set_tests_properties("dxil.${name}.${entry}" PROPERTIES LABELS host)
+    # Pas dans le build web : il recompile les mêmes DXIL par les mêmes commandes, et le garde-fou de sa CI
+    # (« au moins 80 tests », ci.yml) compte les tests du code CPU : y ajouter ces contrôles le rendrait moins strict.
+    if(NOT EMSCRIPTEN)
+        levain_require_testing_enabled()
+        add_test(NAME "dxil.${name}.${entry}" COMMAND "${LEVAIN_DXC}" -dumpbin "${dxil}")
+        # dxc est un outil de l'hôte (ci-dessus) : le label de levain_add_host_test (tests/CMakeLists.txt).
+        set_tests_properties("dxil.${name}.${entry}" PROPERTIES LABELS host)
+    endif()
 
     set(shaderOutputs ${shaderOutputs} "${spirv}" "${dxil}" "${wgsl}" PARENT_SCOPE)
 endfunction()

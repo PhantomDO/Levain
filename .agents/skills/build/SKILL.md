@@ -36,8 +36,8 @@ ctest --test-dir build/linux-debug --output-on-failure
 
 Windows (`windows-debug`, `windows-release`), depuis la distro WSL : `LEVAIN_WINSYSROOT` posée, puis
 `ctest --test-dir build/windows-debug -j 4 --timeout 120 --output-on-failure`. Les contrôles qui lancent un outil de
-l'hôte (`cmake -P`, Python, la lecture des symboles dans le PDB par `llvm-pdbutil`, `cmake.plugins.*`) portent le
-label `host` (`levain_add_host_test`, `tests/CMakeLists.txt`) : `ctest -L host` les lance seuls, `ctest -LE host`
+l'hôte (`cmake -P`, Python, la lecture des symboles dans le PDB par `llvm-pdbutil`, `cmake.plugins.*`, `dxc` pour
+les `dxil.*`) portent le label `host` (`levain_add_host_test`, `tests/CMakeLists.txt`) : `ctest -L host` les lance seuls, `ctest -LE host`
 lance les programmes de la cible, ce que fera un runner Windows (#346).
 
 Le premier `cmake --preset` est long : vcpkg compile les dépendances depuis les sources. Les suivants sont
@@ -95,7 +95,7 @@ DXIL et en WGSL (le navigateur, ADR-0023), une commande par point d'entrée (`le
 `shaders/CMakeLists.txt`, ADR-0005). Un shader doit rester dans le sous-ensemble que la cible WGSL de Slang
 sait traduire : pas de `ByteAddressBuffer` (des `StructuredBuffer<uint>`), sinon le build natif échoue déjà. Sorties
 dans `build/<preset>/shaders/`, lues à l'exécution par `engine/render`. Chaque DXIL est désassemblé par un test
-ctest (`dxil.*`), faute de backend Direct3D 12 pour l'exécuter.
+ctest (`dxil.*`, natif seulement), faute de backend Direct3D 12 pour l'exécuter.
 
 ## Test de fumée du rendu
 

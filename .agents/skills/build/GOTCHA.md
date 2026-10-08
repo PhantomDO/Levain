@@ -122,14 +122,23 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
 
 ## `enable_testing()` après un `add_subdirectory` : les `add_test` du dossier se perdent sans un mot (2026-10-08)
 
+Corrigé par la PR de #354 (2026-10-08) : le piège reste, sa parade est en place.
+
 - **Symptôme** : build/SKILL.md annonçait un test `dxil.*` par shader ; `ctest -N | grep -c dxil` rend 0, sur tous les
   presets, depuis le début. Vu en comptant les tests par commande pour le label `host` (#345).
-- **Cause** : le `CMakeLists.txt` racine appelle `enable_testing()` après `add_subdirectory(shaders)` et celui des
-  plugins. Un dossier configuré avant n'écrit pas de `CTestTestfile.cmake` : ses `add_test` ne mènent nulle part.
-- **Parade** : `enable_testing()` avant ces sous-dossiers. Mesuré en le déplaçant (sans le garder) : 27 tests `dxil.*`
-  s'enregistrent et passent, sous Linux. Pas fait dans #345 (hors périmètre), suivi par #354 ; leur label `host` est
-  déjà posé (`levain_add_shader`), pour que le runner Windows ne lance pas `dxc`. Un `CTestTestfile.cmake` déjà écrit
-  reste dans un arbre de build quand on retire `enable_testing()` : l'effacer, sinon ctest compte encore les tests.
+- **Cause** : le `CMakeLists.txt` racine appelait `enable_testing()` après `add_subdirectory(shaders)` et celui des
+  plugins. Un dossier configuré avant n'écrit pas de `CTestTestfile.cmake` : ses `add_test` réussissent, ne mènent
+  nulle part, et la propriété `TESTS` du dossier les liste quand même (mesuré : elle ne trahit pas la perte).
+- **Parade** : `enable_testing()` en tête des `add_subdirectory` du `CMakeLists.txt` racine, et
+  `levain_require_testing_enabled()` (`cmake/LevainShaders.cmake`) dans `levain_add_shader` : elle refuse la
+  configuration si `CMAKE_TESTING_ENABLED`, que pose `enable_testing()`, manque au dossier. Contre-testé en replaçant
+  `enable_testing()` après `add_subdirectory(shaders)` : la configuration s'arrête en nommant le dossier. Les 27 tests
+  `dxil.*` s'enregistrent sur les presets natifs (pas sur le web : son garde-fou « au moins 80 tests » compte le code
+  CPU), avec le label `host`.
+- **Contre-test dans un arbre déjà configuré** : un `CTestTestfile.cmake` déjà écrit reste dans l'arbre, et ctest
+  compte encore les 27 tests après une configuration refusée (ou après le retrait de `enable_testing()` et de la
+  garde) : le contre-test se fait dans un dossier neuf, `cmake --preset linux-debug -B build/<nom>`, ou en
+  effaçant ceux de `shaders/` et de `plugins/*/shaders/`.
 
 ## 16 Go de RAM : des builds en parallèle font planter la machine de référence (2026-10-08)
 
