@@ -89,6 +89,15 @@ if(NOT PROJECT_IS_TOP_LEVEL)
     levain_check_vcpkg_manifest("${PROJECT_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}")
 endif()
 
+# enable_testing() vient AVANT tout add_subdirectory qui déclare des tests : il ne vaut que pour son dossier et ceux
+# qu'on ajoute après. Dans un dossier configuré avant, add_test réussit sans mener nulle part (pas de
+# CTestTestfile.cmake) : les dxil.* de shaders/ et des plugins sont restés invisibles jusqu'à #354, et
+# levain_require_testing_enabled (cmake/LevainShaders.cmake) refuse désormais ce cas. Le moteur inclus par un jeu
+# laisse au jeu le soin d'activer ses tests.
+if(PROJECT_IS_TOP_LEVEL)
+    enable_testing()
+endif()
+
 # Le code CPU se compile partout, navigateur compris (ADR-0023).
 add_subdirectory(engine/core)
 add_subdirectory(engine/scene)
@@ -121,7 +130,6 @@ endif()
 # La démo et les tests ne concernent que le moteur : un jeu qui l'inclut n'en paie pas la
 # compilation.
 if(PROJECT_IS_TOP_LEVEL)
-    enable_testing()
     add_subdirectory(sandbox)
     add_subdirectory(tests)
 endif()

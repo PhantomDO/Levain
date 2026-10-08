@@ -191,7 +191,12 @@ jobs:
       - name: Tests
         env:
           LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
-        run: ctest --test-dir build/${{ matrix.preset }} --output-on-failure --timeout 120
+        run: |
+          set -euo pipefail
+          ctest --test-dir build/${{ matrix.preset }} --output-on-failure --timeout 120
+          # Les dxil.* doivent exister : un add_test perdu ne laisse aucune trace (règle n°7, #354).
+          dxil=$(ctest --test-dir build/${{ matrix.preset }} -N -R '^dxil[.]' | sed -nE 's/^Total Tests: ([0-9]+)/\1/p')
+          [ "${dxil:-0}" -ge 27 ] || { echo "::error::seulement ${dxil:-0} tests dxil.*, 27 attendus"; exit 1; }
 
       # Les assets de test tiers (tools/assets.lock), jamais versionnés : téléchargés et vérifiés
       # par SHA-256, en cache tant que la liste ne change pas.
