@@ -1,6 +1,7 @@
 # ADR-0001 — Langage : C++23, sans modules
 
-- **Statut** : accepté le 2026-09-20 ; remis en vigueur par [ADR-0011](0011-retour-au-cpp.md) après la parenthèse Rust
+- **Statut** : accepté le 2026-09-20 ; remis en vigueur par [ADR-0011](0011-retour-au-cpp.md) après la parenthèse Rust ;
+  « MSVC sous Windows » remplacé par clang-cl ([ADR-0035](0035-windows-compile-depuis-linux.md))
 - **Date** : 2026-09-20
 - **Milestone** : M0.1
 

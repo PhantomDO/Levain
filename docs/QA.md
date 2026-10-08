@@ -307,7 +307,9 @@ contre-intuitif, mais il réglerait un problème plus profond.
 est explicite sur deux points :
 
 1. **clang-cl reproduit volontairement le bug `__cplusplus`.** MSVC prétend être en C++98 ; clang-cl imite ce
-   comportement par compatibilité, donc `/Zc:__cplusplus` reste nécessaire.
+   comportement par compatibilité, donc `/Zc:__cplusplus` reste nécessaire. **Faux pour clang-cl 23**, mesuré le
+   2026-10-08 ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : `__cplusplus` vaut 202002, 202700 et
+   202302 sous `/std:c++20`, `/std:c++latest` et `/clang:-std=c++23`.
 2. **clang-cl consomme la STL de Microsoft.** C'est son principe même : remplacer `cl.exe` en utilisant les
    en-têtes et bibliothèques MSVC. La divergence `<ostream>` venait de la STL, pas du compilateur — elle serait
    identique.
