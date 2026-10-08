@@ -34,9 +34,19 @@ for n in "${prs[@]}"; do
     sha=$(gh pr view "$n" --json headRefOid -q .headRefOid) || fail "#$n : SHA illisible"
     # `gh pr checks` sort en erreur tant qu'un check est en cours ou rouge : on lit sa sortie, pas
     # son code.
+    # Une coupure réseau se lit comme un check rouge : on l'attend 10 min au plus, au lieu de s'arrêter au
+    # milieu d'une pile (vu le 08/10/2026 : « error connecting to api.github.com »).
     checks=$(gh pr checks "$n" 2>&1 || true)
-    while grep -qE $'\t(pending|queued|in_progress)\t' <<< "$checks"; do
-        echo "#$n : checks en cours…"
+    offline=0
+    while grep -qE $'\t(pending|queued|in_progress)\t|error connecting|Could not resolve' <<< "$checks"; do
+        if grep -qE 'error connecting|Could not resolve' <<< "$checks"; then
+            offline=$((offline + 1))
+            [ "$offline" -le 20 ] || fail "#$n : GitHub injoignable depuis 10 min"
+            echo "#$n : GitHub injoignable, nouvel essai…"
+        else
+            offline=0
+            echo "#$n : checks en cours…"
+        fi
         sleep 30
         checks=$(gh pr checks "$n" 2>&1 || true)
     done
@@ -47,8 +57,11 @@ for n in "${prs[@]}"; do
     echo "#$n fusionnée ($head)"
     stacked=$(gh pr list --base "$head" --state open --json number -q '.[].number') \
         || fail "#$n : PR empilées illisibles ; $head gardée"
+    # Par l'API REST : `gh pr edit --base` échoue depuis le 08/10/2026 sur une erreur GraphQL, la fin des
+    # « Projects (classic) » qu'il interroge au passage.
     for m in $stacked; do
-        gh pr edit "$m" --base main > /dev/null || fail "#$m : base non changée ; $head gardée"
+        gh api -X PATCH "repos/{owner}/{repo}/pulls/$m" -f base=main > /dev/null \
+            || fail "#$m : base non changée ; $head gardée"
     done
     git push -q origin --delete "$head" || echo "#$n : la branche $head n'a pas pu être supprimée" >&2
     sleep 5 # GitHub a fermé #271 une seconde après la suppression de sa base

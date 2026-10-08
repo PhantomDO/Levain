@@ -2,6 +2,23 @@
 
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut.
 
+## Le board demande le droit `project`, et `gh auth refresh` un terminal (2026-10-08)
+
+- **Symptôme** : `gh project item-list` répond « missing required scopes [read:project] » dans la distro WSL ;
+  `gh auth refresh -s project`, lancé par `!`, répond « --hostname required when not running interactively ».
+- **Parade** : lancer `gh auth refresh --hostname github.com --scopes project` en tâche de fond, lire dans sa
+  sortie le code à usage unique, et le donner à Donnovan, qui le saisit sur <https://github.com/login/device>
+  depuis n'importe quel appareil ; la commande finit seule.
+
+## La session distante montre le dossier où Claude Code a été lancé (2026-10-08)
+
+- **Symptôme** : Donnovan ne voit pas les changements d'un worktree dans la session Remote Control ; elle montrait
+  435 fichiers « modifiés ».
+- **Cause** : la session avait été lancée depuis `/mnt/c/…/Projects/Levain`, une ancienne copie Windows aux fins
+  de ligne CRLF ; le travail était dans `~/Projects/Levain` et ses worktrees, un autre dépôt.
+- **Parade** : lancer `claude --remote-control` depuis `~/Projects/Levain` (`tools/wsl/README.md`) ; un worktree
+  de ce dépôt s'ouvre alors par `EnterWorktree`.
+
 ## Supprimer la base d'une PR empilée la ferme (2026-10-05)
 
 - **Symptôme** : `gh pr merge 269 --merge --delete-branch`, puis #271, empilée sur sa branche, ne passe pas à

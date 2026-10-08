@@ -31,6 +31,53 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-08 — M1.4 — Windows revient : l'ADR-0035, la chaîne clang-cl, le moteur sur la RTX 4070
+
+- **Temps Donnovan : 1,25 h** depuis l'entrée précédente (sa réponse), provisoire, mis sur #344 au board : les deux
+  sondages de l'ADR, la mémoire de WSL, la session distante, le droit `project` de `gh`. À compléter en fin de
+  journée.
+- Sessions Claude Code : 1, dans la distro WSL du portable de Donnovan ; la session de la machine de référence a
+  passé la main (règle n°1, sur les deux PC).
+- Fait, en mode autonome, une PR ou une pile à la fois :
+  - **hors dépôt** : `.wslconfig`, 48 Go pour WSL ; la question du GPU sous WSL (pas de Vulkan NVIDIA, Dozen
+    plafonne à Vulkan 1.2) ;
+  - **l'essai** `spike/windows` (`prototypes/windows/README.md`) : le moteur compilé pour Windows depuis la distro,
+    lancé sur la 4070 ;
+  - **l'ADR-0035** (#348) : clang-cl depuis Linux, Vulkan puis D3D12, la CI compile sous Linux et teste sous
+    Windows ; roadmap v0.15, M1.4 rouvert (1,5 h) ; SPECS, QA, AGENTS et les ADR 0001, 0007, 0011 à jour ;
+  - **#344, en quatre PR** : le code portable (#349, `core::pathForC`, `core::environmentVariable`) ; la chaîne
+    (#350 : toolchain, triplet `x64-windows-clang`, presets, versions de MSVC et du SDK figées, manifeste UTF-8) ;
+    ses outils (#351 : `verify.sh` compile `windows-debug`, la distro reçoit `llvm-23` et `~/winsysroot`) ;
+    l'exécution (#352 : les couches de validation par vcpkg, Dawn et `System32`, les PDB lisibles sous Windows) ;
+  - cette PR : `merge-stack.sh` corrigé, les pièges de la journée, cette entrée.
+- Mesures (sur le portable : indicatives pour le rendu, SPECS § 10) :
+  - **le sandbox en Debug sur la 4070**, couches de validation chargées : 913 images en 10 s, 0,674 ms de GPU, aucune
+    erreur de validation (`build/windows-debug/sandbox/levain_sandbox.exe --seconds 10 --model
+    assets-cache/Models/CesiumMilkTruck/glTF/CesiumMilkTruck.gltf`, lancé depuis la distro) ;
+  - `levain_tests.exe` sous Windows : 296 cas sur 298, les 2 `runProcess` restants (#345)
+    (`build/windows-debug/tests/levain_tests.exe`) ;
+  - `__cplusplus` sous clang-cl 23 : 202302 avec `-clang:-std=c++23`, 202700 avec `/std:c++latest`
+    (`prototypes/windows/probes.sh`, branche `spike/windows`) ;
+  - les ports Windows : 25, plus les couches de validation ; 14 min la première fois sur 24 tâches
+    (`cmake --preset windows-debug`) ;
+  - tests Linux : 340 Debug, 340 Release, 340 ASan, 187 web (`tools/verify.sh`), et `windows-debug` compilé.
+- Décisions de Donnovan : l'ADR-0035, par deux sondages (les quatre options recommandées ; le rechargement des
+  shaders par `wsl.exe` ; les couches de validation laissées au choix de l'agent : le port vcpkg) ; 48 Go pour WSL.
+- Écarts et problèmes :
+  - **M1.4 dépassera** : l'ADR a pris 1,25 h des 1,5 estimées ; à chiffrer à sa clôture ;
+  - **les relectures de l'ADR** ont trouvé des chiffres non mesurés et une proposition contraire aux règles n°4 et 7
+    (écarter les tests Vulkan du runner Windows), corrigés avant la fusion (pr-autonome/GOTCHA.md) ;
+  - **deux pièges de toolchain**, trouvés en relisant `compile_commands.json` : des versions figées qui
+    n'atteignaient pas le moteur (le cache de `windows.cmake`), puis un winsysroot perdu (build/GOTCHA.md) ;
+  - **#347** : sur la 4070, le reflet préfiltré et la BRDF sont faux, en Vulkan natif comme par Dawn ; lavapipe ne
+    le montre pas ;
+  - **les tests GPU lancés de la distro tournaient dans de vraies fenêtres** (`WSLENV`), et le Vulkan de NVIDIA n'a
+    pas de surface sans écran : pour #346 ;
+  - `merge-stack.sh` arrêté deux fois (une coupure réseau, `gh pr edit` cassé par GitHub) : corrigé ;
+  - le provisionnement complet de la distro n'a pas été rejoué, seulement son étape winsysroot.
+- Prochaine étape : #345 (les tests sous Windows, le rechargement par `wsl.exe`, #347), #346 (la CI Windows), le
+  backend D3D12 (#18, #19) ; puis M7.2 : la PR des tests de refus, et sa clôture avec Donnovan.
+
 ## 2026-10-08 — M7.2 — La réflexion, les descriptions, l'éditeur, la hiérarchie et l'inspecteur
 
 - **Temps Donnovan : 2 h** depuis ses « 3 h » du 07/10 (sa réponse en fin de session), surtout hors milestone :

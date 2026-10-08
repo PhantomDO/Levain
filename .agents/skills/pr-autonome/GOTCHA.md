@@ -2,6 +2,26 @@
 
 Chaque entrée : symptôme, cause, parade, date. La plus récente en haut.
 
+## `merge-stack.sh` arrêté par GitHub, deux fois dans la journée (2026-10-08)
+
+- **Symptômes** : « #348 : checks pas verts (error connecting to api.github.com) » alors que la CI tournait ;
+  puis, une pile plus loin, « #351 : base non changée » après la fusion de #350.
+- **Causes** : une coupure réseau, que `gh pr checks` rend comme une sortie en erreur ; et `gh pr edit --base`, qui
+  échoue depuis le 08/10/2026 sur une erreur GraphQL (« Projects (classic) is being deprecated »), la fin des
+  anciens Projects qu'il interroge au passage. Le script s'arrêtait proprement les deux fois, la branche gardée.
+- **Parade** : le script attend 10 min au plus quand GitHub est injoignable, et change la base par l'API REST
+  (`gh api -X PATCH repos/{owner}/{repo}/pulls/N -f base=main`). Contre-testé avec un faux `gh` dans le `PATH`.
+  Pour rattraper une pile arrêtée : changer la base par l'API REST, puis relancer le script sur la suite.
+
+## Les mesures d'un ADR viennent d'une commande, même pressé (2026-10-08)
+
+- **Symptôme** : la relecture de l'ADR-0035 a trouvé dans le premier jet « 30 ports » (25 mesurés), « 14 min »
+  (16 au plus), « 8 s » sans commande, une cause de l'échec de `waitEvents` affirmée sans preuve (il passait seul),
+  « 4 tests sur 7 » (6 sur 9), et un processeur deviné (« i7 », un i9-14900HX).
+- **Parade** : chaque chiffre d'un ADR se relit contre sa commande avant la relecture (session/GOTCHA.md, « Mesurer
+  avant d'annoncer un chiffre ») ; une cause non prouvée s'écrit « à trouver ». La relecture « faits » d'un
+  workflow, qui refait les comptes sur les journaux, a payé.
+
 ## Un avis de fin traité comme sans suite : la nuit perdue (2026-10-08)
 
 - **Symptôme** : Donnovan part la nuit (« continue comme ça, je reviens demain matin ») ; au matin, aucune PR n'a
