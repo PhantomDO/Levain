@@ -23,6 +23,17 @@ struct CameraLens
     float farPlane = 1000.0f;
 };
 
+/// Le plan lointain d'un objectif est au moins `MinFarOverNear` fois le proche.
+inline constexpr float MinFarOverNear = 2.0f;
+
+/// farBeyondNear : le plan lointain à projeter pour ce couple. L'inspecteur laisse taper n'importe
+/// quel plan lointain, et `glm::perspectiveRH_ZO` divise par (near − far) : égaux, le viewport se
+/// dessine d'une seule couleur, sans un mot ; en deçà, la projection s'inverse, et le découpage des
+/// grappes de lumières et des cascades d'ombres calcule `pow(far / near, …)`. Un lointain trop
+/// proche (ou NaN) est ramené à `MinFarOverNear` fois le proche, comme `clampPitch` remet des
+/// bornes inversées dans l'ordre.
+[[nodiscard]] float farBeyondNear(float nearPlane, float farPlane);
+
 /// Les composants d'`app` (ADR-0034) : `CameraLens`, donnée d'auteur. `PlayerInput` n'est pas
 /// décrit : il porte un pointeur et des conteneurs, et `app` le repose à chaque image. Appelée par
 /// `prepareAppWorld` (app.hpp).

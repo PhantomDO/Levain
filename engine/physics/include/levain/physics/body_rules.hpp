@@ -37,6 +37,13 @@ inline std::optional<std::string_view> whyNotABody(const scene::Transform& trans
     {
         return "un corps physique n'a pas d'échelle : la taille se donne dans la forme du Collider";
     }
+    // « nan » ou « 1e39 » (inf) se tapent dans l'inspecteur, qu'ImGui ne filtre pas : Jolt les
+    // asserterait en Debug, et en Release les rangerait dans son arbre de collision.
+    if (!std::isfinite(transform.position.x) || !std::isfinite(transform.position.y) ||
+        !std::isfinite(transform.position.z))
+    {
+        return "un corps physique a une position finie";
+    }
     // Une rotation nulle ou faite de NaN : la renormaliser en ferait l'identité, ou des NaN, sans
     // un mot. Une rotation seulement un peu longue est, elle, renormalisée (`toJoltRotation`).
     const float length = glm::length(transform.rotation);

@@ -572,6 +572,13 @@ TEST_CASE("un corps est une racine sans échelle")
     CHECK(levain::physics::whyNotABody(Transform{.rotation = glm::quat{0.0f, 0.0f, 0.0f, 0.0f}},
                                        false)
               .has_value());
+    // Une position non finie, que l'inspecteur laissait taper (« nan », « 1e39 »).
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    CHECK(
+        levain::physics::whyNotABody(Transform{.position = {nan, 0.0f, 0.0f}}, false).has_value());
+    CHECK(
+        levain::physics::whyNotABody(Transform{.position = {0.0f, -inf, 0.0f}}, false).has_value());
 }
 
 TEST_CASE("une caisse lâchée tombe sur le sol et s'y arrête")
@@ -881,7 +888,7 @@ TEST_CASE("déplacer le sol réveille la caisse endormie dessus")
 
 // Un refus est une donnée, pas un bug (ADR-0034) : il se teste dans tous les presets, et ne laisse
 // aucun corps. Le journal le dit, ce que ce test ne vérifie pas : il ne capture pas le journal.
-TEST_CASE("un corps refusé n'existe pas : enfant, ou avec une échelle")
+TEST_CASE("un corps refusé n'existe pas : enfant, avec une échelle, ou à une position non finie")
 {
     flecs::world world = physicsWorld();
     const flecs::entity parent = world.entity().set(Transform{});
@@ -917,6 +924,14 @@ TEST_CASE("un corps refusé n'existe pas : enfant, ou avec une échelle")
     advance(world, 1);
     CHECK_FALSE(crate.has<levain::physics::BodyHandle>());
     crate.remove<flecs::Parent>();
+    advance(world, 1);
+    CHECK(crate.has<levain::physics::BodyHandle>());
+
+    // Une position non finie : refusée, sans l'assertion de Jolt qui la téléporterait à NaN.
+    crate.set(Transform{.position = {std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f}});
+    advance(world, 1);
+    CHECK_FALSE(crate.has<levain::physics::BodyHandle>());
+    crate.set(Transform{});
     advance(world, 1);
     CHECK(crate.has<levain::physics::BodyHandle>());
 }

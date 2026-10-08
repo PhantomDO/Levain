@@ -202,6 +202,11 @@ struct Gauge // ce que le jeu réécrit : en lecture seule
     float level = 0.5f;
 };
 
+struct Tally // un entier de bornes fractionnaires
+{
+    std::int32_t n = 5;
+};
+
 struct Facing // une rotation : le dessinateur d'angles
 {
     glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
@@ -475,6 +480,49 @@ bool sameRotation(const glm::quat& left, const glm::quat& right)
 }
 
 } // namespace
+
+TEST_CASE("la borne d'un entier se lit vers l'intérieur : un plancher de 0,5 est 1")
+{
+    Typing typing;
+    levain::scene::describeAuthored<editor_test::Tally>(typing.world)
+        .range(&editor_test::Tally::n, 0.5, 10.5);
+    const flecs::entity entity = typing.entityWith("compte", editor_test::Tally{});
+
+    typing.type<editor_test::Tally>(entity, "0"); // tronquée, la borne 0,5 laisserait passer 0
+    CHECK(entity.get<editor_test::Tally>().n == 1);
+    typing.type<editor_test::Tally>(entity, "99");
+    CHECK(entity.get<editor_test::Tally>().n == 10);
+}
+
+TEST_CASE("ImGui laisse taper « nan » et « inf » : l'inspecteur n'écrit jamais un nombre non fini")
+{
+    // `sscanf` sans filtre de caractères, et un NaN passe la borne (`DataTypeClamp` compare par <
+    // et >). Écrit dans une position, il téléporte un corps de Jolt à NaN.
+    SUBCASE("un champ borné")
+    {
+        Typing typing;
+        const flecs::entity entity = typing.entityWith("cadran", editor_test::Dial{});
+        typing.type<editor_test::Dial>(entity, "nan");
+        CHECK(entity.get<editor_test::Dial>().level == 0.5f);
+        CHECK(typing.sets == 0);
+    }
+    SUBCASE("un champ sans borne, par un nombre qui déborde en inf")
+    {
+        Typing typing;
+        const flecs::entity entity = typing.entityWith("réglée", Tuning{});
+        typing.type<Tuning>(entity, "1e39"); // le dernier champ de Tuning, `offset`, un vec3
+        CHECK(entity.get<Tuning>().offset == glm::vec3{0.0f});
+        CHECK(typing.sets == 0);
+    }
+    SUBCASE("un angle")
+    {
+        Typing typing;
+        const flecs::entity entity = typing.entityWith("phare", editor_test::Facing{});
+        typing.type<editor_test::Facing>(entity, "nan");
+        CHECK(sameRotation(entity.get<editor_test::Facing>().rotation, glm::quat{1, 0, 0, 0}));
+        CHECK(typing.sets == 0);
+    }
+}
 
 TEST_CASE(
     "eulerHint lit le lacet sur ±180°, garde les angles tapés tant qu'ils donnent la rotation")

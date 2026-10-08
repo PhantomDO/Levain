@@ -1,3 +1,4 @@
+#include <limits>
 #include <string>
 
 #include <doctest/doctest.h>
@@ -23,6 +24,23 @@ TEST_CASE("la caméra du rendu regarde vers −Z de sa matrice monde, avec son o
     CHECK(camera.target.z == doctest::Approx(3.0f));
     CHECK(camera.verticalFovRadians == doctest::Approx(glm::radians(45.0f)));
     CHECK(camera.nearPlane == 0.2f);
+}
+
+TEST_CASE("un plan lointain qui ne passe pas le proche est ramené au-delà, jamais projeté tel quel")
+{
+    using levain::app::farBeyondNear;
+    CHECK(farBeyondNear(0.5f, 1000.0f) == 1000.0f);
+    // Égal, inférieur, nul, négatif ou NaN : l'inspecteur laisse tout taper.
+    CHECK(farBeyondNear(0.5f, 0.5f) == 1.0f);
+    CHECK(farBeyondNear(0.5f, 0.1f) == 1.0f);
+    CHECK(farBeyondNear(0.5f, 0.0f) == 1.0f);
+    CHECK(farBeyondNear(0.5f, -3.0f) == 1.0f);
+    CHECK(farBeyondNear(0.5f, std::numeric_limits<float>::quiet_NaN()) == 1.0f);
+
+    // La caméra du rendu l'applique : sa projection n'est pas dégénérée à far = near.
+    const levain::render::Camera camera = levain::app::cameraFrom(
+        {.verticalFovDegrees = 60.0f, .nearPlane = 0.5f, .farPlane = 0.5f}, glm::mat4{1.0f});
+    CHECK(camera.farPlane == 1.0f);
 }
 
 TEST_CASE("le rendu exige une seule caméra, et nomme celles qu'il trouve en trop")

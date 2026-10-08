@@ -53,7 +53,9 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    (voir « Pièges connus »).
 11. **`CameraLens` est décrit pour l'éditeur** (ADR-0034, `describeAppComponents`, par `prepareAppWorld`, que
    `createApp` appelle et le test des composants décrits aussi), pas `PlayerInput`, qui porte un pointeur et
-   des conteneurs et que `app` repose à chaque image.
+   des conteneurs et que `app` repose à chaque image. Son plan lointain a un plancher (0,02), et `cameraFrom`
+   le ramène à deux fois le proche s'il ne le passe pas (`farBeyondNear`) : l'inspecteur laisse taper n'importe
+   quel couple, et `far = near` donnerait un viewport d'une seule couleur, sans un mot.
 
 ## Pièges connus
 

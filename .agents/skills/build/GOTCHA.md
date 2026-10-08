@@ -43,8 +43,10 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 - **Symptôme** : `to_json` rend une chaîne vide pour toute l'entité, avec « enumeration value '3' … is not a
   valid constant » au journal.
 - **Cause** : flecs écrit une enum par le nom de sa valeur, et ne lit les constantes que de 0 à 126
-  (`FLECS_ENUM_MAX`). Une combinaison de drapeaux (`A | B`), une constante au-delà de 126, ou une enum sans
-  constante (`std::byte`) n'ont pas de nom.
+  (`FLECS_ENUM_MAX`), plus les puissances de deux. Une combinaison de drapeaux (`A | B`), une constante négative
+  ou au-delà de 126 (hors puissance de deux), ou une enum sans constante (`std::byte`) n'ont pas de nom. Une enum
+  dont seules certaines constantes sont lues passe l'import (`hasReflection` veut une constante au moins) :
+  l'inspecteur montre « ? » pour les autres et ne peut pas les choisir.
 - **Parade** : une enum de composant ne prend que ses constantes déclarées, entre 0 et 126 ; ni drapeaux ni
   `std::byte`. Une enum sans constante est refusée à l'import (`hasReflection`) ; le reste se vérifie en relecture.
 
