@@ -47,7 +47,11 @@ cmake --preset windows-debug && cmake --build --preset windows-debug   # vcpkg c
 ```
 
 Sur un PC Windows, la distro WSL ci-dessous fait ces liens toute seule. Sur la machine de référence, le winsysroot
-viendra de xwin, par le script de la CI (#346) : d'ici là, `NO_WINDOWS=1 tools/verify.sh`.
+vient de xwin, par le script de la CI, aux versions que fige la toolchain (environ 830 Mo) :
+
+```bash
+tools/winsysroot.sh ~/winsysroot && export LEVAIN_WINSYSROOT=~/winsysroot
+```
 
 Depuis un PC Windows : une distro WSL dédiée, outillée comme la CI, avec Claude Code en ligne de commande, et
 supprimable d'une commande ([`tools/wsl/README.md`](../tools/wsl/README.md)).

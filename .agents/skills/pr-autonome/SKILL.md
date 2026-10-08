@@ -48,8 +48,8 @@ cache binaire de vcpkg (`~/.cache/vcpkg`) les remplit vite. À la fin :
   compilent ensemble ; les relecteurs d'un workflow, l'un après l'autre ; le dire à chaque agent dans sa demande
   (build/GOTCHA.md, « 16 Go de RAM »). Sur la distro WSL de 64 Go (`tools/wsl/`), la limite se lève.
 - `tools/verify.sh` avant **chaque** push, y compris après une petite correction (build/GOTCHA.md) : format de tout
-  l'arbre, trois presets, `windows-debug` compilé (`NO_WINDOWS=1` sur la machine de référence, tant que #346 ne
-  lui a pas donné le winsysroot de xwin), clang-tidy des fichiers changés, web. `BASE=<précédente>` pour une PR
+  l'arbre, trois presets, `windows-debug` compilé (le winsysroot de la machine de référence :
+  `tools/winsysroot.sh`), clang-tidy des fichiers changés, web. `BASE=<précédente>` pour une PR
   empilée.
 - **Chaque contrôle nouveau a son contre-test** : la faute injectée depuis une copie du fichier, le test rouge, la
   copie remise, le test vert (build/GOTCHA.md, « Contre-tests »). Le noter dans la PR.
