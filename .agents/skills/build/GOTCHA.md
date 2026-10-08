@@ -18,9 +18,10 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   avertissements, en erreurs (ozz : « `_Ty` est réservé » ; spirv-reflect). Parade : nos options passent par
   `/clang:` ; un port qui casse reçoit un port overlay (pour ozz : sa branche MSVC, qui définit
   `_CRT_SECURE_NO_WARNINGS` pour ses seules sources ; pour spirv-reflect, dépendance des couches de validation,
-  ses options passées par `/clang:`). Les couches elles-mêmes se compilent sans parade : leur `-Werror` est
-  facultatif (`BUILD_WERROR`, éteint), mais clang-cl les avertit en `-Weverything` : 1,1 million de lignes dans le
-  journal de vcpkg (715 Mo en Debug), sans effet.
+  ses deux programmes, seuls compilés en `-Werror` et dont rien ne se sert, ne sont pas compilés). Les couches elles-mêmes se compilent sans parade : leur `-Werror` est
+  facultatif (`BUILD_WERROR`, éteint), mais clang-cl les avertit en `-Weverything` : 1,1 million d'avertissements
+  (`grep -c 'warning:'`), 5,2 millions de lignes et 715 Mo pour le seul journal Debug de vcpkg, sans effet ;
+  `~/vcpkg/buildtrees/vulkan-validationlayers` pèse 3,8 Go, à effacer une fois le paquet dans le cache binaire.
 - **ozz choisit sa CRT** sur sa branche MSVC, statique par défaut : lld-link refuse de le lier au reste
   (`/failifmismatch` sur `RuntimeLibrary`). Parade : `ozz_build_msvc_rt_dll` suit le triplet.
 - **Modifier la toolchain change l'ABI de chaque port** : vcpkg recompile toutes les dépendances Windows, Dawn
@@ -58,8 +59,10 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   (`tests/CMakeLists.txt`) : en compilation croisée hors Emscripten, un fichier que ctest inclut rejoue le script
   de doctest à chaque lecture de la liste ; si la découverte échoue, le test rouge `levain_tests_NOT_DISCOVERED`
   le dit, sans quoi ctest sortirait en 0 sur « No tests were found » (2026-10-08).
-- **Le chargeur Vulkan de Windows ne cherche pas les couches de validation à côté de l'exe** : il lit le registre
-  puis `VK_ADD_LAYER_PATH`. Sans elle, le refus « couches de validation Vulkan absentes » (vk-bootstrap,
+- **Le chargeur Vulkan de Windows ne cherche pas les couches de validation à côté de l'exe** : il lit d'abord
+  `VK_ADD_LAYER_PATH`, puis le registre ; les couches du port passent ainsi devant celles d'un SDK inscrit au
+  registre. Il ignore `VK_ADD_LAYER_PATH` quand `VK_LAYER_PATH` est posée, et les deux dans un processus lancé en
+  administrateur. Sans elle, le refus « couches de validation Vulkan absentes » (vk-bootstrap,
   `requested_layers_not_present`), même avec les fichiers du port à côté de l'exe. Parade : le build copie
   `VkLayer_khronos_validation.dll` et son `.json` (ceux de la Release, 26 Mo, aussi pour un exe Debug : le chargeur les
   charge dans leur propre CRT, et ceux du Debug en pèsent 46) à côté de chaque exe qui lie `levain_gpu`, par un
@@ -74,6 +77,12 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
 - **Le loader signale `SocialClubVulkanLayer.json` introuvable** sur le portable de Donnovan (une couche implicite
   de Rockstar, dans le registre) : un message du loader, pas une erreur de validation ; il ne touche pas
   `isValidationError` (device_vk.cpp) et n'arrête rien (2026-10-08).
+- **Un exe Windows lancé depuis WSL ne reçoit une variable d'environnement que si `WSLENV` la nomme**
+  (`VAR=valeur WSLENV=VAR programme.exe` ; pas `VAR/u`, qui ne vaut que de Windows vers WSL). La propriété
+  `ENVIRONMENT` de ctest n'atteint donc pas l'exe : lancés de la distro, `gpu.*` et `smoke.*` ne reçoivent pas
+  `SDL_VIDEO_DRIVER=offscreen` et tournent dans une vraie fenêtre. Avec la variable transmise, comme sur un runner
+  Windows, les programmes Vulkan échouent sur la 4070 : le pilote NVIDIA n'a pas `VK_EXT_headless_surface`, que le
+  pilote offscreen de SDL demande ; le chemin WebGPU passe. À régler dans la PR de la CI (#346) (2026-10-08).
 
 ## 16 Go de RAM : des builds en parallèle font planter la machine de référence (2026-10-08)
 

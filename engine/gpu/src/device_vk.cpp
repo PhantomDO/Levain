@@ -128,13 +128,13 @@ std::string describeGpu(vk::PhysicalDevice physicalDevice)
         VK_API_VERSION_PATCH(properties.apiVersion));
 }
 
-/// Sous Windows, le chargeur Vulkan ne cherche pas les couches de validation à côté de l'exécutable
-/// : il lit le registre, puis VK_ADD_LAYER_PATH (spécification du chargeur, « Layer discovery »).
-/// Le build copie pourtant celles du port vcpkg à côté de chaque exécutable
-/// (cmake/LevainVulkanLayers.cmake, ADR-0035, décision 6), pour que le même binaire tourne sur le
-/// PC de Donnovan et en CI sans rien installer : on désigne ce dossier au chargeur. Une
-/// VK_ADD_LAYER_PATH déjà posée reste maîtresse (le SDK de LunarG, par exemple). À appeler avant la
-/// création de l'instance : le chargeur la lit alors. Sous Linux, les couches sont celles du
+/// Sous Windows, le chargeur Vulkan ne cherche pas les couches de validation à côté de
+/// l'exécutable : il lit d'abord les dossiers de VK_ADD_LAYER_PATH, puis le registre
+/// (LoaderLayerInterface.md, « Layer Discovery »). Le build copie celles du port vcpkg à côté de
+/// chaque exécutable (cmake/LevainVulkanLayers.cmake, ADR-0035, décision 6), pour que le même
+/// binaire tourne sur le PC de Donnovan et en CI sans rien installer : on désigne ce dossier au
+/// chargeur. Une VK_ADD_LAYER_PATH déjà posée reste maîtresse (un développeur qui essaie d'autres
+/// couches). À appeler avant la création de l'instance. Sous Linux, les couches sont celles du
 /// système (apt) et le chargeur les trouve seul.
 void addLayerPathBesideExecutable()
 {
@@ -208,8 +208,10 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
             "couches de validation Vulkan absentes, exigées en Debug : "
             "VkLayer_khronos_validation.dll "
             "et son .json, du port vcpkg vulkan-validationlayers, doivent être à côté de "
-            "l'exécutable (cmake/LevainVulkanLayers.cmake les y copie au build) ou dans "
-            "VK_ADD_LAYER_PATH");
+            "l'exécutable (cmake/LevainVulkanLayers.cmake les y copie au build). Une "
+            "VK_ADD_LAYER_PATH déjà posée remplace ce dossier et doit alors les contenir ; le "
+            "chargeur l'ignore quand VK_LAYER_PATH est posée, et les deux dans un processus "
+            "lancé en administrateur");
 #else
         return core::makeError(core::ErrorCode::Unsupported,
                                "couches de validation Vulkan absentes, exigées en Debug : "

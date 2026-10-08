@@ -27,6 +27,19 @@ function(levain_ship_vulkan_layers)
     endforeach()
     set_property(GLOBAL PROPERTY LEVAIN_VULKAN_LAYER_FILES "${layerFiles}")
 
+    # L'overlay de spirv-reflect fige sa version (ports/spirv-reflect), quand les couches suivent la baseline :
+    # après un changement de baseline, elles se compileraient contre un spirv-reflect plus ancien, sans un mot.
+    foreach(port spirv-reflect vulkan-validationlayers)
+        file(READ "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/${port}/vcpkg.spdx.json" spdx)
+        string(JSON version GET "${spdx}" packages 0 versionInfo)
+        string(REGEX REPLACE "#.*$" "" sdkVersion_${port} "${version}") # sans la révision du port (« #1 »)
+    endforeach()
+    if(NOT sdkVersion_spirv-reflect STREQUAL sdkVersion_vulkan-validationlayers)
+        message(FATAL_ERROR "spirv-reflect ${sdkVersion_spirv-reflect} (port overlay) et vulkan-validationlayers "
+                            "${sdkVersion_vulkan-validationlayers} (baseline) n'ont plus la même version : recopier "
+                            "le port officiel de la baseline dans ports/spirv-reflect (son en-tête le dit).")
+    endif()
+
     get_property(scheduled GLOBAL PROPERTY LEVAIN_VULKAN_LAYERS_SCHEDULED)
     if(NOT scheduled)
         set_property(GLOBAL PROPERTY LEVAIN_VULKAN_LAYERS_SCHEDULED TRUE)
@@ -88,7 +101,7 @@ function(levain_copy_vulkan_layers)
         list(APPEND shipped ${target})
     endforeach()
     message(STATUS "Couches de validation Vulkan livrées à côté de : ${shipped}")
-    # Un parcours qui ne trouve plus aucun exécutable livrerait rien, sans un mot (règle n°7).
+    # Un parcours qui ne trouve plus aucun exécutable ne livrerait rien, sans un mot (règle n°7).
     if(TARGET levain_sandbox AND NOT "levain_sandbox" IN_LIST shipped)
         message(FATAL_ERROR "levain_sandbox ne reçoit pas les couches de validation Vulkan : "
                             "levain_links_target ne voit plus qu'il lie levain_gpu (cmake/LevainVulkanLayers.cmake).")

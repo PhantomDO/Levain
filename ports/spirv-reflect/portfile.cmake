@@ -5,14 +5,17 @@
 # (décision 6). Son CMakeLists.txt teste CMAKE_CXX_COMPILER_ID « Clang » pour ajouter -Wall -Wextra -Wpedantic
 # -Werror, et clang-cl s'identifie « Clang » avec la syntaxe de MSVC : il lit -Wall comme /Wall, c'est-à-dire
 # -Weverything. Les avertissements les plus pointilleux (-Wc++98-compat-pedantic sur spirv.h), traités en erreurs,
-# arrêtent le build des deux programmes du port. La parade passe les mêmes options par /clang: : exactement les
-# avertissements que clang donne sous Linux, qui compilent ce code sans rien dire.
+# arrêtent le build des deux programmes du port (spirv-reflect, spirv-reflect-pp), seuls compilés en -Werror. Ni les
+# couches de validation ni le moteur ne s'en servent : sous Windows, on ne les compile pas (overlay minimal,
+# ADR-0007). La bibliothèque, elle, se compile comme dans le port officiel.
 #
-# Seule cette parade diffère du port officiel (vcpkg 9e593bb, ports/spirv-reflect) : même version, même patch,
-# mêmes options.
+# Seule cette option diffère du port officiel (vcpkg 9e593bb, ports/spirv-reflect) : même version, même patch.
 #
 # Condition de retrait : spirv-reflect ne teste plus l'identifiant « Clang » sans distinguer clang-cl, ou la CI de
 # vcpkg compile le port officiel sous clang-cl. Alors supprimer ce dossier et revenir au port officiel.
+# À chaque changement de baseline : recopier le port officiel de la nouvelle baseline. spirv-reflect suit la version
+# du SDK Vulkan, comme vulkan-validationlayers, et un overlay passe toujours devant la baseline ;
+# cmake/LevainVulkanLayers.cmake refuse deux versions différentes (règle n°7).
 vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 
 vcpkg_from_github(
@@ -25,20 +28,9 @@ vcpkg_from_github(
         export-targets.patch
 )
 
+set(reflectExecutables ON)
 if(VCPKG_TARGET_IS_WINDOWS)
-    # vcpkg_replace_string ne fait qu'avertir quand le texte n'est plus là : une nouvelle version de spirv-reflect
-    # casserait plus loin, sur un message sans rapport. On le vérifie d'abord (règle n°7).
-    file(READ "${SOURCE_PATH}/CMakeLists.txt" reflectCmake)
-    set(reflectWarnings [[$<$<CXX_COMPILER_ID:Clang>:-Wall -Wextra -Wpedantic -Werror>]])
-    string(FIND "${reflectCmake}" "${reflectWarnings}" found)
-    if(found EQUAL -1)
-        message(FATAL_ERROR "spirv-reflect a changé : « ${reflectWarnings} » manque dans CMakeLists.txt ; "
-                            "relire la parade clang-cl de ce port (ADR-0035).")
-    endif()
-    string(REPLACE "${reflectWarnings}"
-        [[$<$<CXX_COMPILER_ID:Clang>:/clang:-Wall /clang:-Wextra /clang:-Wpedantic /clang:-Werror>]]
-        reflectCmake "${reflectCmake}")
-    file(WRITE "${SOURCE_PATH}/CMakeLists.txt" "${reflectCmake}")
+    set(reflectExecutables OFF)
 endif()
 
 vcpkg_cmake_configure(
@@ -47,6 +39,7 @@ vcpkg_cmake_configure(
         -DSPIRV_REFLECT_STATIC_LIB=ON
         -DSPIRV_REFLECT_EXAMPLES=OFF
         -DSPIRV_REFLECT_BUILD_TESTS=OFF
+        -DSPIRV_REFLECT_EXECUTABLE=${reflectExecutables}
 )
 
 vcpkg_cmake_install()
@@ -60,4 +53,6 @@ file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 
 vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")
 
-vcpkg_copy_tools(TOOL_NAMES spirv-reflect-pp spirv-reflect AUTO_CLEAN)
+if(reflectExecutables)
+    vcpkg_copy_tools(TOOL_NAMES spirv-reflect-pp spirv-reflect AUTO_CLEAN)
+endif()
