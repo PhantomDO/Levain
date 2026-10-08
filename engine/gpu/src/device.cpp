@@ -56,7 +56,7 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
 #ifdef _WIN32
     if (options.api == nvrhi::GraphicsAPI::D3D12)
     {
-        return createD3d12Device(options.enableValidation);
+        return createD3d12Device(window, options.enableValidation);
     }
 #endif
     return createVulkanDevice(window, options.enableValidation);

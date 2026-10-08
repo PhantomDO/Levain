@@ -186,9 +186,48 @@ Corrigé par #360 (2026-10-08) : le piège reste, sa parade est en place. Le sym
 
 ## Direct3D 12 sur la 4070 : les pièges du backend (2026-10-08)
 
-#18, `engine/gpu/src/device_d3d12.cpp`, essayé de la distro sur la RTX 4070 en Debug. Les deux corrections du rendu
-(les deux derniers points), trouvées par la couche de debug de Direct3D 12, sont justes sous Vulkan aussi : elles
-passent avant le backend.
+#18, `engine/gpu/src/device_d3d12.cpp` et `swapchain_d3d12.cpp`, essayés de la distro sur la RTX 4070 en Debug. Les
+deux corrections du rendu (les deux derniers points), trouvées par la couche de debug de Direct3D 12, sont justes
+sous Vulkan aussi : elles passent avant le backend.
+
+- **Écart de cadence, observation ouverte** : en Release, à 165 Hz avec la synchronisation verticale, Direct3D 12
+  tient 145 images/s (1 449 et 1 452 en 10 s), Vulkan 160 (1 617 et 1 599), au même temps GPU (0,65 et 0,67 ms).
+  Pas sur la machine de référence ; cause à trouver (le temps d'attente de `Present`, la latence de DXGI, le
+  `waitEventQuery` de `limitFramesInFlight`) ; signalé, pas corrigé. Mesure, de la distro :
+  `build/windows-release/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 10`, puis `--gpu vulkan`, la ligne
+  « boucle arrêtée après 10.0 s et N frames » ; la fréquence de l'écran par `powershell.exe -Command
+  "Get-CimInstance Win32_VideoController | Select-Object Name,CurrentRefreshRate"`.
+- **`nvrhi::IDevice::waitForIdle` n'attend pas la présentation** sous Direct3D 12 : elle suit la dernière command
+  list sur la queue, et NVRHI n'attend que sa propre *fence*. Symptôme : à la fermeture, « CORRUPTION: An
+  ID3D12Resource object ('swapchain') is referenced by GPU operations in-flight » (D3D12_MESSAGE_ID 921), puis
+  l'assertion. Parade : une *fence* signalée après chaque `Present` (`signalQueue`), attendue avant de relâcher les
+  images (`waitForQueue`, qui signale aussi). Contre-test, refait sur cette branche : sans aucun signal (l'attente de
+  NVRHI seule), la corruption revient 3 fois sur 3 (`--seconds 10 --capture`, code 3) ; un seul des deux signaux,
+  après chaque `Present` ou dans l'attente finale, suffit (3 fois sur 3 sans message) : la couche de debug juge « en
+  cours » ce qu'aucune *fence* n'a suivi.
+- **Un log dans le destructeur de la swapchain** : `signalQueue` journalisait un signal refusé, et le destructeur
+  l'appelait (par `waitForQueue`) ; `core::log` passe par `std::format`, qui peut lever : « an exception may be
+  thrown in function '~D3d12Swapchain' » (`bugprone-exception-escape`), vu par la passe « clang-tidy-windows » de
+  `verify.sh`, que la base Linux ne voyait pas. Parade : `signalQueue` et `waitForQueue` rendent le `HRESULT`,
+  l'appelant le dit (`presentImage` le journalise, `resizeImages` en fait son erreur) ; le destructeur l'ignore.
+- **La couche de debug DXGI ne rappelle pas le moteur** : `IDXGIInfoQueue` n'a pas de `RegisterMessageCallback`, et
+  un mauvais usage de la swapchain n'est pas une erreur de Direct3D 12, que sa couche ne voit pas. Parade : la
+  factory créée avec `DXGI_CREATE_FACTORY_DEBUG`, la file de `DXGIGetDebugInterface1` exigée en Debug, relue après
+  chaque `Present` et à chaque redimensionnement (`drainDxgiMessages`, producteur `DXGI_DEBUG_DXGI`), par le chemin
+  des erreurs de Direct3D 12. Contre-test : une image gardée pendant `ResizeBuffers` (« Swapchain cannot be resized
+  unless all outstanding buffer references have been released », DXGI_INFO_QUEUE_MESSAGE_ID 19) arrête le sandbox
+  sur l'assertion au premier redimensionnement (code 3) ; sans la relecture, il sort en 0, l'échec seulement
+  journalisé (`HRESULT 0x887A0001`) à chaque image.
+- **Un redimensionnement raté laissait la nouvelle taille et pas d'images** : la frame suivante, la taille étant
+  « à jour », lisait `images[i]` dans un vecteur vide. Parade : après un échec de `ResizeBuffers` ou de
+  `wrapImages`, ni images ni taille (`forgetImages`), et `acquireImage` reconstruit tant qu'il manque une image.
+  Contre-test : un `wrapImages` refusé au premier redimensionnement ; le sandbox reconstruit à la frame suivante et
+  sort en 0 ; avec l'ancien chemin, il s'arrête sur l'assertion de la STL de Microsoft (code 3).
+- **Redimensionner la fenêtre d'un exe lancé de la distro** : `powershell.exe -Command - < script.ps1` ne fait rien,
+  sans un message, quand le script a un `Add-Type @" … "@` ; `-EncodedCommand` (le script en UTF-16LE, en base64,
+  `iconv -t utf-16le | base64 -w0`) passe. `SetWindowPos` et `ShowWindow` (réduire, restaurer) de `user32.dll`, sur
+  le `MainWindowHandle` de `Get-Process levain_sandbox`, ont ainsi redimensionné le sandbox en D3D12 trois fois,
+  réduit et restauré, sans un message des couches de debug.
 
 - **`IID_PPV_ARGS` ne compile pas** : il passe par `__uuidof`, une extension de Microsoft, et `-pedantic-errors`
   la refuse (« extension used », `-Wlanguage-extension-token`). Parade, sans couper l'avertissement (règle n°4) :

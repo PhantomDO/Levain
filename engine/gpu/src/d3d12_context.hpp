@@ -1,11 +1,17 @@
 #pragma once
 
+#include <memory>
+
 #include <directx/d3d12.h>
 #include <directx/d3d12sdklayers.h>
 #include <dxgi1_6.h>
+#include <dxgidebug.h>
 #include <nvrhi/nvrhi.h>
 
 #include "native_device.hpp"
+
+#include "levain/core/error.hpp"
+#include "levain/gpu/device.hpp"
 
 // En-tête privé du module, jamais installé. Windows seulement. Direct3D 12 par <directx/d3d12.h>,
 // de DirectX-Headers, celui que NVRHI inclut (<nvrhi/d3d12.h>) : le <d3d12.h> du SDK, mêlé à lui,
@@ -40,6 +46,16 @@ template <> inline const IID& interfaceId<ID3D12CommandQueue>()
     return IID_ID3D12CommandQueue;
 }
 
+template <> inline const IID& interfaceId<ID3D12Resource>()
+{
+    return IID_ID3D12Resource;
+}
+
+template <> inline const IID& interfaceId<ID3D12Fence>()
+{
+    return IID_ID3D12Fence;
+}
+
 template <> inline const IID& interfaceId<IDXGIFactory6>()
 {
     return IID_IDXGIFactory6;
@@ -48,6 +64,16 @@ template <> inline const IID& interfaceId<IDXGIFactory6>()
 template <> inline const IID& interfaceId<IDXGIAdapter1>()
 {
     return IID_IDXGIAdapter1;
+}
+
+template <> inline const IID& interfaceId<IDXGISwapChain3>()
+{
+    return IID_IDXGISwapChain3;
+}
+
+template <> inline const IID& interfaceId<IDXGIInfoQueue>()
+{
+    return IID_IDXGIInfoQueue;
 }
 
 /// Le pendant de `IID_PPV_ARGS(&pointer)`, en deux appels sur le même pointeur, d'où ils tirent
@@ -65,15 +91,15 @@ template <typename T> void** outPointer(nvrhi::RefCountPtr<T>& pointer)
     return reinterpret_cast<void**>(pointer.ReleaseAndGetAddressOf());
 }
 
-/// Le NativeDevice de Direct3D 12 : ce que NVRHI ne crée pas, la factory DXGI, l'adaptateur, le
-/// device et sa queue. `nvrhi::RefCountPtr` tient les objets COM comme un `ComPtr`.
+/// Le NativeDevice de Direct3D 12 : ce que NVRHI ne crée pas, la factory DXGI qui crée aussi la
+/// swapchain, l'adaptateur, le device et sa queue. `nvrhi::RefCountPtr` tient les objets COM comme
+/// un `ComPtr`.
 struct D3d12Context final : NativeDevice
 {
-    /// Désinscrit le moteur de la couche de debug, puis relâche la queue, le device, l'adaptateur
-    /// et la factory, dans cet ordre (l'ordre inverse des membres).
+    /// Désinscrit le moteur de la couche de debug, puis relâche les membres dans l'ordre inverse de
+    /// leur déclaration : la queue avant le device, le device avant l'adaptateur et la factory.
     ~D3d12Context() override;
 
-    /// Celle qui a trouvé l'adaptateur, gardée pour la swapchain DXGI, qui se crée par elle.
     nvrhi::RefCountPtr<IDXGIFactory6> factory;
     nvrhi::RefCountPtr<IDXGIAdapter1> adapter;
     nvrhi::RefCountPtr<ID3D12Device> device;
@@ -82,6 +108,22 @@ struct D3d12Context final : NativeDevice
     /// chaque message (`messageCookie`).
     nvrhi::RefCountPtr<ID3D12InfoQueue1> infoQueue;
     DWORD messageCookie = 0;
+    /// Avec la validation seulement : la file de la couche de debug DXGI. Elle ne sait pas rappeler
+    /// le moteur : on la relit (`drainDxgiMessages`).
+    nvrhi::RefCountPtr<IDXGIInfoQueue> dxgiInfoQueue;
 };
+
+/// Les messages que la couche de debug DXGI a gardés depuis la dernière relecture, passés par le
+/// chemin de ceux de Direct3D 12 (nos logs, une assertion sur une erreur en Debug), puis effacés.
+/// DXGI n'a pas de rappel comme `ID3D12InfoQueue1` : la swapchain relit la file après chaque
+/// présentation et à chaque redimensionnement, là où DXGI travaille.
+void drainDxgiMessages(IDXGIInfoQueue& queue);
+
+/// Crée la swapchain DXGI de la fenêtre `window`, à la taille donnée, et en enveloppe les images en
+/// textures NVRHI. Elle prend le device NVRHI sans sa couche de validation, comme la swapchain
+/// Vulkan, et le garde : ses images en dépendent.
+[[nodiscard]] core::Result<std::unique_ptr<Swapchain, SwapchainDeleter>>
+createD3d12Swapchain(const D3d12Context& d3d12, nvrhi::DeviceHandle nvrhi, HWND window,
+                     platform::PixelSize size);
 
 } // namespace levain::gpu

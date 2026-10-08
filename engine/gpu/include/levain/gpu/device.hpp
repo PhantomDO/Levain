@@ -29,7 +29,7 @@ struct NativeDeviceDeleter
 };
 
 /// La swapchain, ses images enveloppées en textures NVRHI, et la cadence des frames : une
-/// interface, une implémentation par backend (`swapchain_vk.cpp`).
+/// interface, une implémentation par backend (`swapchain_vk.cpp`, `swapchain_d3d12.cpp`).
 struct Swapchain;
 
 /// Attend que le GPU ait fini, puis détruit les images et la swapchain du backend.
@@ -56,9 +56,8 @@ struct DeviceOptions
     /// assertion.
     bool enableValidation = false;
     /// Vulkan, Direct3D 12 (un build Windows seulement, ADR-0035), ou WebGPU sur Dawn (ADR-0023) :
-    /// ce dernier sert à développer et vérifier le backend WebGPU sans navigateur. WebGPU, et
-    /// Direct3D 12 tant qu'il n'a pas de swapchain, dessinent hors écran : la fenêtre reste vide,
-    /// `--capture` montre l'image.
+    /// ce dernier sert à développer et vérifier le backend WebGPU sans navigateur. Il dessine hors
+    /// écran : la fenêtre reste vide, `--capture` montre l'image.
     nvrhi::GraphicsAPI api = DefaultBackend;
 };
 
@@ -86,8 +85,7 @@ struct GpuDevice
     std::unique_ptr<NativeDevice, NativeDeviceDeleter> native;
     nvrhi::DeviceHandle nvrhi;
     std::unique_ptr<Swapchain, SwapchainDeleter> swapchain;
-    /// Sans swapchain (WebGPU en natif, Direct3D 12 pour l'instant), l'image où dessiner, à la
-    /// taille de la fenêtre.
+    /// Sans swapchain (WebGPU en natif), l'image où dessiner, à la taille de la fenêtre.
     nvrhi::TextureHandle offscreen;
 };
 #else
@@ -119,9 +117,10 @@ void requestGpuDevice(const platform::Window& window, const DeviceOptions& optio
 /// - Direct3D 12 : un adaptateur matériel au niveau 12_0 et au shader model 6.0 (WARP écarté).
 ///
 /// Avec la validation, échoue aussi sans ses couches : sous Vulkan, les couches de validation ;
-/// sous Direct3D 12, la couche de debug (`d3d12SDKLayers.dll`, la fonctionnalité facultative
-/// « Outils graphiques » de Windows) et `ID3D12InfoQueue1` (Windows 11, Windows Server 2025), par
-/// laquelle elle rappelle le moteur.
+/// sous Direct3D 12, les couches de debug de Direct3D 12 et de DXGI (`d3d12SDKLayers.dll` et
+/// `dxgidebug.dll`, de la fonctionnalité facultative « Outils graphiques » de Windows), et
+/// `ID3D12InfoQueue1` (Windows 11, Windows Server 2025), par laquelle la première rappelle le
+/// moteur. Sous Direct3D 12, échoue enfin si la swapchain DXGI ne se crée pas sur la fenêtre.
 [[nodiscard]] core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
                                                       const DeviceOptions& options);
 #endif

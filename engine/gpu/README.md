@@ -2,8 +2,8 @@
 
 ## Rôle
 
-Donner un GPU au moteur : instance, surface et device Vulkan (ou, sous Windows, device Direct3D 12), puis le
-device NVRHI par-dessus. C'est, avec `render/`, le seul module qui voit NVRHI, et avec `platform/`, le seul qui
+Donner un GPU au moteur : instance, surface et device Vulkan (ou, sous Windows, device Direct3D 12 et swapchain DXGI),
+puis le device NVRHI par-dessus. C'est, avec `render/`, le seul module qui voit NVRHI, et avec `platform/`, le seul qui
 inclut SDL, pour créer la surface (SPECS §7).
 
 **État en M1.2** : device Vulkan et device NVRHI, validation redirigée vers nos logs (#12) ; swapchain
@@ -15,34 +15,38 @@ le navigateur par emdawnwebgpu, en natif sur Dawn. En natif, il ne sert qu'à d�
 Il reproduit les images de Vulkan (test de fumée à 0 pixel près, renard et Sponza).
 
 **État en M1.4** : le backend **Direct3D 12** (#18, ADR-0035), dans les builds Windows seulement, choisi au
-lancement (`levain_sandbox --gpu d3d12`) ; Vulkan reste le défaut. Pas encore de swapchain DXGI : comme WebGPU en
-natif, il dessine dans l'image hors écran de `GpuDevice`, la fenêtre reste vide, `--capture` montre l'image. Sur la
-RTX 4070 de Donnovan, en Debug, sans un message de la couche de debug : les cinq tests de fumée à 0 pixel près, les
-trois tests GPU (`levain_light_clusters.exe d3d12`, `levain_environment.exe d3d12`, `levain_ui_gpu.exe d3d12`), et
-le sandbox avec `--capture`. Ils ne sont pas déclarés à ctest en `d3d12` : un runner sans GPU n'a que WARP, que
-choisira #19, avec deux prérequis relevés ici :
+lancement (`levain_sandbox --gpu d3d12`) ; Vulkan reste le défaut. Il présente dans la fenêtre par une swapchain
+DXGI, calée sur l'écran comme sous Vulkan. Sur la RTX 4070 de Donnovan, en Debug, sans un message des couches de
+debug de Direct3D 12 et de DXGI : le sandbox (10 s, puis redimensionné, réduit et restauré), les cinq tests de fumée
+à 0 pixel près, les trois tests GPU (`levain_light_clusters.exe d3d12`, `levain_environment.exe d3d12`,
+`levain_ui_gpu.exe d3d12`). Reste un écart de cadence, observé et pas encore expliqué : en Release, à 165 Hz,
+145 images/s contre 160 sous Vulkan, au même temps GPU (build/GOTCHA.md). Les tests ne sont pas déclarés à ctest en
+`d3d12` : un runner sans GPU n'a que WARP, que choisira #19, avec deux prérequis relevés ici :
 
 - la fenêtre est créée avec `SDL_WINDOW_VULKAN` (`engine/platform/src/window.cpp`), qui charge `vulkan-1.dll` même
   en `--gpu d3d12` : sans chargeur Vulkan, Direct3D 12 ne se lancerait pas ;
 - en Debug, Direct3D 12 exige `ID3D12InfoQueue1` (Windows 11, Windows Server 2025) et la fonctionnalité facultative
-  « Outils graphiques » de Windows (`d3d12SDKLayers.dll`) : sans elles, le Debug refuse de démarrer (règle n°7).
+  « Outils graphiques » de Windows (`d3d12SDKLayers.dll`, `dxgidebug.dll`) : sans elles, le Debug refuse de
+  démarrer (règle n°7).
 
 ## Invariants
 
-1. **Aucune API native dans l'API du module.** `device.hpp` n'expose que NVRHI et `platform::Window` ;
-   `NativeDevice` et `Swapchain` n'y sont que déclarés. Chaque backend natif en dérive dans ses fichiers
-   (`VulkanContext` et `VulkanSwapchain`, `D3d12Context`) : les backends vivent ensemble dans l'exe Windows, où un
-   même nom ne peut avoir qu'une définition. vk-bootstrap, les en-têtes Vulkan, Direct3D 12 et DXGI, et SDL sont
-   liés en `PRIVATE`.
+1. **Aucune API native dans l'API du module.** `device.hpp` n'expose que NVRHI et `platform::Window` ; `NativeDevice` et
+   `Swapchain` n'y sont que déclarés. Chaque backend natif en dérive dans ses fichiers (`VulkanContext` et
+   `VulkanSwapchain`, `D3d12Context` et `D3d12Swapchain`) : les backends vivent ensemble dans l'exe Windows, où un même
+   nom ne peut avoir qu'une définition. vk-bootstrap, les en-têtes Vulkan, Direct3D 12 et DXGI, et SDL sont liés en
+   `PRIVATE`.
 2. **L'ordre de destruction est écrit dans l'ordre des déclarations.** Dans `GpuDevice` : `swapchain`, dont les
    images sont des textures NVRHI, puis `nvrhi`, puis `native`. Dans le sandbox, le `GpuDevice` est déclaré après
    la fenêtre, pour que la surface disparaisse avant la fenêtre SDL qui la porte.
-3. **En Debug, toute erreur de validation arrête le programme** sur une assertion, qu'elle vienne des couches
-   Vulkan, de la couche de debug Direct3D 12 (erreur ou corruption) ou de NVRHI (règle n°4). La couche de debug est
-   exigée comme les couches Vulkan : sans elle, ou sans `ID3D12InfoQueue1` (Windows 11), qui la fait rappeler le
-   moteur, le device refuse de se créer (règle n°7) ; les messages qu'elle a gardés avant que le moteur ne
-   s'inscrive passent par le même chemin. Les messages du *loader* Vulkan, qui signale par exemple une couche tierce
-   cassée (SPECS §10), sont journalisés sans arrêter : ce ne sont pas des bugs du moteur.
+3. **En Debug, toute erreur de validation arrête le programme** sur une assertion, qu'elle vienne des couches Vulkan, de
+   la couche de debug Direct3D 12 (erreur ou corruption) ou de NVRHI (règle n°4). La couche de debug est exigée comme
+   les couches Vulkan : sans elle, ou sans `ID3D12InfoQueue1` (Windows 11), qui la fait rappeler le moteur, le device
+   refuse de se créer (règle n°7) ; les messages qu'elle a gardés avant que le moteur ne s'inscrive passent par le même
+   chemin. La couche de debug DXGI, exigée de même, ne rappelle pas : la swapchain relit sa file après chaque
+   présentation et à chaque redimensionnement, et ses erreurs prennent le même chemin. Les messages du *loader* Vulkan,
+   qui signale par exemple une couche tierce cassée (SPECS §10), sont journalisés sans arrêter : ce ne sont pas des bugs
+   du moteur.
 4. **Le dispatcher de Vulkan-Hpp est défini une seule fois**, dans `device_vk.cpp`.
 
 ## Points d'entrée
@@ -51,7 +55,7 @@ choisira #19, avec deux prérequis relevés ici :
 |---|---|
 | [`include/levain/gpu/device.hpp`](include/levain/gpu/device.hpp) | `createGpuDevice`, `GpuDevice`, `DeviceOptions`, `swapchainFormat`, `beginFrame`, `presentFrame` ; `graphicsApiNamed` (`--gpu vulkan\|d3d12\|webgpu`), `DefaultBackend` (Vulkan en natif, WebGPU dans le navigateur) et `requireBackendBuilt`, qui refuse en le disant Direct3D 12 hors de Windows et tout sauf WebGPU dans le navigateur, où `requestGpuDevice` l'appelle aussi |
 | [`src/device.cpp`](src/device.cpp), [`src/native_device.hpp`](src/native_device.hpp) | Le choix du backend au lancement, la frame hors écran de WebGPU, la cadence des frames (`limitFramesInFlight`) ; les interfaces `NativeDevice` et `Swapchain` que chaque backend implémente |
-| [`src/device_d3d12.cpp`](src/device_d3d12.cpp), [`src/d3d12_context.hpp`](src/d3d12_context.hpp) | Direct3D 12, Windows seulement : couche de debug, factory DXGI, adaptateur le plus performant, device, queue, puis `nvrhi::d3d12::createDevice`. Adapté de Donut (`DeviceManager_DX12.cpp`, MIT) |
+| [`src/device_d3d12.cpp`](src/device_d3d12.cpp), [`src/swapchain_d3d12.cpp`](src/swapchain_d3d12.cpp), [`src/d3d12_context.hpp`](src/d3d12_context.hpp) | Direct3D 12, Windows seulement : couches de debug de Direct3D 12 et de DXGI, factory DXGI, adaptateur le plus performant, device, queue, puis `nvrhi::d3d12::createDevice` ; la swapchain DXGI. Adapté de Donut (`DeviceManager_DX12.cpp`, MIT) |
 | [`include/levain/gpu/webgpu.hpp`](include/levain/gpu/webgpu.hpp) | `requestWebGpuDevice` (asynchrone dans le navigateur), `createWebGpuDevice` (natif), le canvas HTML (web) |
 | [`src/webgpu/`](src/webgpu/) | Le backend : `device.cpp` (ressources), `bindings.cpp`, `pipelines.cpp`, `commandlist.cpp`, `canvas.cpp` |
 
@@ -92,13 +96,19 @@ Mesuré sur la machine de référence : device créé en 30 à 40 ms, validation
    de l'écran, c'est là que la boucle attend : **120 images/s sur l'écran à 120 Hz de la machine de référence,
    et le CPU tombe de 2 010 à 50 ms toutes les 2 s**.
 
-Sous Direct3D 12, tant qu'il n'a pas de swapchain, la frame est celle de WebGPU en natif : `beginFrame` rend l'image
-hors écran, `presentFrame` attend que le GPU ait fini (`waitForIdle`), une image en vol.
+Sous Direct3D 12, `beginFrame` n'acquiert rien : DXGI désigne l'image suivante et fait attendre la queue lui-même.
+`presentFrame` présente avec un intervalle de 1, l'équivalent de FIFO, relit la file de la couche de debug DXGI en
+Debug, puis signale une *fence* sur la queue, et cadence le CPU par les mêmes *event queries* que Vulkan
+(`limitFramesInFlight`, `device.cpp`).
 
 ## Pièges connus
 
 | Piège | Parade |
 |---|---|
+| Sous Direct3D 12, `nvrhi::IDevice::waitForIdle` attend la dernière command list de NVRHI, pas la présentation qui la suit sur la queue : une image de la swapchain relâchée alors est une corruption pour la couche de debug (D3D12_MESSAGE_ID 921, à la fermeture) | Une *fence* signalée après chaque présentation (`signalQueue`), attendue avant de relâcher les images (`waitForQueue`, `swapchain_d3d12.cpp`) |
+| DXGI refuse une swapchain sRGB en *flip model* | Images en BGRA8 linéaire, que NVRHI dessine par une vue sRGB : le moteur voit `SBGRA8_UNORM`, comme sous Vulkan (Donut fait de même) |
+| La couche de debug DXGI ne rappelle pas le moteur : un `ResizeBuffers` refusé n'y laisse qu'un message, que personne ne lit | La swapchain relit sa file après chaque présentation et à chaque redimensionnement (`drainDxgiMessages`), par le chemin des erreurs de Direct3D 12 |
+| Un redimensionnement raté laissait la taille nouvelle et des images absentes : la frame suivante lisait une image qui n'existait pas | Plus aucune image ni taille après un échec (`forgetImages`) ; `acquireImage` reconstruit tant qu'il manque une image, même à l'ancienne taille |
 | `IID_PPV_ARGS` passe par `__uuidof`, une extension de Microsoft que `-pedantic-errors` refuse | Les IID nommés, de dxguid et DirectX-Guids (`interfaceId`, `iidOf`, `outPointer` dans `d3d12_context.hpp`) |
 | Le `&` de `nvrhi::RefCountPtr`, à la différence de celui de `ComPtr`, ne relâche pas l'objet tenu, que l'appel COM écrase : il fuit | `outPointer` passe par `ReleaseAndGetAddressOf`, qui relâche d'abord l'objet tenu (`d3d12_context.hpp`) |
 | La couche de debug D3D12 garde les messages émis avant que le moteur ne s'inscrive (la création du device) : le rappel ne les reçoit jamais | Relus juste après l'inscription, passés par le même chemin, puis effacés (`drainStoredMessages`) |
