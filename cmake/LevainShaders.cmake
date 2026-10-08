@@ -70,6 +70,9 @@ function(levain_add_shader name entry stage)
     # Le DXIL n'a pas encore de backend pour l'exécuter (ADR-0011). Le désassembler en test vérifie
     # au moins qu'il est bien formé, plutôt que de produire des fichiers que rien ne relit.
     add_test(NAME "dxil.${name}.${entry}" COMMAND "${LEVAIN_DXC}" -dumpbin "${dxil}")
+    # dxc est un outil de l'hôte (ci-dessus) : le label de levain_add_host_test (tests/CMakeLists.txt). Ces
+    # tests ne s'enregistrent pas encore : enable_testing() vient après ce dossier (#354, build/GOTCHA.md).
+    set_tests_properties("dxil.${name}.${entry}" PROPERTIES LABELS host)
 
     set(shaderOutputs ${shaderOutputs} "${spirv}" "${dxil}" "${wgsl}" PARENT_SCOPE)
 endfunction()

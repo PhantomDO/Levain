@@ -46,6 +46,18 @@ nvrhi::DeviceHandle webGpuDevice(nvrhi::IMessageCallback* messages = nullptr)
 
 } // namespace
 
+TEST_CASE("le backend Null de Dawn, qui ne dessine rien, est refusé en étant nommé")
+{
+    // Dawn y retombe sans rien dire quand aucun pilote ne se charge (sous Windows, vulkan-1.dll
+    // introuvable) : les tests qui ne relisent pas d'image passaient dessus (règle n°7). Ici on le
+    // demande, pour voir le refus.
+    const auto device = levain::gpu::createWebGpuDevice({.forceNullBackend = true});
+    REQUIRE_FALSE(device.has_value());
+    CHECK(device.error().code == levain::core::ErrorCode::Unsupported);
+    INFO("message : " << device.error().message);
+    CHECK(device.error().message.find("Null") != std::string::npos);
+}
+
 TEST_CASE("le device WebGPU crée buffers, textures et samplers, sous la validation de NVRHI")
 {
     const nvrhi::DeviceHandle device = webGpuDevice();

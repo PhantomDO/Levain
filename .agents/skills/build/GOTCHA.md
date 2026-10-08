@@ -18,19 +18,21 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   avertissements, en erreurs (ozz : « `_Ty` est réservé » ; spirv-reflect). Parade : nos options passent par
   `/clang:` ; un port qui casse reçoit un port overlay (pour ozz : sa branche MSVC, qui définit
   `_CRT_SECURE_NO_WARNINGS` pour ses seules sources ; pour spirv-reflect, dépendance des couches de validation,
-  ses deux programmes, seuls compilés en `-Werror` et dont rien ne se sert, ne sont pas compilés). Les couches elles-mêmes se compilent sans parade : leur `-Werror` est
-  facultatif (`BUILD_WERROR`, éteint), mais clang-cl les avertit en `-Weverything` : 1,1 million d'avertissements
-  (`grep -c 'warning:'`), 5,2 millions de lignes et 715 Mo pour le seul journal Debug de vcpkg, sans effet ;
-  `~/vcpkg/buildtrees/vulkan-validationlayers` pèse 3,8 Go, à effacer une fois le paquet dans le cache binaire.
+  ses deux programmes, seuls compilés en `-Werror` et dont rien ne se sert, ne sont pas compilés). Les couches
+  elles-mêmes se compilent sans parade : leur `-Werror` est facultatif (`BUILD_WERROR`, éteint), mais clang-cl les
+  avertit en `-Weverything` : 1,1 million d'avertissements (`grep -c 'warning:'`), 5,2 millions de lignes et 715 Mo pour
+  le seul journal Debug de vcpkg, sans effet ; `~/vcpkg/buildtrees/vulkan-validationlayers` pèse 3,8 Go, à effacer une
+  fois le paquet dans le cache binaire.
 - **ozz choisit sa CRT** sur sa branche MSVC, statique par défaut : lld-link refuse de le lier au reste
   (`/failifmismatch` sur `RuntimeLibrary`). Parade : `ozz_build_msvc_rt_dll` suit le triplet.
 - **Modifier la toolchain change l'ABI de chaque port** : vcpkg recompile toutes les dépendances Windows, Dawn
   compris (8 min sur 24 tâches).
 - **Dawn ne trouve pas `vulkan-1.dll`** (« Windows Error: 87 ») : il cherche à côté de lui et de l'exe, puis sans
   chemin avec `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`, qui exige un chemin complet. Il retombe en silence sur son backend
-  Null, et les tests qui ne relisent pas d'image passent. Parade : lui donner `System32`
-  (`DawnInstanceDescriptor::additionalRuntimeSearchPaths`, terminé par `\`). Son backend D3D12, lui, veut copier
-  `d3dcompiler_47.dll` d'un SDK lu dans le registre, et compiler DXC.
+  Null, et les tests qui ne relisent pas d'image passent (six sur neuf, avant que `createWebGpuDevice` ne refuse ce
+  backend en le nommant, #345 ; sans la ligne `System32`, 15 tests ou programmes échouent). Parade : lui donner
+  `System32` (`DawnInstanceDescriptor::additionalRuntimeSearchPaths`, terminé par `\`). Son backend D3D12, lui, veut
+  copier `d3dcompiler_47.dll` d'un SDK lu dans le registre, et compiler DXC.
 - **Un programme Windows reçoit argv dans la page de code ANSI** : `ctest` ne trouvait pas les cas de test
   accentués (« test cases: 0 », que nos tests refusent). Parade : un manifeste qui met le processus en UTF-8
   (`activeCodePage`).
@@ -83,6 +85,34 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   `SDL_VIDEO_DRIVER=offscreen` et tournent dans une vraie fenêtre. Avec la variable transmise, comme sur un runner
   Windows, les programmes Vulkan échouent sur la 4070 : le pilote NVIDIA n'a pas `VK_EXT_headless_surface`, que le
   pilote offscreen de SDL demande ; le chemin WebGPU passe. À régler dans la PR de la CI (#346) (2026-10-08).
+- **`waitEvents` revient avant l'échéance, sous Windows lancé depuis la distro** : le test échouait en `ctest -j`
+  (`elapsed >= 40ms` vu à 11 ms, sans autre sortie). Cause mesurée, un `fprintf` dans `waitEvents` : sans
+  `SDL_VIDEO_DRIVER` (WSLENV, ci-dessus), la fenêtre s'ouvre sur le vrai bureau, qui lui envoie
+  `SDL_EVENT_WINDOW_FOCUS_LOST` ou `SDL_EVENT_MOUSE_ADDED` ; `SDL_WaitEventTimeout` rend la main au premier événement,
+  même un que le moteur ne traduit pas (`events.window` reste vide). 11 échecs sur 40 lancements à 8 en parallèle ;
+  0 sur 80 en offscreen (depuis la distro, dans `build/windows-debug/tests` : 5 tours de 8
+  `./levain_tests.exe -tc="waitEvents*" &` puis `wait`, en comptant les codes non nuls ; offscreen :
+  `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER` devant l'exe). Le moteur est juste (« jusqu'au premier
+  événement », et la boucle de `app.cpp` recalcule son reste) ; c'est le test qui dépendait de l'environnement : il
+  pose le pilote offscreen lui-même et le vérifie.
+- **Les symboles d'un exe Windows se lisent dans le PDB** : `llvm-pdbutil dump -publics`, noms décorés à la MSVC, que
+  `llvm-undname` démêle. Chercher `@editor@levain@@` dans la forme décorée en rate : un nom déjà écrit dans le symbole y
+  devient un rang (108 symboles décorés contre 112 démêlés pour `levain::editor::`). `llvm-undname` sort en code 1
+  dès qu'un nom n'est pas décoré (les symboles C) : ne pas lire son code (`tests/check_pdb_symbols.cmake`) (2026-10-08).
+- **Un arbre de build déjà configuré ignore une nouvelle toolchain** : les `cmake.plugins.*` configurent un mini-moteur
+  dans `build/<preset>/tests/plugin_boundaries/`, et la détection du compilateur y échouait (« unable to disambiguate:
+  -nologo ») après un passage sans toolchain. `tests/CMakeLists.txt` efface ces dossiers à chaque configuration.
+
+## `enable_testing()` après un `add_subdirectory` : les `add_test` du dossier se perdent sans un mot (2026-10-08)
+
+- **Symptôme** : build/SKILL.md annonçait un test `dxil.*` par shader ; `ctest -N | grep -c dxil` rend 0, sur tous les
+  presets, depuis le début. Vu en comptant les tests par commande pour le label `host` (#345).
+- **Cause** : le `CMakeLists.txt` racine appelle `enable_testing()` après `add_subdirectory(shaders)` et celui des
+  plugins. Un dossier configuré avant n'écrit pas de `CTestTestfile.cmake` : ses `add_test` ne mènent nulle part.
+- **Parade** : `enable_testing()` avant ces sous-dossiers. Mesuré en le déplaçant (sans le garder) : 27 tests `dxil.*`
+  s'enregistrent et passent, sous Linux. Pas fait dans #345 (hors périmètre), suivi par #354 ; leur label `host` est
+  déjà posé (`levain_add_shader`), pour que le runner Windows ne lance pas `dxc`. Un `CTestTestfile.cmake` déjà écrit
+  reste dans un arbre de build quand on retire `enable_testing()` : l'effacer, sinon ctest compte encore les tests.
 
 ## 16 Go de RAM : des builds en parallèle font planter la machine de référence (2026-10-08)
 
