@@ -350,12 +350,36 @@ void typeInto(ImVec2 field, const char* text, const std::function<void()>& frame
     settle();
 }
 
-/// Les champs de `component` dans une fenêtre à une place connue ; `field` reçoit le centre du
-/// dernier widget, le seul champ d'un composant à un champ.
-std::function<void()> frameOf(flecs::world& world, levain::editor::Inspector& inspector,
-                              flecs::entity entity, flecs::entity_t component, ImVec2& field)
+/// Un monde de test aux composants décrits, son inspecteur, et les images où l'on tape dans le
+/// dernier champ d'un composant : `field` en est le centre, `fields` le nombre de champs dessinés,
+/// `active` si l'un a été actif (Ctrl+clic, glissé : un champ grisé ne l'est jamais), `sets` les
+/// `OnSet` de `entityWith`.
+struct Typing
 {
-    return [&world, &inspector, entity, component, &field]
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    flecs::world world;
+    levain::editor::Inspector inspector;
+    ImVec2 field{};
+    int fields = 0;
+    bool active = false;
+    int sets = 0;
+
+    Typing()
+    {
+        describeTestComponents(world);
+        inspector = levain::editor::createInspector(world);
+    }
+
+    /// Une entité à `value`, dont les `OnSet` suivants sont comptés.
+    template <class T> flecs::entity entityWith(const char* name, const T& value)
+    {
+        const flecs::entity entity = world.entity(name).set(value);
+        world.observer<T>().event(flecs::OnSet).each([this](T&) { ++sets; });
+        return entity;
+    }
+
+    /// Les champs de `T` dans une fenêtre à une place connue.
+    template <class T> void frame(flecs::entity entity)
     {
         uiFrame(world,
                 [&]
@@ -363,61 +387,51 @@ std::function<void()> frameOf(flecs::world& world, levain::editor::Inspector& in
                     ImGui::SetNextWindowPos({0.0f, 0.0f});
                     ImGui::SetNextWindowSize({400.0f, 200.0f});
                     ImGui::Begin("champ");
-                    levain::editor::inspectComponent(world, inspector, entity, component);
+                    fields =
+                        levain::editor::inspectComponent(world, inspector, entity, world.id<T>());
+                    active = active || ImGui::IsItemActive();
                     const ImVec2 low = ImGui::GetItemRectMin();
                     const ImVec2 high = ImGui::GetItemRectMax();
                     field = {low.x + 10.0f, (low.y + high.y) / 2.0f};
                     ImGui::End();
                 });
-    };
-}
+    }
+
+    /// Taper `text` dans le champ, `across` pixels à droite de son bord : le suivant d'une ligne.
+    template <class T> void type(flecs::entity entity, const char* text, float across = 0.0f)
+    {
+        frame<T>(entity); // le champ se place
+        typeInto({field.x + across, field.y}, text, [&] { frame<T>(entity); });
+    }
+};
 
 } // namespace
 
 TEST_CASE("un nombre tapé dans le champ d'une donnée d'auteur est borné, et part en un seul OnSet")
 {
-    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
-    flecs::world world;
-    describeTestComponents(world);
-    levain::editor::Inspector inspector = levain::editor::createInspector(world);
-    const flecs::entity entity = world.entity("cadran").set(editor_test::Dial{});
-    int sets = 0;
-    world.observer<editor_test::Dial>()
-        .event(flecs::OnSet)
-        .each([&](editor_test::Dial&) { ++sets; });
-    ImVec2 field{};
-    const auto frame = frameOf(world, inspector, entity, world.id<editor_test::Dial>(), field);
+    Typing typing;
+    const flecs::entity entity = typing.entityWith("cadran", editor_test::Dial{});
+    const auto level = [&] { return entity.get<editor_test::Dial>().level; };
 
-    for (int i = 0; i < 4; ++i)
-    {
-        frame(); // le champ se place ; au repos, rien n'est écrit
-    }
-    CHECK(sets == 0);
-    typeInto(field, "0.25", frame);
-    CHECK(entity.get<editor_test::Dial>().level == doctest::Approx(0.25f));
-    CHECK(sets == 1);
+    typing.frame<editor_test::Dial>(entity); // au repos, rien n'est écrit
+    CHECK(typing.sets == 0);
+    typing.type<editor_test::Dial>(entity, "0.25");
+    CHECK(level() == doctest::Approx(0.25f));
+    CHECK(typing.sets == 1);
+    CHECK(typing.active); // le champ se tape : le pendant du test de la donnée en lecture seule
     // 5 dépasse la borne [0, 1] : Ctrl+clic tape au-delà sans AlwaysClamp.
-    typeInto(field, "5", frame);
-    CHECK(entity.get<editor_test::Dial>().level == 1.0f);
-    CHECK(sets == 2);
+    typing.type<editor_test::Dial>(entity, "5");
+    CHECK(level() == 1.0f);
+    CHECK(typing.sets == 2);
 }
 
-TEST_CASE("le champ d'une donnée en lecture seule ne se tape pas, et rien n'est écrit")
+TEST_CASE("le champ d'une donnée en lecture seule est grisé : il ne se tape pas, rien n'est écrit")
 {
-    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
-    flecs::world world;
-    describeTestComponents(world);
-    levain::editor::Inspector inspector = levain::editor::createInspector(world);
-    const flecs::entity entity = world.entity("jauge").set(editor_test::Gauge{});
-    int sets = 0;
-    world.observer<editor_test::Gauge>()
-        .event(flecs::OnSet)
-        .each([&](editor_test::Gauge&) { ++sets; });
-    ImVec2 field{};
-    const auto frame = frameOf(world, inspector, entity, world.id<editor_test::Gauge>(), field);
+    Typing typing;
+    const flecs::entity entity = typing.entityWith("jauge", editor_test::Gauge{});
 
-    frame();
-    typeInto(field, "0.9", frame);
+    typing.type<editor_test::Gauge>(entity, "0.9");
+    CHECK_FALSE(typing.active); // le grisé, que la garde de `commitEdit` ne suffit pas à prouver
     CHECK(entity.get<editor_test::Gauge>().level == 0.5f);
-    CHECK(sets == 0);
+    CHECK(typing.sets == 0);
 }

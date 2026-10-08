@@ -12,7 +12,8 @@ de `rando`, dont la cible ne change pas.
 **État en M7.2 (en cours)** : le branchement sur la boucle, l'option `--select`, le bilan que lit la CI, **la
 hiérarchie** : les entités placées (`Transform`), rangées par `flecs::Parent` (ADR-0015), et un nœud
 *Singletons*, qui sélectionne seulement ; et **l'inspecteur** : les composants de l'entité choisie, un widget par
-champ, lus dans la description de flecs, aux valeurs de l'image. Une donnée d'auteur (`Authored`) s'édite, le reste est grisé.
+champ, lus dans la description de flecs, aux valeurs de l'image. Une donnée d'auteur (`Authored`) s'édite, le
+reste est grisé.
 
 ## Invariants
 
@@ -40,14 +41,14 @@ champ, lus dans la description de flecs, aux valeurs de l'image. Une donnée d'a
    dessine que les lignes visibles (`ImGuiListClipper`).
 9. **L'inspecteur ne connaît aucun composant** : il suit la description de flecs (`EcsStruct`, `EcsArray`,
    `EcsPrimitive`, `EcsEnum`), un widget par champ selon son type : nombres, booléen, liste des constantes d'une
-   enum, nœud d'un agrégat, lignes de quatre
-   nombres d'un tableau (une colonne de `glm::mat4` par ligne), et `vec2`/`vec3` d'un bloc. Un composant non
-   décrit, une étiquette ou une paire : une ligne à leur nom, jamais leurs octets ; un type sans widget (texte,
-   entité, opaque) : le nom du type. Le nom de l'entité (`Identifier`) est en tête de la fenêtre, pas
-   un composant.
+   enum, nœud d'un agrégat, lignes de quatre nombres d'un tableau (une colonne de `glm::mat4` par ligne), et
+   `vec2`/`vec3` d'un bloc. Un composant non décrit, une étiquette ou une paire : une ligne à leur nom, jamais
+   leurs octets ; un type sans widget (texte, entité, opaque) : le nom du type. Le nom de l'entité
+   (`Identifier`) est en tête de la fenêtre, pas un composant.
 10. **Les widgets éditent une copie**, jamais la table. Si elle a changé, `commitEdit` l'écrit par
     `setComponentValue` : un seul `OnSet`, la seule écriture de l'inspecteur. Un composant sans `Authored` est
-    grisé, et `commitEdit` le refuse encore si une copie a changé : deux gardes, la seconde testée seule.
+    grisé, et `commitEdit` le refuse encore si une copie a changé : deux gardes, chacune testée (le grisé par un
+    champ qui ne devient jamais actif, `commitEdit` par une copie changée que rien n'écrit).
 11. **Les bornes sont imposées par l'inspecteur** (`ImGuiSliderFlags_AlwaysClamp`, sans lequel Ctrl+clic tape
     au-delà) : flecs ne borne rien. Une borne posée par `.range` s'applique à tous les nombres, entiers 64 bits
     compris.

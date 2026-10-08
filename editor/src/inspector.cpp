@@ -79,7 +79,7 @@ bool dragAs(ImGuiDataType type, const char* label, void* value, int count, const
                               range ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
 }
 
-static_assert(sizeof(std::uintptr_t) == sizeof(std::uint64_t), "UPtr et IPtr : 64 bits (ADR-0034)");
+static_assert(sizeof(std::uintptr_t) == sizeof(std::uint64_t), "UPtr et IPtr se lisent en 64 bits");
 
 /// Des nombres du genre `kind` de flecs (`numberKindOf`) ; vrai si l'un a changé.
 bool dragNumbers(ecs_primitive_kind_t kind, const char* label, void* value, int count,
