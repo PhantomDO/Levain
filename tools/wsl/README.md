@@ -40,8 +40,11 @@ Les versions de `provision-levain.sh` suivent `.github/workflows/ci.yml` (`VCPKG
 wsl -d levain-dev
 git config --global user.name "…" && git config --global user.email "…"
 gh auth login    # pour pousser
-claude           # Claude Code
+cd ~/Projects/Levain && claude   # Claude Code, lancé depuis le dépôt de la distro
 ```
+
+Lancer Claude Code depuis `~/Projects/Levain`, pas depuis une copie sous `/mnt/c` : une session distante (Remote
+Control) montre les changements du dossier où elle a été lancée.
 
 Au premier `wsl -d levain-dev`, Ubuntu peut encore proposer sa configuration de premier lancement, que
 `--no-launch` a sautée (pas vérifié) : l'utilisateur existe déjà, le script l'a créé.
