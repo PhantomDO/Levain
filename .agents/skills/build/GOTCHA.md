@@ -119,20 +119,24 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
 - **Un arbre de build déjà configuré ignore une nouvelle toolchain** : les `cmake.plugins.*` configurent un mini-moteur
   dans `build/<preset>/tests/plugin_boundaries/`, et la détection du compilateur y échouait (« unable to disambiguate:
   -nologo ») après un passage sans toolchain. `tests/CMakeLists.txt` efface ces dossiers à chaque configuration.
-- **Le hot-reload des shaders d'un exe Windows passe par `wsl.exe`, qui a trois pièges** (ADR-0035, décision 5 ; preuve
+- **Le hot-reload des shaders d'un exe Windows passe par `wsl.exe`, qui a quatre pièges** (ADR-0035, décision 5 ; preuve
   sur la 4070 : `sandbox/` Debug lancé de la distro, un commentaire ajouté à `shaders/mesh.slang`, « recompilés en
   906 ms » puis « pipeline des meshes recréé en 11.0 ms », cinq fois de 898 à 944 ms ; le build seul dure 830 ms (823 à 853) dans
   la distro et `wsl.exe --exec true` 100 ms : `touch shaders/mesh.slang` puis `cmake --build build/windows-debug
   --target levain_shaders`, cinq tours, avec et sans `wsl.exe -d levain-dev --exec`) (2026-10-08).
-  - **`wsl.exe -d <distro> -- cmd args` passe par le shell de la distro** : `-- /bin/echo 'c;d' '$HOME'` coupe à
-    « ; » (« d : command not found ») et développe `$HOME`, donc un chemin à espace se casserait. Parade : `--exec`,
-    qui passe chaque argument tel quel (`shaderReloadCommand`).
+  - **`wsl.exe -d <distro> -- cmd args` passe par le shell de la distro** : un « ; » y coupe la commande, un « $ » ou
+    un « \\ » s'y interprètent (`-- /usr/bin/printf '[%s]' 'a b' 'c;d'` rend « [a b][c] », puis « d: command not
+    found ») ; un espace, lui, passe. Parade : `--exec`, qui passe chaque argument tel quel (`shaderReloadCommand`).
   - **Ses propres messages sont en UTF-16** (distro inconnue : code de sortie 255, « Il n'existe aucune distribution
     avec le nom fourni. Code d'erreur : Wsl/Service/WSL_E_DISTRO_NOT_FOUND »), un octet nul entre les lettres dans le
-    log. Un processus de la distro écrit de l'UTF-8. Parade : `utf8FromWslOutput`, qui décode quand la sortie contient
-    un octet nul.
+    log. Parade : `WSL_UTF8=1` dans l'environnement de `wsl.exe` (`runProcess` sait l'ajouter) ; mesuré, ses messages
+    arrivent alors en UTF-8, comme la sortie des processus de la distro.
+  - **`--exec` ne lit pas `~/.bashrc`** : `LEVAIN_WINSYSROOT` y manque au `cmake` relancé, et un arbre `windows-*` à
+    régénérer (un `CMakeLists.txt` modifié depuis le dernier build) s'arrêterait sur la toolchain. Parade : la commande
+    passe par `/usr/bin/env LEVAIN_WINSYSROOT=<celui de la configuration>`.
   - **Un exe lancé de la distro ne reçoit pas `WSL_DISTRO_NAME`** (WSLENV, plus haut) : la distro est écrite dans le
-    binaire à la configuration (`LEVAIN_WSL_DISTRO`, `CMakeLists.txt`). Un exe compilé hors d'une distro n'en a pas, et
+    binaire à la configuration (`LEVAIN_WSL_DISTRO`, dans `levain_app` : une propriété de l'arbre de build, pas du
+    programme). Un exe compilé hors d'une distro n'en a pas, et
     refuse. Le dossier des sources à surveiller (`/home/…/shaders`) se lit par le dossier courant `\\wsl.localhost\…` :
     la surveillance par date de modification marche à travers ce partage (10 à 63 ms entre l'écriture et la détection),
     mais lancé d'un dossier Windows, l'exe s'arrête avant, sur ses assets (« racine d'assets introuvable ») ; si les

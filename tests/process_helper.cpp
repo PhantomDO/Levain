@@ -4,12 +4,17 @@
 //
 //   levain_process_helper echo <mots...>   écrit les mots séparés par une espace, puis « \n »
 //   levain_process_helper exit <code>      sort avec ce code
+//   levain_process_helper env <nom>        écrit la valeur de cette variable d'environnement, puis « \n »
 #include <charconv>
 #include <cstddef>
 #include <cstdio>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <system_error>
+
+#include "levain/core/environment.hpp"
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -22,6 +27,7 @@ namespace
 // EX_USAGE de sysexits.h : un code que les tests ne demandent pas, pour qu'une erreur d'appel ne se
 // confonde pas avec le code de sortie voulu.
 constexpr int UsageError = 64;
+constexpr int MissingVariable = 65;
 
 int echoArguments(std::span<char* const> words)
 {
@@ -51,6 +57,17 @@ int main(int argc, char** argv)
     {
         return echoArguments(arguments.subspan(2));
     }
+    if (arguments.size() == 3 && std::string_view{arguments[1]} == "env")
+    {
+        // Absente, la variable rend un code à elle, que le test distingue d'une valeur vide.
+        std::optional<std::string> value = levain::core::environmentVariable(arguments[2]);
+        if (!value)
+        {
+            return MissingVariable;
+        }
+        char* const words[] = {value->data()};
+        return echoArguments(words);
+    }
     if (arguments.size() == 3 && std::string_view{arguments[1]} == "exit")
     {
         const std::string_view code{arguments[2]};
@@ -60,6 +77,6 @@ int main(int argc, char** argv)
             return exitCode;
         }
     }
-    std::fputs("usage : levain_process_helper echo <mots...> | exit <code>\n", stderr);
+    std::fputs("usage : levain_process_helper echo <mots...> | exit <code> | env <nom>\n", stderr);
     return UsageError;
 }

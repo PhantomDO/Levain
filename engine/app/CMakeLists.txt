@@ -15,3 +15,14 @@ target_link_libraries(levain_app PUBLIC
 # L'explorer web de flecs, en Debug seulement : en Release, le code qui l'active n'est pas compilé,
 # et aucun serveur n'écoute.
 target_compile_definitions(levain_app PRIVATE $<$<CONFIG:Debug>:LEVAIN_ENABLE_EXPLORER=1>)
+
+# Le hot-reload des shaders d'un exe Windows compilé dans une distro WSL passe par wsl.exe (ADR-0035, décision 5) :
+# la distro et le winsysroot de cette configuration, des propriétés de l'arbre de build et non du programme, vides
+# hors d'une distro. wsl.exe --exec ne lit pas ~/.bashrc : le cmake relancé reçoit LEVAIN_WINSYSROOT par la commande,
+# sans quoi un arbre à régénérer s'arrêterait sur la toolchain.
+set(levainWslWinsysroot "")
+if(LEVAIN_WSL_DISTRO)
+    set(levainWslWinsysroot "$ENV{LEVAIN_WINSYSROOT}")
+endif()
+target_compile_definitions(levain_app PRIVATE
+    LEVAIN_WSL_DISTRO="${LEVAIN_WSL_DISTRO}" LEVAIN_WSL_WINSYSROOT="${levainWslWinsysroot}")

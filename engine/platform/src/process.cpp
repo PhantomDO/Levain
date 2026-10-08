@@ -15,7 +15,8 @@
 namespace levain::platform
 {
 
-core::Result<ProcessOutput> runProcess(std::span<const std::string> arguments)
+core::Result<ProcessOutput> runProcess(std::span<const std::string> arguments,
+                                       std::span<const EnvironmentVariable> environment)
 {
     LEVAIN_ASSERT(!arguments.empty(), "runProcess attend au moins le programme à lancer");
 
@@ -37,6 +38,28 @@ core::Result<ProcessOutput> runProcess(std::span<const std::string> arguments)
     SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
     SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_APP);
     SDL_SetBooleanProperty(properties, SDL_PROP_PROCESS_CREATE_STDERR_TO_STDOUT_BOOLEAN, true);
+    // L'environnement de ce processus, plus `environment` : SDL n'en passe un autre au programme que
+    // par SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER, une copie qu'il ne garde pas au-delà de la
+    // création.
+    const std::unique_ptr<SDL_Environment, decltype(&SDL_DestroyEnvironment)> childEnvironment{
+        environment.empty() ? nullptr : SDL_CreateEnvironment(true), &SDL_DestroyEnvironment};
+    if (!environment.empty())
+    {
+        if (!childEnvironment)
+        {
+            SDL_DestroyProperties(properties);
+            return core::makeError(core::ErrorCode::Unsupported,
+                                   std::format("{} : environnement impossible à créer, {}",
+                                               arguments.front(), SDL_GetError()));
+        }
+        for (const EnvironmentVariable& variable : environment)
+        {
+            SDL_SetEnvironmentVariable(childEnvironment.get(), variable.name.c_str(),
+                                       variable.value.c_str(), true);
+        }
+        SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER,
+                               childEnvironment.get());
+    }
     const std::unique_ptr<SDL_Process, decltype(&SDL_DestroyProcess)> process{
         SDL_CreateProcessWithProperties(properties), &SDL_DestroyProcess};
     SDL_DestroyProperties(properties);

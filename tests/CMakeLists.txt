@@ -90,6 +90,7 @@ else()
     # Son chemin est compilé dans les tests, comme les dossiers de données : sous Windows, il ne marche que lancé
     # depuis la distro, jusqu'à ce que ctest donne les chemins (ADR-0035, #346).
     add_executable(levain_process_helper process_helper.cpp)
+    target_link_libraries(levain_process_helper PRIVATE levain::core) # environmentVariable
     add_dependencies(levain_tests levain_process_helper)
     target_compile_definitions(levain_tests PRIVATE
         LEVAIN_PROCESS_HELPER="$<TARGET_FILE:levain_process_helper>")

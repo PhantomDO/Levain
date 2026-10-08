@@ -1301,8 +1301,7 @@ int main(int argc, char** argv)
         settings.bindingsFile = LEVAIN_DATA_DIR "/input.cfg";
         settings.shaderBuild = {.cmakeCommand = LEVAIN_CMAKE_COMMAND,
                                 .buildDir = LEVAIN_BUILD_DIR,
-                                .sourceDir = LEVAIN_SHADER_SOURCE_DIR,
-                                .wslDistro = LEVAIN_WSL_DISTRO};
+                                .sourceDir = LEVAIN_SHADER_SOURCE_DIR};
         settings.defaultSky = std::filesystem::path{LEVAIN_DEFAULT_SKY};
         std::span<char* const> arguments{argv, static_cast<std::size_t>(argc)};
 #ifdef LEVAIN_SANDBOX_EDITOR

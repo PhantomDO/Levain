@@ -19,7 +19,7 @@ namespace levain::app
 struct ShaderReload
 {
     ShaderBuild build;
-    std::vector<std::string> command; ///< `shaderReloadCommand`, calculée une fois au démarrage.
+    ShaderReloadCommand command; ///< `shaderReloadCommand`, calculée une fois au démarrage.
     levain::core::FileWatch sources;
     std::chrono::steady_clock::time_point nextCheck;
 };

@@ -55,7 +55,7 @@ if(EMSCRIPTEN)
         LEVAIN_DATA_DIR="/data"
         LEVAIN_TEST_ASSETS_DIR="/assets-cache"
         LEVAIN_DEFAULT_SKY="/assets-cache/${defaultSky}_1k.hdr"
-        LEVAIN_CMAKE_COMMAND="" LEVAIN_BUILD_DIR="" LEVAIN_SHADER_SOURCE_DIR="" LEVAIN_WSL_DISTRO="")
+        LEVAIN_CMAKE_COMMAND="" LEVAIN_BUILD_DIR="" LEVAIN_SHADER_SOURCE_DIR="")
     return()
 endif()
 
@@ -69,13 +69,11 @@ target_compile_definitions(levain_sandbox PRIVATE
     LEVAIN_DEFAULT_SKY="${PROJECT_SOURCE_DIR}/assets-cache/${defaultSky}_2k.hdr")
 
 # Le hot-reload des shaders relance le build qui a produit ce binaire (ADR-0014) : le CMake qui l'a
-# configuré, son dossier de build, et les sources à surveiller ; compilé pour Windows dans une distro WSL, aussi
-# cette distro, d'où le programme relance le build (ADR-0035, décision 5).
+# configuré, son dossier de build, et les sources à surveiller.
 target_compile_definitions(levain_sandbox PRIVATE
     LEVAIN_CMAKE_COMMAND="${CMAKE_COMMAND}"
     LEVAIN_BUILD_DIR="${CMAKE_BINARY_DIR}"
-    LEVAIN_SHADER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/shaders"
-    LEVAIN_WSL_DISTRO="${LEVAIN_WSL_DISTRO}")
+    LEVAIN_SHADER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/shaders")
 
 # L'exécutable éditeur du sandbox (ADR-0034, choix 6B) : le même main.cpp, compilé une seconde fois
 # avec LEVAIN_SANDBOX_EDITOR, qui enveloppe son démarrage par editor::withEditor ; les mêmes

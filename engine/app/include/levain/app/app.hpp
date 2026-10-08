@@ -28,6 +28,7 @@
 #include "levain/gpu/device.hpp"
 #include "levain/input/bindings.hpp"
 #include "levain/input/state.hpp"
+#include "levain/platform/process.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/camera.hpp"
 #include "levain/render/environment.hpp"
@@ -52,30 +53,43 @@ struct ShaderBuild
     std::string cmakeCommand;
     std::filesystem::path buildDir;
     std::filesystem::path sourceDir;
-    /// La distro WSL où ce programme Windows a été compilé, lue dans `WSL_DISTRO_NAME` à la
-    /// configuration (ADR-0035, décision 5) : lancé de la distro, un exe Windows ne reçoit pas
-    /// cette variable, elle doit donc être écrite dans le binaire. Vide partout ailleurs.
-    std::string wslDistro;
 };
 
-/// Le système du programme, qui décide comment relancer le build. Un paramètre plutôt qu'un
-/// `#ifdef` dans la fonction : le test couvre ainsi les deux depuis Linux.
-enum class HostSystem : std::uint8_t
+/// Le système où tourne ce programme : la cible du build, pas l'hôte de CMake, qui est Linux pour un
+/// exe Windows compilé dans une distro. Un paramètre plutôt qu'un `#ifdef` dans la fonction : le
+/// test couvre ainsi les deux depuis Linux.
+enum class ExeSystem : std::uint8_t
 {
     Linux,
     Windows,
 };
 
 /// Le système pour lequel ce programme est compilé.
-inline constexpr HostSystem CompiledHost =
+inline constexpr ExeSystem CompiledSystem =
 #ifdef _WIN32
-    HostSystem::Windows;
+    ExeSystem::Windows;
 #else
-    HostSystem::Linux;
+    ExeSystem::Linux;
 #endif
+
+/// La distro WSL où un exe Windows a été configuré, et le winsysroot de ce shell (ADR-0035) : des
+/// propriétés de l'arbre de build, que `levain_app` reçoit à la compilation, pas du programme.
+/// Vides hors d'une distro, et pour l'exe d'une CI.
+struct WslBuild
+{
+    std::string distro;
+    std::string winsysroot;
+};
 
 /// La cible CMake qui compile les shaders (`cmake/LevainShaders.cmake`).
 inline constexpr std::string_view ShaderTarget = "levain_shaders";
+
+/// Une commande à lancer, et les variables qu'elle ajoute à l'environnement du programme.
+struct ShaderReloadCommand
+{
+    std::vector<std::string> arguments;
+    std::vector<levain::platform::EnvironmentVariable> environment;
+};
 
 /// La commande qui recompile les shaders (ADR-0014), à lancer dans le dossier de build qui a
 /// produit le programme :
@@ -85,14 +99,8 @@ inline constexpr std::string_view ShaderTarget = "levain_shaders";
 ///   build de la distro d'où l'exe vient (ADR-0035, décision 5) ;
 /// - sous Windows, sans distro (l'exe de la CI), un refus (`Unsupported`) qui dit pourquoi : le
 ///   programme continue de tourner, sans recharger.
-[[nodiscard]] levain::core::Result<std::vector<std::string>>
-shaderReloadCommand(const ShaderBuild& build, HostSystem host);
-
-/// La sortie d'un processus lancé par `shaderReloadCommand`, lisible dans le log. `wsl.exe` écrit
-/// ses propres messages (une distro inconnue, un service arrêté) en UTF-16 : tels quels, des octets
-/// nuls entre les lettres. Un processus de la distro, lui, écrit de l'UTF-8, sans octet nul : c'est
-/// à cela que l'on reconnaît l'UTF-16, et la sortie sans octet nul passe telle quelle.
-[[nodiscard]] std::string utf8FromWslOutput(std::string_view output);
+[[nodiscard]] levain::core::Result<ShaderReloadCommand>
+shaderReloadCommand(const ShaderBuild& build, ExeSystem system, const WslBuild& wsl);
 
 /// Ce que le programme règle avant que la boucle ne démarre : sa fenêtre, ses fichiers, et ce que
 /// les options communes de la ligne de commande changent (`parseCommonOption`).

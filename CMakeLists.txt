@@ -49,10 +49,9 @@ else()
 endif()
 
 # La distro WSL où l'on configure un build Windows, pour le hot-reload des shaders (ADR-0035, décision 5) : un exe
-# Windows lancé de la distro ne reçoit pas WSL_DISTRO_NAME, il faut donc l'écrire dans le binaire. Vide partout
-# ailleurs, et pour l'exe d'une CI, qui n'a pas de distro. En cache interne, pour que le jeu qui inclut le moteur
-# la lise aussi (comme LEVAIN_SHADER_DIR).
-set(LEVAIN_WSL_DISTRO "" CACHE INTERNAL "Distro WSL de ce build Windows, vide hors d'une distro")
+# Windows lancé de la distro ne reçoit pas WSL_DISTRO_NAME, il faut donc l'écrire dans le binaire (engine/app).
+# Vide partout ailleurs, et pour l'exe d'une CI, qui n'a pas de distro.
+set(LEVAIN_WSL_DISTRO "")
 if(WIN32)
     # windows.h, qu'amènent Vulkan et SDL, définit des macros min et max qui cassent std::max et
     # numeric_limits<…>::max(). Ce n'est pas un avertissement coupé : jamais _CRT_SECURE_NO_WARNINGS
@@ -75,7 +74,7 @@ if(WIN32)
     # barres obliques : LLVM récrit un \\ initial en \ dans le PDB (mesuré), et perd le préfixe UNC, quand // y
     # reste, que Windows lit comme \\. Seul le débogage est touché, pas __FILE__ (ce serait -ffile-prefix-map).
     if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND DEFINED ENV{WSL_DISTRO_NAME})
-        set(LEVAIN_WSL_DISTRO "$ENV{WSL_DISTRO_NAME}" CACHE INTERNAL "Distro WSL de ce build Windows, vide hors d'une distro")
+        set(LEVAIN_WSL_DISTRO "$ENV{WSL_DISTRO_NAME}")
         foreach(root IN ITEMS "${PROJECT_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
             add_compile_options("/clang:-fdebug-prefix-map=${root}=//wsl.localhost/${LEVAIN_WSL_DISTRO}${root}")
         endforeach()

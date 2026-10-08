@@ -52,46 +52,23 @@ std::vector<std::string> cmakeBuildOf(const ShaderBuild& build, std::string buil
             std::string{ShaderTarget}};
 }
 
-/// Ajoute `code` à `utf8`, en 1 à 4 octets : la tête dit combien d'octets suivent, chacun porte six
-/// bits.
-void appendUtf8(std::string& utf8, char32_t code)
+/// La distro et le winsysroot de cet arbre de build (engine/app/CMakeLists.txt).
+WslBuild compiledWslBuild()
 {
-    const auto tail = [code](unsigned shift)
-    { return static_cast<char>(0x80U | ((code >> shift) & 0x3FU)); };
-    if (code < 0x80U)
-    {
-        utf8 += static_cast<char>(code);
-    }
-    else if (code < 0x800U)
-    {
-        utf8 += static_cast<char>(0xC0U | (code >> 6U));
-        utf8 += tail(0);
-    }
-    else if (code < 0x10000U)
-    {
-        utf8 += static_cast<char>(0xE0U | (code >> 12U));
-        utf8 += tail(6);
-        utf8 += tail(0);
-    }
-    else
-    {
-        utf8 += static_cast<char>(0xF0U | (code >> 18U));
-        utf8 += tail(12);
-        utf8 += tail(6);
-        utf8 += tail(0);
-    }
+    return {.distro = LEVAIN_WSL_DISTRO, .winsysroot = LEVAIN_WSL_WINSYSROOT};
 }
 
 } // namespace
 
-core::Result<std::vector<std::string>> shaderReloadCommand(const ShaderBuild& build,
-                                                           HostSystem host)
+core::Result<ShaderReloadCommand> shaderReloadCommand(const ShaderBuild& build, ExeSystem system,
+                                                      const WslBuild& wsl)
 {
-    if (host == HostSystem::Linux)
+    if (system == ExeSystem::Linux)
     {
-        return cmakeBuildOf(build, build.buildDir.string());
+        return ShaderReloadCommand{.arguments = cmakeBuildOf(build, build.buildDir.string()),
+                                   .environment = {}};
     }
-    if (build.wslDistro.empty())
+    if (wsl.distro.empty())
     {
         return core::makeError(
             core::ErrorCode::Unsupported,
@@ -99,45 +76,26 @@ core::Result<std::vector<std::string>> shaderReloadCommand(const ShaderBuild& bu
             "à la configuration) : cmake et slangc sont des programmes Linux qu'il ne peut pas "
             "lancer, recompiler les shaders où il a été compilé (ADR-0035)");
     }
-    // --exec et non « -- » : « -- » passe par le shell de la distro, qui coupe un argument à
-    // espace ou à « ; » et développe un « $HOME » (essayé : wsl.exe -d <distro> -- /bin/echo 'c;d'
-    // '$HOME'), quand --exec passe chaque argument tel quel (wsl.exe --help).
-    std::vector<std::string> command{"wsl.exe", "-d", build.wslDistro, "--exec"};
+    // --exec et non « -- » : « -- » donne la commande au shell de la distro, où un « ; » la coupe,
+    // et où un « $ » ou un « \ » s'interprètent (mesuré : wsl.exe -d <distro> -- /usr/bin/printf
+    // '[%s]' 'a b' 'c;d' rend « [a b][c] », puis « d: command not found »). --exec passe chaque
+    // argument tel quel.
+    ShaderReloadCommand command{.arguments = {"wsl.exe", "-d", wsl.distro, "--exec"},
+                                // wsl.exe écrit ses propres messages (une distro inconnue, un
+                                // service arrêté) en UTF-16, sauf avec WSL_UTF8=1.
+                                .environment = {{.name = "WSL_UTF8", .value = "1"}}};
+    // --exec ne lit pas ~/.bashrc : sans LEVAIN_WINSYSROOT, un arbre à régénérer (un CMakeLists
+    // modifié depuis le dernier build) s'arrêterait sur la toolchain au lieu de recompiler.
+    if (!wsl.winsysroot.empty())
+    {
+        command.arguments.insert(command.arguments.end(),
+                                 {"/usr/bin/env", "LEVAIN_WINSYSROOT=" + wsl.winsysroot});
+    }
     // Le dossier de build est un chemin de la distro, avec des « / » : generic_string les garde,
     // quelle que soit la façon dont Windows écrit un chemin.
     const std::vector<std::string> cmake = cmakeBuildOf(build, build.buildDir.generic_string());
-    command.insert(command.end(), cmake.begin(), cmake.end());
+    command.arguments.insert(command.arguments.end(), cmake.begin(), cmake.end());
     return command;
-}
-
-std::string utf8FromWslOutput(std::string_view output)
-{
-    if (output.find('\0') == std::string_view::npos)
-    {
-        return std::string{output};
-    }
-    const auto unit = [&output](std::size_t index)
-    {
-        return static_cast<char32_t>(static_cast<unsigned char>(output[index])) |
-               static_cast<char32_t>(static_cast<unsigned char>(output[index + 1])) << 8U;
-    };
-    std::string utf8;
-    for (std::size_t index = 0; index + 1 < output.size(); index += 2)
-    {
-        char32_t code = unit(index);
-        if (code >= 0xD800 && code < 0xDC00 && index + 3 < output.size() &&
-            unit(index + 2) >= 0xDC00 && unit(index + 2) < 0xE000)
-        {
-            code = 0x10000 + ((code - 0xD800) << 10U) + (unit(index + 2) - 0xDC00);
-            index += 2;
-        }
-        else if (code >= 0xD800 && code < 0xE000)
-        {
-            code = 0xFFFD; // une moitié de paire seule
-        }
-        appendUtf8(utf8, code);
-    }
-    return utf8;
 }
 
 ShaderReload startShaderReload(const ShaderBuild& build)
@@ -150,7 +108,7 @@ ShaderReload startShaderReload(const ShaderBuild& build)
     {
         return reload; // le navigateur : ni sources ni build, rien à dire
     }
-    auto command = shaderReloadCommand(build, CompiledHost);
+    auto command = shaderReloadCommand(build, CompiledSystem, compiledWslBuild());
     if (!command)
     {
         levain::core::log("shaders", levain::core::LogLevel::Warning,
@@ -165,9 +123,11 @@ ShaderReload startShaderReload(const ShaderBuild& build)
         // qui ne voit aucun changement. Sous Windows, un chemin « /home/… » ne se résout que si le
         // dossier courant est celui de la distro (lancer l'exe depuis elle).
         levain::core::log("shaders", levain::core::LogLevel::Warning,
-                          "aucune source .slang lisible dans {} : le rechargement ne verra rien "
-                          "(un exe Windows compilé dans une distro doit être lancé depuis elle)",
-                          build.sourceDir.string());
+                          "aucune source .slang lisible dans {} : le rechargement ne verra rien{}",
+                          build.sourceDir.string(),
+                          CompiledSystem == ExeSystem::Windows
+                              ? " (un exe Windows compilé dans une distro doit être lancé depuis elle)"
+                              : "");
     }
     return reload;
 }
@@ -176,7 +136,7 @@ void reloadChangedShaders(ShaderReload& reload, nvrhi::IDevice& device,
                           const nvrhi::FramebufferInfo& target, levain::render::MeshPass& meshPass)
 {
     const Clock::time_point now = Clock::now();
-    if (reload.command.empty() || now < reload.nextCheck)
+    if (reload.command.arguments.empty() || now < reload.nextCheck)
     {
         return;
     }
@@ -200,9 +160,12 @@ void reloadChangedShaders(ShaderReload& reload, nvrhi::IDevice& device,
     }
 
     // ADR-0014 : les commandes exactes du build, dans le dossier de build qui a produit ce binaire.
-    // ponytail: bloquant, la boucle s'arrête le temps du build (~350 ms) ; un thread si ça gêne.
+    // ponytail: bloquant, la boucle s'arrête le temps du build : ~350 ms sous Linux (ADR-0014),
+    // ~900 ms pour un exe Windows, dont ~100 ms pour démarrer wsl.exe (build/GOTCHA.md). Un thread
+    // si ça gêne.
     const Clock::time_point buildStart = Clock::now();
-    const auto build = levain::platform::runProcess(reload.command);
+    const auto build =
+        levain::platform::runProcess(reload.command.arguments, reload.command.environment);
     if (!build)
     {
         levain::core::log("shaders", levain::core::LogLevel::Error, "{}", build.error().message);
@@ -212,7 +175,7 @@ void reloadChangedShaders(ShaderReload& reload, nvrhi::IDevice& device,
     {
         levain::core::log("shaders", levain::core::LogLevel::Error,
                           "compilation échouée, les shaders en place restent :\n{}",
-                          firstFailure(utf8FromWslOutput(build->output)));
+                          firstFailure(build->output));
         return;
     }
     levain::core::log("shaders", levain::core::LogLevel::Info, "recompilés en {:.0f} ms",
