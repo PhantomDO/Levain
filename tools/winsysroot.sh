@@ -4,6 +4,7 @@
 # référence ; dans la distro WSL d'un PC Windows, le winsysroot lit plutôt les Build Tools installés (tools/wsl/).
 #
 #   tools/winsysroot.sh <dossier>   # puis : export LEVAIN_WINSYSROOT=<dossier>
+#   tools/winsysroot.sh --stamp     # le tampon de ce winsysroot, sans rien télécharger (la CI en tire son chemin)
 #
 # Tout est figé et vérifié par SHA-256 : xwin, et le manifeste des paquets de Visual Studio 18.8.1, celui des Build
 # Tools de Donnovan (octet pour octet le catalog.json de son installation), contre lequel xwin vérifie chaque paquet.
@@ -12,7 +13,7 @@
 # winsysroot sert à compiler, et ne va ni dans le dépôt ni dans un artefact.
 set -euo pipefail
 
-dest=${1:?usage : tools/winsysroot.sh <dossier>}
+dest=${1:?usage : tools/winsysroot.sh <dossier> | --stamp}
 root=$(cd "$(dirname "$0")/.." && pwd)
 # Les versions, lues dans la toolchain qui les vérifie : une seule source.
 toolchain=$root/cmake/toolchains/windows-clang-cl.cmake
@@ -26,7 +27,17 @@ xwinSha256=d870eb4b2f390878af6da1ccd3cf321d22fcb72720984853b4be732ae597fc88
 vsmanUrl=https://download.visualstudio.microsoft.com/download/pr/2d2982b2-bb55-4ed1-981b-9c3fc7bf3b12/ce889cdc10c284ec9a5d14a0893d9fd0df6487cb6c076ddb631f45c0291b5416/VisualStudio.vsman
 vsmanSha256=530f1ebd84e4bbd51f646cbb41459f5aeaa78a5e716009d9257ea29a5dc5c94d
 
-stamp="xwin $xwinVersion, manifeste $vsmanSha256, MSVC $msvc, SDK $sdk"
+# Le tampon nomme ce qui fait le contenu du winsysroot : xwin, le manifeste, les versions, et le code de ce script
+# (ses lignes de commentaire et ses lignes vides exclues). La CI en tire le chemin du winsysroot, qui entre dans l'ABI
+# de tous les ports Windows (ENV:LEVAIN_WINSYSROOT, dans leur vcpkg_abi_info.txt) : changer une ligne de code ici
+# les recompile tous sur le runner (1 h 40), corriger un commentaire, non. Les versions seules ne suffiraient pas :
+# un autre manifeste garde MSVC 14.51.36231 avec d'autres bibliothèques, et le chemin doit alors changer.
+code=$(grep -vE '^[[:space:]]*(#|$)' "$0" | sha256sum | cut -c1-12)
+stamp="xwin $xwinVersion, manifeste $vsmanSha256, MSVC $msvc, SDK $sdk, code $code"
+if [[ $dest == --stamp ]]; then
+    echo "$stamp"
+    exit 0
+fi
 if [[ -f $dest/.levain-winsysroot && $(< "$dest/.levain-winsysroot") == "$stamp" ]]; then
     echo "$dest : déjà le winsysroot de $stamp"
     exit 0
