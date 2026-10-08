@@ -47,6 +47,11 @@ set(LEVAIN_SHADER_FLAGS -matrix-layout-column-major -warnings-as-errors all -I "
 # par CMake : si elle change de nom, chaque configuration échoue, au lieu de rester verte sans rien dire (règle n°7).
 # Seul le moteur à la racine est tenu d'activer ses tests : inclus par un jeu, c'est au jeu de le faire.
 function(levain_require_testing_enabled)
+    # Levain_IS_TOP_LEVEL vient du project(Levain) racine : renommé, la garde se tairait au lieu d'échouer (règle n°7).
+    if(NOT DEFINED Levain_IS_TOP_LEVEL)
+        message(FATAL_ERROR "Levain_IS_TOP_LEVEL n'existe pas : le project() racine a changé de nom, "
+                            "levain_require_testing_enabled doit suivre (build/GOTCHA.md).")
+    endif()
     if(Levain_IS_TOP_LEVEL AND NOT CMAKE_TESTING_ENABLED)
         message(FATAL_ERROR "Les tests de ${CMAKE_CURRENT_SOURCE_DIR} se perdraient sans un mot : enable_testing() n'a "
                             "pas été appelé avant ce dossier. Le CMakeLists.txt racine doit l'appeler avant ses "

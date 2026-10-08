@@ -124,8 +124,9 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
 
 Corrigé par la PR de #354 (2026-10-08) : le piège reste, sa parade est en place.
 
-- **Symptôme** : build/SKILL.md annonçait un test `dxil.*` par shader ; `ctest -N | grep -c dxil` rend 0, sur tous les
-  presets, depuis le début. Vu en comptant les tests par commande pour le label `host` (#345).
+- **Symptôme** : build/SKILL.md annonçait un test `dxil.*` par shader ; `ctest -N -R '^dxil[.]' | tail -1` rend
+  « Total Tests: 0 », sur tous les presets, depuis le début (`ctest -N | grep -c dxil` compte aussi l'en-tête « Test
+  project … » quand le chemin du build contient dxil, comme un worktree). Vu en comptant les tests par commande pour le label `host` (#345).
 - **Cause** : le `CMakeLists.txt` racine appelait `enable_testing()` après `add_subdirectory(shaders)` et celui des
   plugins. Un dossier configuré avant n'écrit pas de `CTestTestfile.cmake` : ses `add_test` réussissent, ne mènent
   nulle part, et la propriété `TESTS` du dossier les liste quand même (mesuré : elle ne trahit pas la perte).
@@ -134,7 +135,8 @@ Corrigé par la PR de #354 (2026-10-08) : le piège reste, sa parade est en plac
   configuration si `CMAKE_TESTING_ENABLED`, que pose `enable_testing()`, manque au dossier. Contre-testé en replaçant
   `enable_testing()` après `add_subdirectory(shaders)` : la configuration s'arrête en nommant le dossier. Les 27 tests
   `dxil.*` s'enregistrent sur les presets natifs (pas sur le web : son garde-fou « au moins 80 tests » compte le code
-  CPU), avec le label `host`.
+  CPU), avec le label `host`. Cette garde surveille l'ordre, pas le nombre : l'étape « Tests » de la CI native
+  refuse aussi moins de 27 tests `dxil.*` (`ctest -N -R '^dxil[.]'`), qu'un `add_test` perdu ferait tomber à 0.
 - **Contre-test dans un arbre déjà configuré** : un `CTestTestfile.cmake` déjà écrit reste dans l'arbre, et ctest
   compte encore les 27 tests après une configuration refusée (ou après le retrait de `enable_testing()` et de la
   garde) : le contre-test se fait dans un dossier neuf, `cmake --preset linux-debug -B build/<nom>`, ou en
