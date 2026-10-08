@@ -77,8 +77,13 @@ core::LogLevel toLogLevel(VkDebugUtilsMessageSeverityFlagBitsEXT severity)
 [[maybe_unused]] bool isValidationError(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                         VkDebugUtilsMessageTypeFlagsEXT types)
 {
+    // Le bit en `VkFlags`, non signé : une énumération C a `int` pour type sous-jacent dans l'ABI
+    // de Microsoft (`unsigned int` sous Linux), et l'énumérateur tel quel mêlerait un signé au
+    // masque, sous Windows seulement.
+    constexpr VkDebugUtilsMessageTypeFlagsEXT ValidationType =
+        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
     return severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT &&
-           (types & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) != 0;
+           (types & ValidationType) != 0;
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL onVulkanMessage(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
