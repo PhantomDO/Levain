@@ -168,9 +168,8 @@ le port vcpkg, pour la règle n°5.
   (`path.string()`, pour ktx et stb) n'ont les accents justes que grâce à lui. Le manifeste fixe un plancher :
   Windows 10 1903.
 - **Pas de `_CRT_SECURE_NO_WARNINGS`** : la CRT de Microsoft déclare « unsafe » `getenv`, et le définir couperait
-  un avertissement (règle n°4). Les trois appels passent par une fonction nommée qui n'emploie pas l'API
-  déconseillée (`SDL_getenv` là où SDL est visible, `_dupenv_s` sous Windows ailleurs). `NOMINMAX`, lui, retire
-  des macros, pas un avertissement : il reste.
+  un avertissement (règle n°4). Les appels passent tous par `core::environmentVariable` (`_dupenv_s` sous
+  Windows, `std::getenv` ailleurs). `NOMINMAX`, lui, retire des macros, pas un avertissement : il reste.
 
 ### Les 22 échecs de `ctest`, et ce qui les règle
 
@@ -195,8 +194,10 @@ Rien à installer sous Windows : les Build Tools 2026 sont déjà sur le portabl
 et la couche de debug D3D12 est présente. Il garde les Build Tools tels quels : le winsysroot du portable les lit,
 et une mise à jour changerait sa STL, que la CI fige (MSVC 14.51). Il lance le sandbox depuis la distro ; un exe livré (M8.2) demandera le
 redistribuable Visual C++, que Microsoft permet de joindre au binaire. **Pour déboguer** sous Windows (Visual
-Studio, RenderDoc, PIX), les PDB nommeront les sources par leur chemin dans la distro
-(`\\wsl.localhost\levain-dev\…`) : à vérifier dans la PR de la chaîne.
+Studio, RenderDoc, PIX), les PDB nomment les sources de Levain par leur chemin dans la distro, écrit
+`//wsl.localhost/levain-dev/…` (lu par `llvm-pdbutil dump -files`) : Windows le lit comme `\\wsl.localhost\levain-dev\…`,
+quand LLVM déformerait cette écriture-là dans le PDB (`.agents/skills/build/GOTCHA.md`). Leur ouverture dans
+Visual Studio reste à essayer.
 
 ### Coûts et risques
 

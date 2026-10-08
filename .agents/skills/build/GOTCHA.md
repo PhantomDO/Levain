@@ -17,7 +17,10 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   `CMAKE_CXX_COMPILER_ID` (« Clang » sous clang-cl) pour ajouter `-Wall -Werror` se compile avec tous les
   avertissements, en erreurs (ozz : « `_Ty` est réservé » ; spirv-reflect). Parade : nos options passent par
   `/clang:` ; un port qui casse reçoit un port overlay (pour ozz : sa branche MSVC, qui définit
-  `_CRT_SECURE_NO_WARNINGS` pour ses seules sources).
+  `_CRT_SECURE_NO_WARNINGS` pour ses seules sources ; pour spirv-reflect, dépendance des couches de validation,
+  ses options passées par `/clang:`). Les couches elles-mêmes se compilent sans parade : leur `-Werror` est
+  facultatif (`BUILD_WERROR`, éteint), mais clang-cl les avertit en `-Weverything` : 1,1 million de lignes dans le
+  journal de vcpkg (715 Mo en Debug), sans effet.
 - **ozz choisit sa CRT** sur sa branche MSVC, statique par défaut : lld-link refuse de le lier au reste
   (`/failifmismatch` sur `RuntimeLibrary`). Parade : `ozz_build_msvc_rt_dll` suit le triplet.
 - **Modifier la toolchain change l'ABI de chaque port** : vcpkg recompile toutes les dépendances Windows, Dawn
@@ -55,6 +58,22 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   (`tests/CMakeLists.txt`) : en compilation croisée hors Emscripten, un fichier que ctest inclut rejoue le script
   de doctest à chaque lecture de la liste ; si la découverte échoue, le test rouge `levain_tests_NOT_DISCOVERED`
   le dit, sans quoi ctest sortirait en 0 sur « No tests were found » (2026-10-08).
+- **Le chargeur Vulkan de Windows ne cherche pas les couches de validation à côté de l'exe** : il lit le registre
+  puis `VK_ADD_LAYER_PATH`. Sans elle, le refus « couches de validation Vulkan absentes » (vk-bootstrap,
+  `requested_layers_not_present`), même avec les fichiers du port à côté de l'exe. Parade : le build copie
+  `VkLayer_khronos_validation.dll` et son `.json` (ceux de la Release, 26 Mo, aussi pour un exe Debug : le chargeur les
+  charge dans leur propre CRT, et ceux du Debug en pèsent 46) à côté de chaque exe qui lie `levain_gpu`, par un
+  parcours de fin de configuration (`cmake/LevainVulkanLayers.cmake`) : une liste d'exes tenue à la main s'oublierait ;
+  `device_vk.cpp` pose `VK_ADD_LAYER_PATH` sur `SDL_GetBasePath()`, sauf si elle l'est déjà. Preuve qu'elles sont
+  chargées : `(Get-Process levain_sandbox).Modules` sous `powershell.exe` pendant un lancement (2026-10-08).
+- **Un PDB nomme les sources par leur chemin dans la distro** (`/home/…`), introuvable pour Visual Studio. Parade :
+  `-fdebug-prefix-map` (pas `-ffile-prefix-map`, qui changerait `__FILE__`), vers `//wsl.localhost/<distro>/…`, que
+  Windows lit comme `\\wsl.localhost\<distro>\…`. Pas `\\wsl.localhost\…` : LLVM récrit un `\\` initial en `\` dans le
+  CodeView (et un chemin tout en barres obliques, `/…`, reste tel quel), ce qui perd le préfixe UNC ; mesuré avec
+  `llvm-pdbutil dump -files`. Les sources des ports et les STL gardent leur chemin d'origine (2026-10-08).
+- **Le loader signale `SocialClubVulkanLayer.json` introuvable** sur le portable de Donnovan (une couche implicite
+  de Rockstar, dans le registre) : un message du loader, pas une erreur de validation ; il ne touche pas
+  `isValidationError` (device_vk.cpp) et n'arrête rien (2026-10-08).
 
 ## 16 Go de RAM : des builds en parallèle font planter la machine de référence (2026-10-08)
 
