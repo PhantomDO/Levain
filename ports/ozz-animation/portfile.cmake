@@ -14,6 +14,14 @@ vcpkg_from_github(
     HEAD_REF master
 )
 
+# Sous clang-cl, ozz se croit chez GCC (son test vise CMAKE_CXX_COMPILER_ID « MSVC ») et passe -Wall,
+# que clang-cl lit comme /Wall, c'est-à-dire -Weverything ; ses avertissements traités en erreurs, il
+# s'arrêtait sur ses propres identifiants (« _Ty » est réservé). /clang:-Wall donne le -Wall de Linux.
+if(VCPKG_TARGET_IS_WINDOWS)
+    vcpkg_replace_string("${SOURCE_PATH}/build-utils/cmake/compiler_settings.cmake"
+        "add_compile_options(-Wall)" "add_compile_options(/clang:-Wall)")
+endif()
+
 # ozz_build_postfix : sans lui, la version Debug s'appelle libozz_base_d.a, et la config ci-dessous devrait
 # connaître les deux noms.
 vcpkg_cmake_configure(

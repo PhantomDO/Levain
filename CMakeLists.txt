@@ -30,13 +30,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Le projet cible Linux et Clang uniquement (ADR-0011). Le bloc MSVC de la v0.3 — et son
 # /Zc:__cplusplus, sans lequel MSVC prétend être en C++98 — est retiré. À remettre le jour
 # où Windows redevient une cible, avec la CI qui va avec.
-add_compile_options(-pedantic-errors)
-
+#
 # Avertissements traités comme des erreurs. Sans -Wall ni -Wextra, la règle « zéro warning »
 # (AGENTS.md, règle n°4) ne couvrait que les avertissements actifs par défaut : presque rien.
 # Mesuré à l'activation (M1.1) : 4 avertissements, tous du même type, corrigés. Les en-têtes
 # des dépendances vcpkg arrivent en -isystem et ne comptent pas.
-add_compile_options(-Wall -Wextra -Werror)
+if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    # clang-cl lit -Wall comme /Wall, c'est-à-dire -Weverything : les options de clang y passent
+    # par /clang:, pour avoir exactement les mêmes avertissements que sous Linux.
+    add_compile_options(/clang:-pedantic-errors /clang:-Wall /clang:-Wextra /WX)
+else()
+    add_compile_options(-pedantic-errors -Wall -Wextra -Werror)
+endif()
 
 # ADR-0001 dit « sans modules ». CMake active pourtant le scan de modules dès C++20 avec
 # Ninja : deux étapes par fichier (scan + dyndep) pour un résultat toujours vide. On le coupe.

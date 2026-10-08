@@ -4,7 +4,7 @@
   "description": "Client du profileur Tracy. Port overlay de Levain : client seul, sans les outils.",
   "homepage": "https://github.com/wolfpld/tracy",
   "license": "BSD-3-Clause",
-  "supports": "linux",
+  "supports": "linux | (windows & x64)",
   "dependencies": [
     {
       "name": "vcpkg-cmake",
