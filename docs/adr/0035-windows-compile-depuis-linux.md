@@ -214,6 +214,15 @@ Visual Studio reste à essayer.
   le portable), le winsysroot de xwin et deux configurations : la PR de la CI mesure ce que ça prend, et vérifie
   qu'aucun cache Linux n'en est chassé (GitHub évince au-delà de 10 Go).
 - **Les ports vcpkg sous clang-cl** : d'autres casseront peut-être à une mise à jour de la baseline.
+- **Mis à jour le 2026-10-08, par la PR de la CI (#346).** xwin 0.10.0 tire MSVC 14.51.36231 et le SDK 10.0.26100 du
+  manifeste de Visual Studio 18.8.1, figé et corrigé deux fois pour prendre la CRT universelle du SDK
+  (`tools/winsysroot.sh`) : si Microsoft retire un paquet de ce manifeste, le script échoue, et il faut un manifeste
+  plus récent qui garde ces versions. La CI mesurée : `windows-build` 1 h 52 à froid (les ports 1 h 39, dont Dawn
+  49 min ; run 37826674786), 8 min 51 à chaud (run 37841345565) ; caches 1,15 Go (`vcpkg-windows-*` 1 034 Mo, winsysroot
+  93 Mo, lavapipe et chargeur 21 Mo). lavapipe pour Windows tourne, sans `VK_EXT_headless_surface` : les tests y
+  ouvrent une vraie fenêtre. Le runner est administrateur, et le chargeur y ignore `VK_ADD_LAYER_PATH` : les couches
+  y sont inscrites au registre, et seul le PC de Donnovan passe par la décision 6. Le sandbox et l'éditeur : PR
+  suivante.
 
 ### Les PR et le reste
 

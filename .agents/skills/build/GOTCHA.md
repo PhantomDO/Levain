@@ -17,6 +17,12 @@ les chemins `/home/…` s'y lisent comme sur le runner (lavapipe par `VK_DRIVER_
   `loader_environment.c`) : vulkaninfo, « Found no drivers! », alors que la variable était posée ; en local, non
   élevé, elle marchait. Parade : lavapipe et les couches de l'artefact inscrits au registre de la machine jetable
   (`HKLM\SOFTWARE\Khronos\Vulkan\Drivers` et `ExplicitLayers`) ; vulkaninfo doit nommer les deux avant les tests.
+  Conséquence : la CI ne passe plus par `addLayerPathBesideExecutable` (`VK_ADD_LAYER_PATH`, `device_vk.cpp`) ; seul
+  le PC de Donnovan le vérifie, par `ctest -LE host` lancé de la distro.
+- **Sur le runner Linux, la découverte des cas de doctest écrit « Syntax error: word unexpected »** (« levain_tests :
+  la découverte des cas a échoué : 2 …/levain_tests.exe: 1: Syntax error… ») : le noyau refuse le binaire PE
+  (ENOEXEC), et `execvp` le passe alors à `/bin/sh`, qui le lit comme un script. Sans conséquence : le test rouge
+  `levain_tests_NOT_DISCOVERED` n'a pas le label `host`, et la découverte se fait sur le runner Windows.
 - **Un faux `.exe` lancé de la distro ouvre sur le bureau de Windows un dialogue modal** (« Application 16 bits non
   prise en charge »), et le processus attend qu'on le ferme. Un contre-test efface l'exe, il ne le remplace pas.
 - **Un job sauté parce que celui dont il dépend a échoué compte comme réussi** pour la protection de `main` :

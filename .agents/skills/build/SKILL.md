@@ -189,11 +189,14 @@ lancé 3 s ; format et clang-tidy sur `linux-debug`. Les trois sont des checks r
 `linux-release` compile aussi le build profilé (`-DLEVAIN_PROFILING=ON`, sandbox et tests), sans le lancer (#298).
 
 Windows (ADR-0035, #346), en deux temps. `windows-build`, sur Linux : le winsysroot par `tools/winsysroot.sh` (en
-cache), `windows-debug` et `windows-release` compilés (cache vcpkg `vcpkg-windows-*`, enregistré dès la
-configuration), `ctest -L host` sur les deux arbres, puis un artefact par configuration : les exe de `tests/` et
+cache, son chemin tiré du tampon du script, `--stamp`), `windows-debug` et `windows-release` compilés (cache vcpkg
+`vcpkg-windows-*`, enregistré dès la configuration ; l'empreinte de clang-cl est dans la clé : un llvm-23 republié
+par apt.llvm.org coûte un passage à froid, environ 1 h 50, Dawn 49 min), `ctest -L host` sur les deux arbres, la
+liste des tests hors doctest, puis un artefact par configuration : les exe de `tests/` et
 leurs voisins, les shaders, les fichiers de ctest, `tests/data` et `data`, rien de Microsoft. `windows-debug` et
 `windows-release`, sur `windows-2025-vs2026` : l'arbre extrait sous `C:\home\runner\work\…`, où les chemins
 Linux compilés dans les tests se résolvent ; lavapipe de mesa-dist-win et le chargeur Vulkan de LunarG (versions et
 SHA-256 dans `ci.yml`), lavapipe et les couches inscrits au registre (le runner est administrateur) ; la CRT du
 runner vérifiée ; puis `ctest -LE host`, la découverte des cas de doctest faite
-là, leur nombre comparé à `levain_tests.exe --count`. Le sandbox n'y est pas lancé.
+là, leur nombre comparé à `levain_tests.exe --count`, les autres tests à la liste de `windows-build`. Le sandbox et
+l'éditeur sous Windows : PR suivante, décision 4 de l'ADR-0035.
