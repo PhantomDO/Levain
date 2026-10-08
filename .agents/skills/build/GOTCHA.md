@@ -217,7 +217,17 @@ sous Vulkan aussi : elles passent avant le backend.
   des erreurs de Direct3D 12. Contre-test : une image gardée pendant `ResizeBuffers` (« Swapchain cannot be resized
   unless all outstanding buffer references have been released », DXGI_INFO_QUEUE_MESSAGE_ID 19) arrête le sandbox
   sur l'assertion au premier redimensionnement (code 3) ; sans la relecture, il sort en 0, l'échec seulement
-  journalisé (`HRESULT 0x887A0001`) à chaque image.
+  journalisé (`HRESULT 0x887A0001`) à chaque image. La création de la swapchain relit aussi la file avant chacun de
+  ses refus : une swapchain d'une seule image (`BufferCount = 1`, refusé en *flip model*) donne, avant l'assertion
+  (code 3), « Flip model swapchains … require BufferCount to be between 2 and DXGI_MAX_SWAP_CHAIN_BUFFERS »
+  (DXGI_INFO_QUEUE_MESSAGE_ID 100) ; sans la relecture, le sandbox sort en 1 sur notre seul « HRESULT 0x887A0001 ».
+  Contre-test du refus sans la file (règle n°7) : un mauvais IID passé à `DXGIGetDebugInterface1`
+  (`IID_IDXGIAdapter1`, dans une copie de `device_d3d12.cpp`), et `levain_smoke_render.exe triangle d3d12`, en Debug,
+  sort en 1 sur « couche de debug DXGI absente, exigée en Debug (HRESULT 0x80004002) : dxgidebug.dll vient de la
+  fonctionnalité facultative de Windows « Outils graphiques »… » ; la copie remise, il sort en 0 (« 0 pixels sur
+  4096 différents de la référence »). Pas relue à la destruction de la swapchain : un destructeur ne journalise pas,
+  et sans plein écran exclusif, DXGI n'a rien à y dire (mesuré : aucun message gardé avant ni après la dernière
+  libération, à deux fermetures du sandbox, par un compte provisoire de `GetNumStoredMessages` dans le destructeur).
 - **Un redimensionnement raté laissait la nouvelle taille et pas d'images** : la frame suivante, la taille étant
   « à jour », lisait `images[i]` dans un vecteur vide. Parade : après un échec de `ResizeBuffers` ou de
   `wrapImages`, ni images ni taille (`forgetImages`), et `acquireImage` reconstruit tant qu'il manque une image.

@@ -114,7 +114,11 @@ struct D3d12Swapchain final : Swapchain
     nvrhi::RefCountPtr<ID3D12Fence> fence;
     std::uint64_t fenceValue = 0;
     /// Avec la validation seulement : la file de la couche de debug DXGI, relue après chaque
-    /// présentation et chaque redimensionnement.
+    /// présentation et chaque redimensionnement. Pas à la destruction : un destructeur ne
+    /// journalise pas (un log peut lever, `signalQueue`), et sans plein écran exclusif (Alt+Entrée
+    /// coupé, le plein écran laissé à SDL), DXGI n'a rien à y dire. Mesuré sur la 4070 : aucun
+    /// message gardé avant ni après la dernière libération de `swapchain`, à deux fermetures du
+    /// sandbox.
     nvrhi::RefCountPtr<IDXGIInfoQueue> dxgiInfoQueue;
     nvrhi::RefCountPtr<IDXGISwapChain3> swapchain;
     /// Vide, et `size` nulle, après une reconstruction ratée : la frame suivante la retente.
@@ -124,12 +128,13 @@ struct D3d12Swapchain final : Swapchain
     std::deque<nvrhi::EventQueryHandle> framesInFlight;
 };
 
-/// Ce que la couche de debug DXGI a dit depuis la dernière fois ; rien sans la validation.
-void checkDxgiMessages(D3d12Swapchain& swapchain)
+/// Ce que la couche de debug DXGI a dit depuis la dernière fois ; rien sans la validation, qui
+/// seule ouvre sa file (`queue` nulle).
+void checkDxgiMessages(IDXGIInfoQueue* queue)
 {
-    if (swapchain.dxgiInfoQueue)
+    if (queue != nullptr)
     {
-        drainDxgiMessages(*swapchain.dxgiInfoQueue);
+        drainDxgiMessages(*queue);
     }
 }
 
@@ -233,7 +238,7 @@ core::Result<void> resizeImages(D3d12Swapchain& swapchain, platform::PixelSize s
     const HRESULT result = swapchain.swapchain->ResizeBuffers(
         0, static_cast<UINT>(size.width), static_cast<UINT>(size.height), DXGI_FORMAT_UNKNOWN, 0);
     // Ce que DXGI dit d'un refus passe avant notre propre message, qui ne donne que le code.
-    checkDxgiMessages(swapchain);
+    checkDxgiMessages(swapchain.dxgiInfoQueue);
     if (FAILED(result))
     {
         return core::makeError(core::ErrorCode::Unsupported,
@@ -281,7 +286,7 @@ void presentImage(D3d12Swapchain& swapchain)
         core::log("gpu", core::LogLevel::Error, "IDXGISwapChain::Present : HRESULT 0x{:08X}",
                   static_cast<std::uint32_t>(result));
     }
-    checkDxgiMessages(swapchain);
+    checkDxgiMessages(swapchain.dxgiInfoQueue);
     if (const HRESULT result = signalQueue(swapchain); FAILED(result))
     {
         core::log("gpu", core::LogLevel::Error, "ID3D12CommandQueue::Signal : HRESULT 0x{:08X}",
@@ -315,6 +320,9 @@ createD3d12Swapchain(const D3d12Context& d3d12, nvrhi::DeviceHandle nvrhi, HWND 
             d3d12.queue, window, &desc, nullptr, nullptr, swapchain1.ReleaseAndGetAddressOf());
         FAILED(result))
     {
+        // Ce que DXGI dit d'un refus passe avant notre message, qui ne donne que le code (comme
+        // resizeImages). De même avant chaque refus qui suit.
+        checkDxgiMessages(d3d12.dxgiInfoQueue);
         return core::makeError(core::ErrorCode::Unsupported,
                                std::format("IDXGIFactory2::CreateSwapChainForHwnd : HRESULT "
                                            "0x{:08X}",
@@ -333,6 +341,7 @@ createD3d12Swapchain(const D3d12Context& d3d12, nvrhi::DeviceHandle nvrhi, HWND 
             0, D3D12_FENCE_FLAG_NONE, iidOf(swapchain->fence), outPointer(swapchain->fence));
         FAILED(result))
     {
+        checkDxgiMessages(d3d12.dxgiInfoQueue);
         return core::makeError(core::ErrorCode::Unsupported,
                                std::format("ID3D12Device::CreateFence : HRESULT 0x{:08X}",
                                            static_cast<std::uint32_t>(result)));
@@ -341,15 +350,17 @@ createD3d12Swapchain(const D3d12Context& d3d12, nvrhi::DeviceHandle nvrhi, HWND 
                                                           outPointer(swapchain->swapchain));
         FAILED(result))
     {
+        checkDxgiMessages(d3d12.dxgiInfoQueue);
         return core::makeError(core::ErrorCode::Unsupported,
                                "IDXGISwapChain3 absente (GetCurrentBackBufferIndex)");
     }
     if (auto wrapped = wrapImages(*swapchain); !wrapped)
     {
+        checkDxgiMessages(d3d12.dxgiInfoQueue);
         return std::unexpected{std::move(wrapped.error())};
     }
     // Ce que DXGI a dit depuis la création de la factory, avant la première présentation.
-    checkDxgiMessages(*swapchain);
+    checkDxgiMessages(d3d12.dxgiInfoQueue);
     return std::unique_ptr<Swapchain, SwapchainDeleter>{swapchain.release()};
 }
 
