@@ -820,15 +820,22 @@ Corrigé par la PR de #354 (2026-10-08) : le piège reste, sa parade est en plac
   Sans type fixé, son type sous-jacent est `int` dans l'ABI de Microsoft, `unsigned int` sous Linux quand aucune
   valeur n'est négative. Parade : le bit dans une constante du type des drapeaux (`VkFlags`, non signé), comme
   `isValidationError` (`engine/gpu/src/device_vk.cpp`).
-- **`bugprone-exception-escape` ignore `std::bad_alloc`, pas sa sous-classe** (2026-10-08, #360) : le filtre
-  compare le nom exact (`filterIgnoredExceptions`, `clang-tidy/utils/ExceptionAnalyzer.cpp` de LLVM ; vérifié :
+- **`bugprone-exception-escape` ignore `std::bad_alloc`, pas sa sous-classe** (2026-10-08, #360).
+  **Symptôme** : avec la base `windows-debug`, le déplacement implicite de 14 types de `main` (`FileWatch`,
+  `AssetRegistry`, `Model`, `UiPass`, `App`, `Editor`…) est signalé, « an exception may be thrown in function »,
+  jamais sous Linux. **Cause** : le check ignore exprès `std::bad_alloc`, mais par son nom exact
+  (`filterIgnoredExceptions`, `clang-tidy/utils/ExceptionAnalyzer.cpp` de LLVM ; vérifié avec clang-tidy 23.1.3 :
   `throw std::bad_alloc{}` dans une fonction `noexcept` passe, `throw std::bad_array_new_length{}` est signalé).
-  Toute allocation de la STL de Microsoft passe par `_Get_size_of_n`, qui lève `bad_array_new_length` dans
-  l'en-tête si `n × sizeof(T)` déborde ; celle de libstdc++ lève hors de l'en-tête, invisible. Or `std::map`,
-  `std::set` et les conteneurs à hachage de Microsoft allouent en se déplaçant (le nœud sentinelle, le
-  *container proxy* du Debug, les seaux de l'objet quitté), avec des tailles constantes (1 et 16) qui ne
-  débordent jamais : sous Windows, le déplacement implicite de tout type qui en tient un, et qui sert, est
-  signalé (14 types de `main`), pour une exception impossible. Parade : à décider par Donnovan (#360).
+  Toute allocation de la STL de Microsoft passe par `_Get_size_of_n`, le contrôle de débordement de
+  `n × sizeof(T)`, qui lève `bad_array_new_length` dans l'en-tête ; celle de libstdc++ lève hors de l'en-tête,
+  invisible. Or `std::map`, `std::set` et les conteneurs hachés de Microsoft allouent en se déplaçant (le nœud
+  sentinelle, le *container proxy* du Debug, les seaux de l'objet quitté), avec n = 1 ou 16 : le débordement est
+  impossible. Un code qui le contournerait était pire : un déplacement `noexcept` reste signalé, un
+  `noexcept(condition)` déclaré à la main fait perdre aux 14 types leur statut d'agrégat (et leurs initialiseurs
+  désignés), et à tout type qui en contiendra un. **Parade** (choix de Donnovan, 2026-10-08) : dans `.clang-tidy`,
+  `bugprone-exception-escape.IgnoredExceptions: bad_array_new_length`, l'exemption de `bad_alloc` étendue à sa
+  sous-classe. Contre-testé : la commande de SKILL.md sur les 147 fichiers de `windows-debug`, 0 constat avec la
+  ligne, 14 sans (une copie de `.clang-tidy` sans elle, passée par `--config-file`).
 
 ## Bureau de Donnovan
 
