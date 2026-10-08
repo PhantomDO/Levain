@@ -48,7 +48,7 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   - **#344, en quatre PR** : le code portable (#349, `core::pathForC`, `core::environmentVariable`) ; la chaîne
     (#350 : toolchain, triplet `x64-windows-clang`, presets, versions de MSVC et du SDK figées, manifeste UTF-8) ;
     ses outils (#351 : `verify.sh` compile `windows-debug`, la distro reçoit `llvm-23` et `~/winsysroot`) ;
-    l'exécution (#352 : les couches de validation par vcpkg, Dawn et `System32`, les PDB lisibles sous Windows) ;
+    l'exécution (#352 : les couches de validation par vcpkg, Dawn et `System32`, les chemins des sources dans les PDB, lisibles depuis Windows) ;
   - cette PR : `merge-stack.sh` corrigé, les pièges de la journée, cette entrée.
 - Mesures (sur le portable : indicatives pour le rendu, SPECS § 10) :
   - **le sandbox en Debug sur la 4070**, couches de validation chargées : 913 images en 10 s, 0,674 ms de GPU, aucune
@@ -56,24 +56,27 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
     assets-cache/Models/CesiumMilkTruck/glTF/CesiumMilkTruck.gltf`, lancé depuis la distro) ;
   - `levain_tests.exe` sous Windows : 296 cas sur 298, les 2 `runProcess` restants (#345)
     (`build/windows-debug/tests/levain_tests.exe`) ;
-  - `__cplusplus` sous clang-cl 23 : 202302 avec `-clang:-std=c++23`, 202700 avec `/std:c++latest`
-    (`prototypes/windows/probes.sh`, branche `spike/windows`) ;
+  - `__cplusplus` sous clang-cl 23 : 202302 avec `/clang:-std=c++23`, 202700 avec `/std:c++latest`
+    (`prototypes/windows/probes.sh`, branche `spike/windows` au commit `582ecfa`) ;
   - les ports Windows : 25, plus les couches de validation ; 14 min la première fois sur 24 tâches
-    (`cmake --preset windows-debug`) ;
+    (`cmake --preset windows-debug`, #350 ; l'essai : 16 min au plus, la somme des temps de vcpkg) ;
   - tests Linux : 340 Debug, 340 Release, 340 ASan, 187 web (`tools/verify.sh`), et `windows-debug` compilé.
 - Décisions de Donnovan : l'ADR-0035, par deux sondages (les quatre options recommandées ; le rechargement des
   shaders par `wsl.exe` ; les couches de validation laissées au choix de l'agent : le port vcpkg) ; 48 Go pour WSL.
 - Écarts et problèmes :
-  - **M1.4 dépassera** : l'ADR a pris 1,25 h des 1,5 estimées ; à chiffrer à sa clôture ;
+  - **M1.4 dépassera** : 1,25 h déjà passées sur les 1,5 du milestone, toutes mises sur #344 (estimé 0,25 h)
+    faute de détail (l'ADR, mais aussi WSL, la session distante, `gh`), avec encore 1,25 h estimées sur #345,
+    #346, #18 et #19 ; la part hors milestone à demander à Donnovan, à chiffrer à la clôture ;
   - **les relectures de l'ADR** ont trouvé des chiffres non mesurés et une proposition contraire aux règles n°4 et 7
     (écarter les tests Vulkan du runner Windows), corrigés avant la fusion (pr-autonome/GOTCHA.md) ;
-  - **deux pièges de toolchain**, trouvés en relisant `compile_commands.json` : des versions figées qui
-    n'atteignaient pas le moteur (le cache de `windows.cmake`), puis un winsysroot perdu (build/GOTCHA.md) ;
+  - **deux pièges de toolchain** : des versions figées qui n'atteignaient pas le moteur (le cache de
+    `windows.cmake`, vu en relisant `compile_commands.json`), puis, par leur parade, un winsysroot perdu
+    (« 'windows.h' file not found » dans les ports) (build/GOTCHA.md) ;
   - **#347** : sur la 4070, le reflet préfiltré et la BRDF sont faux, en Vulkan natif comme par Dawn ; lavapipe ne
     le montre pas ;
   - **les tests GPU lancés de la distro tournaient dans de vraies fenêtres** (`WSLENV`), et le Vulkan de NVIDIA n'a
     pas de surface sans écran : pour #346 ;
-  - `merge-stack.sh` arrêté deux fois (une coupure réseau, `gh pr edit` cassé par GitHub) : corrigé ;
+  - `merge-stack.sh` arrêté deux fois (une coupure réseau, `gh pr edit` trop ancien dans la distro) : corrigé ;
   - le provisionnement complet de la distro n'a pas été rejoué, seulement son étape winsysroot.
 - Prochaine étape : #345 (les tests sous Windows, le rechargement par `wsl.exe`, #347), #346 (la CI Windows), le
   backend D3D12 (#18, #19) ; puis M7.2 : la PR des tests de refus, et sa clôture avec Donnovan.

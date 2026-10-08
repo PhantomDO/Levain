@@ -7,17 +7,22 @@ Chaque entrée : symptôme, cause, parade, date. La plus récente en haut.
 - **Symptômes** : « #348 : checks pas verts (error connecting to api.github.com) » alors que la CI tournait ;
   puis, une pile plus loin, « #351 : base non changée » après la fusion de #350.
 - **Causes** : une coupure réseau, que `gh pr checks` rend comme une sortie en erreur ; et `gh pr edit --base`, qui
-  échoue depuis le 08/10/2026 sur une erreur GraphQL (« Projects (classic) is being deprecated »), la fin des
-  anciens Projects qu'il interroge au passage. Le script s'arrêtait proprement les deux fois, la branche gardée.
+  échoue avec le `gh` 2.46 d'Ubuntu 26.04 (celui de la distro WSL) sur une erreur GraphQL (« Projects (classic) is
+  being deprecated ») : cette version interroge encore les anciens Projects, que GitHub a retirés de son API ; le
+  `gh` récent de la machine de référence n'a pas le problème. Le script s'arrêtait proprement les deux fois, la
+  branche gardée.
 - **Parade** : le script attend 10 min au plus quand GitHub est injoignable, et change la base par l'API REST
   (`gh api -X PATCH repos/{owner}/{repo}/pulls/N -f base=main`). Contre-testé avec un faux `gh` dans le `PATH`.
-  Pour rattraper une pile arrêtée : changer la base par l'API REST, puis relancer le script sur la suite.
+  Pour rattraper une pile arrêtée : changer la base par l'API REST, supprimer la branche gardée
+  (`git push origin --delete <branche>`), puis relancer le script sur la suite.
 
 ## Les mesures d'un ADR viennent d'une commande, même pressé (2026-10-08)
 
-- **Symptôme** : la relecture de l'ADR-0035 a trouvé dans le premier jet « 30 ports » (25 mesurés), « 14 min »
-  (16 au plus), « 8 s » sans commande, une cause de l'échec de `waitEvents` affirmée sans preuve (il passait seul),
-  « 4 tests sur 7 » (6 sur 9), et un processeur deviné (« i7 », un i9-14900HX).
+- **Symptôme** : la relecture de l'ADR-0035 a trouvé dans son premier commit « 8 s » sans commande, une cause de
+  l'échec de `waitEvents` affirmée sans preuve (il passait seul) et « 4 tests sur 7 » (6 sur 9) ; dans un
+  brouillon, avant ce commit, « 30 ports » (25 mesurés), « 14 min » (16 au plus) et un processeur deviné (« i7 »,
+  un i9-14900HX).
+- **Cause** : des chiffres repris de mémoire ou de notes, pas relus contre leur commande avant le commit.
 - **Parade** : chaque chiffre d'un ADR se relit contre sa commande avant la relecture (session/GOTCHA.md, « Mesurer
   avant d'annoncer un chiffre ») ; une cause non prouvée s'écrit « à trouver ». La relecture « faits » d'un
   workflow, qui refait les comptes sur les journaux, a payé.
@@ -35,7 +40,7 @@ Chaque entrée : symptôme, cause, parade, date. La plus récente en haut.
 ## Deux sessions, deux machines, un dépôt (2026-10-08)
 
 - **Symptôme** : deux sessions travaillent sur le même dépôt, l'une sur la machine de référence (16 Go), l'autre
-  dans la distro WSL du PC de bureau (64 Go, `tools/wsl/`), lancée en Remote Control.
+  dans la distro WSL du portable Windows (64 Go, `tools/wsl/`), lancée en Remote Control.
 - **Cause** : la mémoire locale d'une session (ses notes, ses leçons) ne suit pas d'une machine à l'autre, et
   rien n'empêche deux sessions d'ouvrir chacune une PR.
 - **Parade** : la règle n°1 vaut pour les deux : une seule session ouvre des PR à la fois. La passation se fait

@@ -4,7 +4,7 @@
 #
 # Avant toute fusion, la chaîne est vérifiée : la première a main pour base, chacune la branche de la
 # précédente. Puis, pour chaque PR :
-#   1. tous ses checks verts (on attend ceux en cours) ;
+#   1. tous ses checks verts (on attend ceux en cours, et GitHub injoignable 10 min au plus) ;
 #   2. elle fusionne au SHA dont on a lu les checks, **sans** supprimer sa branche : GitHub fermerait
 #      les PR qui l'ont pour base au lieu de les rediriger vers main (vu le 05/10/2026 avec #271) ;
 #   3. toute PR ouverte qui avait sa branche pour base passe à main (`edited`, qui ne relance pas la
@@ -38,8 +38,8 @@ for n in "${prs[@]}"; do
     # milieu d'une pile (vu le 08/10/2026 : « error connecting to api.github.com »).
     checks=$(gh pr checks "$n" 2>&1 || true)
     offline=0
-    while grep -qE $'\t(pending|queued|in_progress)\t|error connecting|Could not resolve' <<< "$checks"; do
-        if grep -qE 'error connecting|Could not resolve' <<< "$checks"; then
+    while grep -qE $'\t(pending|queued|in_progress)\t|^error connecting to ' <<< "$checks"; do
+        if grep -qE '^error connecting to ' <<< "$checks"; then
             offline=$((offline + 1))
             [ "$offline" -le 20 ] || fail "#$n : GitHub injoignable depuis 10 min"
             echo "#$n : GitHub injoignable, nouvel essai…"
@@ -57,8 +57,8 @@ for n in "${prs[@]}"; do
     echo "#$n fusionnée ($head)"
     stacked=$(gh pr list --base "$head" --state open --json number -q '.[].number') \
         || fail "#$n : PR empilées illisibles ; $head gardée"
-    # Par l'API REST : `gh pr edit --base` échoue depuis le 08/10/2026 sur une erreur GraphQL, la fin des
-    # « Projects (classic) » qu'il interroge au passage.
+    # Par l'API REST : `gh pr edit --base` échoue avec un `gh` ancien, comme le 2.46 d'Ubuntu (la distro WSL), sur
+    # une erreur GraphQL : il interroge encore les « Projects (classic) », retirés de l'API de GitHub.
     for m in $stacked; do
         gh api -X PATCH "repos/{owner}/{repo}/pulls/$m" -f base=main > /dev/null \
             || fail "#$m : base non changée ; $head gardée"

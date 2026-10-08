@@ -6,6 +6,8 @@ Un piège par entrée : symptôme, cause, parade. Le plus récent en haut.
 
 - **Symptôme** : `gh project item-list` répond « missing required scopes [read:project] » dans la distro WSL ;
   `gh auth refresh -s project`, lancé par `!`, répond « --hostname required when not running interactively ».
+- **Cause** : `gh auth login` ne demande que les droits par défaut (`repo`, `read:org`, `gist`) ; `gh auth refresh`
+  sans terminal exige `--hostname`.
 - **Parade** : lancer `gh auth refresh --hostname github.com --scopes project` en tâche de fond, lire dans sa
   sortie le code à usage unique, et le donner à Donnovan, qui le saisit sur <https://github.com/login/device>
   depuis n'importe quel appareil ; la commande finit seule.
@@ -28,7 +30,8 @@ Un piège par entrée : symptôme, cause, parade. Le plus récent en haut.
   `delete_branch_on_merge`. Attendre ne sert à rien.
 - **Parade** : `tools/merge-stack.sh`, qui passe la base de la suivante à `main` **avant** de supprimer la
   branche. Pour rattraper : repousser la branche supprimée à son SHA (`git push origin <sha>:refs/heads/<branche>`),
-  `gh pr reopen`, `gh pr edit --base main`, puis supprimer de nouveau la branche restaurée. La réouverture
+  `gh pr reopen`, `gh api -X PATCH repos/{owner}/{repo}/pulls/N -f base=main` (`gh pr edit --base` échoue avec
+  le `gh` de la distro WSL, pr-autonome/GOTCHA.md), puis supprimer de nouveau la branche restaurée. La réouverture
   relance la CI (`reopened`), pas le changement de base.
 
 ## Modifier une branche au milieu d'une pile : la propager tout de suite (2026-10-05)
