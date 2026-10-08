@@ -33,7 +33,8 @@ champ, lus dans la description de flecs, aux valeurs de l'image. Il les montre g
 6. **Un `--select` introuvable fait échouer le démarrage**, en nommant l'entité (règle n°7).
 7. **Les panneaux suivent ceux du moteur** : dessinés après les fenêtres du programme, panneaux ouverts
    seulement (F1, `--ui`), et ancrés aux nœuds que la disposition d'`app` garde dans `app.ui.dock`, la seule
-   extension d'`app` pour l'éditeur. La hiérarchie y fait un onglet à côté d'« Image ».
+   extension d'`app` pour l'éditeur. La hiérarchie y fait un onglet à côté d'« Image » ; l'inspecteur a le
+   sien, sous « Scène ».
 8. **La hiérarchie ne lit que ce qu'elle montre** : les racines viennent d'une requête gardée, les enfants des
    seuls nœuds ouverts, une table à la fois. Chaque image range une ligne par racine, sans widget, et ImGui ne
    dessine que les lignes visibles (`ImGuiListClipper`).
@@ -56,7 +57,7 @@ champ, lus dans la description de flecs, aux valeurs de l'image. Il les montre g
 - `selectedIfAlive(world, selected)` : l'entité choisie si elle vit encore.
 - `drawHierarchy(world, hierarchy, selected, dock)` : la fenêtre ; `listHierarchyRows` et `singletonsOf`, ses
   lignes, sans ImGui.
-- `drawInspector(world, inspector, selected, dock)` : la fenêtre, onglet à côté de « Scène » ;
+- `drawInspector(world, inspector, selected, dock)` : la fenêtre, dans son nœud ;
   `inspectComponent`, les champs d'un composant, rend leur nombre ; `componentLabelOf`, le nom d'un composant.
 
 ## Pièges connus
@@ -79,13 +80,15 @@ champ, lus dans la description de flecs, aux valeurs de l'image. Il les montre g
   nom, qui se répète (`crate_0` sous deux parents), ni de son index, que flecs recycle.
 - **Les lignes changent d'ordre quand une entité change de table** : la hiérarchie suit l'ordre des tables de
   flecs, sans tri, qui coûterait à chaque image. Un composant ajouté déplace l'entité dans la liste.
-- **`componentLabelOf`** : un identifiant de composant n'est pas toujours une entité. `flecs::Parent` en garde un
-  à drapeaux (ni paire ni entité), sur lequel `ecs_get_symbol` arrête le programme : seule une entité
-  (`flecs::id::is_entity`) a une clé, le reste prend le texte de flecs (« (Identifier,Name) »).
+- **`componentLabelOf`** : un identifiant de composant n'est pas toujours une entité. `flecs::Parent` apporte
+  `(ParentDepth,@1)`, à drapeaux (ni paire ni entité), sur lequel `ecs_get_symbol` arrête le programme : seule
+  une entité (`flecs::id::is_entity`) a une clé, le reste prend le texte de flecs (« (Identifier,Name) »).
 - **`createInspector`** lit les identifiants des feuilles glm une fois, au démarrage : `world.id<T>()` pendant le
   dessin enregistrerait un type absent du monde au milieu du parcours.
-- **Un onglet caché ne dessine rien** : l'inspecteur partage le nœud de « Scène », et ImGui ne remplit que
-  l'onglet visible (le dernier ancré, au premier affichage). Caché, il compte zéro champ, et la CI échoue.
+- **Un onglet caché ne dessine rien** : `Begin` rend faux pour une fenêtre derrière un autre onglet, et ses champs
+  ne sont pas parcourus. À plusieurs sur un nœud, c'est ImGui qui met un onglet devant, sans règle qu'il documente :
+  l'inspecteur a donc son nœud (`DockNodes::inspector`), toujours visible, sans quoi la CI pourrait compter zéro
+  champ. La hiérarchie, onglet d'« Image », dresse sa liste avant `Begin` : le compte de ses lignes n'en dépend pas.
 - **Les options vont par paires** : `takeEditorOptions` lit nom et valeur comme `app::parseCommonOption`. Un
   « --select » en valeur d'une autre option n'est pas pris ; seul, sans valeur, il reste dans la ligne de
   commande, et le programme la refuse.

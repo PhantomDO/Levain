@@ -23,8 +23,8 @@ constexpr const char* PassesWindow = "Passes";
 constexpr const char* SceneWindow = "Scène";
 
 /// La disposition de départ, recréée à chaque lancement (pas d'`imgui.ini`) : Image et Passes à
-/// gauche, l'une sur l'autre ; Scène à droite ; le centre libre, la scène s'y voit. Rend les nœuds
-/// où l'éditeur ancre ses fenêtres.
+/// gauche, l'une sur l'autre ; Scène à droite, sur un nœud encore vide, celui de l'inspecteur ; le
+/// centre libre, la scène s'y voit. Rend les nœuds où l'éditeur ancre ses fenêtres.
 DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
 {
     ImGui::DockBuilderRemoveNode(dockspace);
@@ -38,11 +38,14 @@ DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
     ImGuiID leftBottom = 0;
     const ImGuiID leftTop =
         ImGui::DockBuilderSplitNode(left, ImGuiDir_Up, 0.5f, nullptr, &leftBottom);
+    ImGuiID rightBottom = 0;
+    const ImGuiID rightTop =
+        ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.4f, nullptr, &rightBottom);
     ImGui::DockBuilderDockWindow(ImageWindow, leftTop);
     ImGui::DockBuilderDockWindow(PassesWindow, leftBottom);
-    ImGui::DockBuilderDockWindow(SceneWindow, right);
+    ImGui::DockBuilderDockWindow(SceneWindow, rightTop);
     ImGui::DockBuilderFinish(dockspace);
-    return {.left = leftTop, .right = right};
+    return {.left = leftTop, .inspector = rightBottom};
 }
 
 /// Les dernières images, dans l'ordre : l'historique est un anneau, `next` en est le plus ancien.

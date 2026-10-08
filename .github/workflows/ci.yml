@@ -483,8 +483,9 @@ jobs:
       # choisie par son chemin, sous validation et sous les sanitizers. Son bilan compte les lignes
       # de la hiérarchie et les champs que l'inspecteur a dessinés pour la sélection, à la dernière
       # image (zéro pour un panneau jamais dessiné), et redit la sélection : une ligne absente, zéro
-      # entité, zéro champ (le cube choisi a un Transform) ou une autre sélection que celle de
-      # --select font échouer l'étape, qui sinon resterait verte sans rien vérifier (règle n°7).
+      # entité, zéro champ (le panneau n'a rien dessiné pour la sélection) ou une autre sélection que
+      # celle de --select font échouer l'étape, qui sinon resterait verte sans rien vérifier (règle
+      # n°7). Le compte dit que le panneau a dessiné ; quels champs, c'est le test de l'éditeur.
       - name: L'éditeur
         if: matrix.preset == 'linux-debug' || matrix.preset == 'linux-asan'
         env:

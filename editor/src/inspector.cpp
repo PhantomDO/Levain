@@ -104,7 +104,8 @@ void drawMembers(Walk& walk, const EcsStruct& description, void* value)
                             static_cast<std::size_t>(description.members.count)};
     for (const ecs_member_t& member : members)
     {
-        // `count` : 0 pour un scalaire, N pour un tableau en ligne.
+        // `count` : 0 pour un scalaire, N pour un tableau en ligne (flecs/addons/meta.h,
+        // `ecs_member_t::count`).
         if (member.count > 0)
         {
             drawElements(walk, member.name, member.type, member.count,
@@ -197,7 +198,8 @@ Inspector createInspector(const flecs::world& world)
 
 std::string componentLabelOf(const flecs::world& world, flecs::id component)
 {
-    // Une paire, ou un identifiant à drapeaux (`flecs::Parent` en garde un) : pas une entité.
+    // Une paire, ou un identifiant à drapeaux (`flecs::Parent` apporte `(ParentDepth,@1)`) : pas
+    // une entité.
     if (!component.is_entity())
     {
         return component.str().c_str();
@@ -218,7 +220,7 @@ int inspectComponent(flecs::world& world, const Inspector& inspector, flecs::ent
     }
     // Les widgets dessinent une copie, jamais la table, où un pointeur gardé pendrait : un
     // observateur qui ajoute un composant déplace l'entité dans une autre table. Grisés : la copie
-    // est jetée.
+    // est jetée. `ecs_value_*` passe par les crochets du type (flecs.h, « Values »).
     void* copy = ecs_value_new(world, component);
     ecs_value_copy(world, component, copy, current);
     Walk walk{.world = world, .inspector = inspector};
@@ -244,6 +246,8 @@ void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t se
         else
         {
             ImGui::TextUnformatted(entity.path("::", "").c_str());
+            // Négative, la largeur laisse cette place au libellé, à droite (imgui.h,
+            // `PushItemWidth`).
             ImGui::PushItemWidth(ImGui::GetFontSize() * -LabelWidth);
             entity.each(
                 [&](flecs::id component)

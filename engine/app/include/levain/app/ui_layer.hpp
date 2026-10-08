@@ -46,12 +46,12 @@ struct FrameHistory
 };
 
 /// Les nœuds de la disposition des panneaux (`drawEnginePanels`), où l'éditeur ancre ses fenêtres
-/// (ADR-0034) : à gauche celui d'« Image », à droite celui de « Scène ». Nuls tant que les panneaux
-/// n'ont jamais été ouverts.
+/// (ADR-0034) : à gauche celui d'« Image », à droite, sous « Scène », celui de l'inspecteur : à lui
+/// seul, il est toujours visible. Nuls tant que les panneaux n'ont jamais été ouverts.
 struct DockNodes
 {
     ImGuiID left = 0;
-    ImGuiID right = 0;
+    ImGuiID inspector = 0;
 };
 
 /// L'UI d'un programme. Elle tient des ressources du GPU : `App` la déclare avant ses points
