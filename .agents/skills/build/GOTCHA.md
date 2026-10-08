@@ -186,9 +186,35 @@ Corrigé par #360 (2026-10-08) : le piège reste, sa parade est en place. Le sym
 
 ## Direct3D 12 sur la 4070 : les pièges du backend (2026-10-08)
 
-#18, essayé de la distro sur la RTX 4070 en Debug. Les deux corrections du rendu ci-dessous, trouvées par la couche
-de debug de Direct3D 12, sont justes sous Vulkan aussi : elles passent avant le backend.
+#18, `engine/gpu/src/device_d3d12.cpp`, essayé de la distro sur la RTX 4070 en Debug. Les deux corrections du rendu
+(les deux derniers points), trouvées par la couche de debug de Direct3D 12, sont justes sous Vulkan aussi : elles
+passent avant le backend.
 
+- **`IID_PPV_ARGS` ne compile pas** : il passe par `__uuidof`, une extension de Microsoft, et `-pedantic-errors`
+  la refuse (« extension used », `-Wlanguage-extension-token`). Parade, sans couper l'avertissement (règle n°4) :
+  les IID nommés (`IID_ID3D12Device`…), de DirectX-Guids pour Direct3D 12 et de `dxguid.lib` pour DXGI, choisis
+  d'après le type du pointeur (`iidOf`, `outPointer`, `d3d12_context.hpp`).
+- **Deux `d3d12.h`** : celui du SDK et celui de DirectX-Headers (`<directx/d3d12.h>`), que NVRHI inclut ; mêlés, ils
+  se redéfinissent. Parade : `<directx/d3d12.h>` partout, DXGI (`<dxgi1_6.h>`) seul du SDK.
+- **Le `&` de `nvrhi::RefCountPtr` ne relâche pas l'objet tenu**, à la différence de celui de `ComPtr` : l'appel COM
+  qui écrit à cette adresse écrase l'objet, qui fuit (dans une boucle, `EnumAdapterByGpuPreference`, chaque tour
+  fait fuir le précédent). Parade : `outPointer` passe par `ReleaseAndGetAddressOf`, qui relâche d'abord ; jamais
+  de `&` sur un `RefCountPtr`, `ReleaseAndGetAddressOf()` là où l'appel veut un pointeur typé.
+- **Les messages de la couche de debug ne rappellent le moteur que par `ID3D12InfoQueue1`** (Windows 11) ; sans
+  elle, ils ne vont qu'au débogueur, et une erreur passerait sans bruit. Le device refuse donc de se créer en
+  Debug sans elle (règle n°7) ; Vulkan reste possible.
+- **Le rappel ne reçoit que les messages émis après son inscription** : ceux de la création du device restent
+  dans la file. Parade : relus juste après `RegisterMessageCallback`, passés par le même chemin, puis effacés
+  (`drainStoredMessages`). Contre-test : une queue de type `BUNDLE` créée avant l'inscription (D3D12_MESSAGE_ID
+  909, une erreur) arrête `levain_smoke_render.exe triangle d3d12` sur l'assertion ; sans la relecture, il passe
+  sans un mot. (Un `CheckFeatureSupport` à la mauvaise taille, essayé d'abord, n'émet rien.)
+- **Les captures Vulkan et Direct3D 12 diffèrent sur le sol, à cause du filtrage anisotrope** : 129 444 pixels
+  sur 2 073 600 (6,24 %) à plus de ±2, au plus 67, tous sous l'horizon (le damier et la pelouse), aucun dans le
+  ciel ; avec `--anisotropy 1`, 107 pixels (au plus 5). Le pilote NVIDIA n'échantillonne pas pareil sous les deux
+  API ; ce n'est pas un bug du moteur. Mesure, de la distro, dans un build `windows-debug` : une capture par
+  backend, `build/windows-debug/sandbox/levain_sandbox.exe --gpu vulkan --time 2 --seconds 2 [--anisotropy 1]
+  --capture vk.png`, la même en `--gpu d3d12 … --capture d3d12.png`, puis
+  `node tools/compare-captures.mjs vk.png d3d12.png 2` (Node d'emsdk).
 - **Le NVRHI du port ne remettait un vertex buffer en état `VertexBuffer` que si le dessin avait un index
   buffer** (`d3d12-graphics.cpp`, `state.indexBuffer.buffer &&`) : les lignes de debug, écrites par `writeBuffer`
   puis dessinées sans index, restaient en `COPY_DEST`, une erreur de la couche de debug (D3D12_MESSAGE_ID 538,

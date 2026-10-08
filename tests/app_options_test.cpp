@@ -50,7 +50,7 @@ TEST_CASE("--gpu lit les trois backends, et seul un build Windows construit Dire
     // Le refus dit pourquoi : c'est ce qu'affiche le programme lancé avec --gpu d3d12.
     const auto d3d12 = levain::gpu::requireBackendBuilt(nvrhi::GraphicsAPI::D3D12);
 #ifdef _WIN32
-    CHECK((!d3d12 && d3d12.error().message.contains("pas encore écrit")));
+    CHECK(d3d12.has_value());
 #else
     CHECK((!d3d12 && d3d12.error().message.contains("n'existe que dans un build Windows")));
 #endif

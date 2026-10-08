@@ -175,11 +175,11 @@ de M7.2, dont il reprend l'échéance. Deux étapes :
    triplet `x64-windows-clang`, presets `windows-*`) ; les tests adaptés sans rien couper ; la CI, compilée sur un
    runner Linux et lancée sur un runner Windows.
 2. **Backend Direct3D 12** (0,75 h) : `DeviceManager` D3D12 ; choix du backend au lancement
-   (`--api vulkan|d3d12`) ; test de fumée sous WARP (D3D12 logiciel) en CI Windows.
+   (`--gpu vulkan|d3d12`) ; test de fumée sous WARP (D3D12 logiciel) en CI Windows.
 
 *Critères* : le sandbox tourne sur le PC Windows de Donnovan, en Vulkan puis en D3D12, sans erreur de validation
 ni de la couche de debug D3D12 ; les tests GPU passent sur sa RTX 4070 comme sous lavapipe (#347) ; le même triangle sous les deux backends ; CI Windows verte ; binaire Windows de la
-CI lancé sous Proton sur la machine de référence en `--api d3d12` (voir SPECS §10, « Vérification sous
+CI lancé sous Proton sur la machine de référence en `--gpu d3d12` (voir SPECS §10, « Vérification sous
 Windows »).
 
 **Étude E1 — Les couches RHI** : déjà écrite ([E1-rhi.md](etudes/E1-rhi.md)), à relire pendant la phase.

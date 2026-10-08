@@ -161,7 +161,10 @@ int run(std::string_view backend)
         std::println(stderr, "{}", window.error().message);
         return 1;
     }
-    auto gpu = levain::gpu::createGpuDevice(*window, {.enableValidation = true});
+    auto gpu = levain::gpu::createGpuDevice(
+        *window,
+        {.enableValidation = true,
+         .api = levain::gpu::graphicsApiNamed(backend).value_or(nvrhi::GraphicsAPI::VULKAN)});
     if (!gpu)
     {
         std::println(stderr, "{}", gpu.error().message);
@@ -178,9 +181,9 @@ int main(int argc, char** argv)
     {
         const std::span arguments{argv, static_cast<std::size_t>(argc)};
         const std::string_view backend = arguments.size() == 2 ? arguments[1] : "vulkan";
-        if (arguments.size() > 2 || (backend != "vulkan" && backend != "webgpu"))
+        if (arguments.size() > 2 || !levain::gpu::graphicsApiNamed(backend))
         {
-            std::println(stderr, "usage : levain_light_clusters [vulkan|webgpu]");
+            std::println(stderr, "usage : levain_light_clusters [vulkan|d3d12|webgpu]");
             return 2;
         }
         return run(backend);
