@@ -48,7 +48,10 @@ struct TempRoot
         }
         catch (const std::exception& failure)
         {
-            FAIL_CHECK("dossier temporaire non effacé : " << failure.what());
+            // `doctest::String` : doctest écrirait un `const char*` comme un pointeur, et un
+            // `std::string_view` passerait par les flux de la STL de Microsoft, dont le `throw;` de
+            // `ios_base::clear` semble à clang-tidy relancer l'exception rattrapée.
+            FAIL_CHECK("dossier temporaire non effacé : " << doctest::String{failure.what()});
         }
     }
 
