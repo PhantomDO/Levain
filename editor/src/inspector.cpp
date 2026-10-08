@@ -1,6 +1,8 @@
 #include "levain/editor/inspector.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -72,6 +74,32 @@ template <class N> N saturate(double bound)
     return bound >= Highest ? std::numeric_limits<N>::max() : static_cast<N>(bound);
 }
 
+/// Un widget de `count` nombres, qui ne change rien s'il en rend un qui n'est pas fini. ImGui
+/// laisse taper « nan », « inf », ou « 1e39 » qui déborde : `sscanf` sans filtre de caractères
+/// (`TempInputScalar`, imgui_widgets.cpp), et `DataTypeClamp` compare par `<` et `>`, que NaN ne
+/// satisfait pas. Un NaN dans une position ferait téléporter un corps de Jolt à NaN : un nombre
+/// non fini ne s'écrit jamais, et le champ reste ce qu'il était.
+template <class N, class Widget> bool rejectNonFinite(N* numbers, int count, const Widget& widget)
+{
+    if constexpr (std::is_floating_point_v<N>)
+    {
+        LEVAIN_ASSERT(count <= NumbersPerRow, "rejectNonFinite : une ligne de nombres au plus");
+        std::array<N, NumbersPerRow> before{};
+        std::copy_n(numbers, count, before.begin());
+        const bool changed = widget();
+        if (changed && !std::all_of(numbers, numbers + count, [](N n) { return std::isfinite(n); }))
+        {
+            std::copy_n(before.begin(), count, numbers);
+            return false;
+        }
+        return changed;
+    }
+    else
+    {
+        return widget();
+    }
+}
+
 /// `count` nombres de type N côte à côte, glissables. Une borne se pose avec `AlwaysClamp` : sans
 /// lui, Ctrl+clic tape au-delà (imgui.h, « DragFloat »). Un entier glisse d'une unité par pixel.
 template <class N>
@@ -80,9 +108,14 @@ bool dragAs(ImGuiDataType type, const char* label, void* value, int count, const
     constexpr float Speed = std::is_integral_v<N> ? 1.0f : DragSpeed;
     const N low = range ? saturate<N>(range->min) : N{};
     const N high = range ? saturate<N>(range->max) : N{};
-    return ImGui::DragScalarN(label, type, value, count, Speed, range ? &low : nullptr,
-                              range ? &high : nullptr, nullptr,
-                              range ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
+    return rejectNonFinite(static_cast<N*>(value), count,
+                           [&]
+                           {
+                               return ImGui::DragScalarN(
+                                   label, type, value, count, Speed, range ? &low : nullptr,
+                                   range ? &high : nullptr, nullptr,
+                                   range ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
+                           });
 }
 
 static_assert(sizeof(std::uintptr_t) == sizeof(std::uint64_t), "UPtr et IPtr se lisent en 64 bits");
@@ -242,7 +275,8 @@ bool drawRotation(Walk& walk, const char* label, void* value)
     glm::vec3 degrees =
         eulerHint(rotation, typed != walk.inspector.typedAngles.end() ? std::optional{typed->second}
                                                                       : std::nullopt);
-    if (!ImGui::DragFloat3(label, &degrees.x, RotationSpeed))
+    if (!rejectNonFinite(&degrees.x, 3,
+                         [&] { return ImGui::DragFloat3(label, &degrees.x, RotationSpeed); }))
     {
         return false;
     }
@@ -298,8 +332,8 @@ void drawValue(Walk& walk, const char* label, flecs::entity_t type, void* value,
     const auto* primitive = ecs_get(world, type, EcsPrimitive);
     if (type == inspector.vec2 || type == inspector.vec3) // ses flottants côte à côte
     {
-        walk.changed |= ImGui::DragScalarN(label, ImGuiDataType_Float, value,
-                                           type == inspector.vec2 ? 2 : 3, DragSpeed);
+        walk.changed |=
+            dragAs<float>(ImGuiDataType_Float, label, value, type == inspector.vec2 ? 2 : 3, {});
     }
     else if (type == inspector.quat)
     {

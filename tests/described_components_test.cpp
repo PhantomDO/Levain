@@ -177,9 +177,10 @@ TEST_CASE("les composants du moteur, décrits : clé, JSON, bornes, Authored, un
 
 #ifndef __EMSCRIPTEN__
     app::prepareAppWorld(world); // le monde que prépare createApp, PlayerInput compris
-    checkDescribed<app::CameraLens>(
-        world, checked, "levain.app.CameraLens", authored,
-        {{"verticalFovDegrees", 1.0, 179.0}, {"nearPlane", 0.01, 100.0}});
+    checkDescribed<app::CameraLens>(world, checked, "levain.app.CameraLens", authored,
+                                    {{"verticalFovDegrees", 1.0, 179.0},
+                                     {"nearPlane", 0.01, 100.0},
+                                     {"farPlane", 0.02, 1.0e5}});
 #endif
 
     // L'inventaire (règle n°6) : les composants à champs du moteur, décrits ou non. `Declared`,

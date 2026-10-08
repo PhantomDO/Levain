@@ -476,6 +476,36 @@ bool sameRotation(const glm::quat& left, const glm::quat& right)
 
 } // namespace
 
+TEST_CASE("ImGui laisse taper « nan » et « inf » : l'inspecteur n'écrit jamais un nombre non fini")
+{
+    // `sscanf` sans filtre de caractères, et un NaN passe la borne (`DataTypeClamp` compare par <
+    // et >). Écrit dans une position, il téléporte un corps de Jolt à NaN.
+    SUBCASE("un champ borné")
+    {
+        Typing typing;
+        const flecs::entity entity = typing.entityWith("cadran", editor_test::Dial{});
+        typing.type<editor_test::Dial>(entity, "nan");
+        CHECK(entity.get<editor_test::Dial>().level == 0.5f);
+        CHECK(typing.sets == 0);
+    }
+    SUBCASE("un champ sans borne, par un nombre qui déborde en inf")
+    {
+        Typing typing;
+        const flecs::entity entity = typing.entityWith("réglée", Tuning{});
+        typing.type<Tuning>(entity, "1e39"); // le dernier champ de Tuning, `offset`, un vec3
+        CHECK(entity.get<Tuning>().offset == glm::vec3{0.0f});
+        CHECK(typing.sets == 0);
+    }
+    SUBCASE("un angle")
+    {
+        Typing typing;
+        const flecs::entity entity = typing.entityWith("phare", editor_test::Facing{});
+        typing.type<editor_test::Facing>(entity, "nan");
+        CHECK(sameRotation(entity.get<editor_test::Facing>().rotation, glm::quat{1, 0, 0, 0}));
+        CHECK(typing.sets == 0);
+    }
+}
+
 TEST_CASE(
     "eulerHint lit le lacet sur ±180°, garde les angles tapés tant qu'ils donnent la rotation")
 {

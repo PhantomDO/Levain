@@ -1,5 +1,6 @@
 #include "levain/app/camera.hpp"
 
+#include <algorithm>
 #include <format>
 #include <optional>
 #include <string>
@@ -10,13 +11,22 @@
 namespace levain::app
 {
 
+float farBeyondNear(float nearPlane, float farPlane)
+{
+    // `max(plancher, far)` et non l'inverse : un NaN ressort en plancher, pas en NaN.
+    return std::max(nearPlane * MinFarOverNear, farPlane);
+}
+
 void describeAppComponents(flecs::world& world)
 {
     // Une projection perspective veut un champ entre 0 et 180°, exclus, et un plan proche au-delà
-    // de 0 : la projection et le découpage des grappes de lumières (far / near) en dépendent.
+    // de 0 : la projection et le découpage des grappes de lumières (far / near) en dépendent. Le
+    // plan lointain a un plancher au-dessus du plus petit plan proche ; qu'il passe le proche que
+    // l'inspecteur a réglé, c'est `farBeyondNear`.
     scene::describeAuthored<CameraLens>(world)
         .range(&CameraLens::verticalFovDegrees, 1.0, 179.0)
-        .range(&CameraLens::nearPlane, 0.01, 100.0);
+        .range(&CameraLens::nearPlane, 0.01, 100.0)
+        .range(&CameraLens::farPlane, 0.02, 1.0e5);
 }
 
 render::Camera cameraFrom(const CameraLens& lens, const glm::mat4& world)
@@ -26,7 +36,7 @@ render::Camera cameraFrom(const CameraLens& lens, const glm::mat4& world)
             .target = position + glm::vec3(glm::mat3(world) * glm::vec3{0.0f, 0.0f, -1.0f}),
             .verticalFovRadians = glm::radians(lens.verticalFovDegrees),
             .nearPlane = lens.nearPlane,
-            .farPlane = lens.farPlane};
+            .farPlane = farBeyondNear(lens.nearPlane, lens.farPlane)};
 }
 
 core::Result<render::Camera>

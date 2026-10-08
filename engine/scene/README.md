@@ -110,6 +110,11 @@ Un champ est un nombre, un booléen, une enum, un `flecs::entity`, une feuille g
 `SceneModule`, ou un agrégat imbriqué, décrit à son tour. Le reste est refusé à la compilation (`static_assert`), ou
 à l'import : le journal nomme la struct et le champ, puis le programme s'arrête, en Release aussi.
 
+Une enum n'a que les constantes que flecs lit : de 0 à 126, et les puissances de deux
+(`flecs/addons/cpp/utils/enum.hpp`). Une constante négative ou au-delà de 126 est écartée sans un mot, et l'import
+ne refuse que l'enum qui n'en a aucune : une valeur qui n'a pas de nom vide le JSON de l'entité, et l'inspecteur
+la montre « ? » sans pouvoir la choisir. Une enum de composant garde donc ses constantes entre 0 et 126.
+
 **Ce que la scène décrit** : `Transform`, `Velocity` et `FpsController` en données d'auteur ; `WorldTransform`,
 `PreviousTransform`, `RenderAlpha` et `FpsInput` en lecture seule ; à la main, les feuilles glm `vec2`, `vec3`,
 `quat` et `mat4` (un tableau flecs de 16 flottants, que `sameValue` compare élément par élément). Pas

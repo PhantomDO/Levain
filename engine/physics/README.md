@@ -27,9 +27,10 @@ plugin `character`.
      `Simulation` ; le module le transmet à Jolt (`moveKinematic`), qui pousse ce qu'il rencontre ;
    - **tout corps** : un `set<Transform>` le téléporte, sans rien pousser, et garde sa vitesse. Un statique
      déplacé réveille ses voisins, ce que Jolt ne fait pas seul.
-4. **Un corps est une racine sans échelle** (`whyNotABody`) : une entité qui a un `flecs::Parent`, ou une
-   échelle autre que 1, n'a pas de corps, et le journal le dit, sans assertion : c'est une donnée, pas un bug, et
-   l'inspecteur peut la taper (ADR-0034). La taille est dans la forme.
+4. **Un corps est une racine sans échelle, à position finie** (`whyNotABody`) : une entité qui a un
+   `flecs::Parent`, une échelle autre que 1 ou une position NaN ou infinie (qu'ImGui laisse taper : « nan »,
+   « 1e39 ») n'a pas de corps, et le journal le dit, sans assertion : c'est une donnée, pas un bug, et
+   l'inspecteur peut la taper (ADR-0034). La taille est dans la forme. Le personnage suit la même règle.
    Le refus n'est pas définitif : l'échelle revenue à 1, ou le parent retiré, le corps revient. Une forme sans
    épaisseur ou une masse nulle sont refusées de même (`whyNotThisShape`) : Jolt ne vérifie rien en Release.
 5. **Les corps se construisent en lot**, au début de la phase `Physics` : un observateur pose `BodyDirty` (à

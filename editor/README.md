@@ -53,7 +53,9 @@ reste est grisé ; trois dessinateurs lui donnent des angles, des noms d'entité
     champ qui ne devient jamais actif, `commitEdit` par une copie changée que rien n'écrit).
 11. **Les bornes sont imposées par l'inspecteur** (`ImGuiSliderFlags_AlwaysClamp`, sans lequel Ctrl+clic tape
     au-delà) : flecs ne borne rien. Une borne posée par `.range` s'applique à tous les nombres, entiers 64 bits
-    compris.
+    compris. **Un nombre non fini ne s'écrit jamais** (`rejectNonFinite`) : ImGui laisse taper « nan », « inf »
+    ou « 1e39 » (`sscanf` sans filtre), et sa borne compare par `<` et `>`, que NaN ne satisfait pas. Le widget
+    qui en rend un laisse le champ comme il était.
 12. **Les panneaux passent entre `defer_begin` et `defer_end`** (`withEditor`) : les observateurs d'une écriture
     passent après le parcours des composants de l'entité, qu'ils feraient changer de table. `drawInspector`
     refuse un monde non différé (assertion).

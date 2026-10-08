@@ -3,6 +3,7 @@
 // son `CharacterState`. La logique elle-même est dans `character_test.cpp`.
 
 #include <cmath>
+#include <limits>
 
 #include <doctest/doctest.h>
 #include <flecs.h>
@@ -215,4 +216,22 @@ TEST_CASE("un personnage avec un Collider, ou enfant d'une autre entité, est re
     CHECK_FALSE(withCollider.has<CharacterHandle>());
     CHECK_FALSE(child.has<CharacterHandle>());
     CHECK(levain::physics::characterCount(physicsOf(world)) == 0);
+}
+
+// La même donnée que l'inspecteur laissait taper (« nan ») : refusée, sans l'assertion de Jolt.
+TEST_CASE("un personnage téléporté à une position non finie perd son corps, et le retrouve ensuite")
+{
+    flecs::world world = characterWorld();
+    const flecs::entity player = spawnPlayer(world, {0.0f, 0.0f, 0.0f});
+    advance(world, 1);
+    REQUIRE(player.has<CharacterHandle>());
+
+    player.set(Transform{.position = {0.0f, std::numeric_limits<float>::quiet_NaN(), 0.0f}});
+    advance(world, 1);
+    CHECK_FALSE(player.has<CharacterHandle>());
+    CHECK(levain::physics::characterCount(physicsOf(world)) == 0);
+
+    player.set(Transform{});
+    advance(world, 1);
+    CHECK(player.has<CharacterHandle>());
 }
