@@ -31,6 +31,51 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-08 — M7.2 — La réflexion, les descriptions, l'éditeur, la hiérarchie et l'inspecteur
+
+- **Temps Donnovan : 2 h** depuis ses « 3 h » du 07/10 (sa réponse en fin de session), surtout hors milestone :
+  les plantages du PC, l'installation de la distro WSL, la session à distance ; le reste pour #253 (les sondages,
+  le suivi des PR). La part de #253 se répartit à la clôture de M7.2.
+- Sessions Claude Code : 1 (la même que l'ADR-0034), reprise deux fois après un plantage du PC
+- Fait, en mode autonome, une PR ou une pile à la fois (ferme #252 et #253) :
+  - **les refus de la physique au journal** (#325, option 5B) : sans assertion, testés en Debug aussi ;
+  - **la réflexion** (#326 à #329) : les champs lus dans la struct, `describe` et `describeAuthored`, les bornes,
+    `setComponentValue`, `sameValue`, les clés stables ; les refus bruyants, à l'import comme à la compilation ;
+  - **les composants décrits** (#331, #332) : la scène, la physique, les assets, `app`, la marche ; un test qui
+    importe tout et en tire l'inventaire ;
+  - **la bibliothèque éditeur** (#334, #335, choix 6B) : `editor/`, `levain_sandbox_editor`, et les contrôles qui
+    la gardent hors du jeu livré ; **la hiérarchie** (#336, #337) ; **l'inspecteur** (#339 à #342) : un widget par
+    champ, l'édition bornée par une seule écriture, la rotation en angles, l'entité et l'asset par leur nom ;
+  - **les outils** : le skill `pr-autonome` et `tools/verify.sh` versionné (#330) ; `tools/wsl/`, une distro WSL
+    pour un PC Windows (#338) ; cette PR, la passation.
+- Mesures :
+  - **critère de M7.2** : un composant nouveau, déclaré d'une ligne (`describeAuthored`), s'édite dans
+    l'inspecteur sans autre code (`tests/editor_test.cpp`, le cas `Beacon`) ;
+  - l'inventaire, moteur et plugins : 16 composants décrits (7 données d'auteur, 9 en lecture seule), 5 types de
+    champ, 11 non décrits (`levain_tests -tc='*inventaire*'`) ;
+  - la CI de l'éditeur : « éditeur : 10002 entités, 12 champs dessinés ; sélection : grid::cube_1_2 » ;
+  - tests : 337 Debug, 337 Release, 337 ASan, 184 web (289 et 172 avant M7.2) ; format et clang-tidy ;
+  - le coût de l'interface, indicatif (Release, vue démo) : 0,032 ms de CPU l'éditeur rien déplié, 0,100 ms avec
+    10 002 lignes listées, 0,046 ms pour le sandbox seul.
+- Décisions de Donnovan : l'implémentation sur Sonnet, les relectures sur Opus ; les trois PR de l'inspecteur au-
+  delà de 400 lignes, signalées et ouvertes (sondage) ; la distro WSL (`tools/wsl/`) et une session à distance
+  sur le PC de bureau.
+- Écarts et problèmes :
+  - **la nuit perdue** : un avis de fin de workflow, à 00 h 40, resté sans suite ; rien n'a tourné jusqu'au matin
+    (pr-autonome/GOTCHA.md) ;
+  - **le PC de Donnovan a planté plusieurs fois** : trop de builds en parallèle pour 16 Go ; un build à la fois,
+    4 tâches, désormais (build/GOTCHA.md). 8 tâches reste à mesurer sur un build complet ;
+  - la CI de #335, rouge : une regex sur un message de CMake, dont le repli dépend du chemin (build/GOTCHA.md) ;
+  - la règle n°2 : la réflexion (1 081 lignes) en quatre PR, l'éditeur en quatre ; #336 (434) et l'inspecteur
+    (508, 487, 442) signalés ; Sonnet n'a pas tenu le budget de lignes qu'on lui donnait ;
+  - les relectures ont trouvé, entre autres : un membre référence décrit sans champ en silence, des tests de
+    refus qui ne vérifiaient pas l'arrêt, un « nan » tapé qui passait les bornes et faisait assert Jolt, un plan
+    lointain sous le proche qui dessinait une seule couleur sans un mot, les angles d'un marcheur qui tournait
+    affichés (180°, −85°, 180°). Tous corrigés avant la fusion ;
+  - hors de M7.2 : la vue `khronos` sans modèle s'arrête à la fermeture sur une erreur de validation (#333).
+- Prochaine étape : la clôture de M7.2 avec Donnovan (son temps, le ratio, le tag) ; les tests de refus à la
+  compilation (une PR à venir) ; la session WSL prend la suite des PR, une seule session à la fois (règle n°1).
+
 ## 2026-10-07 — M7.2 — L'ADR-0034, la réflexion des composants ; la CI et la boîte de dev sur Ubuntu 26.04
 
 - **Temps Donnovan : 3 h** depuis le « Environ 1 h » de M7.1 (ses réponses au sondage de fin de session) :

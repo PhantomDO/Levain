@@ -10,12 +10,18 @@
 # Une ligne par étape, OK ou FAIL ; les journaux complets dans build/verify/. Le code de sortie est non nul dès
 # qu'une étape échoue (règle n°7) : un script qui rend 0 quoi qu'il arrive laisse pousser une branche rouge.
 #
+# Quatre tâches de compilation et quatre tests à la fois par défaut : la machine de référence a 16 Go, et des
+# builds à toutes ses tâches l'ont fait planter (build/GOTCHA.md, « 16 Go de RAM »). Une machine plus grande
+# lève la limite : CMAKE_BUILD_PARALLEL_LEVEL=16 LEVAIN_TEST_JOBS=8 tools/verify.sh.
+#
 # Les tests GPU tournent sur RADV, le pilote de la machine de référence, seul et préchargé : avec les huit pilotes
 # de Mesa, LeakSanitizer voit une fuite dans ceux que le loader décharge (build/GOTCHA.md, « LeakSanitizer et
 # lavapipe »). VK_DRIVER_FILES et LEVAIN_VK_PRELOAD changent de pilote, lavapipe pour refaire la CI.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
+export CMAKE_BUILD_PARALLEL_LEVEL=${CMAKE_BUILD_PARALLEL_LEVEL:-4}
+testJobs=${LEVAIN_TEST_JOBS:-4}
 logs=build/verify
 mkdir -p "$logs"
 failed=0
@@ -39,7 +45,7 @@ for preset in ${PRESETS:-linux-debug linux-release linux-asan}; do
         continue
     fi
     # Comme la CI : un test bloqué échoue en 2 min, et son journal dit pourquoi.
-    LD_PRELOAD=$preload ctest --test-dir "build/$preset" -j8 --timeout 120 --output-on-failure \
+    LD_PRELOAD=$preload ctest --test-dir "build/$preset" -j"$testJobs" --timeout 120 --output-on-failure \
         > "$logs/ctest-$preset.log" 2>&1
     summary=$(grep -E 'tests passed' "$logs/ctest-$preset.log")
     if grep -q ', 0 tests failed' <<< "$summary"; then
@@ -79,7 +85,7 @@ fi
 if [ -z "${NO_WEB:-}" ]; then
     source ~/emsdk/emsdk_env.sh > /dev/null 2>&1
     if { cmake --preset web && cmake --build --preset web; } > "$logs/build-web.log" 2>&1; then
-        ctest --test-dir build/web -j8 --timeout 120 --output-on-failure > "$logs/ctest-web.log" 2>&1
+        ctest --test-dir build/web -j"$testJobs" --timeout 120 --output-on-failure > "$logs/ctest-web.log" 2>&1
         summary=$(grep -E 'tests passed' "$logs/ctest-web.log")
         if grep -q ', 0 tests failed' <<< "$summary"; then
             step web OK "$summary"

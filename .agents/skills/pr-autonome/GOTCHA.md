@@ -2,6 +2,24 @@
 
 Chaque entrée : symptôme, cause, parade, date. La plus récente en haut.
 
+## Un avis de fin traité comme sans suite : la nuit perdue (2026-10-08)
+
+- **Symptôme** : Donnovan part la nuit (« continue comme ça, je reviens demain matin ») ; au matin, aucune PR n'a
+  été ouverte depuis 00 h 40, et l'inspecteur n'a pas commencé.
+- **Cause** : le workflow de la hiérarchie s'est terminé à 00 h 40 ; la session a répondu à son avis de fin sans
+  rien lancer. Plus rien ne tournait pour la réveiller.
+- **Parade** : en mode autonome, chaque avis de fin (workflow, agent, commande de fond) reçoit l'action suivante :
+  lire, relire, ouvrir, lancer la suite. Avant de finir un tour, vérifier que quelque chose tourne encore et
+  réveillera la session (un workflow, `merge-stack.sh` en tâche de fond), ou lancer la tâche suivante.
+
+## Deux sessions, deux machines, un dépôt (2026-10-08)
+
+- **Contexte** : une session sur la machine de référence (16 Go), une autre dans la distro WSL du PC de bureau
+  (64 Go, `tools/wsl/`), sur un autre compte Claude.
+- **Parade** : la règle n°1 vaut pour les deux : une seule session ouvre des PR à la fois. La passation se fait par
+  le dépôt (ce skill, le JOURNAL), pas par la mémoire locale d'une session, qui ne suit pas d'une machine à
+  l'autre. Une session voit l'autre par `ListAgents` et peut lui écrire (Remote Control).
+
 ## Une PR annoncée sous 400 lignes en fait 1 081 (2026-10-07)
 
 - **Symptôme** : la PR de `reflection.hpp` (M7.2), prévue d'un bloc par l'ADR-0034, sort du workflow à 1 081
