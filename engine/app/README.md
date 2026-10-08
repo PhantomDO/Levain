@@ -17,7 +17,10 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
   qui porte un `MeshRef`, et `app` anime les modèles skinnés (ADR-0022) ;
 - **la caméra du rendu** : l'unique entité qui porte un `CameraLens` ;
 - **l'input du joueur en singleton du monde** (`PlayerInput`), avec les appuis qu'aucun pas n'a encore vus ;
-- le hot-reload des shaders (ADR-0014) et des textures (ADR-0021) ;
+- le hot-reload des shaders (ADR-0014) et des textures (ADR-0021). Pour les shaders, le programme relance
+  `cmake --build --target levain_shaders` (`shaderReloadCommand`). Un exe Windows compilé dans une distro WSL le
+  relance par `wsl.exe`, dans la distro d'où il vient (ADR-0035, décision 5) ; compilé ailleurs (l'exe de la CI), il
+  refuse une fois dans le log, et tourne sans recharger ;
 - **l'interface** (M7.1, ADR-0032) : ImGui, par le module `ui`, chaque image ; les panneaux de debug du moteur
   (Image, Passes, Scène, en fenêtres ancrées), que F1 ou `--ui on` ouvrent ; le point d'accroche `ui`, où le
   programme ajoute ses fenêtres ; et la capture de la souris, que `App` possède. La disposition des panneaux
@@ -94,7 +97,7 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `AppSettings`, `ShaderBuild`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
 | [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf` : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |

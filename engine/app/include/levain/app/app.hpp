@@ -28,6 +28,7 @@
 #include "levain/gpu/device.hpp"
 #include "levain/input/bindings.hpp"
 #include "levain/input/state.hpp"
+#include "levain/platform/process.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/camera.hpp"
 #include "levain/render/environment.hpp"
@@ -53,6 +54,53 @@ struct ShaderBuild
     std::filesystem::path buildDir;
     std::filesystem::path sourceDir;
 };
+
+/// Le système où tourne ce programme : la cible du build, pas l'hôte de CMake, qui est Linux pour
+/// un exe Windows compilé dans une distro. Un paramètre plutôt qu'un `#ifdef` dans la fonction : le
+/// test couvre ainsi les deux depuis Linux.
+enum class ExeSystem : std::uint8_t
+{
+    Linux,
+    Windows,
+};
+
+/// Le système pour lequel ce programme est compilé.
+inline constexpr ExeSystem CompiledSystem =
+#ifdef _WIN32
+    ExeSystem::Windows;
+#else
+    ExeSystem::Linux;
+#endif
+
+/// La distro WSL où un exe Windows a été configuré, et le winsysroot de ce shell (ADR-0035) : des
+/// propriétés de l'arbre de build, que `levain_app` reçoit à la compilation, pas du programme.
+/// Vides hors d'une distro, et pour l'exe d'une CI.
+struct WslBuild
+{
+    std::string distro;
+    std::string winsysroot;
+};
+
+/// La cible CMake qui compile les shaders (`cmake/LevainShaders.cmake`).
+inline constexpr std::string_view ShaderTarget = "levain_shaders";
+
+/// Une commande à lancer, et les variables qu'elle ajoute à l'environnement du programme.
+struct ShaderReloadCommand
+{
+    std::vector<std::string> arguments;
+    std::vector<levain::platform::EnvironmentVariable> environment;
+};
+
+/// La commande qui recompile les shaders (ADR-0014), à lancer dans le dossier de build qui a
+/// produit le programme :
+/// - sous Linux, `cmake --build` directement ;
+/// - sous Windows, `cmake` et `slangc` sont des programmes Linux qu'il ne sait pas lancer : si
+///   l'exe a été compilé dans une distro, `wsl.exe` y relance `cmake --build`, dans le dossier de
+///   build de la distro d'où l'exe vient (ADR-0035, décision 5) ;
+/// - sous Windows, sans distro (l'exe de la CI), un refus (`Unsupported`) qui dit pourquoi : le
+///   programme continue de tourner, sans recharger.
+[[nodiscard]] levain::core::Result<ShaderReloadCommand>
+shaderReloadCommand(const ShaderBuild& build, ExeSystem system, const WslBuild& wsl);
 
 /// Ce que le programme règle avant que la boucle ne démarre : sa fenêtre, ses fichiers, et ce que
 /// les options communes de la ligne de commande changent (`parseCommonOption`).

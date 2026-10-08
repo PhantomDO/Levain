@@ -30,6 +30,30 @@ TEST_CASE("runProcess rend le code d'échec d'un programme qui échoue")
     CHECK(result->exitCode == 3);
 }
 
+TEST_CASE("runProcess ajoute des variables à l'environnement du programme, qui hérite du reste")
+{
+    // Le hot-reload d'un exe Windows en a besoin : WSL_UTF8=1 pour wsl.exe (ADR-0035).
+    const std::array<levain::platform::EnvironmentVariable, 1> environment{
+        {{.name = "LEVAIN_PROCESS_TEST", .value = "valeur \xC3\xA9"}}};
+
+    const std::array<std::string, 3> added{LEVAIN_PROCESS_HELPER, "env", "LEVAIN_PROCESS_TEST"};
+    const auto result = runProcess(added, environment);
+    REQUIRE(result.has_value());
+    CHECK(result->exitCode == 0);
+    CHECK(result->output == "valeur \xC3\xA9\n");
+
+    // Le reste de l'environnement suit : PATH, que tout système définit.
+    const std::array<std::string, 3> inherited{LEVAIN_PROCESS_HELPER, "env", "PATH"};
+    const auto path = runProcess(inherited, environment);
+    REQUIRE(path.has_value());
+    CHECK(path->exitCode == 0);
+
+    // Sans elle, la variable n'existe pas : le code 65 du programme le dit.
+    const auto without = runProcess(added);
+    REQUIRE(without.has_value());
+    CHECK(without->exitCode == 65);
+}
+
 TEST_CASE("runProcess signale un programme introuvable comme un échec récupérable")
 {
     const std::array<std::string, 1> command{"/chemin/qui/n/existe/pas"};
