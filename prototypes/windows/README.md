@@ -51,7 +51,7 @@ mesures de performance du projet restent sur la machine de référence (SPECS §
   garde pas). Puis tout se lie. Release en 71 s, configuration comprise (`cmake --preset windows-release`, puis
   `cmake --build --preset windows-release`).
 - **`levain_tests.exe` sous Windows** (`time build/windows-debug/tests/levain_tests.exe`, depuis la distro) :
-  293 cas sur 295 en 8 s ; les deux échecs lancent le `cmake` de Linux depuis l'exe (`runProcess`). Les tests
+  293 cas sur 295 en 8,5 s (deux passages) ; les deux échecs lancent le `cmake` de Linux depuis l'exe (`runProcess`). Les tests
   WebGPU tournent sur la 4070 par Dawn et Vulkan ; avant la parade de Dawn, six des neuf passaient sur son
   backend Null, sans rien dessiner.
 - **`ctest` sur la Release** (`SDL_VIDEO_DRIVER=offscreen ctest --test-dir build/windows-release -j 8`) : 315 sur
@@ -78,8 +78,8 @@ mesures de performance du projet restent sur la machine de référence (SPECS §
   (son port overlay lui fait prendre sa branche MSVC, qui définit aussi `_CRT_SECURE_NO_WARNINGS`), et
   spirv-reflect, dépendance des couches de validation Vulkan : retirées de vcpkg pour l'essai. Les ports de vcpkg
   ne sont pas testés avec clang-cl : il faudra une parade générale.
-- **Les couches de validation Vulkan** viennent du système sous Linux (`apt`) ; sous Windows, l'équivalent est le
-  Vulkan SDK de LunarG, installé sur la machine.
+- **Les couches de validation Vulkan** viennent du système sous Linux (`apt`) ; sous Windows, l'essai les a
+  retirées. L'ADR-0035 les prend du port vcpkg (décision 6), avec une parade pour spirv-reflect.
 - **ozz choisit sa CRT** sur sa branche MSVC, statique par défaut : lld-link refusait de le lier au reste
   (`/failifmismatch` sur `RuntimeLibrary`). Son port suit le triplet (`ozz_build_msvc_rt_dll`).
 - **Dawn ne trouve pas `vulkan-1.dll`** sous Windows (« Windows Error: 87 ») : il ne cherche qu'à côté de lui et
