@@ -72,6 +72,21 @@ du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
   passe par le registre, qui désigne ceux de `tests/`.
 - **Le `start` des 4 processeurs ne rend pas le code de l'enfant** : lire les `::error::` du journal.
 
+## `verify.sh` disait « clang-tidy OK » sans avoir lu les fichiers de Windows (2026-10-08)
+
+- **Symptôme** : à la relecture du backend Direct3D 12 (#18, sur sa branche, pas encore fusionnée),
+  `device_d3d12.cpp` et `swapchain_d3d12.cpp`, changés, manquaient à `build/verify/tidy-files.txt`, et l'étape
+  disait « clang-tidy : OK ».
+- **Cause** : la liste croisait les fichiers changés avec la base de `linux-debug` ; un fichier que seul
+  `windows-debug` compile n'y est pas, et sortait de la liste sans un mot (règle n°7).
+- **Parade** : une seconde passe, « clang-tidy-windows », sur la base de `windows-debug`, pour les fichiers absents
+  de la base Linux ; un `.cpp` changé qu'aucun build ne compile échoue, sauf ceux du seul build web (leurs options
+  sont celles d'Emscripten), annoncés « clang-tidy-web : SAUTÉ ». Contre-test, sur la branche Direct3D 12
+  (`BASE=m1.4/d3d12-fixes PRESETS=linux-debug NO_WEB=1`) : un `Bad_Function` glissé dans `device_d3d12.cpp`,
+  l'ancien script dit « clang-tidy : OK (7 fichiers) », le nouveau « clang-tidy-windows : FAIL »
+  (`readability-identifier-naming`) ; un `orphan.cpp` non suivi, « FAIL (changés, compilés par aucun build :
+  engine/gpu/src/orphan.cpp) » ; un commentaire dans `device_web.cpp`, « clang-tidy-web : SAUTÉ (1 fichiers…) ».
+
 ## La CI Windows : lavapipe pour Windows, ctest sur des chemins Linux (2026-10-08)
 
 Les jobs `windows-*` de `ci.yml` (#346). Répété en local avant la CI : le ctest de Windows lancé de la distro par

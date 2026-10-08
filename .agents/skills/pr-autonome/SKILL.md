@@ -49,8 +49,8 @@ cache binaire de vcpkg (`~/.cache/vcpkg`) les remplit vite. À la fin :
   (build/GOTCHA.md, « 16 Go de RAM »). Sur la distro WSL de 64 Go (`tools/wsl/`), la limite se lève.
 - `tools/verify.sh` avant **chaque** push, y compris après une petite correction (build/GOTCHA.md) : format de tout
   l'arbre, trois presets, `windows-debug` compilé (le winsysroot de la machine de référence :
-  `tools/winsysroot.sh`), clang-tidy des fichiers changés, web. `BASE=<précédente>` pour une PR
-  empilée.
+  `tools/winsysroot.sh`), web, clang-tidy des fichiers changés (ceux que seul Windows compile, par la base de
+  `windows-debug`). `BASE=<précédente>` pour une PR empilée.
 - **Chaque contrôle nouveau a son contre-test** : la faute injectée depuis une copie du fichier, le test rouge, la
   copie remise, le test vert (build/GOTCHA.md, « Contre-tests »). Le noter dans la PR.
 

@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # La vérification complète d'une branche avant de pousser, comme la CI : le format de tout l'arbre, les trois
-# presets natifs compilés et testés, le build Windows (compilé seulement), clang-tidy sur les fichiers changés,
-# puis le build web et ses tests.
+# presets natifs compilés et testés, le build Windows (compilé seulement), le build web et ses tests, puis
+# clang-tidy sur les fichiers changés, avec les options du build Linux, ou du build Windows pour ceux qu'il compile
+# seul.
 # Dans la distrobox dev-ubuntu, depuis la racine du dépôt (ou d'un worktree) :
 #
 #   tools/verify.sh                  # BASE=origin/main : les fichiers changés depuis main, pour clang-tidy
 #   BASE=<branche> tools/verify.sh   # une PR empilée : relire contre la précédente
 #   NO_WEB=1 tools/verify.sh         # sans le build web (il n'y a ni physique ni app dans le navigateur)
-#   NO_WINDOWS=1 tools/verify.sh     # sans le build Windows (pas de winsysroot : LEVAIN_WINSYSROOT, docs/SETUP.md)
+#   NO_WINDOWS=1 tools/verify.sh     # sans le build Windows (pas de winsysroot : LEVAIN_WINSYSROOT, docs/SETUP.md),
+#                                    # ni l'analyse de ses fichiers propres
 #
 # Une ligne par étape, OK ou FAIL ; les journaux complets dans build/verify/. Le code de sortie est non nul dès
 # qu'une étape échoue (règle n°7) : un script qui rend 0 quoi qu'il arrive laisse pousser une branche rouge.
@@ -80,33 +82,6 @@ else
     echo "windows-debug : SAUTÉ (NO_WINDOWS)"
 fi
 
-# clang-tidy sur les seuls .cpp changés que le build natif compile : ceux du navigateur ne s'analysent pas sans
-# leurs options (build/GOTCHA.md). Une base inconnue ou un build Debug absent échouent : sans eux, la liste serait
-# vide, et l'étape dirait « aucun fichier changé » sans avoir rien analysé.
-base=${BASE:-origin/main}
-tidy=listed
-if ! git rev-parse --verify -q "$base^{commit}" > /dev/null; then
-    step clang-tidy FAIL "BASE inconnue : $base"
-    tidy=refused
-elif ! python3 -c 'import json; print("\n".join(sorted({e["file"] for e in json.load(open(
-        "build/linux-debug/compile_commands.json"))})))' > "$logs/tidy-compiled.txt" 2>&1; then
-    step clang-tidy FAIL "pas de build/linux-debug/compile_commands.json"
-    tidy=refused
-else
-    { git diff --name-only "$base" -- '*.cpp'; git ls-files --others --exclude-standard -- '*.cpp'; } \
-        | sed "s|^|$PWD/|" | grep -F -x -f - "$logs/tidy-compiled.txt" > "$logs/tidy-files.txt" || true
-fi
-if [ "$tidy" = refused ]; then
-    : # l'étape a déjà dit pourquoi
-elif [ ! -s "$logs/tidy-files.txt" ]; then
-    step clang-tidy OK "aucun fichier changé"
-elif xargs clang-tidy -p build/linux-debug --warnings-as-errors='*' < "$logs/tidy-files.txt" \
-    > "$logs/tidy.log" 2>&1; then
-    step clang-tidy OK "$(wc -l < "$logs/tidy-files.txt") fichiers"
-else
-    step clang-tidy FAIL "$logs/tidy.log"
-fi
-
 if [ -z "${NO_WEB:-}" ]; then
     source ~/emsdk/emsdk_env.sh > /dev/null 2>&1
     if { cmake --preset web && cmake --build --preset web; } > "$logs/build-web.log" 2>&1; then
@@ -122,6 +97,65 @@ if [ -z "${NO_WEB:-}" ]; then
     fi
 else
     echo "web : SAUTÉ (NO_WEB)"
+fi
+
+# clang-tidy sur les .cpp changés, chacun avec les options du build qui le compile. Linux d'abord ; puis, sauf
+# NO_WINDOWS, ceux que seul le build Windows compile, sur sa base (build/windows-debug) : la base Linux ne les
+# connaît pas, et l'étape dirait OK sans les avoir lus (règle n°7). Un .cpp changé qu'aucune des deux ne compile
+# échoue, sauf ceux du build web seul (device_web.cpp…) : ils ne s'analysent pas sans les options
+# d'Emscripten (build/GOTCHA.md), et le build web, juste au-dessus, les compile en -Werror. D'où l'étape après le
+# build web, dont elle lit la base. Une base inconnue ou un build absent échouent : sans eux, la liste serait vide, et
+# l'étape dirait « aucun fichier changé » sans avoir rien analysé.
+base=${BASE:-origin/main}
+compiledBy() { # $1 = preset : les fichiers que ce build compile, triés, dans $logs/tidy-compiled-$1.txt
+    python3 -c 'import json, sys; print("\n".join(sorted({e["file"] for e in json.load(open(sys.argv[1]))})))' \
+        "build/$1/compile_commands.json" > "$logs/tidy-compiled-$1.txt" 2>/dev/null
+}
+tidy() { # $1 = nom de l'étape, $2 = preset dont la base sert, $3 = les fichiers à analyser
+    if [ ! -s "$3" ]; then
+        step "$1" OK "aucun fichier changé"
+    elif xargs clang-tidy -p "build/$2" --warnings-as-errors='*' < "$3" > "$logs/$1.log" 2>&1; then
+        step "$1" OK "$(wc -l < "$3") fichiers"
+    else
+        step "$1" FAIL "$logs/$1.log"
+    fi
+}
+if ! git rev-parse --verify -q "$base^{commit}" > /dev/null; then
+    step clang-tidy FAIL "BASE inconnue : $base"
+elif ! compiledBy linux-debug; then
+    step clang-tidy FAIL "pas de build/linux-debug/compile_commands.json"
+else
+    # Les fichiers effacés n'ont rien à analyser (--diff-filter=d) ; les nouveaux, pas encore suivis, si. comm veut
+    # deux listes triées dans le même ordre : celui des octets (LC_ALL=C), qui est celui de Python en UTF-8.
+    { git diff --name-only --diff-filter=d "$base" -- '*.cpp'; git ls-files --others --exclude-standard -- '*.cpp'; } \
+        | sed "s|^|$PWD/|" | LC_ALL=C sort -u > "$logs/tidy-changed.txt"
+    LC_ALL=C comm -12 "$logs/tidy-changed.txt" "$logs/tidy-compiled-linux-debug.txt" > "$logs/tidy-files.txt"
+    LC_ALL=C comm -23 "$logs/tidy-changed.txt" "$logs/tidy-compiled-linux-debug.txt" > "$logs/tidy-not-linux.txt"
+    tidy clang-tidy linux-debug "$logs/tidy-files.txt"
+    if [ -n "${NO_WINDOWS:-}" ]; then
+        echo "clang-tidy-windows : SAUTÉ (NO_WINDOWS ; $(wc -l < "$logs/tidy-not-linux.txt") fichiers changés hors du" \
+            "build Linux, non analysés)"
+    elif ! compiledBy windows-debug; then
+        step clang-tidy-windows FAIL "pas de build/windows-debug/compile_commands.json"
+    else
+        LC_ALL=C comm -12 "$logs/tidy-not-linux.txt" "$logs/tidy-compiled-windows-debug.txt" \
+            > "$logs/tidy-files-windows.txt"
+        tidy clang-tidy-windows windows-debug "$logs/tidy-files-windows.txt"
+        compiledBy web || : > "$logs/tidy-compiled-web.txt"
+        LC_ALL=C comm -23 "$logs/tidy-not-linux.txt" "$logs/tidy-compiled-windows-debug.txt" \
+            > "$logs/tidy-not-native.txt"
+        LC_ALL=C comm -12 "$logs/tidy-not-native.txt" "$logs/tidy-compiled-web.txt" > "$logs/tidy-web-only.txt"
+        LC_ALL=C comm -23 "$logs/tidy-not-native.txt" "$logs/tidy-compiled-web.txt" | sed "s|^$PWD/||" \
+            > "$logs/tidy-unknown.txt"
+        if [ -s "$logs/tidy-web-only.txt" ]; then
+            webCheck="compilés en -Werror par l'étape web"
+            [ -z "${NO_WEB:-}" ] || webCheck="NO_WEB : pas même compilés"
+            echo "clang-tidy-web : SAUTÉ ($(wc -l < "$logs/tidy-web-only.txt") fichiers du seul build web, $webCheck)"
+        fi
+        if [ -s "$logs/tidy-unknown.txt" ]; then
+            step clang-tidy-windows FAIL "changés, compilés par aucun build : $(paste -sd ' ' "$logs/tidy-unknown.txt")"
+        fi
+    fi
 fi
 
 exit $failed
