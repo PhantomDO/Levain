@@ -49,11 +49,11 @@
         },
         {
           "name": "wayland",
-          "platform": "!emscripten"
+          "platform": "linux"
         },
         {
           "name": "x11",
-          "platform": "!emscripten"
+          "platform": "linux"
         }
       ]
     },

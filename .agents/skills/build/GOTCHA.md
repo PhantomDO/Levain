@@ -3,7 +3,7 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
-## Windows compilé depuis Linux par clang-cl : les pièges de l'essai (2026-10-08)
+## Windows compilé depuis Linux par clang-cl : les pièges de l'essai et de la chaîne (2026-10-08)
 
 Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
 
@@ -16,7 +16,8 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
 - **clang-cl lit `-Wall` comme `/Wall`, c'est-à-dire `-Weverything`** : un projet qui teste
   `CMAKE_CXX_COMPILER_ID` (« Clang » sous clang-cl) pour ajouter `-Wall -Werror` se compile avec tous les
   avertissements, en erreurs (ozz : « `_Ty` est réservé » ; spirv-reflect). Parade : nos options passent par
-  `/clang:` ; un port qui casse reçoit un port overlay (pour ozz : sa branche MSVC).
+  `/clang:` ; un port qui casse reçoit un port overlay (pour ozz : sa branche MSVC, qui définit
+  `_CRT_SECURE_NO_WARNINGS` pour ses seules sources).
 - **ozz choisit sa CRT** sur sa branche MSVC, statique par défaut : lld-link refuse de le lier au reste
   (`/failifmismatch` sur `RuntimeLibrary`). Parade : `ozz_build_msvc_rt_dll` suit le triplet.
 - **Modifier la toolchain change l'ABI de chaque port** : vcpkg recompile toutes les dépendances Windows, Dawn
@@ -36,8 +37,24 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   un `wchar_t*`. Sous Linux, rien ne le signale. Parade : `core::pathForC(path).c_str()`.
 - **`std::getenv` est « unsafe » pour la CRT de Microsoft**, une erreur sous `-Werror`. Parade :
   `core::environmentVariable`, jamais `_CRT_SECURE_NO_WARNINGS` (règle n°4).
+- **Le manifeste UTF-8 casse l'édition de liens en Debug** (« /manifestinput: requires /manifest:embed ») : CMake
+  met `/INCREMENTAL` en Debug (le défaut de MSVC), lie alors en deux passes (`cmake -E vs_link_exe`) et ajoute son
+  `/MANIFEST /MANIFESTFILE` après notre `/MANIFEST:EMBED`, qu'il annule. L'essai, en Release, ne l'avait pas vu.
+  Parade (`CMakeLists.txt`) : `/INCREMENTAL:NO` ; lld-link ne lie jamais en incrémental.
+- **Hors de Windows, clang-cl annonce `_MSC_VER` 1933** (il ne lit pas celui de cl.exe) et prend la STL et le SDK
+  les plus récents du winsysroot. Parade : la toolchain fige les versions (`/vctoolsversion`, `/winsdkversion`) et
+  annonce celle de la STL (`-fms-compatibility-version=19.51`).
+- **Une toolchain modifiée ne change pas les options d'un dossier de build qui existe** : `windows.cmake` de vcpkg
+  les pose en cache sans `FORCE`. Les versions figées entraient dans les ports (dossiers neufs) mais pas dans
+  Levain, sans un mot ; vu en lisant `compile_commands.json`. Parade : la toolchain efface ces entrées du cache
+  avant d'inclure `windows.cmake`, **une seule fois par configuration** (`_VCPKG_WINDOWS_TOOLCHAIN`) : à la
+  deuxième inclusion, `windows.cmake` ne les repose plus, et le winsysroot disparaissait (« 'windows.h' file not
+  found » dans les ports).
 - **La découverte des cas de doctest lance l'exe pendant le build** : l'interop de WSL l'exécute, un runner Linux
-  non. Parade prévue : la découverte au moment des tests.
+  non. `doctest_discover_tests` n'a pas le `DISCOVERY_MODE PRE_TEST` de `gtest_discover_tests`. Parade
+  (`tests/CMakeLists.txt`) : en compilation croisée hors Emscripten, un fichier que ctest inclut rejoue le script
+  de doctest à chaque lecture de la liste ; si la découverte échoue, le test rouge `levain_tests_NOT_DISCOVERED`
+  le dit, sans quoi ctest sortirait en 0 sur « No tests were found » (2026-10-08).
 
 ## 16 Go de RAM : des builds en parallèle font planter la machine de référence (2026-10-08)
 
