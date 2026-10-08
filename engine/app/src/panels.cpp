@@ -42,7 +42,7 @@ DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
     ImGui::DockBuilderDockWindow(PassesWindow, leftBottom);
     ImGui::DockBuilderDockWindow(SceneWindow, right);
     ImGui::DockBuilderFinish(dockspace);
-    return {.left = leftTop};
+    return {.left = leftTop, .right = right};
 }
 
 /// Les dernières images, dans l'ordre : l'historique est un anneau, `next` en est le plus ancien.

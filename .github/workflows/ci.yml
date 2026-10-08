@@ -481,9 +481,10 @@ jobs:
 
       # L'éditeur (M7.2, ADR-0034) : l'exécutable éditeur du sandbox, panneaux ouverts, une entité
       # choisie par son chemin, sous validation et sous les sanitizers. Son bilan compte les lignes
-      # de la hiérarchie à la dernière image (zéro si elle n'a pas été dessinée) et redit la
-      # sélection : une ligne absente, zéro entité ou une autre sélection que celle de --select font
-      # échouer l'étape, qui sinon resterait verte sans rien vérifier (règle n°7).
+      # de la hiérarchie et les champs que l'inspecteur a dessinés pour la sélection, à la dernière
+      # image (zéro pour un panneau jamais dessiné), et redit la sélection : une ligne absente, zéro
+      # entité, zéro champ (le cube choisi a un Transform) ou une autre sélection que celle de
+      # --select font échouer l'étape, qui sinon resterait verte sans rien vérifier (règle n°7).
       - name: L'éditeur
         if: matrix.preset == 'linux-debug' || matrix.preset == 'linux-asan'
         env:
@@ -494,10 +495,12 @@ jobs:
           timeout --foreground --preserve-status -k 10 120 \
             ./build/${{ matrix.preset }}/sandbox/levain_sandbox_editor --select grid::cube_1_2 \
             --seconds 3 | tee editor.log
-          line=$(grep -o "éditeur : [0-9]* entités ; sélection : .*" editor.log) \
-            || { echo "::error::l'éditeur n'a pas rendu compte de ses entités"; exit 1; }
+          line=$(grep -o "éditeur : [0-9]* entités, [0-9]* champs dessinés ; sélection : .*" editor.log) \
+            || { echo "::error::l'éditeur n'a pas rendu compte de ses entités et de ses champs"; exit 1; }
           entities=$(echo "$line" | grep -o "[0-9]* entités" | grep -o "^[0-9]*")
           [ "$entities" -gt 0 ] || { echo "::error::l'éditeur ne compte aucune entité : $line"; exit 1; }
+          fields=$(echo "$line" | grep -o "[0-9]* champs" | grep -o "^[0-9]*")
+          [ "$fields" -gt 0 ] || { echo "::error::l'inspecteur n'a dessiné aucun champ : $line"; exit 1; }
           echo "$line" | grep -q "sélection : grid::cube_1_2$" \
             || { echo "::error::la sélection n'est pas celle de --select : $line"; exit 1; }
 

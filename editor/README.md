@@ -9,9 +9,10 @@ avec une définition qui enveloppe son démarrage par `withEditor`, et lié à `
 ainsi `levain_sandbox_editor` (dans `sandbox/`) pour ses démos et sa CI ; *Rando* construira `rando_editor` à côté
 de `rando`, dont la cible ne change pas.
 
-**État en M7.2 (en cours)** : le branchement sur la boucle, l'option `--select`, le bilan que lit la CI, et **la
+**État en M7.2 (en cours)** : le branchement sur la boucle, l'option `--select`, le bilan que lit la CI, **la
 hiérarchie** : les entités placées (`Transform`), rangées par `flecs::Parent` (ADR-0015), et un nœud
-*Singletons*. Elle sélectionne seulement ; l'inspecteur suit.
+*Singletons*, qui sélectionne seulement ; et **l'inspecteur** : les composants de l'entité choisie, un widget par
+champ, lus dans la description de flecs, aux valeurs de l'image. Il les montre grisés : l'édition suit.
 
 ## Invariants
 
@@ -36,17 +37,27 @@ hiérarchie** : les entités placées (`Transform`), rangées par `flecs::Parent
 8. **La hiérarchie ne lit que ce qu'elle montre** : les racines viennent d'une requête gardée, les enfants des
    seuls nœuds ouverts, une table à la fois. Chaque image range une ligne par racine, sans widget, et ImGui ne
    dessine que les lignes visibles (`ImGuiListClipper`).
+9. **L'inspecteur ne connaît aucun composant** : il suit la description de flecs (`EcsStruct`, `EcsArray`,
+   `EcsPrimitive`), un widget par champ selon son type : nombres, booléen, nœud d'un agrégat, lignes de quatre
+   nombres d'un tableau (une colonne de `glm::mat4` par ligne), et `vec2`/`vec3` d'un bloc. Un composant non
+   décrit, une étiquette ou une paire : une ligne à leur nom, jamais leurs octets ; un type sans widget (enum,
+   texte, entité, opaque) : le nom du type. Le nom de l'entité (`Identifier`) est en tête de la fenêtre, pas
+   un composant.
+10. **Les widgets dessinent une copie**, jamais la table.
 
 ## Points d'entrée
 
 - `withEditor(start, options)` : la fonction de démarrage du programme, enveloppée. Elle choisit l'entité de
-  `--select`, en ouvre les ancêtres, ajoute la hiérarchie aux fenêtres, et écrit à la fin le bilan que lit la CI,
-  « éditeur : N entités ; sélection : chemin », N étant les lignes de la hiérarchie à la dernière image.
+  `--select`, en ouvre les ancêtres, ajoute la hiérarchie et l'inspecteur aux fenêtres, et écrit à la fin le
+  bilan que lit la CI, « éditeur : N entités, M champs dessinés ; sélection : chemin », N étant les lignes de la
+  hiérarchie et M les champs de la sélection à la dernière image.
 - `takeEditorOptions(arguments, options)` : retire `--select chemin` de la ligne de commande avant que le programme
   ne lise ses options, qu'il refuserait sinon.
 - `selectedIfAlive(world, selected)` : l'entité choisie si elle vit encore.
 - `drawHierarchy(world, hierarchy, selected, dock)` : la fenêtre ; `listHierarchyRows` et `singletonsOf`, ses
   lignes, sans ImGui.
+- `drawInspector(world, inspector, selected, dock)` : la fenêtre, onglet à côté de « Scène » ;
+  `inspectComponent`, les champs d'un composant, rend leur nombre ; `componentLabelOf`, le nom d'un composant.
 
 ## Pièges connus
 
@@ -68,6 +79,13 @@ hiérarchie** : les entités placées (`Transform`), rangées par `flecs::Parent
   nom, qui se répète (`crate_0` sous deux parents), ni de son index, que flecs recycle.
 - **Les lignes changent d'ordre quand une entité change de table** : la hiérarchie suit l'ordre des tables de
   flecs, sans tri, qui coûterait à chaque image. Un composant ajouté déplace l'entité dans la liste.
+- **`componentLabelOf`** : un identifiant de composant n'est pas toujours une entité. `flecs::Parent` en garde un
+  à drapeaux (ni paire ni entité), sur lequel `ecs_get_symbol` arrête le programme : seule une entité
+  (`flecs::id::is_entity`) a une clé, le reste prend le texte de flecs (« (Identifier,Name) »).
+- **`createInspector`** lit les identifiants des feuilles glm une fois, au démarrage : `world.id<T>()` pendant le
+  dessin enregistrerait un type absent du monde au milieu du parcours.
+- **Un onglet caché ne dessine rien** : l'inspecteur partage le nœud de « Scène », et ImGui ne remplit que
+  l'onglet visible (le dernier ancré, au premier affichage). Caché, il compte zéro champ, et la CI échoue.
 - **Les options vont par paires** : `takeEditorOptions` lit nom et valeur comme `app::parseCommonOption`. Un
   « --select » en valeur d'une autre option n'est pas pris ; seul, sans valeur, il reste dans la ligne de
   commande, et le programme la refuse.
@@ -82,3 +100,6 @@ hiérarchie** : les entités placées (`Transform`), rangées par `flecs::Parent
 | **Unreal**, la hiérarchie | L'Outliner (*World Outliner* jusqu'à UE4) | « Hierarchical tree view of all Actors within the current Level. Used for selection, attachment, and more » (**documenté**, *Outliner in Unreal Engine*). Un acteur sans position y figure aussi ; ici, seules les entités placées, les autres en M7.3. |
 | **Unity**, la hiérarchie | La fenêtre Hierarchy | Pour « arrange the GameObjects in your scenes, group them into parent-child hierarchies » (**documenté**, manuel, *Hierarchy window*). |
 | **Godot**, la hiérarchie | Le dock Scène | Il « lists the active scene's nodes » (**documenté**, *First look at the editor*) ; un nœud est un objet, pas une entité d'ECS : pas de singletons à part. |
+| **Unreal**, l'inspecteur | Le panneau Details | « display properties and customized editing tools for selected Actors » (**documenté**, *Level Editor Details Panel*). Ses champs viennent de la réflexion `UPROPERTY`, comme ici de celle de flecs ; un tableau de la réflexion s'y déplie (**supposé**). |
+| **Unity**, l'inspecteur | La fenêtre Inspector | Elle « displays the properties of the current selection of one or more GameObjects, assets, or components » (**documenté**, manuel, *The Inspector window*), un composant sous son en-tête, comme ici. |
+| **Godot**, l'inspecteur | Le dock Inspector | Il « lists all properties of an object, resource, or node » (**documenté**, *Inspector dock*) : les propriétés exportées d'un nœud, pas des composants. |
