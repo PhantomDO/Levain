@@ -1,6 +1,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -35,7 +36,21 @@ struct TempRoot
         fs::create_directories(path / "sous-dossier");
     }
 
-    ~TempRoot() { fs::remove_all(path); }
+    // Une exception qui sort d'un destructeur arrête tout le programme de test (std::terminate) :
+    // l'effacement la rattrape et fait échouer le test en la nommant. Sous Windows, un fichier
+    // resté ouvert, une poignée que le code testé aurait oubliée, l'empêche. La version à
+    // `std::error_code` ne suffirait pas : elle peut encore lever `std::bad_alloc`.
+    ~TempRoot()
+    {
+        try
+        {
+            fs::remove_all(path);
+        }
+        catch (const std::exception& failure)
+        {
+            FAIL_CHECK("dossier temporaire non effacé : " << failure.what());
+        }
+    }
 
     TempRoot(const TempRoot&) = delete;
     TempRoot& operator=(const TempRoot&) = delete;
