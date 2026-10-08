@@ -28,7 +28,7 @@ free -h
 | git, gh (GitHub CLI ; sous CachyOS : `sudo pacman -S github-cli`) | Dépôt et suivi |
 | Steam avec Proton | Lancer les binaires Windows sur la machine de référence (dès M1.4) |
 | CMake 3.28 ou plus, Ninja | Build |
-| Clang 17 ou plus (Linux), Visual Studio 2022 avec le Windows SDK (Windows) | Compilateurs, en-têtes Direct3D 12 |
+| Clang et LLVM 23 (`clang-cl`, `lld-link`, `llvm-lib`, `llvm-rc`, `llvm-mt`) ; pour Windows, la STL et le SDK de Microsoft dans un winsysroot (ADR-0035) | Compilateurs ; Windows se compile depuis Linux |
 | Vulkan SDK de LunarG | Validation layers, `vulkaninfo`, `slangc`, `dxc` |
 | RenderDoc | Débogage GPU |
 | Tracy (profiler) | Profiling |

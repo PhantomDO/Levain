@@ -4,8 +4,9 @@ Une distro WSL dédiée, `levain-dev` : Ubuntu 26.04, la même chaîne que la CI
 machine de référence, avec Claude Code en ligne de commande. Elle vit dans son propre dossier et se supprime d'une
 commande, sans rien laisser sous Windows.
 
-Le moteur ne se construit pas nativement sous Windows : l'ADR-0011 le diffère, et les presets natifs sont
-`linux-*`. WSL est le chemin le plus court pour travailler depuis un PC Windows.
+Le moteur ne se construit pas sous Windows : il se compile sous Linux, y compris son binaire Windows, par clang-cl
+(ADR-0035). WSL est le chemin le plus court pour travailler depuis un PC Windows, et l'exe compilé dans la distro
+se lance sous Windows depuis son terminal.
 
 ## Installer
 

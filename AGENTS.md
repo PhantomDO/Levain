@@ -6,8 +6,8 @@ l'importer). Les procédures détaillées vivent dans des **skills**, un dossier
 ## Le projet
 
 **Levain** — moteur de jeu 3D en C++23 sur **NVRHI** (backend Vulkan) et **flecs** (ECS). Namespace racine
-`levain`, cibles CMake préfixées `levain_`. **Linux d'abord** : Windows et Direct3D 12 sont différés jusqu'à ce
-qu'une machine soit disponible (ADR-0011).
+`levain`, cibles CMake préfixées `levain_`. **Linux d'abord** : Windows revient, compilé depuis Linux par
+clang-cl, en Vulkan puis en Direct3D 12 (ADR-0035, M1.4).
 Priorité de Donnovan : **faire un jeu avec un moteur construit ensemble**, et comprendre au passage comment
 fonctionnent les moteurs du marché (Unreal, Unity, Godot…) grâce aux études et aux lectures.
 

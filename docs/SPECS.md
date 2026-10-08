@@ -57,8 +57,8 @@ Le temps de Donnovan est la ressource rare du projet. Trois règles en découlen
 
 ### Dans le périmètre v1 (fin de la roadmap actuelle)
 
-- **Plateformes** : Windows 10/11 et Linux, x86-64, compilés par Clang : clang-cl pour Windows, depuis Linux
-  ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
+- **Plateformes** : Windows 10 (1903 et plus) et 11, et Linux, x86-64, compilés par Clang : clang-cl pour
+  Windows, depuis Linux ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
 - **Rendu** : NVRHI avec backends Vulkan (Windows et Linux) et Direct3D 12 (Windows) ; rendu forward PBR, ombres
   en cascades, HDR et tonemapping, éclairage d'environnement (IBL), frustum culling, hot-reload des shaders.
 - **Cœur** : boucle à pas fixe pour la simulation, ECS flecs, hiérarchie de transforms, input par actions,
@@ -82,7 +82,8 @@ consoles, mobile, macOS (NVRHI n'a pas de backend Metal), VR.
 - **Coût zéro** : outils et bibliothèques gratuits, sous licence permissive (MIT, BSD, zlib, Apache 2.0, Boost).
 - **Build reproductible** : un preset CMake et une commande de build, sans étape manuelle hormis l'installation
   des outils listés dans `docs/SETUP.md`.
-- **CI verte obligatoire** sur Windows et Linux avant toute fusion dans `main`.
+- **CI verte obligatoire** avant toute fusion dans `main` : Linux, et Windows dès que Donnovan ajoute ses jobs
+  aux checks requis (ADR-0035).
 - **Zéro erreur de validation** en Debug : couche de validation NVRHI, validation layers Vulkan et couche de debug
   D3D12. Une erreur de validation est un bug bloquant.
 - **Pas de code tiers copié dans le dépôt** : les dépendances passent par vcpkg, ou par `FetchContent` avec un
@@ -187,8 +188,8 @@ pipeline flecs dédié ; rendu à fréquence libre avec interpolation. Détails 
   `normalizeOrZero`, `clampPitch`, `horizontalBasisFrom` plutôt que le calcul brut. Ce sont ces trois règles,
   et non le nommage, qui décident de la fatigue de relecture.
 - **Plateforme** : **Linux et Clang d'abord**. Windows revient avec le PC Windows de Donnovan
-  ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : compilé depuis Linux par clang-cl, le même LLVM ; la
-  machine de développement et la CI restent sous Linux.
+  ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : compilé depuis Linux par clang-cl, le même LLVM. On
+  développe sous Linux ; la CI compile sous Linux et lance le binaire Windows sur un runner Windows.
 - **Style** : clang-format et clang-tidy versionnés dans le dépôt et vérifiés en CI.
 - **Commits** : [Conventional Commits](https://www.conventionalcommits.org/fr/) (`feat(render): …`, `fix(gpu): …`,
   `docs(adr): …`).
