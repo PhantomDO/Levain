@@ -74,15 +74,19 @@ core::Result<TonemapPass> createTonemapPass(nvrhi::IDevice& device,
 }
 
 nvrhi::ITexture* ensureHdrTarget(nvrhi::IDevice& device, const TonemapPass& pass, HdrTarget& target,
-                                 std::uint32_t width, std::uint32_t height)
+                                 std::uint32_t width, std::uint32_t height,
+                                 const nvrhi::Color& clearColor)
 {
     if (target.texture && target.texture->getDesc().width == width &&
-        target.texture->getDesc().height == height)
+        target.texture->getDesc().height == height &&
+        target.texture->getDesc().clearValue == clearColor)
     {
         return target.texture;
     }
     // Dessinée par la scène, puis lue par la passe : NVRHI place la transition entre les deux
-    // (suivi automatique des états).
+    // (suivi automatique des états). Direct3D 12 efface plus vite une image dont il connaît la
+    // couleur d'effacement, et sa couche de debug avertit sinon à chaque image (D3D12_MESSAGE_ID
+    // 820).
     target.texture =
         device.createTexture(nvrhi::TextureDesc()
                                  .setWidth(width)
@@ -91,6 +95,7 @@ nvrhi::ITexture* ensureHdrTarget(nvrhi::IDevice& device, const TonemapPass& pass
                                  .setIsRenderTarget(true)
                                  .setInitialState(nvrhi::ResourceStates::ShaderResource)
                                  .setKeepInitialState(true)
+                                 .setClearValue(clearColor)
                                  .setDebugName("image HDR"));
     target.bindings = device.createBindingSet(
         nvrhi::BindingSetDesc()

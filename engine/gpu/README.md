@@ -74,6 +74,8 @@ Mesuré sur la machine de référence : device créé en 30 à 40 ms, validation
 
 | Piège | Parade |
 |---|---|
+| Le NVRHI du port ne remettait un vertex buffer en état `VertexBuffer` que si le dessin avait un index buffer : les lignes de debug restaient en `COPY_DEST` sous Direct3D 12 | Le correctif de NVRHI (7a04ce9b8a), repris dans le port overlay (`ports/nvrhi`) |
+| La couche de debug D3D12 avertit à chaque effacement d'une image créée sans valeur d'effacement, ou avec une autre (D3D12_MESSAGE_ID 820 et 821, trois par image) | La valeur d'effacement donnée à la création : profondeur et atlas des ombres (`render::FarthestDepth`, la même constante qu'à l'effacement), image HDR (recréée si le fond change) |
 | NVRHI est compilé en bibliothèque statique : il ne définit pas le dispatcher de Vulkan-Hpp et ne l'initialise pas | `VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE` et `VULKAN_HPP_DEFAULT_DISPATCHER.init(…)` dans `device_vk.cpp`, `VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1` dans le `CMakeLists.txt` |
 | `nvrhi::vulkan::DeviceDesc desc;` laisse `transferQueue` et `computeQueue` indéterminés | `DeviceDesc desc{}` |
 | LeakSanitizer signale 128 octets alloués par RADV | Faux positif : le loader décharge le pilote à la destruction de l'instance. Voir le skill `build`, `GOTCHA.md` |

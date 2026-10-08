@@ -125,8 +125,10 @@ void renderFrame(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, Rende
     nvrhi::ITexture* depth = ensureDepthTexture(device, renderer.depth, size.width, size.height);
     // La scène se dessine dans l'image HDR, où la lumière n'est pas coupée à 1 ; le tonemapping la
     // ramène ensuite dans la sortie (M5.2).
-    nvrhi::ITexture* hdr =
-        ensureHdrTarget(device, renderer.tonemap, renderer.hdr, size.width, size.height);
+    const nvrhi::Color background{view.background.r, view.background.g, view.background.b,
+                                  view.background.a};
+    nvrhi::ITexture* hdr = ensureHdrTarget(device, renderer.tonemap, renderer.hdr, size.width,
+                                           size.height, background);
     // ponytail: framebuffers recréés à chaque image. C'est léger avec le rendu dynamique de Vulkan
     // 1.3 (NVRHI ne crée pas de VkFramebuffer) ; un cache par image si un profil le montre.
     const nvrhi::FramebufferHandle scene = device.createFramebuffer(
@@ -143,11 +145,9 @@ void renderFrame(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, Rende
         .environmentIntensity = view.environmentIntensity,
         .cascades = cascadesOf(view.camera, aspect, view.sun.direction, renderer.cascadeSettings)};
 
-    commandList.clearTextureFloat(
-        hdr, nvrhi::AllSubresources,
-        nvrhi::Color{view.background.r, view.background.g, view.background.b, view.background.a});
-    // 1 : la profondeur la plus lointaine, que tout ce qu'on dessine vient remplacer.
-    commandList.clearDepthStencilTexture(depth, nvrhi::AllSubresources, true, 1.0f, false, 0);
+    commandList.clearTextureFloat(hdr, nvrhi::AllSubresources, background);
+    commandList.clearDepthStencilTexture(depth, nvrhi::AllSubresources, true, FarthestDepth, false,
+                                         0);
 
     // Les lumières ponctuelles triées par cluster, puis l'éclairage de l'image, avant les dessins
     // qui les lisent (ADR-0024).

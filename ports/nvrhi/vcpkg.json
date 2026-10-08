@@ -1,7 +1,7 @@
 {
   "name": "nvrhi",
   "version-date": "2026-02-26",
-  "description": "NVRHI, port overlay de Levain : la valeur GraphicsAPI::WEBGPU, et le cœur seul sous Emscripten (ADR-0023).",
+  "description": "NVRHI, port overlay de Levain : la valeur GraphicsAPI::WEBGPU, le cœur seul sous Emscripten (ADR-0023), et le correctif 7a04ce9b8a de l'état des vertex buffers sous Direct3D 12.",
   "homepage": "https://github.com/NVIDIA-RTX/NVRHI",
   "license": "MIT",
   "supports": "(windows & x64 & !uwp & !xbox) | (linux & (x64 | arm64)) | emscripten",
