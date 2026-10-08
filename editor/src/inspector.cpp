@@ -62,7 +62,8 @@ void* fieldAt(void* value, std::int32_t offset)
 }
 
 /// La borne dans le type du champ, saturée à ses limites : convertir un double qui en sort est un
-/// comportement indéfini.
+/// comportement indéfini. Un entier ne se borne que vers l'intérieur : un plancher de 0,5 est 1, le
+/// tronquer à 0 laisserait passer 0 (`minimumAs`, `maximumAs`).
 template <class N> N saturate(double bound)
 {
     constexpr double Lowest = static_cast<double>(std::numeric_limits<N>::lowest());
@@ -72,6 +73,16 @@ template <class N> N saturate(double bound)
         return std::numeric_limits<N>::lowest();
     }
     return bound >= Highest ? std::numeric_limits<N>::max() : static_cast<N>(bound);
+}
+
+template <class N> N minimumAs(double bound)
+{
+    return saturate<N>(std::is_integral_v<N> ? std::ceil(bound) : bound);
+}
+
+template <class N> N maximumAs(double bound)
+{
+    return saturate<N>(std::is_integral_v<N> ? std::floor(bound) : bound);
 }
 
 /// Un widget de `count` nombres, qui ne change rien s'il en rend un qui n'est pas fini. ImGui
@@ -106,8 +117,8 @@ template <class N>
 bool dragAs(ImGuiDataType type, const char* label, void* value, int count, const Range& range)
 {
     constexpr float Speed = std::is_integral_v<N> ? 1.0f : DragSpeed;
-    const N low = range ? saturate<N>(range->min) : N{};
-    const N high = range ? saturate<N>(range->max) : N{};
+    const N low = range ? minimumAs<N>(range->min) : N{};
+    const N high = range ? maximumAs<N>(range->max) : N{};
     return rejectNonFinite(static_cast<N*>(value), count,
                            [&]
                            {

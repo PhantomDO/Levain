@@ -202,6 +202,11 @@ struct Gauge // ce que le jeu réécrit : en lecture seule
     float level = 0.5f;
 };
 
+struct Tally // un entier de bornes fractionnaires
+{
+    std::int32_t n = 5;
+};
+
 struct Facing // une rotation : le dessinateur d'angles
 {
     glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
@@ -475,6 +480,19 @@ bool sameRotation(const glm::quat& left, const glm::quat& right)
 }
 
 } // namespace
+
+TEST_CASE("la borne d'un entier se lit vers l'intérieur : un plancher de 0,5 est 1")
+{
+    Typing typing;
+    levain::scene::describeAuthored<editor_test::Tally>(typing.world)
+        .range(&editor_test::Tally::n, 0.5, 10.5);
+    const flecs::entity entity = typing.entityWith("compte", editor_test::Tally{});
+
+    typing.type<editor_test::Tally>(entity, "0"); // tronquée, la borne 0,5 laisserait passer 0
+    CHECK(entity.get<editor_test::Tally>().n == 1);
+    typing.type<editor_test::Tally>(entity, "99");
+    CHECK(entity.get<editor_test::Tally>().n == 10);
+}
 
 TEST_CASE("ImGui laisse taper « nan » et « inf » : l'inspecteur n'écrit jamais un nombre non fini")
 {
