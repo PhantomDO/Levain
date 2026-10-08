@@ -11,8 +11,8 @@
 # qu'une étape échoue (règle n°7) : un script qui rend 0 quoi qu'il arrive laisse pousser une branche rouge.
 #
 # Quatre tâches de compilation et quatre tests à la fois par défaut : la machine de référence a 16 Go, et des
-# builds à toutes ses tâches l'ont fait planter (build/GOTCHA.md, « 16 Go de RAM »). Une machine plus grande
-# lève la limite : CMAKE_BUILD_PARALLEL_LEVEL=16 LEVAIN_TEST_JOBS=8 tools/verify.sh.
+# builds à toutes ses tâches l'ont fait planter (build/GOTCHA.md, « 16 Go de RAM »). Les ports de vcpkg suivent la
+# même limite. Une machine plus grande la lève : CMAKE_BUILD_PARALLEL_LEVEL=16 LEVAIN_TEST_JOBS=8 tools/verify.sh.
 #
 # Les tests GPU tournent sur RADV, le pilote de la machine de référence, seul et préchargé : avec les huit pilotes
 # de Mesa, LeakSanitizer voit une fuite dans ceux que le loader décharge (build/GOTCHA.md, « LeakSanitizer et
@@ -21,6 +21,9 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 export CMAKE_BUILD_PARALLEL_LEVEL=${CMAKE_BUILD_PARALLEL_LEVEL:-4}
+# vcpkg ne lit pas CMAKE_BUILD_PARALLEL_LEVEL : un port reconstruit (le cache binaire raté) compilerait à toutes
+# les tâches de la machine.
+export VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY:-$CMAKE_BUILD_PARALLEL_LEVEL}
 testJobs=${LEVAIN_TEST_JOBS:-4}
 logs=build/verify
 mkdir -p "$logs"

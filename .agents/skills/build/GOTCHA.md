@@ -8,16 +8,17 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 - **Symptôme** : le PC de Donnovan se fige et redémarre, plusieurs fois dans la nuit et la matinée, pendant que la
   session de M7.2 travaillait.
 - **Cause** : jusqu'à trois builds à la fois (trois worktrees, des relecteurs de workflow qui compilaient en
-  parallèle, des presets ASan), chacun à toutes les tâches de ninja (16 sur cette machine). Une unité de
-  traduction lourde (flecs.h, Jolt, ImGui, NVRHI) prend environ 1 Go ; la machine en a 14 utilisables, sans
+  parallèle, des presets ASan), chacun à toutes les tâches de ninja (18 sur cette machine : nproc + 2). Une unité
+  de traduction lourde (flecs.h, Jolt, ImGui, NVRHI) prend environ 1 Go ; la machine en a 14 utilisables, sans
   plafond de mémoire sur la distrobox : le bureau meurt avant le build.
-- **Parade** : un build à la fois, jamais deux ; `tools/verify.sh` limite à 4 tâches de compilation et 4 tests
-  (`CMAKE_BUILD_PARALLEL_LEVEL`, `LEVAIN_TEST_JOBS`) ; les relecteurs d'un workflow, l'un après l'autre. Mesuré
-  sur deux heures de builds à 4 tâches, un à la fois (le workflow de l'inspecteur, un relevé de `free -m` toutes
-  les 15 s) : 3,5 Go disponibles au plus bas, pendant une édition de liens, et jusqu'à 3,4 Go de swap. 8 tâches
-  ne tiendraient sans doute pas sur cette machine. Un plafond de mémoire sur la distrobox (`podman update
-  --memory 10g --memory-swap 12g dev-ubuntu`) ferait tuer le build plutôt que le PC : réglage du système, à la
-  main de Donnovan.
+- **Parade** : un build à la fois, jamais deux ; `tools/verify.sh` limite à 4 tâches de compilation, de ports vcpkg
+  et de tests (`CMAKE_BUILD_PARALLEL_LEVEL`, `VCPKG_MAX_CONCURRENCY`, `LEVAIN_TEST_JOBS`) ; hors du script, `export
+  CMAKE_BUILD_PARALLEL_LEVEL=4 VCPKG_MAX_CONCURRENCY=4` avant `cmake --preset` et `cmake --build` ; les relecteurs
+  d'un workflow, l'un après l'autre. Mesuré sur deux heures de builds à 4 tâches, un à la fois (le workflow de
+  l'inspecteur, un relevé de `free -m` toutes les 15 s) : 3,5 Go disponibles au plus bas, pendant une édition de
+  liens, et jusqu'à 3,4 Go de swap. 8 tâches ne tiendraient sans doute pas sur cette machine. Un plafond de mémoire
+  sur la distrobox (`podman update --memory 10g --memory-swap 12g dev-ubuntu`) ferait tuer le build plutôt que le
+  PC : réglage du système, à la main de Donnovan.
 
 ## Une regex sur un message de CMake : son repli dépend du chemin (2026-10-08)
 

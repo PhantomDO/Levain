@@ -28,6 +28,7 @@ set -Ux VCPKG_ROOT ~/vcpkg   # fish ; bash : echo 'export VCPKG_ROOT=~/vcpkg' >>
 | `web` | WebAssembly par Emscripten (ADR-0023) : le moteur sans fenêtre (`core`, `scene`, `assets`, `animation`, `gpu` sur WebGPU, `render`), ses tests lancés par Node, et la page du cube pour le navigateur |
 
 ```bash
+export CMAKE_BUILD_PARALLEL_LEVEL=4 VCPKG_MAX_CONCURRENCY=4   # la machine de référence a 16 Go (GOTCHA)
 cmake --preset linux-debug && cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug --output-on-failure
 ```

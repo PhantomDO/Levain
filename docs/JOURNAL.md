@@ -37,7 +37,7 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   les plantages du PC, l'installation de la distro WSL, la session à distance ; le reste pour #253 (les sondages,
   le suivi des PR). La part de #253 se répartit à la clôture de M7.2.
 - Sessions Claude Code : 1 (la même que l'ADR-0034), reprise deux fois après un plantage du PC
-- Fait, en mode autonome, une PR ou une pile à la fois (ferme #252 et #253) :
+- Fait, en mode autonome, une PR ou une pile à la fois (ferme #253, par #342) :
   - **les refus de la physique au journal** (#325, option 5B) : sans assertion, testés en Debug aussi ;
   - **la réflexion** (#326 à #329) : les champs lus dans la struct, `describe` et `describeAuthored`, les bornes,
     `setComponentValue`, `sameValue`, les clés stables ; les refus bruyants, à l'import comme à la compilation ;
@@ -53,12 +53,15 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
     l'inspecteur sans autre code (`tests/editor_test.cpp`, le cas `Beacon`) ;
   - l'inventaire, moteur et plugins : 16 composants décrits (7 données d'auteur, 9 en lecture seule), 5 types de
     champ, 11 non décrits (`levain_tests -tc='*inventaire*'`) ;
-  - la CI de l'éditeur : « éditeur : 10002 entités, 12 champs dessinés ; sélection : grid::cube_1_2 » ;
-  - tests : 337 Debug, 337 Release, 337 ASan, 184 web (289 et 172 avant M7.2) ; format et clang-tidy ;
-  - le coût de l'interface, indicatif (Release, vue démo) : 0,032 ms de CPU l'éditeur rien déplié, 0,100 ms avec
-    10 002 lignes listées, 0,046 ms pour le sandbox seul.
-- Décisions de Donnovan : l'implémentation sur Sonnet, les relectures sur Opus ; les trois PR de l'inspecteur au-
-  delà de 400 lignes, signalées et ouvertes (sondage) ; la distro WSL (`tools/wsl/`) et une session à distance
+  - la CI de l'éditeur : « éditeur : 10002 entités, 12 champs dessinés ; sélection : grid::cube_1_2 »
+    (`levain_sandbox_editor --select grid::cube_1_2`, sous ASan) ;
+  - tests : 337 Debug, 337 Release, 337 ASan, 184 web (`tools/verify.sh`, au sommet de la pile ; 285, 289 en
+    Release, et 172 web avant M7.2) ; format et clang-tidy ;
+  - le coût de l'interface, indicatif (Release, vue démo, `levain_sandbox_editor --ui on`, mesuré à #336, avant
+    l'inspecteur) : 0,032 ms de CPU l'éditeur rien déplié, 0,100 ms avec 10 002 lignes listées, 0,046 ms pour le
+    sandbox seul.
+- Décisions de Donnovan : l'implémentation sur Sonnet, les relectures sur Opus ; les trois PR de l'inspecteur
+  au-delà de 400 lignes, signalées et ouvertes (sondage) ; la distro WSL (`tools/wsl/`) et une session à distance
   sur le PC de bureau.
 - Écarts et problèmes :
   - **la nuit perdue** : un avis de fin de workflow, à 00 h 40, resté sans suite ; rien n'a tourné jusqu'au matin

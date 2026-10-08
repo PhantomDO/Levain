@@ -34,7 +34,7 @@ Ses dossiers `build/` sont à lui ; le cache binaire de vcpkg (`~/.cache/vcpkg`)
   (sous ASan, UBSan, et GCC quand le code est générique), les règles du projet et la taille, les contrôles qui
   doivent pouvoir échouer et le build web —, puis une correction. Donner aux agents le chemin du worktree, « ne
   touchez à aucun autre », les sections de l'ADR, la passation, les prototypes s'il y en a.
-- **Les modèles** (proposé par Donnovan le 2026-10-08) : l'implémentation sur Sonnet quand son périmètre est
+- **Les modèles** (décidé par Donnovan le 2026-10-08) : l'implémentation sur Sonnet quand son périmètre est
   borné (l'ADR décidé, les fichiers, l'API, les tests et le budget de lignes écrits dans la demande) ; les
   relectures adverses, les ADR, les découpages et le débogage sur Opus. Mesuré sur l'inspecteur (#339 à #342) :
   Sonnet a livré en 25 minutes, mais sans tenir le budget de lignes : le donner comme une règle, et le mesurer.

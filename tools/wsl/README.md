@@ -63,9 +63,11 @@ Claude Code, « Remote Control ») :
 cd ~/Projects/Levain && claude --remote-control "Levain"
 ```
 
-Une URL et un QR code s'affichent ; la session apparaît sous son nom. Le terminal reste ouvert : le processus
+Le pied de l'invite affiche `/rc active` ; `/remote-control` ouvre le panneau, avec l'URL et le QR code. La
+session apparaît sous son nom. Le terminal reste ouvert : le processus
 `claude` tourne dans la distro. Les demandes de permission attendent qu'on y réponde, à distance aussi.
-Prérequis : un abonnement Pro ou Max, et la connexion par `/login` (une clé d'API ou un jeton la bloquent).
+Prérequis : un abonnement Pro ou Max, et la connexion par `/login` ; une clé d'API, `ANTHROPIC_BASE_URL` vers un
+proxy ou `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` la bloquent.
 
 Après un `wsl --shutdown`, la conversation n'est pas perdue : son historique est sur le disque de la distro.
 `claude --continue` reprend la dernière (du même dossier), `claude --resume` en propose une liste, puis

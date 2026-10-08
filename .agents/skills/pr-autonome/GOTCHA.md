@@ -14,11 +14,14 @@ Chaque entrée : symptôme, cause, parade, date. La plus récente en haut.
 
 ## Deux sessions, deux machines, un dépôt (2026-10-08)
 
-- **Contexte** : une session sur la machine de référence (16 Go), une autre dans la distro WSL du PC de bureau
-  (64 Go, `tools/wsl/`), sur un autre compte Claude.
-- **Parade** : la règle n°1 vaut pour les deux : une seule session ouvre des PR à la fois. La passation se fait par
-  le dépôt (ce skill, le JOURNAL), pas par la mémoire locale d'une session, qui ne suit pas d'une machine à
-  l'autre. Une session voit l'autre par `ListAgents` et peut lui écrire (Remote Control).
+- **Symptôme** : deux sessions travaillent sur le même dépôt, l'une sur la machine de référence (16 Go), l'autre
+  dans la distro WSL du PC de bureau (64 Go, `tools/wsl/`), lancée en Remote Control.
+- **Cause** : la mémoire locale d'une session (ses notes, ses leçons) ne suit pas d'une machine à l'autre, et
+  rien n'empêche deux sessions d'ouvrir chacune une PR.
+- **Parade** : la règle n°1 vaut pour les deux : une seule session ouvre des PR à la fois. La passation se fait
+  par le dépôt (ce skill, le JOURNAL). Observé le 2026-10-08 : la session WSL apparaissait dans `ListAgents` de
+  l'autre, qui pouvait lui écrire, et elle répondait ; la documentation de Remote Control ne le promet que
+  pour un même compte, donc ne pas compter sur ce canal.
 
 ## Une PR annoncée sous 400 lignes en fait 1 081 (2026-10-07)
 
