@@ -10,8 +10,8 @@ ainsi `levain_sandbox_editor` (dans `sandbox/`) pour ses démos et sa CI ; *Rand
 de `rando`, dont la cible ne change pas.
 
 **État en M7.2 (en cours)** : le branchement sur la boucle, l'option `--select`, le bilan que lit la CI, et **la
-hiérarchie** : les entités placées (`Transform`), rangées par `flecs::Parent` (ADR-0015). Elle sélectionne
-seulement ; l'inspecteur suit.
+hiérarchie** : les entités placées (`Transform`), rangées par `flecs::Parent` (ADR-0015), et un nœud
+*Singletons*. Elle sélectionne seulement ; l'inspecteur suit.
 
 ## Invariants
 
@@ -45,7 +45,8 @@ seulement ; l'inspecteur suit.
 - `takeEditorOptions(arguments, options)` : retire `--select chemin` de la ligne de commande avant que le programme
   ne lise ses options, qu'il refuserait sinon.
 - `selectedIfAlive(world, selected)` : l'entité choisie si elle vit encore.
-- `drawHierarchy(world, hierarchy, selected, dock)` : la fenêtre ; `listHierarchyRows`, ses lignes, sans ImGui.
+- `drawHierarchy(world, hierarchy, selected, dock)` : la fenêtre ; `listHierarchyRows` et `singletonsOf`, ses
+  lignes, sans ImGui.
 
 ## Pièges connus
 
@@ -54,7 +55,9 @@ seulement ; l'inspecteur suit.
   index avec une autre génération, ne fait pas passer la nouvelle entité pour la sélection.
 - **`isEngineInternal`** : modules, systèmes, observateurs, requêtes, composants et prefabs sont des entités
   comme les autres. Un singleton est rangé sur l'entité de son composant : `world.set(Transform{})` ferait passer
-  le composant `Transform` pour une racine de la scène. La hiérarchie les tait, une table à la fois.
+  le composant `Transform` pour une racine de la scène. La hiérarchie les tait, une table à la fois ; les
+  singletons ont leur nœud, sans les modules (flecs garde leur instance sur leur entité) ni les composants de
+  flecs (`Component` se décrit lui-même) : `isEngineSingleton`.
 - **`isShownChild`** : un enfant n'est montré que rangé par `flecs::Parent`. Créé par son chemin (`a::b`), il
   l'est par `ChildOf` : c'est une racine, que l'arbre ne répète pas sous son parent. La flèche d'un nœud suit le
   même filtre (`hasShownChildren`) : un observateur ou un enfant sans `Transform` n'en donnent pas.
@@ -78,4 +81,4 @@ seulement ; l'inspecteur suit.
 | **Godot** | L'éditeur, un programme du moteur | Il tourne sur le moteur et son UI (**documenté**, ADR-0032) ; le jeu s'exporte avec des modèles d'export compilés sans l'éditeur (**supposé**). |
 | **Unreal**, la hiérarchie | L'Outliner (*World Outliner* jusqu'à UE4) | « Hierarchical tree view of all Actors within the current Level. Used for selection, attachment, and more » (**documenté**, *Outliner in Unreal Engine*). Un acteur sans position y figure aussi ; ici, seules les entités placées, les autres en M7.3. |
 | **Unity**, la hiérarchie | La fenêtre Hierarchy | Pour « arrange the GameObjects in your scenes, group them into parent-child hierarchies » (**documenté**, manuel, *Hierarchy window*). |
-| **Godot**, la hiérarchie | Le dock Scène | Il « lists the active scene's nodes » (**documenté**, *First look at the editor*). |
+| **Godot**, la hiérarchie | Le dock Scène | Il « lists the active scene's nodes » (**documenté**, *First look at the editor*) ; un nœud est un objet, pas une entité d'ECS : pas de singletons à part. |

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/scene/components.hpp"
+#include "levain/scene/scene.hpp"
 
 namespace
 {
@@ -118,15 +120,24 @@ TEST_CASE("la hiérarchie liste les racines, et les enfants des seuls nœuds ouv
     CHECK_FALSE(levain::editor::hasShownChildren(world, world.lookup("a::b")));
 }
 
-TEST_CASE("la hiérarchie tait les entités de flecs")
+TEST_CASE("la hiérarchie tait les entités de flecs, et un singleton va dans « Singletons »")
 {
     flecs::world world;
+    // flecs garde l'instance d'un module sur l'entité du module, et `Component` se décrit
+    // lui-même : deux composants qui portent leur valeur, sans être des singletons de la scène.
+    const flecs::entity scene = world.import<levain::scene::SceneModule>();
     world.entity("placée").set(Transform{});
     // Un singleton est rangé sur l'entité de son composant : sans `isEngineInternal`, le
     // composant Transform passerait pour une racine de la scène, comme un système placé.
     world.set(Transform{});
     world.system("système").run([](flecs::iter&) {}).set(Transform{});
+    world.component<levain::scene::Velocity>();
     const levain::editor::Hierarchy hierarchy = levain::editor::createHierarchy(world);
 
     CHECK(rowsOf(world, hierarchy) == std::vector<std::string>{"placée"});
+    const std::vector<flecs::entity_t> singletons = levain::editor::singletonsOf(world);
+    CHECK(std::ranges::count(singletons, world.component<Transform>().id()) == 1);
+    CHECK(std::ranges::count(singletons, world.component<levain::scene::Velocity>().id()) == 0);
+    CHECK(std::ranges::count(singletons, scene.id()) == 0);
+    CHECK(std::ranges::count(singletons, world.component<flecs::Component>().id()) == 0);
 }

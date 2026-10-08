@@ -1,8 +1,8 @@
 #pragma once
 
 // La hiérarchie de l'éditeur (ADR-0034, « Les panneaux ») : les entités placées (`Transform`),
-// rangées par `flecs::Parent` (ADR-0015). En M7.2, elle sélectionne seulement. Ses lignes se
-// calculent sans ImGui : les tests les lisent.
+// rangées par `flecs::Parent` (ADR-0015), et un nœud des singletons. En M7.2, elle sélectionne
+// seulement. Ses lignes se calculent sans ImGui : les tests les lisent.
 
 #include <unordered_set>
 #include <vector>
@@ -37,7 +37,7 @@ struct Hierarchy
 
 /// Une table d'entités de flecs plutôt que de la scène : modules, systèmes, observateurs,
 /// requêtes, composants, prefabs. La hiérarchie les tait, table par table et non entité par
-/// entité.
+/// entité ; un composant qui porte sa propre valeur va dans « Singletons ».
 [[nodiscard]] bool isEngineInternal(const flecs::table& table);
 
 /// Vide `rows`, puis y range chaque racine et, sous un nœud ouvert, ses enfants placés, dans
@@ -48,6 +48,11 @@ void listHierarchyRows(const Hierarchy& hierarchy, std::vector<HierarchyRow>& ro
 /// Si `entity` a un enfant que la hiérarchie listerait, pour sa flèche : le même filtre que les
 /// lignes, arrêté au premier.
 [[nodiscard]] bool hasShownChildren(const flecs::world& world, flecs::entity_t entity);
+
+/// Les composants qui portent leur propre valeur : flecs 4 range un singleton sur l'entité de son
+/// composant, qu'aucune requête sur `Transform` ne voit. Sans les modules, dont flecs garde
+/// l'instance sur leur entité, ni les composants de flecs.
+[[nodiscard]] std::vector<flecs::entity_t> singletonsOf(const flecs::world& world);
 
 /// Ouvre les ancêtres de `entity`, pour qu'elle se voie dans l'arbre (`--select`).
 void revealInHierarchy(Hierarchy& hierarchy, flecs::entity entity);
