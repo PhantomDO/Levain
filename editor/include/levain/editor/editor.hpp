@@ -12,6 +12,7 @@
 #include <flecs.h>
 
 #include "levain/app/app.hpp"
+#include "levain/editor/hierarchy.hpp"
 
 namespace levain::editor
 {
@@ -36,6 +37,7 @@ struct Editor
     /// L'entité choisie, par son identifiant complet, génération comprise : une entité détruite,
     /// dont flecs recycle l'index, ne passe pas pour la nouvelle (`selectedIfAlive`).
     flecs::entity_t selected = 0;
+    Hierarchy hierarchy;
 };
 
 /// L'entité choisie si elle vit encore ; l'entité nulle sinon, ou sans choix. Une sélection
@@ -43,8 +45,9 @@ struct Editor
 [[nodiscard]] flecs::entity selectedIfAlive(const flecs::world& world, flecs::entity_t selected);
 
 /// La fonction de démarrage du programme, enveloppée (ADR-0029) : `start`, puis l'entité de
-/// `--select`, dont l'absence fait échouer le démarrage ; le bilan de l'éditeur passe avant celui
-/// du programme (`FrameHooks::finish`). La boucle ne change pas.
+/// `--select`, dont l'absence fait échouer le démarrage ; les panneaux de l'éditeur passent après
+/// les fenêtres du programme (`FrameHooks::ui`), panneaux ouverts seulement, et son bilan avant
+/// celui du programme (`FrameHooks::finish`). La boucle ne change pas.
 [[nodiscard]] app::StartFunction withEditor(app::StartFunction start, EditorOptions options);
 
 } // namespace levain::editor

@@ -480,9 +480,10 @@ jobs:
           done
 
       # L'éditeur (M7.2, ADR-0034) : l'exécutable éditeur du sandbox, panneaux ouverts, une entité
-      # choisie par son chemin, sous validation et sous les sanitizers. Son bilan doit compter des
-      # entités et garder la sélection de --select : une ligne absente, zéro entité ou une autre
-      # sélection font échouer l'étape, qui sinon resterait verte sans rien vérifier (règle n°7).
+      # choisie par son chemin, sous validation et sous les sanitizers. Son bilan compte les lignes
+      # de la hiérarchie à la dernière image (zéro si elle n'a pas été dessinée) et redit la
+      # sélection : une ligne absente, zéro entité ou une autre sélection que celle de --select font
+      # échouer l'étape, qui sinon resterait verte sans rien vérifier (règle n°7).
       - name: L'éditeur
         if: matrix.preset == 'linux-debug' || matrix.preset == 'linux-asan'
         env:

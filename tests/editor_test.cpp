@@ -1,4 +1,7 @@
 #include <array>
+#include <cstddef>
+#include <cstdint>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -6,6 +9,8 @@
 #include <flecs.h>
 
 #include "levain/editor/editor.hpp"
+#include "levain/editor/hierarchy.hpp"
+#include "levain/scene/components.hpp"
 
 namespace
 {
@@ -55,4 +60,73 @@ TEST_CASE("une sélection survit à la destruction de son entité, sans désigne
     const flecs::entity recycled = world.entity();
     CHECK(static_cast<std::uint32_t>(recycled.id()) == static_cast<std::uint32_t>(selected));
     CHECK_FALSE(levain::editor::selectedIfAlive(world, selected));
+}
+
+namespace
+{
+
+using levain::editor::HierarchyRow;
+using levain::scene::Transform;
+
+/// Les lignes, par nom et profondeur : « a », « .b » pour un enfant de « a ».
+std::vector<std::string> rowsOf(const flecs::world& world,
+                                const levain::editor::Hierarchy& hierarchy)
+{
+    std::vector<HierarchyRow> rows;
+    levain::editor::listHierarchyRows(hierarchy, rows);
+    std::vector<std::string> names;
+    names.reserve(rows.size());
+    for (const HierarchyRow& row : rows)
+    {
+        names.push_back(std::string(static_cast<std::size_t>(row.depth), '.') +
+                        world.entity(row.entity).name().c_str());
+    }
+    return names;
+}
+
+} // namespace
+
+TEST_CASE("la hiérarchie liste les racines, et les enfants des seuls nœuds ouverts")
+{
+    flecs::world world;
+    const flecs::entity a = world.entity("a").set(Transform{});
+    world.entity(flecs::Parent{a}, "b").set(Transform{});
+    const flecs::entity c = world.entity(flecs::Parent{a}, "c").set(Transform{});
+    const flecs::entity d = world.entity(flecs::Parent{c}, "d").set(Transform{});
+    world.entity(flecs::Parent{a}, "sans_transform");
+    world.entity("e").set(Transform{});
+    // Créée par son chemin, elle est rangée par `ChildOf`, sans `flecs::Parent` : une racine, et
+    // une seule ligne, même sous « a » ouvert.
+    world.entity("a::par_chemin").set(Transform{});
+    // Placée sous un parent qui ne l'est pas : ni racine, ni enfant d'une ligne (README).
+    world.entity(flecs::Parent{world.entity("nu")}, "orpheline").set(Transform{});
+    levain::editor::Hierarchy hierarchy = levain::editor::createHierarchy(world);
+
+    CHECK(rowsOf(world, hierarchy) == std::vector<std::string>{"a", "e", "par_chemin"});
+    hierarchy.open.insert(a);
+    CHECK(rowsOf(world, hierarchy) == std::vector<std::string>{"a", ".b", ".c", "e", "par_chemin"});
+    // --select d : ses ancêtres s'ouvrent, elle se voit.
+    hierarchy.open.clear();
+    levain::editor::revealInHierarchy(hierarchy, d);
+    CHECK(rowsOf(world, hierarchy) ==
+          std::vector<std::string>{"a", ".b", ".c", "..d", "e", "par_chemin"});
+
+    // La flèche suit la liste : « e » n'a qu'un enfant par `ChildOf`, « b » aucun.
+    CHECK(levain::editor::hasShownChildren(world, a));
+    world.entity("e::sous_e").set(Transform{});
+    CHECK_FALSE(levain::editor::hasShownChildren(world, world.lookup("e")));
+    CHECK_FALSE(levain::editor::hasShownChildren(world, world.lookup("a::b")));
+}
+
+TEST_CASE("la hiérarchie tait les entités de flecs")
+{
+    flecs::world world;
+    world.entity("placée").set(Transform{});
+    // Un singleton est rangé sur l'entité de son composant : sans `isEngineInternal`, le
+    // composant Transform passerait pour une racine de la scène, comme un système placé.
+    world.set(Transform{});
+    world.system("système").run([](flecs::iter&) {}).set(Transform{});
+    const levain::editor::Hierarchy hierarchy = levain::editor::createHierarchy(world);
+
+    CHECK(rowsOf(world, hierarchy) == std::vector<std::string>{"placée"});
 }

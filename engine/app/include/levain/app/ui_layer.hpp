@@ -45,6 +45,13 @@ struct FrameHistory
     std::size_t next = 0;
 };
 
+/// Les nœuds de la disposition des panneaux (`drawEnginePanels`), où l'éditeur ancre ses fenêtres
+/// (ADR-0034) : à gauche celui d'« Image ». Nuls tant que les panneaux n'ont jamais été ouverts.
+struct DockNodes
+{
+    ImGuiID left = 0;
+};
+
 /// L'UI d'un programme. Elle tient des ressources du GPU : `App` la déclare avant ses points
 /// d'accroche, et la détruit avant le device (ADR-0029).
 struct UiLayer
@@ -55,6 +62,7 @@ struct UiLayer
     render::GpuTimer timer{};
     /// Les panneaux de debug du moteur, ouverts par F1 ou `--ui on`.
     bool panelsOpen = false;
+    DockNodes dock{};
     bool textInputActive = false;
     /// Les touches d'ImGui envoyées à l'appui, à relâcher à l'identique (`feedInput`).
     ui::PressedKeys pressedKeys{};
