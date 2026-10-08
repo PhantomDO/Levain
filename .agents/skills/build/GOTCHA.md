@@ -18,10 +18,11 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   avertissements, en erreurs (ozz : « `_Ty` est réservé » ; spirv-reflect). Parade : nos options passent par
   `/clang:` ; un port qui casse reçoit un port overlay (pour ozz : sa branche MSVC, qui définit
   `_CRT_SECURE_NO_WARNINGS` pour ses seules sources ; pour spirv-reflect, dépendance des couches de validation,
-  ses deux programmes, seuls compilés en `-Werror` et dont rien ne se sert, ne sont pas compilés). Les couches elles-mêmes se compilent sans parade : leur `-Werror` est
-  facultatif (`BUILD_WERROR`, éteint), mais clang-cl les avertit en `-Weverything` : 1,1 million d'avertissements
-  (`grep -c 'warning:'`), 5,2 millions de lignes et 715 Mo pour le seul journal Debug de vcpkg, sans effet ;
-  `~/vcpkg/buildtrees/vulkan-validationlayers` pèse 3,8 Go, à effacer une fois le paquet dans le cache binaire.
+  ses deux programmes, seuls compilés en `-Werror` et dont rien ne se sert, ne sont pas compilés). Les couches
+  elles-mêmes se compilent sans parade : leur `-Werror` est facultatif (`BUILD_WERROR`, éteint), mais clang-cl les
+  avertit en `-Weverything` : 1,1 million d'avertissements (`grep -c 'warning:'`), 5,2 millions de lignes et 715 Mo pour
+  le seul journal Debug de vcpkg, sans effet ; `~/vcpkg/buildtrees/vulkan-validationlayers` pèse 3,8 Go, à effacer une
+  fois le paquet dans le cache binaire.
 - **ozz choisit sa CRT** sur sa branche MSVC, statique par défaut : lld-link refuse de le lier au reste
   (`/failifmismatch` sur `RuntimeLibrary`). Parade : `ozz_build_msvc_rt_dll` suit le triplet.
 - **Modifier la toolchain change l'ABI de chaque port** : vcpkg recompile toutes les dépendances Windows, Dawn
@@ -29,9 +30,9 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
 - **Dawn ne trouve pas `vulkan-1.dll`** (« Windows Error: 87 ») : il cherche à côté de lui et de l'exe, puis sans
   chemin avec `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`, qui exige un chemin complet. Il retombe en silence sur son backend
   Null, et les tests qui ne relisent pas d'image passent (six sur neuf, avant que `createWebGpuDevice` ne refuse ce
-  backend en le nommant, #345 ; sans la ligne `System32`, 15 tests ou programmes échouent). Parade : lui donner `System32`
-  (`DawnInstanceDescriptor::additionalRuntimeSearchPaths`, terminé par `\`). Son backend D3D12, lui, veut copier
-  `d3dcompiler_47.dll` d'un SDK lu dans le registre, et compiler DXC.
+  backend en le nommant, #345 ; sans la ligne `System32`, 15 tests ou programmes échouent). Parade : lui donner
+  `System32` (`DawnInstanceDescriptor::additionalRuntimeSearchPaths`, terminé par `\`). Son backend D3D12, lui, veut
+  copier `d3dcompiler_47.dll` d'un SDK lu dans le registre, et compiler DXC.
 - **Un programme Windows reçoit argv dans la page de code ANSI** : `ctest` ne trouvait pas les cas de test
   accentués (« test cases: 0 », que nos tests refusent). Parade : un manifeste qui met le processus en UTF-8
   (`activeCodePage`).
@@ -91,8 +92,9 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   même un que le moteur ne traduit pas (`events.window` reste vide). 11 échecs sur 40 lancements à 8 en parallèle ;
   0 sur 80 en offscreen (depuis la distro, dans `build/windows-debug/tests` : 5 tours de 8
   `./levain_tests.exe -tc="waitEvents*" &` puis `wait`, en comptant les codes non nuls ; offscreen :
-  `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER` devant l'exe). Le moteur est juste (« jusqu'au premier événement », et la boucle de `app.cpp` recalcule son
-  reste) ; c'est le test qui dépendait de l'environnement : il pose le pilote offscreen lui-même et le vérifie.
+  `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER` devant l'exe). Le moteur est juste (« jusqu'au premier
+  événement », et la boucle de `app.cpp` recalcule son reste) ; c'est le test qui dépendait de l'environnement : il
+  pose le pilote offscreen lui-même et le vérifie.
 - **Les symboles d'un exe Windows se lisent dans le PDB** : `llvm-pdbutil dump -publics`, noms décorés à la MSVC, que
   `llvm-undname` démêle. Chercher `@editor@levain@@` dans la forme décorée en rate : un nom déjà écrit dans le symbole y
   devient un rang (108 symboles décorés contre 112 démêlés pour `levain::editor::`). `llvm-undname` sort en code 1
@@ -108,9 +110,9 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
 - **Cause** : le `CMakeLists.txt` racine appelle `enable_testing()` après `add_subdirectory(shaders)` et celui des
   plugins. Un dossier configuré avant n'écrit pas de `CTestTestfile.cmake` : ses `add_test` ne mènent nulle part.
 - **Parade** : `enable_testing()` avant ces sous-dossiers. Mesuré en le déplaçant (sans le garder) : 27 tests `dxil.*`
-  s'enregistrent et passent, sous Linux. Pas fait dans #345 (hors périmètre), suivi par #354 ; leur label `host` est déjà posé
-  (`levain_add_shader`), pour que le runner Windows ne lance pas `dxc`. Un `CTestTestfile.cmake` déjà écrit reste dans
-  un arbre de build quand on retire `enable_testing()` : l'effacer, sinon ctest compte encore les tests.
+  s'enregistrent et passent, sous Linux. Pas fait dans #345 (hors périmètre), suivi par #354 ; leur label `host` est
+  déjà posé (`levain_add_shader`), pour que le runner Windows ne lance pas `dxc`. Un `CTestTestfile.cmake` déjà écrit
+  reste dans un arbre de build quand on retire `enable_testing()` : l'effacer, sinon ctest compte encore les tests.
 
 ## 16 Go de RAM : des builds en parallèle font planter la machine de référence (2026-10-08)
 
