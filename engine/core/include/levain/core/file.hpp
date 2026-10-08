@@ -15,6 +15,12 @@ namespace levain::core
 /// (ADR-0008), pas un bug : c'est au contenu du disque qu'on ne peut pas se fier.
 [[nodiscard]] Result<std::vector<std::byte>> readFile(const std::filesystem::path& path);
 
+/// Le nom d'un fichier pour une bibliothèque C qui le prend en `char*` (ktx, stb : elles le passent
+/// à `fopen`). Le piège : sous Windows, `path::c_str()` rend des `wchar_t`, que ces fonctions
+/// refusent ; `string()` rend des `char` dans la page de code du processus, qui est l'UTF-8 une
+/// fois le manifeste de l'ADR-0035 en place. Sous Linux, c'est le nom tel quel.
+[[nodiscard]] std::string pathForC(const std::filesystem::path& path);
+
 /// Les dates de modification des fichiers d'un dossier, pour repérer ceux qui changent (le
 /// hot-reload des shaders, ADR-0014).
 struct FileWatch

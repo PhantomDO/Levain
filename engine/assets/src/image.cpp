@@ -208,8 +208,8 @@ core::Result<void> savePng(const std::filesystem::path& path, std::uint32_t widt
 {
     LEVAIN_ASSERT(rgba.size() == rgbaSize(width, height), "taille des pixels incohérente");
     const int rowBytes = static_cast<int>(width) * 4;
-    if (stbi_write_png(path.c_str(), static_cast<int>(width), static_cast<int>(height), 4,
-                       rgba.data(), rowBytes) == 0)
+    if (stbi_write_png(core::pathForC(path).c_str(), static_cast<int>(width),
+                       static_cast<int>(height), 4, rgba.data(), rowBytes) == 0)
     {
         return core::makeError(core::ErrorCode::InvalidData,
                                std::format("{} : écriture du PNG impossible", path.string()));

@@ -1,3 +1,5 @@
+// La STL de Microsoft n'inclut pas <ostream> par <string_view>, que doctest affiche (ADR-0035).
+#include <ostream>
 #include <string_view>
 
 #include <doctest/doctest.h>
