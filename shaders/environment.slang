@@ -163,8 +163,16 @@ void irradiance(uint3 texel: SV_DispatchThreadID)
 /// rugosité du matériau), autour de +Z.
 float3 ggxHalfVectorOf(float2 point, float alpha)
 {
-    const float cosTheta = sqrt((1.0 - point.y) / (1.0 + (alpha * alpha - 1.0) * point.y));
-    const float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+    // Le sinus a sa propre formule, jamais sqrt(1 − cos²) : sur une surface lisse, alpha² se perd
+    // devant 1 en flottant 32 bits, et cos² devient le quotient de deux nombres égaux. Un vrai GPU
+    // n'arrondit exactement ni la division (2,5 ULP admis) ni la racine (héritée de 1 / inversesqrt),
+    // « Precision and Operation of SPIR-V Instructions » : cos sort parfois au-dessus de 1, 1 − cos²
+    // passe sous zéro, et sa racine est NaN. Sur la RTX 4070, la BRDF lisse tombait à 0,394 au lieu
+    // de 1 (#347) ; lavapipe arrondit exactement, sans le voir.
+    const float alpha2 = alpha * alpha;
+    const float denominator = 1.0 + (alpha2 - 1.0) * point.y;
+    const float cosTheta = sqrt((1.0 - point.y) / denominator);
+    const float sinTheta = sqrt(alpha2 * point.y / denominator);
     const float phi = 2.0 * Pi * point.x;
     return float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
 }
