@@ -54,6 +54,26 @@ Windows.
 Piège : `ANTHROPIC_API_KEY` ou `CLAUDE_CODE_OAUTH_TOKEN`, s'ils sont définis dans la distro, passent avant le
 compte du `/login` (documentation de Claude Code, « Authentication »). Le script n'en définit aucun.
 
+## Piloter la session à distance
+
+Depuis le web (claude.ai/code) ou l'application Claude sur le téléphone, par Remote Control (documentation de
+Claude Code, « Remote Control ») :
+
+```bash
+cd ~/Projects/Levain && claude --remote-control "Levain"
+```
+
+Le pied de l'invite affiche `/rc active` ; `/remote-control` ouvre le panneau, avec l'URL et le QR code. La
+session apparaît sous son nom. Le terminal reste ouvert : le processus
+`claude` tourne dans la distro. Les demandes de permission attendent qu'on y réponde, à distance aussi.
+Prérequis : un abonnement Pro ou Max, et la connexion par `/login` ; une clé d'API, `ANTHROPIC_BASE_URL` vers un
+proxy ou `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` la bloquent.
+
+Après un `wsl --shutdown`, la conversation n'est pas perdue : son historique est sur le disque de la distro.
+`claude --continue` reprend la dernière (du même dossier), `claude --resume` en propose une liste, puis
+`/remote-control` (ou `/rc`) la reconnecte avec son historique. `/config` propose de le faire au démarrage
+(`remoteControlAtStartup`).
+
 ## Voir les résultats depuis Windows
 
 - **Les fichiers** : `\\wsl.localhost\levain-dev\home\<utilisateur>\Projects\Levain` dans l'Explorateur, ou

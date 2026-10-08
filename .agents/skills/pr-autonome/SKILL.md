@@ -34,10 +34,17 @@ Ses dossiers `build/` sont à lui ; le cache binaire de vcpkg (`~/.cache/vcpkg`)
   (sous ASan, UBSan, et GCC quand le code est générique), les règles du projet et la taille, les contrôles qui
   doivent pouvoir échouer et le build web —, puis une correction. Donner aux agents le chemin du worktree, « ne
   touchez à aucun autre », les sections de l'ADR, la passation, les prototypes s'il y en a.
+- **Les modèles** (décidé par Donnovan le 2026-10-08) : l'implémentation sur Sonnet quand son périmètre est
+  borné (l'ADR décidé, les fichiers, l'API, les tests et le budget de lignes écrits dans la demande) ; les
+  relectures adverses, les ADR, les découpages et le débogage sur Opus. Mesuré sur l'inspecteur (#339 à #342) :
+  Sonnet a livré en 25 minutes, mais sans tenir le budget de lignes : le donner comme une règle, et le mesurer.
 - **Relire soi-même** le code qui en sort, avant d'ouvrir : un agent qui dit « vérifié » a pu vérifier autre chose.
 
 ## 4. Vérifier
 
+- **Un build à la fois**, sur la machine de référence (16 Go) : jamais deux worktrees ni deux agents qui
+  compilent ensemble ; les relecteurs d'un workflow, l'un après l'autre ; le dire à chaque agent dans sa demande
+  (build/GOTCHA.md, « 16 Go de RAM »). Sur la distro WSL de 64 Go (`tools/wsl/`), la limite se lève.
 - `tools/verify.sh` avant **chaque** push, y compris après une petite correction (build/GOTCHA.md) : format de tout
   l'arbre, trois presets, clang-tidy des fichiers changés, web. `BASE=<précédente>` pour une PR empilée.
 - **Chaque contrôle nouveau a son contre-test** : la faute injectée depuis une copie du fichier, le test rouge, la
@@ -55,6 +62,7 @@ Ses dossiers `build/` sont à lui ; le cache binaire de vcpkg (`~/.cache/vcpkg`)
 
 - Le modèle `.github/pull_request_template.md`, le guide de lecture d'abord ; le milestone ; « Partie de #N » ou
   « Closes #N ». Une pile : `gh pr create --base <branche précédente>`, dans l'ordre.
-- `tools/merge-stack.sh N [N+1 …]` en arrière-plan : il attend les checks de chacune, fusionne en merge commit,
+- `tools/merge-stack.sh N [N+1 …]` en arrière-plan, par l'outil de tâches de fond (qui réveille la session à la
+  fin), jamais par un `&` dans un shell : il attend les checks de chacune, fusionne en merge commit,
   passe la base de la suivante à `main`. Puis, dans le dépôt principal : `git pull --ff-only`.
 - Le board : l'issue passe en Done quand une PR la ferme ; « Passé (h) » quand Donnovan donne son temps.

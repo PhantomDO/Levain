@@ -3,6 +3,33 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## 16 Go de RAM : des builds en parallèle font planter la machine de référence (2026-10-08)
+
+- **Symptôme** : le PC de Donnovan se fige et redémarre, plusieurs fois dans la nuit et la matinée, pendant que la
+  session de M7.2 travaillait.
+- **Cause** : jusqu'à trois builds à la fois (trois worktrees, des relecteurs de workflow qui compilaient en
+  parallèle, des presets ASan), chacun à toutes les tâches de ninja (18 sur cette machine : nproc + 2). Une unité
+  de traduction lourde (flecs.h, Jolt, ImGui, NVRHI) prend environ 1 Go ; la machine en a 14 utilisables, sans
+  plafond de mémoire sur la distrobox : le bureau meurt avant le build.
+- **Parade** : un build à la fois, jamais deux ; `tools/verify.sh` limite à 4 tâches de compilation, de ports vcpkg
+  et de tests (`CMAKE_BUILD_PARALLEL_LEVEL`, `VCPKG_MAX_CONCURRENCY`, `LEVAIN_TEST_JOBS`) ; hors du script, `export
+  CMAKE_BUILD_PARALLEL_LEVEL=4 VCPKG_MAX_CONCURRENCY=4` avant `cmake --preset` et `cmake --build` ; les relecteurs
+  d'un workflow, l'un après l'autre. Mesuré sur deux heures de builds à 4 tâches, un à la fois (le workflow de
+  l'inspecteur, un relevé de `free -m` toutes les 15 s) : 3,5 Go disponibles au plus bas, pendant une édition de
+  liens, et jusqu'à 3,4 Go de swap. 8 tâches ne tiendraient sans doute pas sur cette machine. Un plafond de mémoire
+  sur la distrobox (`podman update --memory 10g --memory-swap 12g dev-ubuntu`) ferait tuer le build plutôt que le
+  PC : réglage du système, à la main de Donnovan.
+
+## Une regex sur un message de CMake : son repli dépend du chemin (2026-10-08)
+
+- **Symptôme** : `cmake.plugins.no-editor` vert en local, rouge sur les trois jobs de la CI de #335.
+- **Cause** : CMake replie son message d'erreur selon sa longueur, donc selon le chemin du dépôt. Sur le runner
+  (`/home/runner/work/…`), « : le » restait sur la ligne du chemin et « contrôle » passait à la suivante ; la regex
+  avait été écrite sur le repli local.
+- **Parade** : dans une regex sur un message de CMake, chaque espace peut être un retour à la ligne
+  (`[\n ]+`) ; la vérifier contre la sortie de la CI et contre la sortie locale (un `string(REGEX MATCH)` dans un
+  script `cmake -P` suffit).
+
 ## `PASS_REGULAR_EXPRESSION` : CTest ne lit plus le code de sortie (2026-10-07)
 
 - **Symptôme** : les tests des refus de la réflexion (#327) restaient verts quand le refus écrivait son message
