@@ -24,7 +24,9 @@ build en cours le fausse.
 git worktree add ~/Projects/Levain-<sujet> -b m<phase>.<n>/<sujet> <base>
 ```
 
-Ses dossiers `build/` sont à lui ; le cache binaire de vcpkg (`~/.cache/vcpkg`) les remplit vite. À la fin :
+Puis `tools/fetch-assets.sh` dans le worktree : les assets de test ne se partagent pas, et sans eux le build web
+refuse de se configurer (`verify.sh` : « web : FAIL » ; build/GOTCHA.md). Ses dossiers `build/` sont à lui ; le
+cache binaire de vcpkg (`~/.cache/vcpkg`) les remplit vite. À la fin :
 `git worktree remove`, puis `git branch -d` des branches fusionnées.
 
 ## 3. Écrire
