@@ -42,9 +42,9 @@ mesures de performance du projet restent sur la machine de référence (SPECS §
 - **Les sondes** (`probes.sh`) : `__cplusplus` vaut 202002, 202700 et 202302 sous `/std:c++20`,
   `/std:c++latest` et `/clang:-std=c++23` ; la sonde D3D12 compile en 8,7 s sans avertissement en `/W4 /WX`,
   puis, lancée depuis WSL, crée un device D3D12 sur la 4070 (shader model 6.8), avec la couche de debug.
-- **Les dépendances** (`cmake --preset windows-debug`, lignes « Elapsed time to handle » de vcpkg) : tous les
-  ports se compilent pour Windows, environ 14 min la première fois avec `VCPKG_MAX_CONCURRENCY=24`, dont
-  7,7 min pour Dawn. Trois ports ont demandé une parade (Pièges) ; les couches de validation Vulkan sont
+- **Les dépendances** (`cmake --preset windows-debug`, lignes « Elapsed time to handle » de vcpkg) : les 25
+  ports se compilent pour Windows, 15,8 min au plus la première fois avec `VCPKG_MAX_CONCURRENCY=24` (la somme,
+  pour chaque port, de son plus long passage), dont 8,3 min pour Dawn. Trois ports ont demandé une parade (Pièges) ; les couches de validation Vulkan sont
   retirées de l'essai.
 - **Le moteur** : 200 étapes ; six fichiers à corriger (chemins larges, `<ostream>`, `NOMINMAX`, `getenv`), puis
   tout se lie. Release en 71 s, configuration comprise (`cmake --preset windows-release`, puis
