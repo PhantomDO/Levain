@@ -10,8 +10,8 @@ portable de Donnovan (RTX 4070 Laptop, Windows 11). Les mesures de l'ADR viennen
   `scripts/toolchains/windows.cmake`.
 - `triplets/x64-windows-clang.cmake` : bibliothèques statiques, CRT en DLL ; la toolchain ci-dessus.
 - Les presets `windows-debug` et `windows-release`.
-- `vcpkg.json` : Wayland et X11 réservés à Linux ; les couches de validation Vulkan pour Windows. Les ports
-  overlay `tracy` et `ozz-animation` acceptent Windows.
+- `vcpkg.json` : Wayland et X11 réservés à Linux. Les ports overlay `tracy` et `ozz-animation` acceptent
+  Windows ; celui d'ozz prend sa branche MSVC.
 - `CMakeLists.txt` : les avertissements passés par `/clang:` sous clang-cl, qui lit `-Wall` comme `/Wall`.
 
 ## Préparer
@@ -46,17 +46,21 @@ mesures de performance du projet restent sur la machine de référence (SPECS §
   ports se compilent pour Windows, 15,8 min au plus la première fois avec `VCPKG_MAX_CONCURRENCY=24` (la somme,
   pour chaque port, de son plus long passage), dont 8,3 min pour Dawn. Trois ports ont demandé une parade (Pièges) ; les couches de validation Vulkan sont
   retirées de l'essai.
-- **Le moteur** : 200 étapes ; six fichiers à corriger (chemins larges, `<ostream>`, `NOMINMAX`, `getenv`), puis
-  tout se lie. Release en 71 s, configuration comprise (`cmake --preset windows-release`, puis
+- **Le moteur** : 200 étapes ; six fichiers ne compilaient pas : quatre corrigés dans le code (chemins en
+  `wchar_t`, `<ostream>`), deux par des définitions (`NOMINMAX`, `_CRT_SECURE_NO_WARNINGS`, que l'ADR-0035 ne
+  garde pas). Puis tout se lie. Release en 71 s, configuration comprise (`cmake --preset windows-release`, puis
   `cmake --build --preset windows-release`).
-- **`levain_tests.exe` sous Windows** : 293 cas sur 295 en 8 s ; les deux échecs lancent le `cmake` de Linux
-  depuis l'exe (`runProcess`). Les tests WebGPU tournent sur la 4070 par Dawn et Vulkan.
+- **`levain_tests.exe` sous Windows** (`time build/windows-debug/tests/levain_tests.exe`, depuis la distro) :
+  293 cas sur 295 en 8 s ; les deux échecs lancent le `cmake` de Linux depuis l'exe (`runProcess`). Les tests
+  WebGPU tournent sur la 4070 par Dawn et Vulkan ; avant la parade de Dawn, six des neuf passaient sur son
+  backend Null, sans rien dessiner.
 - **`ctest` sur la Release** (`SDL_VIDEO_DRIVER=offscreen ctest --test-dir build/windows-release -j 8`) : 315 sur
-  337. Les 22 échecs : 11 programmes GPU et tests de fumée qui exigent les couches de validation, absentes
-  (refus bruyant) ; 7 `cmake.plugins.*`, qui configurent un mini-moteur sans la toolchain croisée ; 3 contrôles
-  par `nm`, dont les symboles sont dans le PDB sous Windows ; les 2 `runProcess` ; `waitEvents`, qui reçoit sous
-  Windows d'autres événements que ceux de la fenêtre ; et `gpu.environment.webgpu`, qui trouve sur la 4070 une
-  BRDF fausse (0,394 au lieu de 1 vue de face) qu'il ne voit pas sous lavapipe.
+  337. Les 22 échecs : 8 programmes GPU et tests de fumée qui exigent les couches de validation, absentes, en
+  Release aussi (refus bruyant) ; 7 `cmake.plugins.*`, qui configurent un mini-moteur sans la toolchain croisée ;
+  3 contrôles par `nm`, dont les symboles sont dans le PDB sous Windows ; les 2 `runProcess` ; `waitEvents`, qui
+  passe quand l'exe tourne seul et échoue sous `ctest -j 8`, sans sortie (cause à trouver) ; et
+  `gpu.environment.webgpu`, qui trouve sur la 4070 un reflet préfiltré et une BRDF faux (0,394 au lieu de 1 vue de
+  face), que lavapipe ne montre pas (#347).
 - **Le sandbox sur la 4070**, Release, Vulkan 1.4.351, pilote 617.42 :
   `levain_sandbox.exe --seconds 5 --capture … --model assets-cache/Models/CesiumMilkTruck/glTF/CesiumMilkTruck.gltf`
   (le camion et les HDRI copiés dans `assets-cache` du worktree) : device en 321 ms, 822 images en 5,0 s,
