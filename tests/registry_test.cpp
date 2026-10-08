@@ -39,7 +39,9 @@ struct TempRoot
     // Une exception qui sort d'un destructeur arrête tout le programme de test (std::terminate) :
     // l'effacement la rattrape et fait échouer le test en la nommant. Sous Windows, un fichier
     // resté ouvert, une poignée que le code testé aurait oubliée, l'empêche. La version à
-    // `std::error_code` ne suffirait pas : elle peut encore lever `std::bad_alloc`.
+    // `std::error_code` ne dirait pas où : son message ne donne que la cause (« Permission
+    // denied »), quand `filesystem_error` nomme le dossier (sous Linux, jusqu'au fichier qui
+    // résiste), ce qu'il faut sous Windows pour trouver la poignée oubliée.
     ~TempRoot()
     {
         try

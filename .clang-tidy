@@ -64,5 +64,7 @@ CheckOptions:
   # lève bad_array_new_length dans son en-tête, depuis _Get_size_of_n, le contrôle de débordement de
   # n × sizeof(T), en déplaçant une std::map, un std::set ou un conteneur haché : n vaut 1 ou 16, le
   # débordement est impossible, et le déplacement implicite de 14 types de Levain était signalé sous
-  # Windows seulement. Décidé par Donnovan pour #360, le 2026-10-08 (build/GOTCHA.md).
+  # Windows seulement. L'option compare le nom seul : écrite std::bad_array_new_length, elle ne ferait
+  # rien (vérifié), et elle tait aussi un type de ce nom hors de std. Décidé par Donnovan pour #360,
+  # le 2026-10-08 (build/GOTCHA.md).
   - { key: bugprone-exception-escape.IgnoredExceptions, value: bad_array_new_length }
