@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # La vérification complète d'une branche avant de pousser, comme la CI : le format de tout l'arbre, les trois
 # presets natifs compilés et testés, le build Windows (compilé seulement), le build web et ses tests, puis
-# clang-tidy sur les fichiers changés, avec les options du build Linux, ou du build Windows pour ceux qu'il compile
-# seul.
+# clang-tidy sur les fichiers changés, avec les options du build Linux, puis avec celles du build Windows pour tous
+# ceux qu'il compile.
 # Dans la distrobox dev-ubuntu, depuis la racine du dépôt (ou d'un worktree) :
 #
 #   tools/verify.sh                  # BASE=origin/main : les fichiers changés depuis main, pour clang-tidy
 #   BASE=<branche> tools/verify.sh   # une PR empilée : relire contre la précédente
 #   NO_WEB=1 tools/verify.sh         # sans le build web (il n'y a ni physique ni app dans le navigateur)
 #   NO_WINDOWS=1 tools/verify.sh     # sans le build Windows (pas de winsysroot : LEVAIN_WINSYSROOT, docs/SETUP.md),
-#                                    # ni l'analyse de ses fichiers propres
+#                                    # ni l'analyse avec ses options
 #
 # Une ligne par étape, OK ou FAIL ; les journaux complets dans build/verify/. Le code de sortie est non nul dès
 # qu'une étape échoue (règle n°7) : un script qui rend 0 quoi qu'il arrive laisse pousser une branche rouge.
@@ -99,13 +99,14 @@ else
     echo "web : SAUTÉ (NO_WEB)"
 fi
 
-# clang-tidy sur les .cpp changés, chacun avec les options du build qui le compile. Linux d'abord ; puis, sauf
-# NO_WINDOWS, ceux que seul le build Windows compile, sur sa base (build/windows-debug) : la base Linux ne les
-# connaît pas, et l'étape dirait OK sans les avoir lus (règle n°7). Un .cpp changé qu'aucune des deux ne compile
-# échoue, sauf ceux du build web seul (device_web.cpp…) : ils ne s'analysent pas sans les options
-# d'Emscripten (build/GOTCHA.md), et le build web, juste au-dessus, les compile en -Werror. D'où l'étape après le
-# build web, dont elle lit la base. Une base inconnue ou un build absent échouent : sans eux, la liste serait vide, et
-# l'étape dirait « aucun fichier changé » sans avoir rien analysé.
+# clang-tidy sur les .cpp changés, avec les options de chaque build qui les compile. Linux d'abord ; puis, sauf
+# NO_WINDOWS, tous ceux que le build Windows compile, sur sa base (build/windows-debug) : ceux qu'il compile seul
+# que la base Linux ne connaît pas, et les fichiers communs, dont elle ne lit pas les blocs `#ifdef _WIN32`
+# (device_vk.cpp…) ; sans cette passe, l'étape dirait OK sans les avoir lus (règle n°7). Un .cpp changé
+# qu'aucune des deux ne compile échoue, sauf ceux du build web seul (device_web.cpp…) : ils ne s'analysent pas sans
+# les options d'Emscripten (build/GOTCHA.md), et le build web, juste au-dessus, les compile en -Werror. D'où l'étape
+# après le build web, dont elle lit la base. Une base inconnue ou un build absent échouent : sans eux, la liste serait
+# vide, et l'étape dirait « aucun fichier changé » sans avoir rien analysé.
 base=${BASE:-origin/main}
 compiledBy() { # $1 = preset : les fichiers que ce build compile, triés, dans $logs/tidy-compiled-$1.txt
     python3 -c 'import json, sys; print("\n".join(sorted({e["file"] for e in json.load(open(sys.argv[1]))})))' \
@@ -133,12 +134,14 @@ else
     LC_ALL=C comm -23 "$logs/tidy-changed.txt" "$logs/tidy-compiled-linux-debug.txt" > "$logs/tidy-not-linux.txt"
     tidy clang-tidy linux-debug "$logs/tidy-files.txt"
     if [ -n "${NO_WINDOWS:-}" ]; then
-        echo "clang-tidy-windows : SAUTÉ (NO_WINDOWS ; $(wc -l < "$logs/tidy-not-linux.txt") fichiers changés hors du" \
-            "build Linux, non analysés)"
+        echo "clang-tidy-windows : SAUTÉ (NO_WINDOWS ; ni les $(wc -l < "$logs/tidy-not-linux.txt") fichiers changés" \
+            "hors du build Linux, ni les blocs Windows des autres, non analysés)"
     elif ! compiledBy windows-debug; then
         step clang-tidy-windows FAIL "pas de build/windows-debug/compile_commands.json"
     else
-        LC_ALL=C comm -12 "$logs/tidy-not-linux.txt" "$logs/tidy-compiled-windows-debug.txt" \
+        # Tous les .cpp changés que Windows compile, pas seulement ceux qu'il compile seul : un fichier commun n'est
+        # lu par la base Linux que sans ses blocs `#ifdef _WIN32`.
+        LC_ALL=C comm -12 "$logs/tidy-changed.txt" "$logs/tidy-compiled-windows-debug.txt" \
             > "$logs/tidy-files-windows.txt"
         tidy clang-tidy-windows windows-debug "$logs/tidy-files-windows.txt"
         compiledBy web || : > "$logs/tidy-compiled-web.txt"

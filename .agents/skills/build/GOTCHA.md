@@ -72,20 +72,44 @@ du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
   passe par le registre, qui désigne ceux de `tests/`.
 - **Le `start` des 4 processeurs ne rend pas le code de l'enfant** : lire les `::error::` du journal.
 
+## Les options de Windows trouvent ce que Linux ne voit pas : 16 constats antérieurs à #18 (2026-10-08)
+
+- **Symptôme** : clang-tidy sur tous les fichiers de la base `windows-debug` (build/SKILL.md, la commande à la main)
+  échoue sur 15 fichiers sur 150, 16 constats distincts, tous dans du code de `main` que la base Linux passe : 14
+  `bugprone-exception-escape` sur le constructeur de déplacement implicite d'un type qui tient une `std::map`, une
+  `std::unordered_map` ou un `std::unordered_set` (`FileWatch`, `AssetRegistry`, `Model`, `UiPass`, `App`, `Editor`…),
+  un sur `~TempRoot` (`tests/registry_test.cpp`, `std::filesystem::remove_all`), et un `bugprone-signed-bitwise` dans
+  `device_vk.cpp` (`isValidationError`).
+- **Cause** : la STL de Microsoft alloue dans ces constructeurs de déplacement (la sentinelle et le *container proxy*
+  de `std::map` en Debug, les seaux des conteneurs à hachage), qui peuvent donc lever ; celle de GCC non. Son
+  `remove_all` lève dans un en-tête, quand celui de GCC est compilé dans la bibliothèque, où clang-tidy ne le lit
+  pas. Et une énumération C sans valeur négative a `int` pour type sous-jacent dans l'ABI de Microsoft, `unsigned
+  int` sous Linux : `types & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT` y mêle un signé à l'opération.
+- **Parade** : à écrire, dans une PR à part, avant que la CI ne lance la passe (#346) ; jamais en coupant la
+  vérification (règle n°4). Jusque-là, `verify.sh` échoue sur « clang-tidy-windows » dès qu'une PR change l'un de ces
+  15 fichiers : ce n'est pas la PR qui est en cause. La mesure, de la distro : la commande de build/SKILL.md, 32 s,
+  code 123 ; la liste des fichiers par un `clang-tidy` par fichier et son code de sortie.
+
 ## `verify.sh` disait « clang-tidy OK » sans avoir lu les fichiers de Windows (2026-10-08)
 
 - **Symptôme** : à la relecture du backend Direct3D 12 (#18, sur sa branche, pas encore fusionnée),
   `device_d3d12.cpp` et `swapchain_d3d12.cpp`, changés, manquaient à `build/verify/tidy-files.txt`, et l'étape
   disait « clang-tidy : OK ».
 - **Cause** : la liste croisait les fichiers changés avec la base de `linux-debug` ; un fichier que seul
-  `windows-debug` compile n'y est pas, et sortait de la liste sans un mot (règle n°7).
-- **Parade** : une seconde passe, « clang-tidy-windows », sur la base de `windows-debug`, pour les fichiers absents
-  de la base Linux ; un `.cpp` changé qu'aucun build ne compile échoue, sauf ceux du seul build web (leurs options
-  sont celles d'Emscripten), annoncés « clang-tidy-web : SAUTÉ ». Contre-test, sur la branche Direct3D 12
-  (`BASE=m1.4/d3d12-fixes PRESETS=linux-debug NO_WEB=1`) : un `Bad_Function` glissé dans `device_d3d12.cpp`,
-  l'ancien script dit « clang-tidy : OK (7 fichiers) », le nouveau « clang-tidy-windows : FAIL »
-  (`readability-identifier-naming`) ; un `orphan.cpp` non suivi, « FAIL (changés, compilés par aucun build :
-  engine/gpu/src/orphan.cpp) » ; un commentaire dans `device_web.cpp`, « clang-tidy-web : SAUTÉ (1 fichiers…) ».
+  `windows-debug` compile n'y est pas, et sortait de la liste sans un mot (règle n°7). Un fichier commun y est, mais
+  la base Linux ne lit pas ses blocs `#ifdef _WIN32` : une faute dans l'un d'eux passait aussi.
+- **Parade** : une seconde passe, « clang-tidy-windows », sur la base de `windows-debug`, pour **tous** les fichiers
+  changés qu'elle compile : ceux que la base Linux n'a pas, et les communs, pour leurs blocs `#ifdef _WIN32` (la
+  première version ne prenait que les premiers ; corrigé à la relecture). Un `.cpp` changé qu'aucun build ne compile
+  échoue, sauf ceux du seul build web (leurs options sont celles d'Emscripten), annoncés « clang-tidy-web : SAUTÉ ».
+  Contre-tests, sur la branche Direct3D 12 (`BASE=m1.4/d3d12-fixes PRESETS=linux-debug NO_WEB=1`, la première
+  version) : un `Bad_Function` glissé dans `device_d3d12.cpp`, l'ancien script dit « clang-tidy : OK (7 fichiers) », le
+  nouveau « clang-tidy-windows : FAIL » (`readability-identifier-naming`) ; un `orphan.cpp` non suivi, « FAIL (changés,
+  compilés par aucun build : engine/gpu/src/orphan.cpp) » ; un commentaire dans `device_web.cpp`, « clang-tidy-web :
+  SAUTÉ (1 fichiers…) ». Puis (`BASE=m1.4/d3d12-device`, mêmes options) : une variable `Wants_D3d12` glissée dans le
+  bloc `#ifdef _WIN32` de `device.cpp`, la première version dit « clang-tidy : OK (1 fichiers) » et
+  « clang-tidy-windows : OK (aucun fichier changé) », code 0 ; la version corrigée « clang-tidy-windows : FAIL »
+  (« invalid case style for variable 'Wants_D3d12' »), code 1.
 
 ## La CI Windows : lavapipe pour Windows, ctest sur des chemins Linux (2026-10-08)
 
