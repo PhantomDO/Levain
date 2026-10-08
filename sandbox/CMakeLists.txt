@@ -78,7 +78,7 @@ target_compile_definitions(levain_sandbox PRIVATE
 # L'exécutable éditeur du sandbox (ADR-0034, choix 6B) : le même main.cpp, compilé une seconde fois
 # avec LEVAIN_SANDBOX_EDITOR, qui enveloppe son démarrage par editor::withEditor ; les mêmes
 # bibliothèques et définitions, plus l'éditeur. levain_sandbox ne change pas : il ne lie pas
-# l'éditeur.
+# l'éditeur (build.no-editor).
 add_executable(levain_sandbox_editor src/main.cpp)
 target_link_libraries(levain_sandbox_editor PRIVATE
     $<TARGET_PROPERTY:levain_sandbox,LINK_LIBRARIES> levain::editor)
