@@ -275,7 +275,7 @@ void turnSkyAroundUp(assets::HdrImage& image, float degrees)
 core::Result<Sky> loadSky(nvrhi::IDevice& device, const std::optional<std::filesystem::path>& path,
                           const AppSettings& settings)
 {
-    if (!path || path->native() == NoSky)
+    if (!path || path->string() == NoSky)
     {
         // `--sky none` : aucune lumière du ciel, pas même l'ambiance (#125, le viewer sans IBL).
         auto uniform = render::createUniformEnvironment(device, glm::vec3{path ? 0.0f : 0.1f});
@@ -483,7 +483,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
     // Le ciel en fond, avec une HDRI seulement : sans elle, le fond reste celui de `App`.
     auto renderer =
         render::createRenderer(*gpu.nvrhi, gpu::swapchainFormat(gpu), std::move(sky->environment),
-                               skyPath && skyPath->native() != NoSky);
+                               skyPath && skyPath->string() != NoSky);
     if (!renderer)
     {
         return std::unexpected(renderer.error());

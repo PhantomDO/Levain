@@ -128,7 +128,7 @@ core::Result<void> writeCookedTexture(const std::filesystem::path& path,
 
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
-    if (const auto code = ktxTexture_WriteToNamedFile(ktxTexture(texture.get()), path.c_str());
+    if (const auto code = ktxTexture_WriteToNamedFile(ktxTexture(texture.get()), path.string().c_str());
         code != KTX_SUCCESS)
     {
         return ktxError(path, "écriture", code);
@@ -141,7 +141,7 @@ core::Result<void> writePlatformTexture(const std::filesystem::path& master,
 {
     ktxTexture2* raw = nullptr;
     if (const auto code = ktxTexture2_CreateFromNamedFile(
-            master.c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &raw);
+            master.string().c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &raw);
         code != KTX_SUCCESS)
     {
         return ktxError(master, "lecture", code);
@@ -154,7 +154,7 @@ core::Result<void> writePlatformTexture(const std::filesystem::path& master,
     }
     // Sans supercompression : le cache de plateforme se lit tel quel, sans rien décompresser. Les
     // métadonnées, dont le hash de la source, suivent le transcodage.
-    if (const auto code = ktxTexture_WriteToNamedFile(ktxTexture(texture.get()), platform.c_str());
+    if (const auto code = ktxTexture_WriteToNamedFile(ktxTexture(texture.get()), platform.string().c_str());
         code != KTX_SUCCESS)
     {
         return ktxError(platform, "écriture", code);
@@ -167,7 +167,7 @@ core::Result<TextureData> readCookedTexture(const std::filesystem::path& path,
 {
     ktxTexture2* raw = nullptr;
     if (const auto code = ktxTexture2_CreateFromNamedFile(
-            path.c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &raw);
+            path.string().c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &raw);
         code != KTX_SUCCESS)
     {
         return ktxError(path, "lecture", code);

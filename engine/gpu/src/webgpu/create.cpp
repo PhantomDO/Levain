@@ -6,6 +6,10 @@
 #include <vector>
 
 #include <nvrhi/validation.h>
+#ifdef _WIN32
+#include <cstdlib>
+#include <dawn/native/DawnNative.h>
+#endif
 
 #include "../nvrhi_messages.hpp"
 #include "backend.hpp"
@@ -18,6 +22,18 @@ namespace levain::gpu
 
 namespace
 {
+
+#ifdef _WIN32
+/// Le dossier du chargeur Vulkan qu'installe le pilote (System32), terminé par une barre : Dawn y colle
+/// le nom de la DLL. Sans lui, Dawn ne cherche vulkan-1.dll qu'à côté de lui et de l'exécutable, puis
+/// sans chemin, mais avec LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, qui exige un chemin complet (« Windows
+/// Error: 87 ») : il retombe alors sur son backend Null, qui ne dessine rien.
+std::string windowsVulkanLoaderDir()
+{
+    const char* root = std::getenv("SystemRoot");
+    return std::string{root != nullptr ? root : "C:\\Windows"} + "\\System32\\";
+}
+#endif
 
 std::string_view viewOf(wgpu::StringView text)
 {
@@ -98,6 +114,14 @@ core::Result<nvrhi::DeviceHandle> createWebGpuDevice(const WebGpuOptions& option
     wgpu::InstanceDescriptor instanceDesc{};
     instanceDesc.requiredFeatureCount = 1;
     instanceDesc.requiredFeatures = &timedWaitAny;
+#ifdef _WIN32
+    const std::string loaderDir = windowsVulkanLoaderDir();
+    const char* const searchPaths[] = {loaderDir.c_str()};
+    dawn::native::DawnInstanceDescriptor dawnDesc{};
+    dawnDesc.additionalRuntimeSearchPathsCount = 1;
+    dawnDesc.additionalRuntimeSearchPaths = searchPaths;
+    instanceDesc.nextInChain = &dawnDesc;
+#endif
     wgpu::Instance instance = wgpu::CreateInstance(&instanceDesc);
     if (!instance)
     {

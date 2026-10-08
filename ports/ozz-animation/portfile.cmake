@@ -14,12 +14,24 @@ vcpkg_from_github(
     HEAD_REF master
 )
 
-# Sous clang-cl, ozz se croit chez GCC (son test vise CMAKE_CXX_COMPILER_ID « MSVC ») et passe -Wall,
-# que clang-cl lit comme /Wall, c'est-à-dire -Weverything ; ses avertissements traités en erreurs, il
-# s'arrêtait sur ses propres identifiants (« _Ty » est réservé). /clang:-Wall donne le -Wall de Linux.
+# Sous clang-cl, ozz se croit chez GCC : son test vise CMAKE_CXX_COMPILER_ID « MSVC », quand clang-cl
+# s'identifie « Clang » avec la syntaxe de MSVC. Il passait -Wall, que clang-cl lit comme /Wall
+# (-Weverything), et oubliait _CRT_SECURE_NO_WARNINGS : ses avertissements traités en erreurs
+# l'arrêtaient. On lui fait prendre sa branche MSVC, celle que ses auteurs ont écrite pour Windows, sans
+# /MP, que clang-cl ignore en le signalant.
 if(VCPKG_TARGET_IS_WINDOWS)
     vcpkg_replace_string("${SOURCE_PATH}/build-utils/cmake/compiler_settings.cmake"
-        "add_compile_options(-Wall)" "add_compile_options(/clang:-Wall)")
+        [[if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")]] [[if(MSVC)]])
+    vcpkg_replace_string("${SOURCE_PATH}/build-utils/cmake/compiler_settings.cmake"
+        "add_compile_options(/MP)" "")
+endif()
+
+# Sa branche MSVC choisit elle-même la CRT, statique par défaut : elle doit suivre le triplet, sans quoi
+# lld-link refuse de lier ozz au reste (/failifmismatch sur RuntimeLibrary).
+if(VCPKG_CRT_LINKAGE STREQUAL "dynamic")
+    set(ozzCrtDll ON)
+else()
+    set(ozzCrtDll OFF)
 endif()
 
 # ozz_build_postfix : sans lui, la version Debug s'appelle libozz_base_d.a, et la config ci-dessous devrait
@@ -34,6 +46,7 @@ vcpkg_cmake_configure(
         -Dozz_build_howtos=OFF
         -Dozz_build_tests=OFF
         -Dozz_build_postfix=OFF
+        -Dozz_build_msvc_rt_dll=${ozzCrtDll}
 )
 vcpkg_cmake_install()
 

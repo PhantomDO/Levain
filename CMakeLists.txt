@@ -43,6 +43,17 @@ else()
     add_compile_options(-pedantic-errors -Wall -Wextra -Werror)
 endif()
 
+if(WIN32)
+    # windows.h, qu'amènent Vulkan et SDL, définit des macros min et max qui cassent std::max et
+    # numeric_limits<…>::max(). Et la CRT de Microsoft déclare « unsafe » des fonctions standard
+    # (getenv, fopen) pour pousser ses variantes _s, hors de la norme : essai, à trancher dans l'ADR.
+    add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    # Chaque programme en UTF-8 (cmake/windows/utf8.manifest) : sans lui, argv et les chemins passés
+    # aux fonctions C sont dans la page de code ANSI, et un nom accentué (un cas de test, un asset)
+    # n'arrive pas intact.
+    add_link_options(/MANIFEST:EMBED "/MANIFESTINPUT:${PROJECT_SOURCE_DIR}/cmake/windows/utf8.manifest")
+endif()
+
 # ADR-0001 dit « sans modules ». CMake active pourtant le scan de modules dès C++20 avec
 # Ninja : deux étapes par fichier (scan + dyndep) pour un résultat toujours vide. On le coupe.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)

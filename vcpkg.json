@@ -66,10 +66,6 @@
     {
       "name": "vk-bootstrap",
       "platform": "!emscripten"
-    },
-    {
-      "name": "vulkan-validationlayers",
-      "platform": "windows"
     }
   ],
   "vcpkg-configuration": {
