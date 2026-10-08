@@ -64,7 +64,8 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   - **la nuit perdue** : un avis de fin de workflow, à 00 h 40, resté sans suite ; rien n'a tourné jusqu'au matin
     (pr-autonome/GOTCHA.md) ;
   - **le PC de Donnovan a planté plusieurs fois** : trop de builds en parallèle pour 16 Go ; un build à la fois,
-    4 tâches, désormais (build/GOTCHA.md). 8 tâches reste à mesurer sur un build complet ;
+    4 tâches, désormais (build/GOTCHA.md) : sur deux heures, 3,5 Go disponibles au plus bas et 3,4 Go de swap, si
+    bien que 8 tâches ne tiendraient sans doute pas ;
   - la CI de #335, rouge : une regex sur un message de CMake, dont le repli dépend du chemin (build/GOTCHA.md) ;
   - la règle n°2 : la réflexion (1 081 lignes) en quatre PR, l'éditeur en quatre ; #336 (434) et l'inspecteur
     (508, 487, 442) signalés ; Sonnet n'a pas tenu le budget de lignes qu'on lui donnait ;

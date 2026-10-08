@@ -12,9 +12,10 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   traduction lourde (flecs.h, Jolt, ImGui, NVRHI) prend environ 1 Go ; la machine en a 14 utilisables, sans
   plafond de mémoire sur la distrobox : le bureau meurt avant le build.
 - **Parade** : un build à la fois, jamais deux ; `tools/verify.sh` limite à 4 tâches de compilation et 4 tests
-  (`CMAKE_BUILD_PARALLEL_LEVEL`, `LEVAIN_TEST_JOBS`) ; les relecteurs d'un workflow, l'un après l'autre. Mesuré à
-  4 tâches, un build à la fois : 5,6 Go disponibles au plus bas, pendant une édition de liens (`ld` à 1,6 Go).
-  8 tâches restent à mesurer sur un build complet. Un plafond de mémoire sur la distrobox (`podman update
+  (`CMAKE_BUILD_PARALLEL_LEVEL`, `LEVAIN_TEST_JOBS`) ; les relecteurs d'un workflow, l'un après l'autre. Mesuré
+  sur deux heures de builds à 4 tâches, un à la fois (le workflow de l'inspecteur, un relevé de `free -m` toutes
+  les 15 s) : 3,5 Go disponibles au plus bas, pendant une édition de liens, et jusqu'à 3,4 Go de swap. 8 tâches
+  ne tiendraient sans doute pas sur cette machine. Un plafond de mémoire sur la distrobox (`podman update
   --memory 10g --memory-swap 12g dev-ubuntu`) ferait tuer le build plutôt que le PC : réglage du système, à la
   main de Donnovan.
 
