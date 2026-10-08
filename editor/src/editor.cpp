@@ -69,10 +69,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         {
             return hooks;
         }
-        const auto editor =
-            std::make_shared<Editor>(Editor{.selected = 0,
-                                            .hierarchy = createHierarchy(app.world),
-                                            .inspector = createInspector(app.world)});
+        const auto editor = std::make_shared<Editor>(
+            Editor{.selected = 0,
+                   .hierarchy = createHierarchy(app.world),
+                   .inspector = createInspector(app.world, &app.registry)});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
