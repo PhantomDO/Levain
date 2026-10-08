@@ -210,11 +210,13 @@ passent avant le backend.
   sans un mot. (Un `CheckFeatureSupport` à la mauvaise taille, essayé d'abord, n'émet rien.)
 - **Les captures Vulkan et Direct3D 12 diffèrent sur le sol, à cause du filtrage anisotrope** : 129 444 pixels
   sur 2 073 600 (6,24 %) à plus de ±2, au plus 67, tous sous l'horizon (le damier et la pelouse), aucun dans le
-  ciel ; avec `--anisotropy 1`, 107 pixels (au plus 5). Le pilote NVIDIA n'échantillonne pas pareil sous les deux
-  API ; ce n'est pas un bug du moteur. Mesure, de la distro, dans un build `windows-debug` : une capture par
-  backend, `build/windows-debug/sandbox/levain_sandbox.exe --gpu vulkan --time 2 --seconds 2 [--anisotropy 1]
-  --capture vk.png`, la même en `--gpu d3d12 … --capture d3d12.png`, puis
-  `node tools/compare-captures.mjs vk.png d3d12.png 2` (Node d'emsdk).
+  ciel : « lignes qui s'écartent : de 392 à 1067, sur 1080 (0 en haut) », et le ciel de cette vue descend jusqu'à
+  la ligne 391 au plus. Avec `--anisotropy 1`, 107 pixels (au plus 5), des lignes 508 à 1 067. Le pilote NVIDIA
+  n'échantillonne pas pareil sous les deux API ; ce n'est pas un bug du moteur. Mesure, de la distro, dans un build
+  `windows-debug` : une capture par backend, `build/windows-debug/sandbox/levain_sandbox.exe --gpu vulkan --time 2
+  --seconds 2 [--anisotropy 1] --capture vk.png`, la même en `--gpu d3d12 … --capture d3d12.png`, puis
+  `node tools/compare-captures.mjs vk.png d3d12.png 2` (Node d'emsdk), qui donne le nombre de pixels, l'écart
+  maximal, et la première et la dernière ligne qui s'écartent (refait le 2026-10-08 : les mêmes chiffres).
 - **Le NVRHI du port ne remettait un vertex buffer en état `VertexBuffer` que si le dessin avait un index
   buffer** (`d3d12-graphics.cpp`, `state.indexBuffer.buffer &&`) : les lignes de debug, écrites par `writeBuffer`
   puis dessinées sans index, restaient en `COPY_DEST`, une erreur de la couche de debug (D3D12_MESSAGE_ID 538,
