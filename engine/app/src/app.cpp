@@ -64,8 +64,8 @@ constexpr render::Sun DefaultSun{
 /// `--sky none` : ni HDRI, ni ambiance.
 constexpr std::string_view NoSky = "none";
 
-/// Comparer des chemins, pas leur `native()` : sous Windows, c'est un `wstring`, que `==` ne compare
-/// pas à un `string_view`.
+/// Comparer des chemins, pas leur `native()` : sous Windows, c'est un `wstring`, que `==` ne
+/// compare pas à un `string_view`.
 bool isNoSky(const std::filesystem::path& path)
 {
     return path == std::filesystem::path{NoSky};
