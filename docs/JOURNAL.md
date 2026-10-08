@@ -72,8 +72,9 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   - **deux pièges de toolchain** : des versions figées qui n'atteignaient pas le moteur (le cache de
     `windows.cmake`, vu en relisant `compile_commands.json`), puis, par leur parade, un winsysroot perdu
     (« 'windows.h' file not found » dans les ports) (build/GOTCHA.md) ;
-  - **#347** : sur la 4070, le reflet préfiltré et la BRDF sont faux, en Vulkan natif comme par Dawn ; lavapipe ne
-    le montre pas ;
+  - **#347** : sur la 4070, le reflet préfiltré et la BRDF étaient faux, en Vulkan natif comme par Dawn, et lavapipe
+    ne le montrait pas ; corrigé le soir même : `sqrt(1 − cos²)` donnait NaN quand l'arrondi du GPU poussait cos
+    au-dessus de 1 (build/GOTCHA.md) ;
   - **les tests GPU lancés de la distro tournaient dans de vraies fenêtres** (`WSLENV`), et le Vulkan de NVIDIA n'a
     pas de surface sans écran : pour #346 ;
   - `merge-stack.sh` arrêté deux fois (une coupure réseau, `gh pr edit` trop ancien dans la distro) : corrigé ;

@@ -7,15 +7,18 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 
 - **Symptôme** : `gpu.environment.*` passe sous lavapipe, échoue sur la RTX 4070 (Vulkan comme WebGPU), sans
   erreur de validation : BRDF lisse à 0,394 au lieu de 1, reflet lisse à 0,016 au nadir au lieu de 0 (#347).
-- **Cause** : `sqrt(1 − cos²)`, où cos² est le quotient de deux nombres égaux. Lavapipe divise comme le CPU,
-  arrondi exact : le quotient vaut 1. Vulkan et WGSL admettent 2,5 ULP d'erreur sur une division, et le pilote
-  NVIDIA rend parfois 1 + 1 ULP : la racine d'un négatif, NaN. Un compteur écrit dans un canal libre de la
-  table l'a montré : 60,5 % des échantillons NaN sur la 4070, aucun sous lavapipe ; la proportion change avec
-  le code compilé autour (3,5 % une fois le compteur ajouté). Sur NVIDIA, `saturate(NaN)` rend 0 (l'échantillon
-  est perdu), et une cubemap lue dans une direction NaN rend une valeur quelconque (0,5 sur ce ciel).
+- **Cause** : `sqrt(1 − cos²)`, où cos² est le quotient de deux nombres égaux. Lavapipe divise et tire la racine
+  comme le CPU, arrondi exact : cos vaut 1. Vulkan et WGSL admettent 2,5 ULP d'erreur sur une division, et une
+  racine qui hérite de celle de `inversesqrt` : sur le pilote NVIDIA, cos sort parfois au-dessus de 1, et
+  1 − cos² sous zéro : NaN. Des compteurs temporaires écrits dans un canal libre de la table (retirés depuis)
+  l'ont montré : des échantillons NaN sur la 4070, d'autant plus que la surface est lisse, aucun sous lavapipe ;
+  leur proportion change avec le code compilé autour. Sur NVIDIA, `saturate(NaN)` rend 0 (l'échantillon est
+  perdu), et une cubemap lue dans une direction NaN rend une valeur quelconque.
 - **Parade** : ne jamais tirer une racine d'une différence qui peut passer sous zéro d'un ULP ; calculer la
   grandeur par sa propre formule (`ggxHalfVectorOf` : sin² = α² y / d, pas 1 − cos²). Un test GPU vert sous
-  lavapipe ne prouve rien de la précision : le relancer sur un vrai GPU (la 4070, ADR-0035).
+  lavapipe ne prouve rien de la précision : le relancer sur un vrai GPU (la 4070, ADR-0035) :
+  `build/windows-debug/tests/levain_environment.exe vulkan`, puis `webgpu`, lancés de la distro, à chaque PR qui
+  touche un shader de calcul de l'IBL ; aucune CI ne le fait (lavapipe arrondit exactement).
 
 ## Windows compilé depuis Linux par clang-cl : les pièges de l'essai et de la chaîne (2026-10-08)
 

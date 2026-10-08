@@ -164,11 +164,11 @@ void irradiance(uint3 texel: SV_DispatchThreadID)
 float3 ggxHalfVectorOf(float2 point, float alpha)
 {
     // Le sinus a sa propre formule, jamais sqrt(1 − cos²) : sur une surface lisse, alpha² se perd
-    // devant 1 en flottant 32 bits, et cos² devient le quotient de deux nombres égaux. La division
-    // d'un vrai GPU peut le rendre un ULP au-dessus de 1 (Vulkan l'admet à 2,5 ULP près, « Precision
-    // and Operation of SPIR-V Instructions ») : 1 − cos² devenait négatif, et sa racine NaN. Sur la
-    // RTX 4070, 60 % des échantillons de la BRDF lisse étaient perdus (#347) ; lavapipe divise
-    // exactement, sans le voir.
+    // devant 1 en flottant 32 bits, et cos² devient le quotient de deux nombres égaux. Un vrai GPU
+    // n'arrondit exactement ni la division (2,5 ULP admis) ni la racine (héritée de 1 / inversesqrt),
+    // « Precision and Operation of SPIR-V Instructions » : cos sort parfois au-dessus de 1, 1 − cos²
+    // passe sous zéro, et sa racine est NaN. Sur la RTX 4070, la BRDF lisse tombait à 0,394 au lieu
+    // de 1 (#347) ; lavapipe arrondit exactement, sans le voir.
     const float alpha2 = alpha * alpha;
     const float denominator = 1.0 + (alpha2 - 1.0) * point.y;
     const float cosTheta = sqrt((1.0 - point.y) / denominator);

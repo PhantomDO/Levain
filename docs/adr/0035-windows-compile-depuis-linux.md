@@ -72,7 +72,7 @@ tourné : son chemin se prouvera dans la PR de la CI.
   `ctest` sur la Release, lancé depuis la distro, en passe 315 sur 337 ; les 22 échecs sont expliqués au
   § Conséquences. Deux peuvent venir du moteur : `waitEvents`, dont la cause reste à trouver, et
   `gpu.environment.webgpu`, qui trouve sur la 4070 un reflet préfiltré et une BRDF faux (0,394 au lieu de 1 vue de
-  face), que lavapipe ne montre pas (#347).
+  face), que lavapipe ne montre pas (#347, corrigé depuis : § Conséquences).
 - **Le sandbox tourne sur la 4070**, en Release et en Vulkan 1.4.351 : device créé en 321 ms, 822 images en
   5,0 s, 0,696 ms de GPU par image, capture juste. Ces chiffres sont indicatifs : les mesures du projet restent
   sur la machine de référence (SPECS § 10).
@@ -181,8 +181,9 @@ le port vcpkg, pour la règle n°5.
 - **2 `runProcess`** lancent le `cmake` de Linux depuis l'exe : le test lancera un programme de la cible.
 - **`waitEvents`** passe quand `levain_tests.exe` tourne seul, et échoue sous `ctest -j 8`, sans sortie : la cause
   reste à trouver. Le test, écrit pour un vrai bug (une attente sans fin), ne sera pas relâché pour passer.
-- **`gpu.environment.webgpu`** : le reflet préfiltré et la BRDF faux sur la 4070 (issue #347), peut-être un vrai
-  bug que lavapipe cache. M1.4 ne se ferme pas tant qu'il échoue.
+- **`gpu.environment.*`** (Vulkan et WebGPU) : le reflet préfiltré et la BRDF faux sur la 4070 (#347) étaient un
+  vrai bug du moteur, que lavapipe cachait : `sqrt(1 − cos²)` dans `ggxHalfVectorOf` donnait NaN quand l'arrondi du
+  GPU poussait cos au-dessus de 1. Corrigé le 2026-10-08 (build/GOTCHA.md).
 
 S'y ajoutent deux pièges d'outillage : **la découverte des cas de doctest** lance l'exe pendant le build, ce que
 fait l'interop de WSL mais pas un runner Linux (elle passera au moment des tests) ; **les chemins Linux compilés
