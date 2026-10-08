@@ -273,8 +273,10 @@ set_tests_properties(cmake.plugins.engine-links-editor PROPERTIES
     PASS_REGULAR_EXPRESSION "la cible du moteur fixture_core lie l'éditeur levain_editor")
 set_tests_properties(cmake.plugins.plugin-links-editor PROPERTIES
     PASS_REGULAR_EXPRESSION "le plugin water lie l'éditeur levain_editor")
+# CMake replie son message selon la longueur du chemin, différente en CI : chaque espace peut y
+# devenir un retour à la ligne.
 set_tests_properties(cmake.plugins.no-editor PROPERTIES
-    PASS_REGULAR_EXPRESSION "aucune cible sous[\n ]+[^\n ]*/editor[\n ]+: le contrôle")
+    PASS_REGULAR_EXPRESSION "aucune cible sous[\n ]+[^\n ]*/editor[\n ]+:[\n ]+le[\n ]+contrôle")
 
 # Le manifeste vcpkg d'un jeu doit contenir celui du moteur.
 add_test(NAME cmake.vcpkg-manifest
