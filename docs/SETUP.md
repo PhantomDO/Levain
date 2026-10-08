@@ -36,6 +36,9 @@ free -h
 
 vcpkg sera installé et configuré en M0.2 ; NVRHI et flecs arrivent par vcpkg.
 
+Depuis un PC Windows : une distro WSL dédiée, outillée comme la CI, avec Claude Code en ligne de commande, et
+supprimable d'une commande ([`tools/wsl/README.md`](../tools/wsl/README.md)).
+
 ## 3. Créer le dépôt et le board (≈ 10 min)
 
 Claude Code peut faire toute cette étape, sauf la connexion à GitHub (`gh auth login` et
