@@ -45,6 +45,14 @@ TEST_CASE("clampPitch empêche de passer par-dessus la tête")
     CHECK(clampPitch(30.0f, -85.0f, 85.0f) == doctest::Approx(30.0f));
 }
 
+TEST_CASE("clampPitch remet des bornes inversées dans l'ordre")
+{
+    // L'inspecteur règle `minPitchDegrees` et `maxPitchDegrees` l'un sans l'autre : 50 puis -50.
+    CHECK(clampPitch(10.0f, 50.0f, -50.0f) == doctest::Approx(10.0f));
+    CHECK(clampPitch(80.0f, 50.0f, -50.0f) == doctest::Approx(50.0f));
+    CHECK(clampPitch(-80.0f, 50.0f, -50.0f) == doctest::Approx(-50.0f));
+}
+
 TEST_CASE("shortestYawDelta tourne par le plus court chemin")
 {
     using levain::scene::shortestYawDelta;

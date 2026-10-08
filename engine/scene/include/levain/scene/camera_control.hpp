@@ -34,7 +34,8 @@ struct FpsInput
 /// par zéro quand personne n'appuie, et la diagonale n'avance pas plus vite que la ligne droite.
 [[nodiscard]] glm::vec3 normalizeOrZero(glm::vec3 direction);
 
-/// Le tangage, borné : sans ça, la caméra passe par-dessus la tête et le monde se retourne.
+/// Le tangage, borné : sans ça, la caméra passe par-dessus la tête et le monde se retourne. Des
+/// bornes inversées (`FpsController` les laisse régler séparément) sont remises dans l'ordre.
 [[nodiscard]] float clampPitch(float pitchDegrees, float minDegrees, float maxDegrees);
 
 /// L'angle à tourner pour aller de `from` à `to`, en radians, par le plus court chemin : entre −π

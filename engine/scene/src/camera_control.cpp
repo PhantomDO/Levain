@@ -27,7 +27,11 @@ glm::vec3 normalizeOrZero(glm::vec3 direction)
 
 float clampPitch(float pitchDegrees, float minDegrees, float maxDegrees)
 {
-    return std::clamp(pitchDegrees, minDegrees, maxDegrees);
+    // Deux champs que l'éditeur règle l'un sans l'autre peuvent s'inverser, et `std::clamp` d'un
+    // min au-dessus du max est indéfini (une assertion de la libstdc++ en Debug) : les bornes se
+    // remettent dans l'ordre.
+    return std::clamp(pitchDegrees, std::min(minDegrees, maxDegrees),
+                      std::max(minDegrees, maxDegrees));
 }
 
 float shortestYawDelta(float fromRadians, float toRadians)

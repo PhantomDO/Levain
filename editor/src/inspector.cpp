@@ -12,7 +12,10 @@
 #include <type_traits>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
+#include "levain/assets/asset_id.hpp"
+#include "levain/assets/registry.hpp"
 #include "levain/core/assert.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
@@ -29,6 +32,9 @@ constexpr const char* InspectorWindow = "Inspecteur";
 /// Ce qu'un pixel de glissé ajoute à un nombre ; Ctrl+clic pour le taper.
 constexpr float DragSpeed = 0.01f;
 
+/// Ce qu'un pixel de glissé ajoute à un angle, en degrés.
+constexpr float RotationSpeed = 0.5f;
+
 /// Les nombres d'un tableau, quatre par ligne : une colonne de `glm::mat4` par ligne.
 constexpr std::int32_t NumbersPerRow = 4;
 
@@ -40,7 +46,7 @@ constexpr float LabelWidth = 10.0f;
 struct Walk
 {
     const flecs::world& world;
-    const Inspector& inspector;
+    Inspector& inspector;
     int fields = 0;
     bool changed = false;
 };
@@ -226,6 +232,25 @@ void drawElements(Walk& walk, const char* label, flecs::entity_t type, std::int3
     ImGui::TreePop();
 }
 
+/// Le quaternion en angles (`eulerHint`). L'identifiant du widget range les angles tapés : ils ne
+/// valent que tant qu'ils donnent encore la rotation du composant.
+bool drawRotation(Walk& walk, const char* label, void* value)
+{
+    auto& rotation = *static_cast<glm::quat*>(value);
+    const ImGuiID id = ImGui::GetID(label);
+    const auto typed = walk.inspector.typedAngles.find(id);
+    glm::vec3 degrees =
+        eulerHint(rotation, typed != walk.inspector.typedAngles.end() ? std::optional{typed->second}
+                                                                      : std::nullopt);
+    if (!ImGui::DragFloat3(label, &degrees.x, RotationSpeed))
+    {
+        return false;
+    }
+    walk.inspector.typedAngles[id] = degrees;
+    rotation = rotationFromEuler(degrees);
+    return true;
+}
+
 void drawMembers(Walk& walk, const EcsStruct& description, void* value)
 {
     const std::span members{static_cast<const ecs_member_t*>(description.members.array),
@@ -251,9 +276,11 @@ void drawMembers(Walk& walk, const EcsStruct& description, void* value)
 void drawValue(Walk& walk, const char* label, flecs::entity_t type, void* value, const Range& range)
 {
     const flecs::world& world = walk.world;
-    const bool glmLeaf = type == walk.inspector.vec2 || type == walk.inspector.vec3;
-    if (const auto* description = ecs_get(world, type, EcsStruct);
-        description != nullptr && !glmLeaf)
+    const Inspector& inspector = walk.inspector;
+    // Des agrégats que l'inspecteur dessine d'un bloc, sans leurs champs.
+    const bool whole = type == inspector.vec2 || type == inspector.vec3 || type == inspector.quat ||
+                       type == inspector.assetRef;
+    if (const auto* description = ecs_get(world, type, EcsStruct); description != nullptr && !whole)
     {
         if (ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_DefaultOpen))
         {
@@ -269,10 +296,29 @@ void drawValue(Walk& walk, const char* label, flecs::entity_t type, void* value,
     }
     ++walk.fields;
     const auto* primitive = ecs_get(world, type, EcsPrimitive);
-    if (glmLeaf) // ses flottants côte à côte, comme une position s'écrit
+    if (type == inspector.vec2 || type == inspector.vec3) // ses flottants côte à côte
     {
         walk.changed |= ImGui::DragScalarN(label, ImGuiDataType_Float, value,
-                                           type == walk.inspector.vec2 ? 2 : 3, DragSpeed);
+                                           type == inspector.vec2 ? 2 : 3, DragSpeed);
+    }
+    else if (type == inspector.quat)
+    {
+        walk.changed |= drawRotation(walk, label, value);
+    }
+    else if (type == inspector.assetRef) // en lecture seule : un asset se choisit par son GUID
+    {
+        ImGui::LabelText(
+            label, "%s",
+            assetNameOf(inspector.registry, *static_cast<const assets::AssetRef*>(value)).c_str());
+    }
+    else if (type == inspector.entity)
+    {
+        ImGui::LabelText(label, "%s", entityLabelOf(entityFieldOf(world, value)).c_str());
+    }
+    else if (primitive != nullptr && primitive->kind == EcsEntity) // `flecs::Parent`, en lecture
+    {
+        const auto id = *static_cast<const flecs::entity_t*>(value);
+        ImGui::LabelText(label, "%s", entityLabelOf(flecs::entity{world, id}).c_str());
     }
     else if (const std::optional<ecs_primitive_kind_t> number = numberKindOf(world, type))
     {
@@ -286,7 +332,7 @@ void drawValue(Walk& walk, const char* label, flecs::entity_t type, void* value,
     {
         walk.changed |= comboEnum(world, label, type, value);
     }
-    else // un texte, une entité, un type opaque : le nom du type, jamais ses octets
+    else // un texte, un type opaque : le nom du type, jamais ses octets
     {
         ImGui::LabelText(label, "%s", flecs::entity(world, type).path(".", "").c_str());
     }
@@ -294,7 +340,7 @@ void drawValue(Walk& walk, const char* label, flecs::entity_t type, void* value,
 
 /// Un composant décrit : son en-tête et ses champs. Sinon, une ligne à son nom : une étiquette,
 /// une paire, un composant non décrit, jamais ses octets.
-int drawComponent(flecs::world& world, const Inspector& inspector, flecs::entity entity,
+int drawComponent(flecs::world& world, Inspector& inspector, flecs::entity entity,
                   flecs::id component)
 {
     const std::string label = componentLabelOf(world, component);
@@ -324,9 +370,70 @@ bool isEntityName(flecs::id component)
 
 } // namespace
 
-Inspector createInspector(const flecs::world& world)
+Inspector createInspector(const flecs::world& world, const assets::AssetRegistry* registry)
 {
-    return {.vec2 = world.id<glm::vec2>(), .vec3 = world.id<glm::vec3>(), .fieldsDrawn = 0};
+    return {.vec2 = world.id<glm::vec2>(),
+            .vec3 = world.id<glm::vec3>(),
+            .quat = world.id<glm::quat>(),
+            .entity = world.id<flecs::entity>(),
+            .assetRef = world.id<assets::AssetRef>(),
+            .registry = registry,
+            .typedAngles = {},
+            .fieldsDrawn = 0};
+}
+
+glm::vec3 eulerHint(const glm::quat& rotation, const std::optional<glm::vec3>& typed)
+{
+    // Aussi près qu'un flottant le permet : les angles tapés ont été écrits par
+    // `rotationFromEuler`, le même calcul. -q est la même rotation.
+    constexpr float Same = 1.0e-6f;
+    if (typed)
+    {
+        const glm::quat made = rotationFromEuler(*typed);
+        if (glm::all(glm::equal(made, rotation, Same)) ||
+            glm::all(glm::equal(made, -rotation, Same)))
+        {
+            return *typed;
+        }
+    }
+    // « + 0 » : -0 + 0 vaut 0, et l'affichage n'écrit pas « -0.000 » pour une rotation nulle.
+    return glm::degrees(glm::eulerAngles(rotation)) + glm::vec3{0.0f};
+}
+
+glm::quat rotationFromEuler(glm::vec3 degrees)
+{
+    return glm::normalize(glm::quat{glm::radians(degrees)});
+}
+
+flecs::entity entityFieldOf(const flecs::world& world, const void* field)
+{
+    return flecs::entity{world, static_cast<const flecs::entity*>(field)->id()};
+}
+
+std::string entityLabelOf(flecs::entity entity)
+{
+    if (entity.id() == 0)
+    {
+        return "aucune";
+    }
+    return entity.is_alive() ? std::string{entity.path("::", "").c_str()} : "(détruite)";
+}
+
+std::string assetNameOf(const assets::AssetRegistry* registry, const assets::AssetRef& ref)
+{
+    if (!ref.isSet())
+    {
+        return "aucun";
+    }
+    std::string name = assets::toString(ref.asset);
+    if (registry != nullptr)
+    {
+        if (const auto path = assets::pathOf(*registry, ref.asset))
+        {
+            name = path->filename().string();
+        }
+    }
+    return std::format("{} #{}", name, ref.sub);
 }
 
 std::string componentLabelOf(const flecs::world& world, flecs::id component)
@@ -371,7 +478,7 @@ bool commitEdit(flecs::world& world, flecs::entity entity, flecs::entity_t compo
     return true;
 }
 
-int inspectComponent(flecs::world& world, const Inspector& inspector, flecs::entity entity,
+int inspectComponent(flecs::world& world, Inspector& inspector, flecs::entity entity,
                      flecs::entity_t component)
 {
     const auto* description = ecs_get(world, component, EcsStruct);

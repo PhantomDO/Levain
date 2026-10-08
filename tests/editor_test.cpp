@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -9,8 +10,12 @@
 
 #include <doctest/doctest.h>
 #include <flecs.h>
+#include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
 
+#include "levain/assets/asset_id.hpp"
+#include "levain/assets/asset_ref.hpp"
+#include "levain/assets/registry.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
@@ -197,6 +202,21 @@ struct Gauge // ce que le jeu réécrit : en lecture seule
     float level = 0.5f;
 };
 
+struct Facing // une rotation : le dessinateur d'angles
+{
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+};
+
+/// Un composant neuf, tel qu'un jeu l'écrirait : le critère de M7.2 (« éditable en une seule
+/// déclaration »). `intensity` est le dernier champ : le test tape dans le dernier widget dessiné.
+struct Beacon
+{
+    glm::quat facing{1.0f, 0.0f, 0.0f, 0.0f};
+    flecs::entity target{};
+    Mode mode = Mode::Calm;
+    float intensity = 0.5f;
+};
+
 } // namespace editor_test
 
 namespace
@@ -213,6 +233,7 @@ void describeTestComponents(flecs::world& world)
     levain::scene::describeAuthored<editor_test::Dial>(world).range(&editor_test::Dial::level, 0.0,
                                                                     1.0);
     levain::scene::describe<editor_test::Gauge>(world);
+    levain::scene::describeAuthored<editor_test::Facing>(world);
 }
 
 /// Une image d'ImGui, sans GPU, le monde différé comme l'éditeur le fait pour ses panneaux.
@@ -257,7 +278,7 @@ TEST_CASE("un composant non décrit, une étiquette, une paire : une ligne à le
 {
     flecs::world world;
     describeTestComponents(world);
-    const levain::editor::Inspector inspector = levain::editor::createInspector(world);
+    levain::editor::Inspector inspector = levain::editor::createInspector(world);
     const flecs::entity entity = world.entity("nommée").set(editor_test::Undescribed{});
 
     // La clé de sauvegarde, le nom C++ : jamais les octets de la valeur.
@@ -434,4 +455,113 @@ TEST_CASE("le champ d'une donnée en lecture seule est grisé : il ne se tape pa
     CHECK_FALSE(typing.active); // le grisé, que la garde de `commitEdit` ne suffit pas à prouver
     CHECK(entity.get<editor_test::Gauge>().level == 0.5f);
     CHECK(typing.sets == 0);
+}
+
+TEST_CASE(
+    "eulerHint garde les angles tapés tant qu'ils donnent la rotation, et relit le quaternion "
+    "sinon")
+{
+    using levain::editor::eulerHint;
+    using levain::editor::rotationFromEuler;
+    // 100° de lacet : le quaternion se relit en 80° avec le tangage et le roulis retournés.
+    const glm::vec3 typed{0.0f, 100.0f, 0.0f};
+    const glm::quat rotation = rotationFromEuler(typed);
+    const glm::vec3 reread = eulerHint(rotation, std::nullopt);
+    CHECK(reread.y == doctest::Approx(80.0f));
+    CHECK(sameRotation(rotationFromEuler(reread), rotation));
+    CHECK(eulerHint(rotation, typed) == typed);
+
+    // Quelqu'un d'autre a tourné l'entité : les angles tapés ne valent plus, la rotation se relit.
+    const glm::quat turned = rotationFromEuler({10.0f, 20.0f, 30.0f});
+    const glm::vec3 now = eulerHint(turned, typed);
+    CHECK(now.x == doctest::Approx(10.0f));
+    CHECK(now.y == doctest::Approx(20.0f));
+    CHECK(now.z == doctest::Approx(30.0f));
+
+    // Une rotation nulle se lit 0, jamais -0 (« -0.000 » à l'écran).
+    CHECK_FALSE(std::signbit(eulerHint(glm::quat{1.0f, 0.0f, 0.0f, 0.0f}, std::nullopt).y));
+
+    // Ce qui s'écrit est normalisé, quels que soient les angles.
+    CHECK(glm::length(rotationFromEuler({1000.0f, -300.0f, 45.0f})) == doctest::Approx(1.0f));
+}
+
+TEST_CASE("les angles tapés restent affichés d'une modification à l'autre, la rotation écrite à "
+          "chacune")
+{
+    Typing typing;
+    const flecs::entity entity = typing.entityWith("phare", editor_test::Facing{});
+    const auto rotation = [&] { return entity.get<editor_test::Facing>().rotation; };
+
+    typing.type<editor_test::Facing>(entity, "200"); // le tangage, premier des trois angles
+    CHECK(sameRotation(rotation(), levain::editor::rotationFromEuler({200.0f, 0.0f, 0.0f})));
+    // Le lacet est le deuxième. 100° dépasse les ±90° que rend `glm::eulerAngles` : relu, le
+    // quaternion donnerait 80° et deux autres angles. L'inspecteur garde ceux qui ont été tapés.
+    typing.type<editor_test::Facing>(entity, "100", 90.0f);
+    typing.type<editor_test::Facing>(entity, "10");
+    CHECK(sameRotation(rotation(), levain::editor::rotationFromEuler({10.0f, 100.0f, 0.0f})));
+    CHECK(typing.sets == 3); // une fois par modification, jamais par image
+}
+
+TEST_CASE("une entité se lit comme un flecs::entity, par son chemin, vivante ou non")
+{
+    flecs::world world;
+    const flecs::entity target = world.entity("ancre::bouée");
+    const editor_test::Beacon beacon{.target = target};
+    CHECK(levain::editor::entityFieldOf(world, &beacon.target) == target);
+    CHECK(levain::editor::entityLabelOf(levain::editor::entityFieldOf(world, &beacon.target)) ==
+          "ancre::bouée");
+    const editor_test::Beacon none{};
+    CHECK(levain::editor::entityLabelOf(levain::editor::entityFieldOf(world, &none.target)) ==
+          "aucune");
+    target.destruct();
+    CHECK(levain::editor::entityLabelOf(levain::editor::entityFieldOf(world, &beacon.target)) ==
+          "(détruite)");
+}
+
+TEST_CASE("un asset se nomme par son fichier au registre, sinon par son GUID, en lecture seule")
+{
+    using levain::assets::AssetRef;
+    levain::assets::AssetRegistry registry;
+    const levain::assets::AssetId known = levain::assets::generateAssetId();
+    const levain::assets::AssetId unknown = levain::assets::generateAssetId();
+    registry.entries[known].file = "models/Fox.gltf";
+    CHECK(levain::editor::assetNameOf(&registry, AssetRef{known, 0}) == "Fox.gltf #0");
+    CHECK(levain::editor::assetNameOf(&registry, AssetRef{unknown, 2}) ==
+          levain::assets::toString(unknown) + " #2");
+    CHECK(levain::editor::assetNameOf(nullptr, AssetRef{known, 1}) ==
+          levain::assets::toString(known) + " #1");
+    CHECK(levain::editor::assetNameOf(&registry, AssetRef{}) == "aucun");
+
+    // MeshRef (describe, non Authored) : un seul champ, l'asset, sans ses deux entiers de 64 bits.
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    flecs::world world;
+    world.import<levain::scene::SceneModule>();
+    world.import<levain::assets::AssetsModule>();
+    levain::editor::Inspector inspector = levain::editor::createInspector(world, &registry);
+    const flecs::entity entity =
+        world.entity("renard").set(levain::assets::MeshRef{.mesh = AssetRef{known, 0}});
+    int fields = 0;
+    uiFrame(world,
+            [&]
+            {
+                ImGui::Begin("champs");
+                fields = levain::editor::inspectComponent(world, inspector, entity,
+                                                          world.id<levain::assets::MeshRef>());
+                ImGui::End();
+            });
+    CHECK(fields == 1);
+}
+
+TEST_CASE("un composant neuf, une seule déclaration : tous ses champs dessinés, éditable")
+{
+    Typing typing;
+    // LA déclaration : la seule ligne qu'écrit le module qui possède le composant.
+    levain::scene::describeAuthored<editor_test::Beacon>(typing.world)
+        .range(&editor_test::Beacon::intensity, 0.0, 1.0);
+    const flecs::entity entity = typing.entityWith("balise", editor_test::Beacon{});
+
+    typing.type<editor_test::Beacon>(entity, "5");
+    CHECK(typing.fields == 4); // la rotation, l'entité, l'enum et le nombre
+    CHECK(entity.get<editor_test::Beacon>().intensity == 1.0f); // la borne
+    CHECK(typing.sets == 1);
 }
