@@ -2,8 +2,8 @@
 
 ## Rôle
 
-Le socle : types de base, logs, assertions, allocateurs, temps, fichiers. Tout le moteur en dépend, et lui ne
-dépend de rien — ni SDL3, ni NVRHI, ni flecs.
+Le socle : types de base, logs, assertions, allocateurs, temps, fichiers, environnement. Tout le moteur en
+dépend, et lui ne dépend de rien — ni SDL3, ni NVRHI, ni flecs.
 
 **État en M1.1** : logs par catégorie, assertions, politique d'erreurs de
 l'[ADR-0008](../../docs/adr/0008-gestion-erreurs.md), allocateurs linéaire et pool, macros de profilage Tracy,
@@ -29,7 +29,8 @@ de modification (le hot-reload des shaders, M2.3).
 | [`include/levain/core/linear_allocator.hpp`](include/levain/core/linear_allocator.hpp) | `LinearAllocator` — arène vidée d'un coup, **9,4× plus rapide que `malloc`** |
 | [`include/levain/core/pool_allocator.hpp`](include/levain/core/pool_allocator.hpp) | `PoolAllocator` — blocs de taille fixe rendus dans n'importe quel ordre, **5,9×** |
 | [`include/levain/core/frame_time.hpp`](include/levain/core/frame_time.hpp) | `recordFrame` — moyenne, minimum et **maximum** par période : c'est le maximum qui montre une saccade |
-| [`include/levain/core/file.hpp`](include/levain/core/file.hpp) | `readFile` — un fichier entier en mémoire, ou un `Result` en échec ; `FileWatch`, `watchDirectory`, `takeChangedFiles` — les fichiers d'un dossier créés ou modifiés depuis la dernière fois |
+| [`include/levain/core/file.hpp`](include/levain/core/file.hpp) | `readFile` — un fichier entier en mémoire, ou un `Result` en échec ; `pathForC` — un chemin pour une bibliothèque C en `char*` (ktx, stb) ; `FileWatch`, `watchDirectory`, `takeChangedFiles` — les fichiers d'un dossier créés ou modifiés depuis la dernière fois |
+| [`include/levain/core/environment.hpp`](include/levain/core/environment.hpp) | `environmentVariable` — une variable d'environnement, ou `std::nullopt`, sans l'API que la CRT de Microsoft déconseille |
 | [`include/levain/core/profile.hpp`](include/levain/core/profile.hpp) | `LEVAIN_PROFILE_SCOPE`, `LEVAIN_PROFILE_SCOPE_TEXT` (un nom connu à l'exécution), `LEVAIN_PROFILE_PLOT` (une courbe), `LEVAIN_PROFILE_FRAME` — compilées hors du binaire par défaut (`ctest -R build.no-tracy`) |
 | [`include/levain/core/version.hpp`](include/levain/core/version.hpp) | `version()` et `toolchain()` — la bannière de démarrage |
 
@@ -50,4 +51,5 @@ Les en-têtes publics vivent sous `include/levain/core/`, l'implémentation sous
 | **Unity** | — | Le cœur C++ d'Unity n'est pas public. Ne pas supposer de correspondance. |
 
 La différence qui compte : chez Unreal et Godot, `Core` porte aussi la réflexion et le système d'objets. Chez
-nous, flecs s'en charge, donc `core` reste plus petit — logs, mémoire, temps, fichiers, et rien d'autre.
+nous, flecs s'en charge, donc `core` reste plus petit — logs, mémoire, temps, fichiers, environnement, et rien
+d'autre.

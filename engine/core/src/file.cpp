@@ -29,6 +29,11 @@ Result<std::vector<std::byte>> readFile(const std::filesystem::path& path)
     return bytes;
 }
 
+std::string pathForC(const std::filesystem::path& path)
+{
+    return path.string();
+}
+
 FileWatch watchDirectory(std::filesystem::path directory, std::string extension)
 {
     FileWatch watch{

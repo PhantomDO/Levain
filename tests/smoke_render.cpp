@@ -31,6 +31,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "levain/assets/image.hpp"
+#include "levain/core/environment.hpp"
 #include "levain/core/file.hpp"
 #include "levain/gpu/device.hpp"
 #include "levain/gpu/webgpu.hpp"
@@ -395,13 +396,14 @@ int runSmokeTest(std::string_view scene, std::string_view backend)
     const std::string_view referenceName = scene == "cube-instance" ? "cube" : scene;
     const std::filesystem::path referencePath =
         std::filesystem::path{LEVAIN_REFERENCE_DIR} / std::format("{}.ppm", referenceName);
-    if (std::getenv("LEVAIN_UPDATE_REFERENCE") != nullptr && referenceName != scene)
+    const bool update = levain::core::environmentVariable("LEVAIN_UPDATE_REFERENCE").has_value();
+    if (update && referenceName != scene)
     {
         std::println(stderr, "{} se compare à la référence de {} : réécrire celle-ci", scene,
                      referenceName);
         return 1;
     }
-    if (std::getenv("LEVAIN_UPDATE_REFERENCE") != nullptr)
+    if (update)
     {
         std::println("référence réécrite : {}", referencePath.string());
         return writePpm(referencePath, *actual) ? 0 : 1;

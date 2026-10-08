@@ -32,6 +32,10 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
 - **Lancé depuis WSL, un exe lit un chemin Linux absolu** (`/home/…`) sous la racine de la distro, son dossier
   courant étant `\\wsl.localhost\levain-dev\…` : les chemins compilés dans les tests marchent là, pas sur un
   runner Windows. Windows ne suit pas un lien symbolique de la distro : copier les assets, pas les lier.
+- **Un `std::filesystem::path` passé à une bibliothèque C** (`path.c_str()`) ne compile pas sous Windows : c'est
+  un `wchar_t*`. Sous Linux, rien ne le signale. Parade : `core::pathForC(path).c_str()`.
+- **`std::getenv` est « unsafe » pour la CRT de Microsoft**, une erreur sous `-Werror`. Parade :
+  `core::environmentVariable`, jamais `_CRT_SECURE_NO_WARNINGS` (règle n°4).
 - **La découverte des cas de doctest lance l'exe pendant le build** : l'interop de WSL l'exécute, un runner Linux
   non. Parade prévue : la découverte au moment des tests.
 

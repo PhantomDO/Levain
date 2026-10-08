@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <format>
 #include <memory>
 #include <string>
@@ -62,6 +63,13 @@ constexpr render::Sun DefaultSun{
 
 /// `--sky none` : ni HDRI, ni ambiance.
 constexpr std::string_view NoSky = "none";
+
+/// Comparer des chemins, pas leur `native()` : sous Windows, c'est un `wstring`, que `==` ne
+/// compare pas à un `string_view`.
+bool isNoSky(const std::filesystem::path& path)
+{
+    return path == std::filesystem::path{NoSky};
+}
 
 double secondsBetween(Clock::time_point start, Clock::time_point end)
 {
@@ -275,7 +283,7 @@ void turnSkyAroundUp(assets::HdrImage& image, float degrees)
 core::Result<Sky> loadSky(nvrhi::IDevice& device, const std::optional<std::filesystem::path>& path,
                           const AppSettings& settings)
 {
-    if (!path || path->native() == NoSky)
+    if (!path || isNoSky(*path))
     {
         // `--sky none` : aucune lumière du ciel, pas même l'ambiance (#125, le viewer sans IBL).
         auto uniform = render::createUniformEnvironment(device, glm::vec3{path ? 0.0f : 0.1f});
@@ -483,7 +491,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
     // Le ciel en fond, avec une HDRI seulement : sans elle, le fond reste celui de `App`.
     auto renderer =
         render::createRenderer(*gpu.nvrhi, gpu::swapchainFormat(gpu), std::move(sky->environment),
-                               skyPath && skyPath->native() != NoSky);
+                               skyPath && !isNoSky(*skyPath));
     if (!renderer)
     {
         return std::unexpected(renderer.error());

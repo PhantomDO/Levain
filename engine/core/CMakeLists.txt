@@ -2,6 +2,7 @@ find_package(spdlog CONFIG REQUIRED)
 
 add_library(levain_core STATIC
     src/assert.cpp
+    src/environment.cpp
     src/error.cpp
     src/file.cpp
     src/frame_time.cpp
