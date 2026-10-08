@@ -157,6 +157,18 @@ if(EMSCRIPTEN)
     return()
 endif()
 
+# Le label « host » : les tests dont la COMMANDE est un outil de l'hôte (cmake -P, Python, la lecture des symboles
+# par nm ou llvm-pdbutil, les cmake.plugins.* qui configurent un projet). Compilé pour Windows depuis Linux
+# (ADR-0035), ils ne se lancent pas sur un runner Windows, et seul l'hôte les comprend : le job Linux les passe
+# (`ctest -L host`), le runner Windows lance tout le reste, les programmes de la cible (`ctest -LE host`). Un test
+# qui lance un programme de la cible, même compilé ici, n'a pas ce label. Passer par cette fonction plutôt que par
+# add_test : un test de l'hôte sans label serait lancé, et rouge, sur le runner Windows. Les dxil.* de
+# levain_add_shader (cmake/LevainShaders.cmake) y sont aussi : dxc est un outil de l'hôte.
+function(levain_add_host_test name)
+    add_test(NAME ${name} COMMAND ${ARGN})
+    set_tests_properties(${name} PROPERTIES LABELS host)
+endfunction()
+
 # Benchmark : compilé par la CI pour qu'il ne pourrisse pas, mais pas lancé par ctest.
 # Un chiffre de performance dépend de la machine ; il se mesure à la main sur la machine
 # de référence et se consigne dans le journal (AGENTS.md, règle non négociable n°6).
@@ -202,43 +214,61 @@ endforeach()
 # L'échelle de liaisons de la réflexion est écrite par un script : le fichier versionné doit rester
 # sa sortie, sinon le test échoue (règle n°7).
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
-add_test(NAME scene.field-ladder
-         COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/generate_field_ladder.py --check
-                 ${PROJECT_SOURCE_DIR}/engine/scene/include/levain/scene/detail/field_ladder.inc)
+levain_add_host_test(scene.field-ladder
+    ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/generate_field_ladder.py --check
+    ${PROJECT_SOURCE_DIR}/engine/scene/include/levain/scene/detail/field_ladder.inc)
 
 # SPECS §7 : flecs n'apparaît pas sous scene/. Un contrôle des sources plutôt que du link : les
 # en-têtes de vcpkg sont visibles de tous les modules, un #include <flecs.h> compilerait partout.
-add_test(NAME deps.flecs-visibility
-         COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
-                 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_flecs_visibility.cmake)
+levain_add_host_test(deps.flecs-visibility
+    ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_flecs_visibility.cmake)
 
-add_test(NAME deps.asset-libraries-visibility
-         COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
-                 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_asset_libraries_visibility.cmake)
+levain_add_host_test(deps.asset-libraries-visibility
+    ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_asset_libraries_visibility.cmake)
+
+# Les symboles d'un exécutable. Hors de Windows, `nm -C` ; sous Windows (ADR-0035), ils sont dans le PDB, que lit
+# llvm-pdbutil, celui du LLVM du compilateur (lld-link a écrit le PDB), et check_pdb_symbols.cmake les démêle.
+# FORBID : un symbole qui contient ce texte fait échouer le contrôle. REQUIRE : il en faut au moins un, sans quoi
+# un nm ou un PDB muet laisserait le contrôle vert sans rien lire (règle n°7). Des textes simples, sans caractère
+# spécial de regex : nm les passe à ctest, le script les cherche tels quels.
+if(WIN32)
+    cmake_path(GET CMAKE_CXX_COMPILER PARENT_PATH llvmBinDir)
+    find_program(LEVAIN_PDBUTIL llvm-pdbutil HINTS "${llvmBinDir}" NO_DEFAULT_PATH REQUIRED)
+    find_program(LEVAIN_UNDNAME llvm-undname HINTS "${llvmBinDir}" NO_DEFAULT_PATH REQUIRED)
+endif()
+function(levain_add_symbol_check name target)
+    cmake_parse_arguments(PARSE_ARGV 2 check "" "FORBID;REQUIRE" "")
+    if(WIN32)
+        levain_add_host_test(${name}
+            ${CMAKE_COMMAND} -DPDBUTIL=${LEVAIN_PDBUTIL} -DUNDNAME=${LEVAIN_UNDNAME}
+            -DPDB=$<TARGET_PDB_FILE:${target}> -DFORBID=${check_FORBID} -DREQUIRE=${check_REQUIRE}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/check_pdb_symbols.cmake)
+    else()
+        levain_add_host_test(${name} ${CMAKE_NM} -C $<TARGET_FILE:${target}>)
+        set_tests_properties(${name} PROPERTIES PASS_REGULAR_EXPRESSION "${check_REQUIRE}")
+        if(check_FORBID)
+            set_tests_properties(${name} PROPERTIES FAIL_REGULAR_EXPRESSION "${check_FORBID}")
+        endif()
+    endif()
+endfunction()
 
 # Sans LEVAIN_PROFILING, Tracy n'est pas dans le binaire (engine/core/include/levain/core/profile.hpp) :
-# ni symbole, ni thread, ni socket. Le contrôle exige aussi des symboles levain::, sans quoi un nm
+# ni symbole, ni thread, ni socket. Le contrôle exige aussi des symboles levain::, sans quoi un contrôle
 # muet le laisserait vert (règle n°7).
 if(NOT LEVAIN_PROFILING AND NOT EMSCRIPTEN)
-    add_test(NAME build.no-tracy COMMAND ${CMAKE_NM} -C $<TARGET_FILE:levain_tests>)
-    set_tests_properties(build.no-tracy PROPERTIES
-        FAIL_REGULAR_EXPRESSION "tracy::" PASS_REGULAR_EXPRESSION "levain::")
+    levain_add_symbol_check(build.no-tracy levain_tests FORBID "tracy::" REQUIRE "levain::")
 endif()
 
 # Le jeu livré n'embarque pas l'éditeur (ADR-0034) : aucun symbole levain::editor:: dans le sandbox.
-# Le contrôle exige des symboles levain::app::, et le même nm sur l'exécutable éditeur doit en
+# Le contrôle exige des symboles levain::app::, et le même contrôle sur l'exécutable éditeur doit en
 # trouver : sans quoi un motif périmé le laisserait vert sans rien lire (règle n°7).
 if(NOT EMSCRIPTEN)
-    add_test(NAME build.no-editor COMMAND ${CMAKE_NM} -C $<TARGET_FILE:levain_sandbox>)
-    set_tests_properties(build.no-editor PROPERTIES
-        FAIL_REGULAR_EXPRESSION "levain::editor::" PASS_REGULAR_EXPRESSION "levain::app::")
-    add_test(NAME build.editor-symbols COMMAND ${CMAKE_NM} -C $<TARGET_FILE:levain_sandbox_editor>)
-    set_tests_properties(build.editor-symbols PROPERTIES PASS_REGULAR_EXPRESSION "levain::editor::")
+    levain_add_symbol_check(build.no-editor levain_sandbox FORBID "levain::editor::" REQUIRE "levain::app::")
+    levain_add_symbol_check(build.editor-symbols levain_sandbox_editor REQUIRE "levain::editor::")
 endif()
 
-add_test(NAME assets.metas-committed
-         COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
-                 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_asset_metas.cmake)
+levain_add_host_test(assets.metas-committed
+    ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_asset_metas.cmake)
 
 # Le tri des lumières en clusters sur le GPU, comparé à sa référence CPU (ADR-0024), sur les deux
 # backends.
@@ -263,9 +293,8 @@ set_tests_properties(gpu.ui.vulkan PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offs
 add_test(NAME gpu.ui.webgpu COMMAND levain_ui_gpu webgpu)
 
 # ImGui reste dans ui/ et au-dessus, et SDL hors de ui/ (SPECS §7, ADR-0032).
-add_test(NAME deps.imgui-visibility
-         COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
-                 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_imgui_visibility.cmake)
+levain_add_host_test(deps.imgui-visibility
+    ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_imgui_visibility.cmake)
 
 # Un programme qui ne relie que levain::gpu (gpu_alone.cpp) : une dépendance manquante ou mal ordonnée
 # casse le build, comme elle casserait celui d'un jeu.
@@ -293,13 +322,28 @@ endforeach()
 # ADR-0018 et ADR-0034 : le moteur vu d'un jeu. La frontière des plugins et de l'éditeur, sur un
 # moteur miniature qu'on configure une fois par scénario ; les scénarios interdits doivent échouer
 # avec le bon message, et non pour une autre raison.
+#
+# Compilé pour Windows depuis Linux (ADR-0035), le mini-moteur reçoit la toolchain de ce build : sans elle, il
+# retomberait sur clang-cl nu, qui ne trouve ni la STL ni le SDK de Microsoft, et la configuration échouerait avant
+# d'avoir vérifié quoi que ce soit. La toolchain de vcpkg, avec son triplet et sa toolchain chaînée, lit
+# LEVAIN_WINSYSROOT dans l'environnement que ctest transmet. Sans compilation croisée, rien ne change.
+set(pluginBoundariesToolchain)
+# Un arbre déjà configuré garde son compilateur et ses options : changer de toolchain n'y change rien, et la
+# détection du compilateur échoue (vu en passant d'un build sans toolchain à celui-ci). Ils repartent de zéro.
+file(REMOVE_RECURSE "${CMAKE_CURRENT_BINARY_DIR}/plugin_boundaries")
+if(CMAKE_CROSSCOMPILING)
+    set(pluginBoundariesToolchain
+        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE} -DVCPKG_TARGET_TRIPLET=${VCPKG_TARGET_TRIPLET}
+        -DVCPKG_HOST_TRIPLET=${VCPKG_HOST_TRIPLET}
+        -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=${VCPKG_CHAINLOAD_TOOLCHAIN_FILE})
+endif()
 foreach(case allowed engine-links-plugin undeclared-dependency editor-links-plugin engine-links-editor
              plugin-links-editor no-editor)
-    add_test(NAME cmake.plugins.${case}
-             COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/cmake/plugin_boundaries
-                     -B ${CMAKE_CURRENT_BINARY_DIR}/plugin_boundaries/${case} -G Ninja
-                     -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER} -DCASE=${case}
-                     -DLEVAIN_CMAKE_DIR=${PROJECT_SOURCE_DIR}/cmake)
+    levain_add_host_test(cmake.plugins.${case}
+        ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/cmake/plugin_boundaries
+        -B ${CMAKE_CURRENT_BINARY_DIR}/plugin_boundaries/${case} -G Ninja
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER} ${pluginBoundariesToolchain} -DCASE=${case}
+        -DLEVAIN_CMAKE_DIR=${PROJECT_SOURCE_DIR}/cmake)
 endforeach()
 set_tests_properties(cmake.plugins.engine-links-plugin PROPERTIES
     PASS_REGULAR_EXPRESSION "la cible du moteur fixture_core lie le plugin terrain")
@@ -317,7 +361,6 @@ set_tests_properties(cmake.plugins.no-editor PROPERTIES
     PASS_REGULAR_EXPRESSION "aucune cible sous[\n ]+[^\n ]*/editor[\n ]+:[\n ]+le[\n ]+contrôle")
 
 # Le manifeste vcpkg d'un jeu doit contenir celui du moteur.
-add_test(NAME cmake.vcpkg-manifest
-         COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
-                 -DWORK=${CMAKE_CURRENT_BINARY_DIR}/vcpkg_manifest
-                 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_vcpkg_manifest_test.cmake)
+levain_add_host_test(cmake.vcpkg-manifest
+    ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -DWORK=${CMAKE_CURRENT_BINARY_DIR}/vcpkg_manifest
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_vcpkg_manifest_test.cmake)
