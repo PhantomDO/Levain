@@ -30,14 +30,29 @@ struct Inspector
 /// chemin. Une paire ou un identifiant à drapeaux : ce qu'en écrit flecs.
 [[nodiscard]] std::string componentLabelOf(const flecs::world& world, flecs::id component);
 
-/// Les champs d'un composant décrit de `entity`, un widget grisé chacun, aux valeurs de l'image ;
-/// rend leur nombre, 0 sans description. Les widgets dessinent une copie, jamais la table. Dans la
-/// fenêtre courante d'ImGui.
+/// Le nom de la constante d'une enum que `value` désigne ; nul si aucune ne correspond (un entier
+/// écrit hors des constantes).
+[[nodiscard]] const char* enumNameOf(const flecs::world& world, flecs::entity_t type,
+                                     const void* value);
+
+/// commitEdit : la seule écriture de l'inspecteur. Écrit `edited`, la copie que les widgets ont
+/// changée, par `setComponentValue` (un `OnSet`), si le composant est une donnée d'auteur
+/// (`Authored`) et que la copie diffère de `before` (`sameValue`). Un composant en lecture seule
+/// n'est jamais écrit, même si un widget a changé sa copie. Rend si l'écriture a eu lieu.
+bool commitEdit(flecs::world& world, flecs::entity entity, flecs::entity_t component,
+                const void* before, const void* edited);
+
+/// Les champs d'un composant décrit de `entity`, un widget chacun, aux valeurs de l'image ; rend
+/// leur nombre, 0 sans description. Les widgets éditent une copie, jamais la table, et grisés sans
+/// `Authored` ; une modification s'écrit par `commitEdit`, bornes imposées (`AlwaysClamp`). Dans la
+/// fenêtre courante d'ImGui, le monde différé.
 int inspectComponent(flecs::world& world, const Inspector& inspector, flecs::entity entity,
                      flecs::entity_t component);
 
 /// La fenêtre « Inspecteur », ancrée au premier affichage au nœud `dock` de la disposition
-/// d'`app` : chaque composant de l'entité choisie, si elle vit encore (`selectedIfAlive`).
+/// d'`app` : chaque composant de l'entité choisie, si elle vit encore (`selectedIfAlive`). Le monde
+/// doit être différé (`defer_begin`) : les écritures passent, et leurs observateurs, après le
+/// parcours des composants de l'entité.
 void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t selected,
                    ImGuiID dock);
 
