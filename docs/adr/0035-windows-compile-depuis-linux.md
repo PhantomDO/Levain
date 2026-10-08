@@ -68,10 +68,11 @@ tourné : son chemin se prouvera dans la PR de la CI.
   (des chemins en `wchar_t` sous Windows, un `<ostream>` manquant, le bug de M0.2), deux par des définitions
   (`NOMINMAX`, et `_CRT_SECURE_NO_WARNINGS`, que l'implémentation ne garde pas). Les shaders DXIL se compilaient
   déjà sous Linux.
-- **Les tests.** `levain_tests.exe` passe 293 cas sur 295 sous Windows, en 8 s. `ctest` sur la Release, lancé
-  depuis la distro, en passe 315 sur 337 ; les 22 échecs sont expliqués au § Conséquences. Un seul vient du
-  moteur : `gpu.environment.webgpu` trouve sur la 4070 un reflet préfiltré et une BRDF faux (0,394 au lieu de 1
-  vue de face), que lavapipe ne montre pas.
+- **Les tests.** `levain_tests.exe` passe 293 cas sur 295 sous Windows, en 8,5 s (`time`, deux passages).
+  `ctest` sur la Release, lancé depuis la distro, en passe 315 sur 337 ; les 22 échecs sont expliqués au
+  § Conséquences. Deux peuvent venir du moteur : `waitEvents`, dont la cause reste à trouver, et
+  `gpu.environment.webgpu`, qui trouve sur la 4070 un reflet préfiltré et une BRDF faux (0,394 au lieu de 1 vue de
+  face), que lavapipe ne montre pas (#347).
 - **Le sandbox tourne sur la 4070**, en Release et en Vulkan 1.4.351 : device créé en 321 ms, 822 images en
   5,0 s, 0,696 ms de GPU par image, capture juste. Ces chiffres sont indicatifs : les mesures du projet restent
   sur la machine de référence (SPECS § 10).
@@ -139,9 +140,11 @@ le port vcpkg, pour la règle n°5.
    fusion qu'une fois ajouté aux checks requis de `main`, ce qui se demande à Donnovan par sondage, dans la PR
    de la CI, après un premier passage vert.
 5. **Le rechargement des shaders passe par `wsl.exe`** quand l'exe a été compilé dans une distro WSL : il y
-   relance le build Linux. Ailleurs (l'exe de la CI), il refuse avec un message.
-6. **Les couches de validation viennent du port vcpkg**, livrées à côté de l'exe : les mêmes sur le PC de
-   Donnovan et en CI, rien à installer.
+   relance la compilation des shaders par `cmake` et `slangc` de la distro, dans l'arbre `windows-*` d'où vient
+   l'exe. Ailleurs (l'exe de la CI), il refuse avec un message.
+6. **Les couches de validation viennent du port vcpkg**, copiées à côté de l'exe, dont le dossier est donné au
+   chargeur Vulkan (`VK_ADD_LAYER_PATH`), qui ne les y cherche pas seul : les mêmes sur le PC de Donnovan et en
+   CI, rien à installer.
 7. **Maintenant** : M1.4 passe avant la fin de M7.2 (la PR de ses tests de refus à la compilation, puis sa
    clôture).
 
@@ -189,7 +192,8 @@ dans les tests** ne marchent sous Windows que lancés depuis WSL (`ctest` les do
 ### Ce que Donnovan a à faire
 
 Rien à installer sous Windows : les Build Tools 2026 sont déjà sur le portable, le pilote NVIDIA fournit Vulkan
-et la couche de debug D3D12 est présente. Il lance le sandbox depuis la distro ; un exe livré (M8.2) demandera le
+et la couche de debug D3D12 est présente. Il garde les Build Tools tels quels : le winsysroot du portable les lit,
+et une mise à jour changerait sa STL, que la CI fige (MSVC 14.51). Il lance le sandbox depuis la distro ; un exe livré (M8.2) demandera le
 redistribuable Visual C++, que Microsoft permet de joindre au binaire. **Pour déboguer** sous Windows (Visual
 Studio, RenderDoc, PIX), les PDB nommeront les sources par leur chemin dans la distro
 (`\\wsl.localhost\levain-dev\…`) : à vérifier dans la PR de la chaîne.
@@ -199,19 +203,27 @@ Studio, RenderDoc, PIX), les PDB nommeront les sources par leur chemin dans la d
 - **La CI** : non mesuré. Un runner GitHub a 4 cœurs ; la première compilation des ports Windows y prendra
   bien plus que les 16 min du portable, puis le cache de vcpkg les garde, comme pour Linux. Les runners sont
   gratuits pour un dépôt public.
-- **xwin** n'a pas tourné pendant l'essai ; si son manifeste n'a pas les versions du portable, les plus proches,
-  et le dire dans la PR de la CI.
+- **xwin** n'a pas tourné pendant l'essai. Si son manifeste n'a pas les versions du portable, la PR de la CI
+  prend les plus proches et le dit.
+- **lavapipe sous Windows** n'a pas été essayé : Mesa n'en publie pas de binaire, il faudra un build tiers à
+  version figée, et le chargeur `vulkan-1.dll` sur le runner, que Dawn cherche dans `System32`. La PR de la CI le
+  prouve ; sinon, un sondage à Donnovan avant d'écarter un test.
+- **Le cache d'Actions** : 5,0 Go sur 10 aujourd'hui. S'y ajoutent les dépendances Windows (2,0 Go installées sur
+  le portable), le winsysroot de xwin et deux configurations : la PR de la CI mesure ce que ça prend, et vérifie
+  qu'aucun cache Linux n'en est chassé (GitHub évince au-delà de 10 Go).
 - **Les ports vcpkg sous clang-cl** : d'autres casseront peut-être à une mise à jour de la baseline.
 
 ### Les PR et le reste
 
 - **Les PR**, une à la fois ou empilées (règle n°1) : cet ADR ; la chaîne (#344 : toolchain, triplet, presets,
   manifeste, corrections du moteur, Dawn, couches de validation, `llvm-23` dans la distro, `windows-debug` dans
-  `tools/verify.sh`) ; les tests et le rechargement par `wsl.exe` (#345) ; la CI (#346) ; le backend D3D12
+  `tools/verify.sh`, qui refuse bruyamment sans `LEVAIN_WINSYSROOT`, règle n°7) ; le winsysroot de la machine de
+  référence vient de xwin, par le même script que la CI (#346) ; les tests et le rechargement par `wsl.exe` (#345) ; la CI (#346) ; le backend D3D12
   (#18, #19). L'essai ajoute 187 lignes hors prototypes : la PR de la chaîne tient sous 400. Le backend D3D12,
   que l'essai n'a pas écrit, aura la taille de son pendant Vulkan (`device_vk.cpp` et `swapchain_vk.cpp` :
   676 lignes) : il se découpera (règle n°2).
-- **Roadmap v0.15** : M1.4 rouvert, 1,5 h Donnovan (0,75 pour Windows en Vulkan, 0,75 pour D3D12), 3 sessions ;
+- **Roadmap v0.15** : M1.4 rouvert, 1,5 h Donnovan (0,75 pour Windows en Vulkan, 0,75 pour D3D12), 4 sessions
+  (#344 ; #345 et #347 ; #346 ; #18 et #19) ;
   il prend la place de la fin de M7.2, dont il reprend l'échéance (14/03/2027) ; les autres échéances ne
   bougent pas.
 - **SPECS** : Windows 10 (1903 et plus) et 11, par clang-cl, compilé depuis Linux ; § 10, le portable de
@@ -232,7 +244,7 @@ Studio, RenderDoc, PIX), les PDB nommeront les sources par leur chemin dans la d
 
 ## Sources
 
-[essai]: https://github.com/PhantomDO/Levain/blob/ebadeb3461dad0a00f7b27c5c33afce034ff82bd/prototypes/windows/README.md
+[essai]: https://github.com/PhantomDO/Levain/blob/582ecfad6c2e6bd275883b1974a875938c11b24f/prototypes/windows/README.md
 
 1. Dozen en Vulkan 1.2 sur une RTX 3090, Ubuntu 26.04 sous WSL2 :
    <https://github.com/taytay-industries/fork-godogen/pull/2> ; pas de `nvidia_icd.json` sous WSL :

@@ -249,9 +249,9 @@ Deux points relevés par `vulkaninfo --summary`, à traiter en M1.2 :
 
 La machine de référence est sous Linux. Le code Windows est vérifié à trois niveaux :
 
-1. **CI (à chaque PR)** : le build Windows compilé sur un runner Linux par clang-cl, puis lancé sur un runner
-   Windows : tests unitaires, et test de fumée D3D12 sous WARP (rendu logiciel) dès que le backend existe
-   ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
+1. **CI (à chaque PR)** : le build Windows, Debug et Release, compilé sur un runner Linux par clang-cl, puis
+   lancé sur un runner Windows : tests unitaires, tests GPU en Vulkan sur lavapipe, et test de fumée D3D12 sous
+   WARP (rendu logiciel) dès que le backend existe ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
 2. **Proton sur la machine de référence (à chaque milestone de rendu)** : le binaire Windows produit par la CI est
    lancé sous Proton. Direct3D 12 y est traduit en Vulkan par vkd3d-proton : ça vérifie notre code Windows et le
    backend D3D12 de NVRHI sur le vrai GPU, mais pas un pilote D3D12 natif, et la couche de debug D3D12 de

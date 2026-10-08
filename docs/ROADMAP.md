@@ -5,7 +5,7 @@
 > v0.15 : **Windows revient** ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : Donnovan a un PC Windows.
 > M1.4 est rouvert, compilé depuis Linux par clang-cl, en deux étapes : Windows en Vulkan, puis le backend
 > Direct3D 12. Il passe maintenant, avant la fin de M7.2 (choix de Donnovan), et en reprend l'échéance. M1.4 :
-> **1,5 h**, 3 sessions. Total : **65,2 h → 66,7 h** ; les autres échéances ne bougent pas.
+> **1,5 h**, 4 sessions. Total : **65,2 h → 66,7 h** ; les autres échéances ne bougent pas.
 >
 > v0.14 : **l'ADR-0034**, accepté par sondage. M7.2 ouvre la bibliothèque éditeur (`editor/`, choix de
 > Donnovan) ; M7.3 écrit l'enveloppe et le chargeur de ses scènes, le JSON de flecs ne servant qu'aux valeurs, et
@@ -83,7 +83,7 @@
 | Phase | Contenu | Heures Donnovan | Sessions | Fin visée (1,5 h/sem.) |
 |---|---|---:|---:|---|
 | 0 | Fondations | 5,0 (réel) | 4 | fini le 20/09/2026 |
-| 1 | Fenêtre et premier triangle, puis Windows (M1.4, rouvert) | 3,0 (réel, 4,5 estimées) + 1,5 | 3 + 3 | fini le 21/09/2026 ; M1.4 : 14/03/2027 |
+| 1 | Fenêtre et premier triangle, puis Windows (M1.4, rouvert) | 3,0 (réel, 4,5 estimées) + 1,5 | 3 + 4 | fini le 21/09/2026 ; M1.4 : 14/03/2027 |
 | 2 | 3D de base | 4,25 (réel, 3,75 estimées) | 4 | fini le 22/09/2026 |
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
 | 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
@@ -91,7 +91,7 @@
 | 6 | Physique et traversée | 11,25 (réel, 9,65 estimées) | 6 | fini le 07/10/2026 |
 | 7 | Éditeur | 7,6 | 8 | 04/04/2027 |
 | 8 | Audio et le jeu | 8,35 | 8 | 16/05/2027 |
-| **Total** | | **66,7** | **68** | |
+| **Total** | | **66,7** | **69** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
@@ -150,7 +150,7 @@ dans une capture Tracy.
 | M1.1 Fenêtre et boucle | 1,5 | 1 | 18/10/2026 |
 | M1.2 Device NVRHI (Vulkan) et swapchain | 1,5 | 1 | 25/10/2026 |
 | M1.3 Premier triangle | 1,5 | 1 | 01/11/2026 |
-| M1.4 Windows depuis Linux, puis Direct3D 12 (rouvert, ADR-0035) | 1,5 | 3 | 14/03/2027 |
+| M1.4 Windows depuis Linux, puis Direct3D 12 (rouvert, ADR-0035) | 1,5 | 4 | 14/03/2027 |
 
 **M1.1 — Fenêtre et boucle.** Fenêtre SDL3, boucle principale, événements, redimensionnement, mesure du
 frame time ; ASan et UBSan en CI Linux.
