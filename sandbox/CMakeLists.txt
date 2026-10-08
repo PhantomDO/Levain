@@ -74,3 +74,13 @@ target_compile_definitions(levain_sandbox PRIVATE
     LEVAIN_CMAKE_COMMAND="${CMAKE_COMMAND}"
     LEVAIN_BUILD_DIR="${CMAKE_BINARY_DIR}"
     LEVAIN_SHADER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/shaders")
+
+# L'exécutable éditeur du sandbox (ADR-0034, choix 6B) : le même main.cpp, compilé une seconde fois
+# avec LEVAIN_SANDBOX_EDITOR, qui enveloppe son démarrage par editor::withEditor ; les mêmes
+# bibliothèques et définitions, plus l'éditeur. levain_sandbox ne change pas : il ne lie pas
+# l'éditeur.
+add_executable(levain_sandbox_editor src/main.cpp)
+target_link_libraries(levain_sandbox_editor PRIVATE
+    $<TARGET_PROPERTY:levain_sandbox,LINK_LIBRARIES> levain::editor)
+target_compile_definitions(levain_sandbox_editor PRIVATE
+    $<TARGET_PROPERTY:levain_sandbox,COMPILE_DEFINITIONS> LEVAIN_SANDBOX_EDITOR)

@@ -24,7 +24,7 @@ step() { # $1 = nom de l'étape, $2 = OK ou FAIL, $3 = détail
     [ "$2" = OK ] || failed=1
 }
 
-if find engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' \
+if find editor engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' \
     | xargs clang-format --dry-run --Werror > "$logs/format.log" 2>&1; then
     step format OK
 else

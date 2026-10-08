@@ -102,7 +102,7 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
   qu'elle croyait toucher, mais un commentaire modifié par script dans un autre fichier (`lake_shore.hpp`)
   dépassait la largeur.
 - **Parade** : avant chaque push, même d'une petite correction, relancer le contrôle de la CI sur tout l'arbre :
-  `find engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run
+  `find editor engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run
   --Werror`.
 
 ## meshoptimizer, comme Jolt, n'a ses assertions qu'en Debug (2026-10-05)
