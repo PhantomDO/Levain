@@ -187,3 +187,12 @@ puis déclarer `http://127.0.0.1:47380/mcp` auprès de l'agent.
 `.github/workflows/ci.yml` : une matrice `linux-debug`, `linux-release`, `linux-asan`, chacun compilé, testé et
 lancé 3 s ; format et clang-tidy sur `linux-debug`. Les trois sont des checks requis pour fusionner sur `main`.
 `linux-release` compile aussi le build profilé (`-DLEVAIN_PROFILING=ON`, sandbox et tests), sans le lancer (#298).
+
+Windows (ADR-0035, #346), en deux temps. `windows-build`, sur Linux : le winsysroot par `tools/winsysroot.sh` (en
+cache), `windows-debug` et `windows-release` compilés (cache vcpkg `vcpkg-windows-*`, enregistré dès la
+configuration), `ctest -L host` sur les deux arbres, puis un artefact par configuration : les exe de `tests/` et
+leurs voisins, les shaders, les fichiers de ctest, `tests/data` et `data`, rien de Microsoft. `windows-debug` et
+`windows-release`, sur `windows-2025-vs2026` : l'arbre extrait sous `C:\home\runner\work\…`, où les chemins
+Linux compilés dans les tests se résolvent ; lavapipe de mesa-dist-win et le chargeur Vulkan de LunarG (versions et
+SHA-256 dans `ci.yml`) ; la CRT du runner vérifiée ; puis `ctest -LE host`, la découverte des cas de doctest faite
+là, leur nombre comparé à `levain_tests.exe --count`. Le sandbox n'y est pas lancé.

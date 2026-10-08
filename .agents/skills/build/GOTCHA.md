@@ -3,6 +3,20 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## La CI Windows : lavapipe pour Windows, ctest sur des chemins Linux (2026-10-08)
+
+Les jobs `windows-*` de `ci.yml` (#346). Répété en local avant la CI : le ctest de Windows lancé de la distro par
+`cmd.exe`, après `pushd \\wsl.localhost\levain-dev\…\build\windows-debug`, qui prête une lettre de lecteur au partage :
+les chemins `/home/…` s'y lisent comme sur le runner (lavapipe par `VK_DRIVER_FILES`, `vulkan-1.dll` à côté des exe).
+
+- **Le lavapipe de mesa-dist-win n'a pas `VK_EXT_headless_surface`** (vulkaninfo : 16 extensions d'instance, aucune
+  « headless ») : sous `SDL_VIDEO_DRIVER=offscreen`, « Installed Vulkan doesn't implement the VK_EXT_headless_surface
+  extension ». Parade : sous Windows, les tests prennent le pilote `windows`, une vraie fenêtre (`VK_KHR_win32_surface`).
+- **Un faux `.exe` lancé de la distro ouvre sur le bureau de Windows un dialogue modal** (« Application 16 bits non
+  prise en charge »), et le processus attend qu'on le ferme. Un contre-test efface l'exe, il ne le remplace pas.
+- **Un job sauté parce que celui dont il dépend a échoué compte comme réussi** pour la protection de `main` :
+  `windows-build` est un check requis, avec `windows-debug` et `windows-release`.
+
 ## La découverte de doctest faite par ctest, et le winsysroot de xwin (2026-10-08)
 
 Les cas de `levain_tests` découverts par ctest sur la machine qui lance l'exe (`tests/CMakeLists.txt`), et le
