@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Outille une distro WSL Ubuntu 26.04 pour Levain, comme la distrobox dev-ubuntu et la CI (.github/workflows/ci.yml).
+# Outille une distro WSL Ubuntu 26.04 pour Levain, comme la distrobox dev-ubuntu et la CI
+# (.github/workflows/ci.yml).
 # Lancé par levain-wsl.ps1, en root, dans la distro neuve :
 #
 #   provision-levain.sh <utilisateur> [--skip-first-build]
@@ -24,7 +25,10 @@ fi
 # installe un paquet sans rester bloqué sur une invite.
 echo "$user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-levain
 chmod 0440 /etc/sudoers.d/90-levain
-printf '[user]\ndefault=%s\n' "$user" > /etc/wsl.conf
+# Complété, jamais réécrit : l'image d'Ubuntu y pose déjà ses réglages (systemd), qu'un > effacerait.
+if ! grep -q '^\[user\]' /etc/wsl.conf 2> /dev/null; then
+    printf '\n[user]\ndefault=%s\n' "$user" >> /etc/wsl.conf
+fi
 
 echo "== les paquets (la liste de l'étape « Outils » de la CI, plus de quoi cloner et compiler)"
 export DEBIAN_FRONTEND=noninteractive
@@ -53,9 +57,11 @@ for tool in clang++ clang-format clang-tidy; do
         || { echo "erreur : $tool n'est pas en version $LLVM_VERSION" >&2; exit 1; }
 done
 
-echo "== vcpkg, emsdk, Claude Code et les dépôts, pour $user"
-sudo -u "$user" -H env VCPKG_TAG="$VCPKG_TAG" EMSDK_VERSION="$EMSDK_VERSION" FIRST_BUILD="$firstBuild" \
-    bash -euo pipefail << 'USER_STEPS'
+echo "== vcpkg, emsdk, Claude Code, les dépôts et les assets, pour $user"
+# Les étapes de l'utilisateur dans un fichier, lancé depuis ce fichier : passées à bash par l'entrée standard,
+# un programme qui la lit (l'installeur de Claude Code, cmake, ctest) en avalerait la suite, et bash finirait
+# en 0 sans les avoir faites.
+cat > /tmp/levain-user-steps.sh << 'USER_STEPS'
 cd ~
 
 if [ ! -d vcpkg ]; then
@@ -76,6 +82,8 @@ bash /tmp/claude-install.sh
 mkdir -p Projects
 [ -d Projects/Levain ] || git clone https://github.com/PhantomDO/Levain.git Projects/Levain
 [ -d Projects/Rando ] || git clone https://github.com/PhantomDO/Rando.git Projects/Rando
+# Les assets de test tiers, jamais versionnés (ADR-0018) : sans eux, le build web refuse de se configurer.
+(cd Projects/Levain && ./tools/fetch-assets.sh)
 
 if ! grep -q "levain-wsl" ~/.bashrc; then
     cat >> ~/.bashrc << 'RC'
@@ -101,5 +109,8 @@ if [ "$FIRST_BUILD" = yes ]; then
     SDL_VIDEO_DRIVER=offscreen ctest --test-dir build/linux-debug --output-on-failure --timeout 120
 fi
 USER_STEPS
+chmod 0644 /tmp/levain-user-steps.sh
+sudo -u "$user" -H env VCPKG_TAG="$VCPKG_TAG" EMSDK_VERSION="$EMSDK_VERSION" FIRST_BUILD="$firstBuild" \
+    bash -euo pipefail /tmp/levain-user-steps.sh
 
 echo "== prête"

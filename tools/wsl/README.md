@@ -4,8 +4,8 @@ Une distro WSL dédiée, `levain-dev` : Ubuntu 26.04, la même chaîne que la CI
 machine de référence, avec Claude Code en ligne de commande. Elle vit dans son propre dossier et se supprime d'une
 commande, sans rien laisser sous Windows.
 
-Le moteur ne se construit pas nativement sous Windows : l'ADR-0011 le diffère, et tous les presets sont `linux-*`.
-WSL est le chemin le plus court pour travailler depuis un PC Windows.
+Le moteur ne se construit pas nativement sous Windows : l'ADR-0011 le diffère, et les presets natifs sont
+`linux-*`. WSL est le chemin le plus court pour travailler depuis un PC Windows.
 
 ## Installer
 
@@ -20,10 +20,10 @@ powershell -ExecutionPolicy Bypass -File .\levain-wsl.ps1
 
 Le script :
 
-1. crée la distro `levain-dev` (`Ubuntu-26.04`) dans `%LOCALAPPDATA%\levain-wsl` ;
+1. crée la distro `levain-dev` (`Ubuntu-26.04`) dans `%LOCALAPPDATA%\levain-dev` (un dossier par `-Name`) ;
 2. y lance `provision-levain.sh`, en root : les paquets de l'étape « Outils » de la CI, LLVM 23 (apt.llvm.org),
    vcpkg et emsdk aux versions de `ci.yml`, Claude Code (son installeur natif), les dépôts Levain et Rando dans
-   `~/Projects` ;
+   `~/Projects`, et les assets de test (`tools/fetch-assets.sh`, sans lesquels le build web ne se configure pas) ;
 3. fait un premier build Debug et ses tests. Long la première fois : vcpkg compile toutes les dépendances.
    `-SkipFirstBuild` le saute.
 
@@ -37,9 +37,13 @@ Les versions de `provision-levain.sh` suivent `.github/workflows/ci.yml` (`VCPKG
 
 ```bash
 wsl -d levain-dev
+git config --global user.name "…" && git config --global user.email "…"
 gh auth login    # pour pousser
 claude           # Claude Code
 ```
+
+Au premier `wsl -d levain-dev`, Ubuntu peut encore proposer sa configuration de premier lancement, que
+`--no-launch` a sautée (pas vérifié) : l'utilisateur existe déjà, le script l'a créé.
 
 Claude Code ouvre le navigateur pour la connexion : s'y connecter avec le compte voulu. Sous WSL, si rien ne
 s'ouvre, la touche `c` copie l'URL, à ouvrir dans le navigateur de Windows ; le navigateur affiche alors un code, à
@@ -47,8 +51,8 @@ coller dans le terminal à « Paste code here if prompted ». `/status` dit quel
 `/login` en change. Les identifiants restent dans la distro (`~/.claude/.credentials.json`), à part de ceux de
 Windows.
 
-Piège : `ANTHROPIC_API_KEY` ou `CLAUDE_CODE_OAUTH_TOKEN`, s'ils sont définis dans la distro, passent avant le compte
-du `/login` (documentation de Claude Code, « Authentication »). Le script n'en définit aucun.
+Piège : `ANTHROPIC_API_KEY` ou `CLAUDE_CODE_OAUTH_TOKEN`, s'ils sont définis dans la distro, passent avant le
+compte du `/login` (documentation de Claude Code, « Authentication »). Le script n'en définit aucun.
 
 ## Voir les résultats depuis Windows
 
@@ -71,11 +75,11 @@ surveillance des fichiers y marche mal.
 
 ## Les limites
 
-- **Pas de GPU Linux sous WSL pour ce moteur** : les tests Vulkan tournent sur lavapipe, le Vulkan logiciel de Mesa,
-  comme dans la CI. Le script le règle dans `~/.bashrc` (`VK_DRIVER_FILES`, et `LEVAIN_VK_PRELOAD`, que lit
+- **Pas de GPU Linux sous WSL pour ce moteur** : les tests Vulkan tournent sur lavapipe, le Vulkan logiciel de
+  Mesa, comme dans la CI. Le script le règle dans `~/.bashrc` (`VK_DRIVER_FILES`, et `LEVAIN_VK_PRELOAD`, que lit
   `tools/verify.sh`). Les mesures de performance restent celles de la machine de référence (SPECS §10).
-- **La mémoire** : WSL prend la moitié de la RAM par défaut, pour toutes les distros à la fois. Pour en donner plus,
-  dans `%USERPROFILE%\.wslconfig` :
+- **La mémoire** : WSL prend la moitié de la RAM par défaut, pour toutes les distros à la fois. Le premier build,
+  où vcpkg compile Dawn, en demande beaucoup. Pour en donner plus, dans `%USERPROFILE%\.wslconfig` :
 
   ```ini
   [wsl2]
@@ -92,4 +96,5 @@ surveillance des fichiers y marche mal.
 powershell -ExecutionPolicy Bypass -File .\levain-wsl.ps1 -Remove
 ```
 
-`wsl --unregister levain-dev`, puis le dossier et son disque virtuel effacés : rien ne reste.
+`wsl --unregister levain-dev` efface la distro et son disque virtuel, puis le dossier, s'il est vide : un dossier
+`-Location` choisi à la main et qui contient autre chose reste tel quel, rien n'y est effacé.
