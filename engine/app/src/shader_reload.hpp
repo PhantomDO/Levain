@@ -1,6 +1,8 @@
 #pragma once
 
 #include <chrono>
+#include <string>
+#include <vector>
 
 #include <nvrhi/nvrhi.h>
 
@@ -12,15 +14,19 @@ namespace levain::app
 {
 
 /// Le hot-reload des shaders (ADR-0014) : le build à relancer, les sources de `shaders/`, et le
-/// prochain moment où les regarder.
+/// prochain moment où les regarder. Sans commande (le navigateur, ou un exe Windows qui ne sait pas
+/// la lancer), rien n'est surveillé.
 struct ShaderReload
 {
     ShaderBuild build;
+    std::vector<std::string> command; ///< `shaderReloadCommand`, calculée une fois au démarrage.
     levain::core::FileWatch sources;
     std::chrono::steady_clock::time_point nextCheck;
 };
 
-/// Commence à surveiller les sources de `build`. Sans sources (le navigateur), ne surveille rien.
+/// Commence à surveiller les sources de `build`. Sans sources (le navigateur), ne surveille rien ;
+/// quand la commande est refusée (`shaderReloadCommand`), le dit une fois dans le log et ne
+/// surveille rien non plus.
 [[nodiscard]] ShaderReload startShaderReload(const ShaderBuild& build);
 
 /// Si une source a changé : relance le build des shaders, puis recrée le pipeline des passes qui

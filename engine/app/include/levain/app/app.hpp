@@ -52,7 +52,47 @@ struct ShaderBuild
     std::string cmakeCommand;
     std::filesystem::path buildDir;
     std::filesystem::path sourceDir;
+    /// La distro WSL où ce programme Windows a été compilé, lue dans `WSL_DISTRO_NAME` à la
+    /// configuration (ADR-0035, décision 5) : lancé de la distro, un exe Windows ne reçoit pas
+    /// cette variable, elle doit donc être écrite dans le binaire. Vide partout ailleurs.
+    std::string wslDistro;
 };
+
+/// Le système du programme, qui décide comment relancer le build. Un paramètre plutôt qu'un
+/// `#ifdef` dans la fonction : le test couvre ainsi les deux depuis Linux.
+enum class HostSystem : std::uint8_t
+{
+    Linux,
+    Windows,
+};
+
+/// Le système pour lequel ce programme est compilé.
+inline constexpr HostSystem CompiledHost =
+#ifdef _WIN32
+    HostSystem::Windows;
+#else
+    HostSystem::Linux;
+#endif
+
+/// La cible CMake qui compile les shaders (`cmake/LevainShaders.cmake`).
+inline constexpr std::string_view ShaderTarget = "levain_shaders";
+
+/// La commande qui recompile les shaders (ADR-0014), à lancer dans le dossier de build qui a
+/// produit le programme :
+/// - sous Linux, `cmake --build` directement ;
+/// - sous Windows, `cmake` et `slangc` sont des programmes Linux qu'il ne sait pas lancer : si
+///   l'exe a été compilé dans une distro, `wsl.exe` y relance `cmake --build`, dans le dossier de
+///   build de la distro d'où l'exe vient (ADR-0035, décision 5) ;
+/// - sous Windows, sans distro (l'exe de la CI), un refus (`Unsupported`) qui dit pourquoi : le
+///   programme continue de tourner, sans recharger.
+[[nodiscard]] levain::core::Result<std::vector<std::string>>
+shaderReloadCommand(const ShaderBuild& build, HostSystem host);
+
+/// La sortie d'un processus lancé par `shaderReloadCommand`, lisible dans le log. `wsl.exe` écrit
+/// ses propres messages (une distro inconnue, un service arrêté) en UTF-16 : tels quels, des octets
+/// nuls entre les lettres. Un processus de la distro, lui, écrit de l'UTF-8, sans octet nul : c'est
+/// à cela que l'on reconnaît l'UTF-16, et la sortie sans octet nul passe telle quelle.
+[[nodiscard]] std::string utf8FromWslOutput(std::string_view output);
 
 /// Ce que le programme règle avant que la boucle ne démarre : sa fenêtre, ses fichiers, et ce que
 /// les options communes de la ligne de commande changent (`parseCommonOption`).

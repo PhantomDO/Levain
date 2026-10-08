@@ -126,6 +126,10 @@ build/windows-release/sandbox/levain_sandbox.exe --seconds 3               # l'i
 L'exe tourne sous Windows, sur la vraie carte graphique, par son pilote Vulkan. Dans un worktree, copier les
 assets dans `assets-cache/` plutôt que de les lier : Windows ne suit pas un lien symbolique de la distro. Le Debug lance les
 couches de validation Vulkan du port vcpkg, que le build copie à côté de chaque exe (ADR-0035, décision 6).
+Le hot-reload des shaders marche aussi : modifier un `.slang` de `shaders/` depuis la distro relance, par `wsl.exe`,
+la compilation des shaders dans l'arbre `windows-*` d'où vient l'exe (« recompilés en 900 ms » dans le log), et recrée
+les pipelines. L'exe doit être compilé dans la distro et lancé depuis elle (ADR-0035, décision 5) ; celui de la CI
+refuse, une fois, dans le log.
 `tools/verify.sh` compile `windows-debug` (sans le lancer) et échoue sans `LEVAIN_WINSYSROOT` ; `NO_WINDOWS=1`
 saute l'étape.
 

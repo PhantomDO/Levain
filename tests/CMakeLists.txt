@@ -44,6 +44,7 @@ set(nativeTests
     terrain_test.cpp
     tangent_test.cpp
     process_test.cpp
+    shader_reload_test.cpp
     texture_test.cpp
     ui_test.cpp
     water_test.cpp
