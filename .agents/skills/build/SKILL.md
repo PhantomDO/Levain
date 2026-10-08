@@ -25,6 +25,7 @@ set -Ux VCPKG_ROOT ~/vcpkg   # fish ; bash : echo 'export VCPKG_ROOT=~/vcpkg' >>
 | `linux-debug` | Debug, assertions actives |
 | `linux-release` | RelWithDebInfo |
 | `linux-asan` | Debug + AddressSanitizer, LeakSanitizer, UBSan |
+| `windows-debug`, `windows-release` | Windows par clang-cl, compilé depuis Linux (ADR-0035) : `LEVAIN_WINSYSROOT` désigne la STL et le SDK de Microsoft (docs/SETUP.md). Les `.exe` se lancent depuis une distro WSL (`tools/wsl/README.md`) |
 | `web` | WebAssembly par Emscripten (ADR-0023) : le moteur sans fenêtre (`core`, `scene`, `assets`, `animation`, `gpu` sur WebGPU, `render`), ses tests lancés par Node, et la page du cube pour le navigateur |
 
 ```bash
@@ -37,8 +38,9 @@ Le premier `cmake --preset` est long : vcpkg compile les dépendances depuis les
 instantanés (cache `~/.cache/vcpkg`). Pour clangd : `ln -sf build/linux-debug/compile_commands.json .`
 
 Les contrôles de la CI sur les sources et les tests, d'un coup, avant chaque push : `tools/verify.sh` (format,
-trois presets, clang-tidy des fichiers changés, web ; code de sortie non nul dès qu'une étape échoue). Il ne
-lance pas le sandbox comme la CI (Fox, Sponza, terrain, hot-reload). Le détail, étape par étape :
+trois presets, `windows-debug` compilé sans être lancé, clang-tidy des fichiers changés, web ; code de sortie non
+nul dès qu'une étape échoue). Sans `LEVAIN_WINSYSROOT` (la machine de référence, jusqu'au winsysroot de xwin de
+#346), l'étape Windows échoue en nommant la variable ; `NO_WINDOWS=1` la saute. Il ne lance pas le sandbox comme la CI (Fox, Sponza, terrain, hot-reload). Le détail, étape par étape :
 
 Format et analyse statique, comme la CI :
 
@@ -76,7 +78,9 @@ la machine (GPU, navigateur, cœurs, mémoire) ; `tools/web-smoke.sh` vérifie q
 le voir soi-même : `python3 -m http.server -d build/web/sandbox`, puis `http://localhost:8000/levain_sandbox.html`.
 
 `-pedantic-errors` (C++23 strict) et `-Wall -Wextra -Werror` sont dans le `CMakeLists.txt` racine : **ne jamais
-les retirer**. Un avertissement ou une extension C++26 doit casser le build.
+les retirer**. Un avertissement ou une extension C++26 doit casser le build. Sous clang-cl ils passent par
+`/clang:` (il lit `-Wall` comme `-Weverything`), et Levain ne définit jamais `_CRT_SECURE_NO_WARNINGS` (seul ozz,
+port tiers, l'a dans sa branche MSVC, pour ses propres sources).
 
 ## Shaders
 
