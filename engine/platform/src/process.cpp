@@ -38,9 +38,9 @@ core::Result<ProcessOutput> runProcess(std::span<const std::string> arguments,
     SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
     SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_APP);
     SDL_SetBooleanProperty(properties, SDL_PROP_PROCESS_CREATE_STDERR_TO_STDOUT_BOOLEAN, true);
-    // L'environnement de ce processus, plus `environment` : SDL n'en passe un autre au programme que
-    // par SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER, une copie qu'il ne garde pas au-delà de la
-    // création.
+    // L'environnement de ce processus, plus `environment` : SDL n'en passe un autre au programme
+    // que par SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER, une copie qu'il ne garde pas au-delà de
+    // la création.
     const std::unique_ptr<SDL_Environment, decltype(&SDL_DestroyEnvironment)> childEnvironment{
         environment.empty() ? nullptr : SDL_CreateEnvironment(true), &SDL_DestroyEnvironment};
     if (!environment.empty())

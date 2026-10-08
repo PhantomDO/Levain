@@ -4,7 +4,8 @@
 //
 //   levain_process_helper echo <mots...>   écrit les mots séparés par une espace, puis « \n »
 //   levain_process_helper exit <code>      sort avec ce code
-//   levain_process_helper env <nom>        écrit la valeur de cette variable d'environnement, puis « \n »
+//   levain_process_helper env <nom>        écrit la valeur de cette variable d'environnement, puis
+//   « \n »
 #include <charconv>
 #include <cstddef>
 #include <cstdio>
