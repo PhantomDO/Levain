@@ -6,7 +6,12 @@
 #include <utility>
 #include <vector>
 
+#ifdef _WIN32
+#include <cstdlib> // _putenv_s
+#endif
+
 #include <SDL3/SDL_error.h>
+#include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_vulkan.h>
 #include <VkBootstrap.h>
 #include <nvrhi/validation.h>
@@ -17,6 +22,7 @@
 #include "vulkan_context.hpp"
 
 #include "levain/core/assert.hpp"
+#include "levain/core/environment.hpp"
 #include "levain/core/log.hpp"
 #include "levain/gpu/device.hpp"
 #include "levain/gpu/webgpu.hpp"
@@ -122,6 +128,34 @@ std::string describeGpu(vk::PhysicalDevice physicalDevice)
         VK_API_VERSION_PATCH(properties.apiVersion));
 }
 
+/// Sous Windows, le chargeur Vulkan ne cherche pas les couches de validation à côté de l'exécutable
+/// : il lit le registre, puis VK_ADD_LAYER_PATH (spécification du chargeur, « Layer discovery »).
+/// Le build copie pourtant celles du port vcpkg à côté de chaque exécutable
+/// (cmake/LevainVulkanLayers.cmake, ADR-0035, décision 6), pour que le même binaire tourne sur le
+/// PC de Donnovan et en CI sans rien installer : on désigne ce dossier au chargeur. Une
+/// VK_ADD_LAYER_PATH déjà posée reste maîtresse (le SDK de LunarG, par exemple). À appeler avant la
+/// création de l'instance : le chargeur la lit alors. Sous Linux, les couches sont celles du
+/// système (apt) et le chargeur les trouve seul.
+void addLayerPathBesideExecutable()
+{
+#ifdef _WIN32
+    if (core::environmentVariable("VK_ADD_LAYER_PATH"))
+    {
+        return;
+    }
+    // SDL rend un chemin en UTF-8, terminé par une barre, qu'il garde ; la CRT le lit tel quel, le
+    // processus étant en UTF-8 (cmake/windows/utf8.manifest).
+    const char* directory = SDL_GetBasePath();
+    if (directory == nullptr || _putenv_s("VK_ADD_LAYER_PATH", directory) != 0)
+    {
+        // Sans le dossier, les couches restent introuvables : le refus qui suit le dit.
+        core::log("gpu", core::LogLevel::Warning,
+                  "SDL_GetBasePath ou _putenv_s ne peut pas désigner le dossier de l'exécutable "
+                  "à VK_ADD_LAYER_PATH");
+    }
+#endif
+}
+
 } // namespace
 
 core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
@@ -161,15 +195,26 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
     {
         // enable et non request : sans les couches, l'instance échoue au lieu de se passer de la
         // validation sans rien dire (règle n°7).
+        addLayerPathBesideExecutable();
         instanceBuilder.enable_validation_layers().set_debug_callback(onVulkanMessage);
     }
 
     auto instance = instanceBuilder.build();
     if (instance.matches_error(vkb::InstanceError::requested_layers_not_present))
     {
+#ifdef _WIN32
+        return core::makeError(
+            core::ErrorCode::Unsupported,
+            "couches de validation Vulkan absentes, exigées en Debug : "
+            "VkLayer_khronos_validation.dll "
+            "et son .json, du port vcpkg vulkan-validationlayers, doivent être à côté de "
+            "l'exécutable (cmake/LevainVulkanLayers.cmake les y copie au build) ou dans "
+            "VK_ADD_LAYER_PATH");
+#else
         return core::makeError(core::ErrorCode::Unsupported,
                                "couches de validation Vulkan absentes, exigées en Debug : "
                                "sudo apt install vulkan-validationlayers");
+#endif
     }
     if (!instance)
     {

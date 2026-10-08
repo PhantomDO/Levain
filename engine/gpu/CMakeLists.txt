@@ -33,6 +33,13 @@ find_package(vk-bootstrap CONFIG REQUIRED)
 
 target_sources(levain_gpu PRIVATE src/device_vk.cpp src/swapchain_vk.cpp)
 
+# Sous Windows, les couches de validation sont celles du port vcpkg, copiées à côté de chaque exécutable qui lie
+# ce module ; device_vk.cpp désigne ce dossier au chargeur (ADR-0035, décision 6).
+if(WIN32)
+    include(LevainVulkanLayers)
+    levain_ship_vulkan_layers()
+endif()
+
 # Le backend Vulkan de NVRHI, vk-bootstrap et les en-têtes Vulkan restent PRIVATE : ils ne sortent
 # pas du module. nvrhi_vk est listé avant nvrhi, dont il appelle le code : l'éditeur de liens ne parcourt les
 # bibliothèques statiques qu'une fois, dans l'ordre.
