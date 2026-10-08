@@ -1,6 +1,11 @@
 # Roadmap v1
 
-> Version 0.14 — 07/10/2026 — statut : **validé par Donnovan** (sondage du 07/10, ADR-0034)
+> Version 0.15 — 08/10/2026 — statut : **validé par Donnovan** (sondage du 08/10, ADR-0035)
+>
+> v0.15 : **Windows revient** ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : Donnovan a un PC Windows.
+> M1.4 est rouvert, compilé depuis Linux par clang-cl, en deux étapes : Windows en Vulkan, puis le backend
+> Direct3D 12. Il passe maintenant, avant la fin de M7.2 (choix de Donnovan), et en reprend l'échéance. M1.4 :
+> **1,5 h**, 4 sessions. Total : **65,2 h → 66,7 h** ; les autres échéances ne bougent pas.
 >
 > v0.14 : **l'ADR-0034**, accepté par sondage. M7.2 ouvre la bibliothèque éditeur (`editor/`, choix de
 > Donnovan) ; M7.3 écrit l'enveloppe et le chargeur de ses scènes, le JSON de flecs ne servant qu'aux valeurs, et
@@ -78,7 +83,7 @@
 | Phase | Contenu | Heures Donnovan | Sessions | Fin visée (1,5 h/sem.) |
 |---|---|---:|---:|---|
 | 0 | Fondations | 5,0 (réel) | 4 | fini le 20/09/2026 |
-| 1 | Fenêtre et premier triangle | 3,0 (réel, 4,5 estimées) | 3 | fini le 21/09/2026 |
+| 1 | Fenêtre et premier triangle, puis Windows (M1.4, rouvert) | 3,0 (réel, 4,5 estimées) + 1,5 | 3 + 4 | fini le 21/09/2026 ; M1.4 : 14/03/2027 |
 | 2 | 3D de base | 4,25 (réel, 3,75 estimées) | 4 | fini le 22/09/2026 |
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
 | 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
@@ -86,12 +91,12 @@
 | 6 | Physique et traversée | 11,25 (réel, 9,65 estimées) | 6 | fini le 07/10/2026 |
 | 7 | Éditeur | 7,6 | 8 | 04/04/2027 |
 | 8 | Audio et le jeu | 8,35 | 8 | 16/05/2027 |
-| **Total** | | **65,2** | **65** | |
+| **Total** | | **66,7** | **69** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante après la phase 6 (15,95 h) selon le rythme : **2 h/sem. → 8 semaines** (début décembre 2026) ·
-**1,5 h/sem. → 11 semaines** (fin décembre 2026) · **1 h/sem. → 16 semaines** (fin janvier 2027).
+Durée restante après la phase 6, M1.4 compris (17,45 h), selon le rythme : **2 h/sem. → 9 semaines** (décembre
+2026) · **1,5 h/sem. → 12 semaines** (fin décembre 2026) · **1 h/sem. → 18 semaines** (février 2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 09/05/2027.
@@ -145,7 +150,7 @@ dans une capture Tracy.
 | M1.1 Fenêtre et boucle | 1,5 | 1 | 18/10/2026 |
 | M1.2 Device NVRHI (Vulkan) et swapchain | 1,5 | 1 | 25/10/2026 |
 | M1.3 Premier triangle | 1,5 | 1 | 01/11/2026 |
-| ~~M1.4 Backend Direct3D 12~~ | — | — | **différé** (ADR-0011) |
+| M1.4 Windows depuis Linux, puis Direct3D 12 (rouvert, ADR-0035) | 1,5 | 4 | 14/03/2027 |
 
 **M1.1 — Fenêtre et boucle.** Fenêtre SDL3, boucle principale, événements, redimensionnement, mesure du
 frame time ; ASan et UBSan en CI Linux.
@@ -162,13 +167,20 @@ list NVRHI ; test de fumée headless sous lavapipe en CI Linux.
 *Critères* : triangle affiché sous Linux ; zéro erreur de validation ; frame time CPU < 1 ms ; image du test de
 fumée identique à la référence.
 
-**M1.4 — différé (ADR-0011).** Le projet cible Linux d'abord : pas de backend Direct3D 12 tant qu'aucune
-machine Windows n'est disponible. Le texte reste ici pour quand ce sera le cas.
+**M1.4 — Windows depuis Linux, puis Direct3D 12** (différé par l'ADR-0011, rouvert par
+l'[ADR-0035](adr/0035-windows-compile-depuis-linux.md) quand Donnovan a eu un PC Windows). Il passe avant la fin
+de M7.2, dont il reprend l'échéance. Deux étapes :
 
-*Contenu différé :* **Backend Direct3D 12.** `DeviceManager` D3D12 ; choix du backend au lancement (`--api vulkan|d3d12`) ;
-test de fumée sous WARP (D3D12 logiciel) en CI Windows.
-*Critères* : le même triangle sous les deux backends ; CI Windows verte ; binaire Windows de la CI lancé sous
-Proton sur la machine de référence en `--api d3d12` (voir SPECS §10, « Vérification sous Windows »).
+1. **Windows en Vulkan** (0,75 h) : le moteur compilé pour Windows depuis Linux par clang-cl (toolchain,
+   triplet `x64-windows-clang`, presets `windows-*`) ; les tests adaptés sans rien couper ; la CI, compilée sur un
+   runner Linux et lancée sur un runner Windows.
+2. **Backend Direct3D 12** (0,75 h) : `DeviceManager` D3D12 ; choix du backend au lancement
+   (`--api vulkan|d3d12`) ; test de fumée sous WARP (D3D12 logiciel) en CI Windows.
+
+*Critères* : le sandbox tourne sur le PC Windows de Donnovan, en Vulkan puis en D3D12, sans erreur de validation
+ni de la couche de debug D3D12 ; les tests GPU passent sur sa RTX 4070 comme sous lavapipe (#347) ; le même triangle sous les deux backends ; CI Windows verte ; binaire Windows de la
+CI lancé sous Proton sur la machine de référence en `--api d3d12` (voir SPECS §10, « Vérification sous
+Windows »).
 
 **Étude E1 — Les couches RHI** : déjà écrite ([E1-rhi.md](etudes/E1-rhi.md)), à relire pendant la phase.
 
@@ -460,6 +472,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0032 | Dear ImGui dans le moteur : le module `ui`, l'input par `platform`, le rendu par NVRHI, des fenêtres ancrées | M7.1 |
 | 0033 | La cible processeur des dépendances : `-march=x86-64` dans le triplet vcpkg (CI sur Ubuntu 26.04) | M7.1 |
 | 0034 | La réflexion des composants : une déclaration, les champs lus dans la struct, rangés dans flecs | M7.2 |
+| 0035 | Windows revient, compilé depuis Linux par clang-cl ; Vulkan d'abord, puis D3D12 ; la CI compile sous Linux et teste sous Windows | M1.4 |
 
 ## Numérotation des ADR
 

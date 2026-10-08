@@ -3,6 +3,38 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Windows compilé depuis Linux par clang-cl : les pièges de l'essai (2026-10-08)
+
+Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
+
+- **`CMAKE_TOOLCHAIN_FILE` n'est pas défini dans un `try_compile`** : une toolchain chargée par vcpkg
+  (`VCPKG_CHAINLOAD_TOOLCHAIN_FILE`) qui en déduit le dossier de vcpkg échoue dès la détection du compilateur.
+  Parade : `CMAKE_PARENT_LIST_FILE`, le `vcpkg.cmake` qui l'inclut.
+- **vcpkg n'ôte `/MP` que pour un compilateur nommé `clang-cl.exe`** : sous Linux, il s'appelle `clang-cl`. clang-cl
+  ignore `/MP` en le signalant, et ktx, compilé en `-Werror`, s'arrête (« argument unused during compilation »).
+  Parade : la toolchain retire `/MP` des options.
+- **clang-cl lit `-Wall` comme `/Wall`, c'est-à-dire `-Weverything`** : un projet qui teste
+  `CMAKE_CXX_COMPILER_ID` (« Clang » sous clang-cl) pour ajouter `-Wall -Werror` se compile avec tous les
+  avertissements, en erreurs (ozz : « `_Ty` est réservé » ; spirv-reflect). Parade : nos options passent par
+  `/clang:` ; un port qui casse reçoit un port overlay (pour ozz : sa branche MSVC).
+- **ozz choisit sa CRT** sur sa branche MSVC, statique par défaut : lld-link refuse de le lier au reste
+  (`/failifmismatch` sur `RuntimeLibrary`). Parade : `ozz_build_msvc_rt_dll` suit le triplet.
+- **Modifier la toolchain change l'ABI de chaque port** : vcpkg recompile toutes les dépendances Windows, Dawn
+  compris (8 min sur 24 tâches).
+- **Dawn ne trouve pas `vulkan-1.dll`** (« Windows Error: 87 ») : il cherche à côté de lui et de l'exe, puis sans
+  chemin avec `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`, qui exige un chemin complet. Il retombe en silence sur son backend
+  Null, et les tests qui ne relisent pas d'image passent. Parade : lui donner `System32`
+  (`DawnInstanceDescriptor::additionalRuntimeSearchPaths`, terminé par `\`). Son backend D3D12, lui, veut copier
+  `d3dcompiler_47.dll` d'un SDK lu dans le registre, et compiler DXC.
+- **Un programme Windows reçoit argv dans la page de code ANSI** : `ctest` ne trouvait pas les cas de test
+  accentués (« test cases: 0 », que nos tests refusent). Parade : un manifeste qui met le processus en UTF-8
+  (`activeCodePage`).
+- **Lancé depuis WSL, un exe lit un chemin Linux absolu** (`/home/…`) sous la racine de la distro, son dossier
+  courant étant `\\wsl.localhost\levain-dev\…` : les chemins compilés dans les tests marchent là, pas sur un
+  runner Windows. Windows ne suit pas un lien symbolique de la distro : copier les assets, pas les lier.
+- **La découverte des cas de doctest lance l'exe pendant le build** : l'interop de WSL l'exécute, un runner Linux
+  non. Parade prévue : la découverte au moment des tests.
+
 ## 16 Go de RAM : des builds en parallèle font planter la machine de référence (2026-10-08)
 
 - **Symptôme** : le PC de Donnovan se fige et redémarre, plusieurs fois dans la nuit et la matinée, pendant que la
@@ -594,8 +626,8 @@ dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, s
 - **Client et profileur doivent avoir la même version de protocole** : 0.14.1 des deux côtés (port overlay pour
   le client, release officielle pour les outils, empreinte SHA-256 vérifiée contre celle publiée par GitHub).
 
-## Quand Windows reviendra
+## Windows revient (ADR-0035)
 
-Les presets et les jobs CI Windows ont été retirés (ADR-0011) : les remettre ensemble. Deux bugs de M0.2,
-propres à MSVC : `__cplusplus` figé à 199711 sans `/Zc:__cplusplus`, et `<ostream>` non inclus en cascade par la
-STL de Microsoft. Voir l'ADR-0011 pour le choix du compilateur (clang-cl d'abord).
+Compilé depuis Linux par clang-cl : les pièges de l'essai sont dans l'entrée du 2026-10-08, en haut. Des deux
+bugs de M0.2, `__cplusplus` n'existe pas sous clang-cl 23 ; `<ostream>`, qui vient de la STL de Microsoft, s'est
+retrouvé tel quel.

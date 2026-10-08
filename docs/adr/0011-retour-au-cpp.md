@@ -1,6 +1,7 @@
 # ADR-0011 — Retour au C++, Linux d'abord, écrit pour la lisibilité
 
-- **Statut** : accepté le 2026-09-20
+- **Statut** : accepté le 2026-09-20 ; § 1 modifié par [ADR-0035](0035-windows-compile-depuis-linux.md) : Windows
+  revient, compilé depuis Linux par clang-cl
 - **Date** : 2026-09-20
 - **Milestone** : M0.5
 - **Remplace** : [ADR-0010](0010-passage-a-rust.md) (passage à Rust)

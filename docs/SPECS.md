@@ -1,6 +1,6 @@
 # Spécifications — Levain
 
-> Version 0.5 — 20/09/2026 — statut : **validé par Donnovan** (ADR-0011 accepté)
+> Version 0.6 — 08/10/2026 — statut : **validé par Donnovan** (ADR-0035 accepté)
 > Documents liés : [ROADMAP](ROADMAP.md) · [JOURNAL](JOURNAL.md) · [ADR](adr/) · [Études](etudes/) ·
 > [Lectures](LECTURES.md) · [Q&R](QA.md)
 >
@@ -10,6 +10,7 @@
 > v0.4 : passage à Rust (ADR-0010), annulé le jour même.
 > v0.5 : **retour au C++23** (ADR-0011). Périmètre **Linux d'abord** ; Windows et Direct3D 12 différés. La
 > forme du code est fixée : fonctions libres, dépendances dans la signature, pièges nommés.
+> v0.6 : **Windows revient** (ADR-0035), compilé depuis Linux par clang-cl : Vulkan d'abord, puis Direct3D 12.
 
 ## 1. Vision
 
@@ -56,7 +57,8 @@ Le temps de Donnovan est la ressource rare du projet. Trois règles en découlen
 
 ### Dans le périmètre v1 (fin de la roadmap actuelle)
 
-- **Plateformes** : Windows 10/11 (MSVC) et Linux (Clang), x86-64, dès le premier commit.
+- **Plateformes** : Windows 10 (1903 et plus) et 11, et Linux, x86-64, compilés par Clang : clang-cl pour
+  Windows, depuis Linux ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
 - **Rendu** : NVRHI avec backends Vulkan (Windows et Linux) et Direct3D 12 (Windows) ; rendu forward PBR, ombres
   en cascades, HDR et tonemapping, éclairage d'environnement (IBL), frustum culling, hot-reload des shaders.
 - **Cœur** : boucle à pas fixe pour la simulation, ECS flecs, hiérarchie de transforms, input par actions,
@@ -80,7 +82,8 @@ consoles, mobile, macOS (NVRHI n'a pas de backend Metal), VR.
 - **Coût zéro** : outils et bibliothèques gratuits, sous licence permissive (MIT, BSD, zlib, Apache 2.0, Boost).
 - **Build reproductible** : un preset CMake et une commande de build, sans étape manuelle hormis l'installation
   des outils listés dans `docs/SETUP.md`.
-- **CI verte obligatoire** sur Windows et Linux avant toute fusion dans `main`.
+- **CI verte obligatoire** avant toute fusion dans `main` : Linux, et Windows dès que Donnovan ajoute ses jobs
+  aux checks requis (ADR-0035).
 - **Zéro erreur de validation** en Debug : couche de validation NVRHI, validation layers Vulkan et couche de debug
   D3D12. Une erreur de validation est un bug bloquant.
 - **Pas de code tiers copié dans le dépôt** : les dépendances passent par vcpkg, ou par `FetchContent` avec un
@@ -184,8 +187,9 @@ pipeline flecs dédié ; rendu à fréquence libre avec interpolation. Détails 
   **glu ECS tient en une ligne**, à l'écart du fichier de logique. **Chaque piège porte son nom** :
   `normalizeOrZero`, `clampPitch`, `horizontalBasisFrom` plutôt que le calcul brut. Ce sont ces trois règles,
   et non le nommage, qui décident de la fatigue de relecture.
-- **Plateforme** : **Linux et Clang d'abord**. Windows et Direct3D 12 sont différés jusqu'à ce qu'une machine
-  soit disponible ; le code reste portable et rien n'y fait obstacle.
+- **Plateforme** : **Linux et Clang d'abord**. Windows revient avec le PC Windows de Donnovan
+  ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : compilé depuis Linux par clang-cl, le même LLVM. On
+  développe sous Linux ; la CI compile sous Linux et lance le binaire Windows sur un runner Windows.
 - **Style** : clang-format et clang-tidy versionnés dans le dépôt et vérifiés en CI.
 - **Commits** : [Conventional Commits](https://www.conventionalcommits.org/fr/) (`feat(render): …`, `fix(gpu): …`,
   `docs(adr): …`).
@@ -245,12 +249,16 @@ Deux points relevés par `vulkaninfo --summary`, à traiter en M1.2 :
 
 La machine de référence est sous Linux. Le code Windows est vérifié à trois niveaux :
 
-1. **CI (à chaque PR)** : build MSVC, tests unitaires, et test de fumée D3D12 sous WARP (rendu logiciel).
+1. **CI (à chaque PR)** : le build Windows, Debug et Release, compilé sur un runner Linux par clang-cl, puis
+   lancé sur un runner Windows : tests unitaires, tests GPU en Vulkan sur lavapipe, et test de fumée D3D12 sous
+   WARP (rendu logiciel) dès que le backend existe ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
 2. **Proton sur la machine de référence (à chaque milestone de rendu)** : le binaire Windows produit par la CI est
    lancé sous Proton. Direct3D 12 y est traduit en Vulkan par vkd3d-proton : ça vérifie notre code Windows et le
    backend D3D12 de NVRHI sur le vrai GPU, mais pas un pilote D3D12 natif, et la couche de debug D3D12 de
    Microsoft n'y est pas disponible (seule la validation NVRHI s'applique).
-3. **Une vraie machine Windows**, ponctuellement si l'occasion se présente. Non bloquant.
+3. **Le PC Windows de Donnovan** (RTX 4070 Laptop, depuis le 2026-10-08) : le binaire compilé dans sa distro WSL
+   (`tools/wsl/`) se lance sous Windows depuis le terminal de la distro, sur le vrai pilote, Vulkan comme D3D12,
+   avec la couche de debug D3D12. Ce n'est pas une machine de référence : aucune mesure de performance n'en vient.
 
 Une machine virtuelle Windows n'apporterait rien de plus : sans passthrough du GPU, elle n'a que du rendu
 logiciel, comme WARP en CI.

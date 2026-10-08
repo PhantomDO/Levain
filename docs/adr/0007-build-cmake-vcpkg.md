@@ -1,7 +1,8 @@
 # ADR-0007 — Build et dépendances : CMake (presets) + Ninja + vcpkg (manifeste)
 
 - **Statut** : accepté le 2026-09-20 ; remis en vigueur par [ADR-0011](0011-retour-au-cpp.md) après la parenthèse Rust ;
-  amendé le 2026-09-21 (ports overlay, issue #38), à valider par Donnovan
+  amendé le 2026-09-21 (ports overlay, issue #38), à valider par Donnovan ; un port overlay sert aussi de parade
+  de compilation sous clang-cl ([ADR-0035](0035-windows-compile-depuis-linux.md))
 - **Date** : 2026-09-20
 - **Milestone** : M0.1 (mise en place en M0.2)
 

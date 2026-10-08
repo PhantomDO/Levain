@@ -291,7 +291,8 @@ Réponse courte : **c'est pensé pour, et le gros du travail n'est pas graphique
 
 **Le seul couplage de notre API** : `engine/gpu/include/levain/gpu/device.hpp` nomme un type opaque
 `VulkanContext` et un membre `vulkan`. Un second backend demandera un nom neutre, avec une définition par fichier
-de backend. Un renommage de quelques lignes, pas fait tant que Windows est hors périmètre.
+de backend. Un renommage de quelques lignes, pas fait tant que Windows est hors périmètre (il y revient avec
+l'[ADR-0035](adr/0035-windows-compile-depuis-linux.md), en M1.4).
 
 **Chez les autres** (documenté, sources publiques) : Unreal a une interface `FDynamicRHI`, avec les modules
 `D3D12RHI` et `VulkanRHI` choisis au lancement (`-d3d12`, `-vulkan`) ; Godot a des `RenderingDeviceDriver`
@@ -303,11 +304,17 @@ la création du device et de la swapchain.
 Question posée à la clôture de M0.5. Réponse : **clang-cl ne règlerait aucun des deux bugs de M0.2**, ce qui est
 contre-intuitif, mais il réglerait un problème plus profond.
 
+> **Mise à jour du 2026-10-08** ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : mesuré, clang-cl 23
+> règle le premier bug, `__cplusplus` (point 1 ci-dessous) ; le second, `<ostream>`, vient bien de la STL de
+> Microsoft et s'est retrouvé tel quel. Windows revient, compilé depuis Linux par clang-cl.
+
 **Ce que clang-cl ne règle pas.** La [doc de compatibilité MSVC de Clang](https://clang.llvm.org/docs/MSVCCompatibility.html)
 est explicite sur deux points :
 
 1. **clang-cl reproduit volontairement le bug `__cplusplus`.** MSVC prétend être en C++98 ; clang-cl imite ce
-   comportement par compatibilité, donc `/Zc:__cplusplus` reste nécessaire.
+   comportement par compatibilité, donc `/Zc:__cplusplus` reste nécessaire. **Faux pour clang-cl 23**, mesuré le
+   2026-10-08 ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : `__cplusplus` vaut 202002, 202700 et
+   202302 sous `/std:c++20`, `/std:c++latest` et `/clang:-std=c++23`.
 2. **clang-cl consomme la STL de Microsoft.** C'est son principe même : remplacer `cl.exe` en utilisant les
    en-têtes et bibliothèques MSVC. La divergence `<ostream>` venait de la STL, pas du compilateur — elle serait
    identique.
@@ -329,7 +336,7 @@ rugueux, et triplets mingw de vcpkg de qualité communautaire. Plus risqué.
 
 **Décision** : sans objet tant que Windows est hors périmètre (ADR-0011). **Quand Windows redeviendra une cible,
 clang-cl est la première option à évaluer** — et non MSVC par défaut, comme l'ADR-0001 l'avait posé sans le
-justifier.
+justifier. C'est ce qu'a choisi l'ADR-0035, le 2026-10-08 : clang-cl, depuis Linux.
 
 ### Pourquoi « Levain » ? (2026-09-20, M0.1)
 
