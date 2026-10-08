@@ -20,7 +20,8 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 - le hot-reload des shaders (ADR-0014) et des textures (ADR-0021) ;
 - **l'interface** (M7.1, ADR-0032) : ImGui, par le module `ui`, chaque image ; les panneaux de debug du moteur
   (Image, Passes, Scène, en fenêtres ancrées), que F1 ou `--ui on` ouvrent ; le point d'accroche `ui`, où le
-  programme ajoute ses fenêtres ; et la capture de la souris, que `App` possède.
+  programme ajoute ses fenêtres ; et la capture de la souris, que `App` possède. La disposition des panneaux
+  garde ses nœuds (`UiLayer::dock`), où l'éditeur ancre les siens (ADR-0034).
 
 ## Invariants
 

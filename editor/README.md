@@ -9,8 +9,9 @@ avec une définition qui enveloppe son démarrage par `withEditor`, et lié à `
 ainsi `levain_sandbox_editor` (dans `sandbox/`) pour ses démos et sa CI ; *Rando* construira `rando_editor` à côté
 de `rando`, dont la cible ne change pas.
 
-**État en M7.2 (en cours)** : le branchement sur la boucle, l'option `--select` et le bilan que lit la CI. La
-hiérarchie et l'inspecteur suivent.
+**État en M7.2 (en cours)** : le branchement sur la boucle, l'option `--select`, le bilan que lit la CI, et **la
+hiérarchie** : les entités placées (`Transform`), rangées par `flecs::Parent` (ADR-0015). Elle sélectionne
+seulement ; l'inspecteur suit.
 
 ## Invariants
 
@@ -29,20 +30,41 @@ hiérarchie et l'inspecteur suivent.
 5. **L'exécutable éditeur ouvre les panneaux** : son `main` pose `settings.showUiPanels = true` avant de lire
    les options, que `--ui off` les ferme encore.
 6. **Un `--select` introuvable fait échouer le démarrage**, en nommant l'entité (règle n°7).
+7. **Les panneaux suivent ceux du moteur** : dessinés après les fenêtres du programme, panneaux ouverts
+   seulement (F1, `--ui`), et ancrés aux nœuds que la disposition d'`app` garde dans `app.ui.dock`, la seule
+   extension d'`app` pour l'éditeur. La hiérarchie y fait un onglet à côté d'« Image ».
+8. **La hiérarchie ne lit que ce qu'elle montre** : les racines viennent d'une requête gardée, les enfants des
+   seuls nœuds ouverts, une table à la fois. Chaque image range une ligne par racine, sans widget, et ImGui ne
+   dessine que les lignes visibles (`ImGuiListClipper`).
 
 ## Points d'entrée
 
 - `withEditor(start, options)` : la fonction de démarrage du programme, enveloppée. Elle choisit l'entité de
-  `--select` et écrit à la fin le bilan que lit la CI, « éditeur : N entités ; sélection : chemin ».
+  `--select`, en ouvre les ancêtres, ajoute la hiérarchie aux fenêtres, et écrit à la fin le bilan que lit la CI,
+  « éditeur : N entités ; sélection : chemin », N étant les lignes de la hiérarchie à la dernière image.
 - `takeEditorOptions(arguments, options)` : retire `--select chemin` de la ligne de commande avant que le programme
   ne lise ses options, qu'il refuserait sinon.
 - `selectedIfAlive(world, selected)` : l'entité choisie si elle vit encore.
+- `drawHierarchy(world, hierarchy, selected, dock)` : la fenêtre ; `listHierarchyRows`, ses lignes, sans ImGui.
 
 ## Pièges connus
 
 - **`selectedIfAlive`** : la sélection garde l'identifiant complet de l'entité, génération comprise, et ne le
   relit qu'à travers `is_alive`. Une entité détruite ne laisse pas de poignée morte, et flecs, qui recycle son
   index avec une autre génération, ne fait pas passer la nouvelle entité pour la sélection.
+- **`isEngineInternal`** : modules, systèmes, observateurs, requêtes, composants et prefabs sont des entités
+  comme les autres. Un singleton est rangé sur l'entité de son composant : `world.set(Transform{})` ferait passer
+  le composant `Transform` pour une racine de la scène. La hiérarchie les tait, une table à la fois.
+- **`isShownChild`** : un enfant n'est montré que rangé par `flecs::Parent`. Créé par son chemin (`a::b`), il
+  l'est par `ChildOf` : c'est une racine, que l'arbre ne répète pas sous son parent. La flèche d'un nœud suit le
+  même filtre (`hasShownChildren`) : un observateur ou un enfant sans `Transform` n'en donnent pas.
+- **Une entité placée sous un parent qui ne l'est pas n'apparaît pas** : elle a un `flecs::Parent`, ce n'est
+  pas une racine, et son parent n'a pas de ligne. Aucune vue du sandbox n'en a ; les entités sans `Transform`
+  viennent en M7.3.
+- **`pushEntityId`** : l'identifiant ImGui d'une ligne vient de l'identifiant complet de l'entité, jamais de son
+  nom, qui se répète (`crate_0` sous deux parents), ni de son index, que flecs recycle.
+- **Les lignes changent d'ordre quand une entité change de table** : la hiérarchie suit l'ordre des tables de
+  flecs, sans tri, qui coûterait à chaque image. Un composant ajouté déplace l'entité dans la liste.
 - **Les options vont par paires** : `takeEditorOptions` lit nom et valeur comme `app::parseCommonOption`. Un
   « --select » en valeur d'une autre option n'est pas pris ; seul, sans valeur, il reste dans la ligne de
   commande, et le programme la refuse.
@@ -54,3 +76,6 @@ hiérarchie et l'inspecteur suivent.
 | **Unreal** | Les modules `Editor` d'un plugin, et l'Unreal Editor | Un module Editor « will only be loaded when the editor is starting up » (**documenté**, ADR-0034 [12]) ; l'éditeur est un exécutable à part du jeu livré (**supposé**, d'après la structure des cibles `*Editor.Target.cs`). |
 | **Unity** | Les scripts du dossier `Editor` | Ils « aren't available in Player builds at runtime » (**documenté**, ADR-0034 [13]) : rien de l'éditeur dans le jeu livré, comme ici. |
 | **Godot** | L'éditeur, un programme du moteur | Il tourne sur le moteur et son UI (**documenté**, ADR-0032) ; le jeu s'exporte avec des modèles d'export compilés sans l'éditeur (**supposé**). |
+| **Unreal**, la hiérarchie | L'Outliner (*World Outliner* jusqu'à UE4) | « Hierarchical tree view of all Actors within the current Level. Used for selection, attachment, and more » (**documenté**, *Outliner in Unreal Engine*). Un acteur sans position y figure aussi ; ici, seules les entités placées, les autres en M7.3. |
+| **Unity**, la hiérarchie | La fenêtre Hierarchy | Pour « arrange the GameObjects in your scenes, group them into parent-child hierarchies » (**documenté**, manuel, *Hierarchy window*). |
+| **Godot**, la hiérarchie | Le dock Scène | Il « lists the active scene's nodes » (**documenté**, *First look at the editor*). |

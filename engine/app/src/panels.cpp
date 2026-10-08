@@ -23,8 +23,9 @@ constexpr const char* PassesWindow = "Passes";
 constexpr const char* SceneWindow = "Scène";
 
 /// La disposition de départ, recréée à chaque lancement (pas d'`imgui.ini`) : Image et Passes à
-/// gauche, l'une sur l'autre ; Scène à droite ; le centre libre, la scène s'y voit.
-void buildLayout(ImGuiID dockspace, ImVec2 size)
+/// gauche, l'une sur l'autre ; Scène à droite ; le centre libre, la scène s'y voit. Rend les nœuds
+/// où l'éditeur ancre ses fenêtres.
+DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
 {
     ImGui::DockBuilderRemoveNode(dockspace);
     ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
@@ -41,6 +42,7 @@ void buildLayout(ImGuiID dockspace, ImVec2 size)
     ImGui::DockBuilderDockWindow(PassesWindow, leftBottom);
     ImGui::DockBuilderDockWindow(SceneWindow, right);
     ImGui::DockBuilderFinish(dockspace);
+    return {.left = leftTop};
 }
 
 /// Les dernières images, dans l'ordre : l'historique est un anneau, `next` en est le plus ancien.
@@ -141,7 +143,7 @@ void drawEnginePanels(App& app)
     const ImGuiID dockspace = ImHashStr("levain");
     if (ImGui::DockBuilderGetNode(dockspace) == nullptr)
     {
-        buildLayout(dockspace, viewport->Size);
+        app.ui.dock = buildLayout(dockspace, viewport->Size);
     }
     // Le centre laisse passer la souris et l'image : on y voit la scène, et on y vise.
     ImGui::DockSpaceOverViewport(dockspace, viewport, ImGuiDockNodeFlags_PassthruCentralNode);

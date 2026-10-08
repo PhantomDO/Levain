@@ -8,7 +8,6 @@
 
 #include "levain/core/error.hpp"
 #include "levain/core/log.hpp"
-#include "levain/scene/components.hpp"
 
 namespace levain::editor
 {
@@ -16,14 +15,15 @@ namespace levain::editor
 namespace
 {
 
-/// Le bilan de l'éditeur, une ligne que la CI lit : elle échoue si la ligne manque, si elle compte
-/// zéro entité, ou si la sélection n'est pas celle de `--select`.
+/// Le bilan de l'éditeur, une ligne que la CI lit : les entités que la hiérarchie listait à la
+/// dernière image, zéro si elle n'a jamais été dessinée, et la sélection. La CI échoue si la ligne
+/// manque, si elle compte zéro entité, ou si la sélection n'est pas celle de `--select`.
 void logEditor(const flecs::world& world, const Editor& editor)
 {
     const flecs::entity selected = selectedIfAlive(world, editor.selected);
     const std::string name = selected ? std::string{selected.path("::", "").c_str()} : "aucune";
     core::log("editor", core::LogLevel::Info, "éditeur : {} entités ; sélection : {}",
-              world.count<scene::Transform>(), name);
+              editor.hierarchy.rows.size(), name);
 }
 
 } // namespace
@@ -67,7 +67,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         {
             return hooks;
         }
-        const auto editor = std::make_shared<Editor>();
+        const auto editor = std::make_shared<Editor>(
+            Editor{.selected = 0, .hierarchy = createHierarchy(app.world)});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -78,7 +79,19 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                     std::format("--select : aucune entité « {} »", *options.select));
             }
             editor->selected = chosen;
+            revealInHierarchy(editor->hierarchy, chosen);
         }
+        hooks->ui = [ui = std::move(hooks->ui), editor](app::App& app)
+        {
+            if (ui)
+            {
+                ui(app);
+            }
+            if (app.ui.panelsOpen)
+            {
+                drawHierarchy(app.world, editor->hierarchy, editor->selected, app.ui.dock.left);
+            }
+        };
         hooks->finish = [finish = std::move(hooks->finish), editor](app::App& app)
         {
             logEditor(app.world, *editor);
