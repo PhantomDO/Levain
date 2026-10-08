@@ -39,6 +39,24 @@ bool isShownChild(const flecs::table& table)
     return table.has<flecs::Parent>() && table.has<scene::Transform>() && !isEngineInternal(table);
 }
 
+/// Un singleton du moteur plutôt que de la scène : un module, dont flecs garde l'instance sur sa
+/// propre entité, ou un composant de flecs lui-même (`flecs.core.Component` se décrit).
+bool isEngineSingleton(flecs::entity component)
+{
+    if (component.has(flecs::Module))
+    {
+        return true;
+    }
+    for (flecs::entity scope = component.parent(); scope; scope = scope.parent())
+    {
+        if (scope == flecs::Flecs)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void appendRow(const Hierarchy& hierarchy, flecs::entity entity, int depth,
                std::vector<HierarchyRow>& rows)
 {
@@ -65,6 +83,24 @@ void appendRow(const Hierarchy& hierarchy, flecs::entity entity, int depth,
                 appendRow(hierarchy, child, depth + 1, rows);
             }
         });
+}
+
+void drawSingletons(const flecs::world& world, flecs::entity_t& selected)
+{
+    if (!ImGui::TreeNode("Singletons"))
+    {
+        return;
+    }
+    for (const flecs::entity_t singleton : singletonsOf(world))
+    {
+        pushEntityId(singleton);
+        if (ImGui::Selectable(labelOf(world.entity(singleton)).c_str(), singleton == selected))
+        {
+            selected = singleton;
+        }
+        ImGui::PopID();
+    }
+    ImGui::TreePop();
 }
 
 void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow& row,
@@ -161,6 +197,22 @@ bool hasShownChildren(const flecs::world& world, flecs::entity_t entity)
     return false;
 }
 
+std::vector<flecs::entity_t> singletonsOf(const flecs::world& world)
+{
+    std::vector<flecs::entity_t> singletons;
+    world.each<flecs::Component>(
+        [&](flecs::entity component, const flecs::Component&)
+        {
+            // flecs range un singleton sur l'entité de son composant, qui se porte donc lui-même
+            // (https://www.flecs.dev/flecs/md_docs_2EntitiesComponents.html, « Singletons »).
+            if (component.has(component) && !isEngineSingleton(component))
+            {
+                singletons.push_back(component);
+            }
+        });
+    return singletons;
+}
+
 void revealInHierarchy(Hierarchy& hierarchy, flecs::entity entity)
 {
     while (const auto* parent = entity.try_get<flecs::Parent>())
@@ -183,6 +235,9 @@ void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entit
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
     if (ImGui::Begin(HierarchyWindow))
     {
+        drawSingletons(world, selected);
+        // Ses lignes ont le retrait des racines qui suivent : le trait marque où le nœud s'arrête.
+        ImGui::Separator();
         // Une ligne par racine, sans widget : ImGui ne dessine que les lignes visibles.
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(hierarchy.rows.size()));
