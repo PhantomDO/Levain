@@ -42,12 +42,13 @@ struct Inspector
 [[nodiscard]] Inspector createInspector(const flecs::world& world,
                                         const assets::AssetRegistry* registry = nullptr);
 
-/// eulerHint : les angles à montrer pour `rotation`, en degrés autour de X, Y et Z (tangage, lacet,
-/// roulis ; l'ordre de `glm::quat(vec3)`, lacet d'abord comme `applyFpsInput`). Une rotation n'a
-/// pas d'angles uniques : 100° de tangage, c'est 80° avec le lacet et le roulis retournés. Relire
-/// les angles du quaternion à chaque image ferait sauter ce que la personne tape ; on garde donc
-/// les angles tapés (`typed`) tant qu'ils donnent encore `rotation`, et on ne relit le quaternion
-/// que si quelqu'un d'autre l'a changé.
+/// eulerHint : les angles à montrer pour `rotation`, en degrés : tangage (X), lacet (Y), roulis
+/// (Z), lacet d'abord comme `applyFpsInput` (R = Ry·Rx·Rz). Le lacet couvre ±180° et le tangage
+/// ±90° : un tangage de 200° se relit en -20° avec le lacet et le roulis retournés. Relire les
+/// angles du quaternion à chaque image ferait sauter ce que la personne tape ; on garde donc les
+/// angles tapés
+/// (`typed`) tant qu'ils donnent encore `rotation`, et on ne relit le quaternion que si quelqu'un
+/// d'autre l'a changé.
 [[nodiscard]] glm::vec3 eulerHint(const glm::quat& rotation, const std::optional<glm::vec3>& typed);
 
 /// Le quaternion normalisé de ces angles : ce qui s'écrit dans le composant.

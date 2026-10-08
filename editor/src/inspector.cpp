@@ -368,6 +368,31 @@ bool isEntityName(flecs::id component)
     return component.is_pair() && component.first().id() == ecs_id(EcsIdentifier);
 }
 
+/// Les angles d'une rotation, en degrés : tangage (X), lacet (Y), roulis (Z), du produit
+/// R = Ry·Rx·Rz, lacet d'abord comme `applyFpsInput`. Le lacet couvre ±180° et le tangage ±90°, ce
+/// que fait un personnage ou une caméra ; `glm::eulerAngles` (Rz·Ry·Rx) limite le lacet à ±90° et
+/// montre -95° de lacet comme (180°, -85°, 180°). Le tangage par `atan2`, et le roulis relu après
+/// le lacet : à ±90° de tangage, où lacet et roulis se confondent, les angles rendus donnent encore
+/// la rotation. Les colonnes de `mat3_cast` sont `m[colonne][ligne]`.
+glm::vec3 pitchYawRollOf(const glm::quat& rotation)
+{
+    const glm::mat3 m = glm::mat3_cast(rotation);
+    const float yaw = std::atan2(m[2][0], m[2][2]);
+    const float pitch = std::atan2(-m[2][1], std::hypot(m[0][1], m[1][1]));
+    const float roll = std::atan2(std::sin(yaw) * m[1][2] - std::cos(yaw) * m[1][0],
+                                  std::cos(yaw) * m[0][0] - std::sin(yaw) * m[0][2]);
+    return glm::degrees(glm::vec3{pitch, yaw, roll});
+}
+
+/// Les angles que l'écran écrit à trois décimales : un angle qui s'y arrondit à zéro vaut 0, jamais
+/// -0 ni un « -0.000 » de plus petit que la moitié du dernier chiffre.
+glm::vec3 zeroIfTiny(glm::vec3 degrees)
+{
+    constexpr float HalfLastDigit = 0.0005f;
+    return glm::mix(degrees, glm::vec3{0.0f},
+                    glm::lessThan(glm::abs(degrees), glm::vec3{HalfLastDigit}));
+}
+
 } // namespace
 
 Inspector createInspector(const flecs::world& world, const assets::AssetRegistry* registry)
@@ -396,13 +421,15 @@ glm::vec3 eulerHint(const glm::quat& rotation, const std::optional<glm::vec3>& t
             return *typed;
         }
     }
-    // « + 0 » : -0 + 0 vaut 0, et l'affichage n'écrit pas « -0.000 » pour une rotation nulle.
-    return glm::degrees(glm::eulerAngles(rotation)) + glm::vec3{0.0f};
+    return zeroIfTiny(pitchYawRollOf(rotation));
 }
 
 glm::quat rotationFromEuler(glm::vec3 degrees)
 {
-    return glm::normalize(glm::quat{glm::radians(degrees)});
+    const glm::vec3 radians = glm::radians(degrees);
+    return glm::normalize(glm::angleAxis(radians.y, glm::vec3{0.0f, 1.0f, 0.0f}) *
+                          glm::angleAxis(radians.x, glm::vec3{1.0f, 0.0f, 0.0f}) *
+                          glm::angleAxis(radians.z, glm::vec3{0.0f, 0.0f, 1.0f}));
 }
 
 flecs::entity entityFieldOf(const flecs::world& world, const void* field)

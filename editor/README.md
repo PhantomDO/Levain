@@ -44,8 +44,9 @@ reste est grisé ; trois dessinateurs lui donnent des angles, des noms d'entité
    enum, nœud d'un agrégat, lignes de quatre nombres d'un tableau (une colonne de `glm::mat4` par ligne), et
    `vec2`/`vec3` d'un bloc. Un composant non décrit, une étiquette ou une paire : une ligne à leur nom, jamais
    leurs octets ; un type sans widget (texte, type opaque) : le nom du type. Trois dessinateurs (invariant 13)
-   remplacent le widget générique de trois types. Le nom de l'entité (`Identifier`) est en tête de la fenêtre,
-   pas un composant.
+   remplacent le widget générique de trois types, et la valeur d'un `flecs::Parent`, une entité de flecs, se
+   lit par le chemin de son parent. Le nom de l'entité (`Identifier`) est en tête de la fenêtre, pas un
+   composant.
 10. **Les widgets éditent une copie**, jamais la table. Si elle a changé, `commitEdit` l'écrit par
     `setComponentValue` : un seul `OnSet`, la seule écriture de l'inspecteur. Un composant sans `Authored` est
     grisé, et `commitEdit` le refuse encore si une copie a changé : deux gardes, chacune testée (le grisé par un
@@ -112,11 +113,15 @@ reste est grisé ; trois dessinateurs lui donnent des angles, des noms d'entité
   octet par octet, sans regarder le signe. Une valeur hors des constantes s'affiche « ? ».
 - **`commitEdit`** : `sameValue`, feuille par feuille, jamais `memcmp` (le remplissage diffère) ; une copie qu'un
   widget a « changée » vers la même valeur (une borne qui ramène à l'identique) n'écrit rien.
-- **`eulerHint`** : une rotation n'a pas d'angles uniques (`glm::eulerAngles` rend le lacet entre -90° et 90° :
-  100° se relit en 80°, le tangage et le roulis retournés). Relire le quaternion à chaque image ferait sauter ce
-  qu'on tape ; on garde les angles tapés (par identifiant du widget) tant qu'ils redonnent la rotation du
-  composant, et on relit dès que quelqu'un d'autre l'a changée. L'ordre est celui de `glm::quat(vec3)`, lacet
-  d'abord comme `applyFpsInput`. Ce qui s'écrit est normalisé (`rotationFromEuler`).
+- **`eulerHint`** : une rotation n'a pas d'angles uniques. L'ordre est celui de `applyFpsInput` : lacet, puis
+  tangage, puis roulis (R = Ry·Rx·Rz), comme Unity et Unreal. Le lacet couvre ±180°, le tangage ±90° ; au-delà
+  (200° de tangage), le quaternion se relit autrement (-20°, le lacet et le roulis retournés), et le relire à
+  chaque image ferait sauter ce qu'on tape : on garde les angles tapés (par identifiant du widget) tant qu'ils
+  redonnent la rotation du composant, et on relit dès que quelqu'un d'autre l'a changée. À ±90° de tangage,
+  lacet et roulis se confondent : le roulis est relu après le lacet, et les angles rendus donnent encore la
+  rotation. `glm::eulerAngles` (Rz·Ry·Rx, lacet limité à ±90°) lisait -95° de lacet (180°, -85°, 180°), ce
+  qu'un personnage qui tourne écrit tous les jours. Un angle qui s'arrondit à zéro à l'écran vaut 0 (pas de
+  « -0.000 »). Ce qui s'écrit est normalisé (`rotationFromEuler`).
 - **`entityFieldOf`** : un `flecs::entity` (16 octets : le monde et l'identifiant) est un type opaque pour flecs,
   lu ici comme tel, jamais par `EcsOpaque::serialize` ni `assign_*`, que flecs appelle par un pointeur de
   fonction d'un autre type (UBSan, `linux-asan`). Une entité détruite se lit « (détruite) », la nulle « aucune ».
@@ -144,6 +149,6 @@ reste est grisé ; trois dessinateurs lui donnent des angles, des noms d'entité
 | **Unreal**, l'inspecteur | Le panneau Details | « display properties and customized editing tools for selected Actors » (**documenté**, *Level Editor Details Panel*). Ses champs viennent de la réflexion `UPROPERTY`, comme ici de celle de flecs ; un tableau de la réflexion s'y déplie (**supposé**). |
 | **Unity**, l'inspecteur | La fenêtre Inspector | Elle « displays the properties of the current selection of one or more GameObjects, assets, or components » (**documenté**, manuel, *The Inspector window*), un composant sous son en-tête, comme ici. |
 | **Godot**, l'inspecteur | Le dock Inspector | Il « lists all properties of an object, resource, or node » (**documenté**, *Inspector dock*) : les propriétés exportées d'un nœud, pas des composants. |
-| **Unreal**, les dessinateurs | `IPropertyTypeCustomization` | La personnalisation du panneau Details « for structs » (**documenté**, *Details Panel Customizations*) ; la rotation d'un composant y est un `FRotator`, des angles, sans quaternion à relire (**supposé**). |
+| **Unreal**, les dessinateurs | `IPropertyTypeCustomization` | La personnalisation du panneau Details « for structs » (d'après un résultat de recherche, **non relu** : la page d'Epic ne s'affiche pas sans JavaScript) ; la rotation d'un composant y est un `FRotator`, des angles, sans quaternion à relire (**supposé**). |
 | **Unity**, les dessinateurs | `PropertyDrawer` | Il fixe l'aspect d'un champ dans l'Inspector (**documenté**, *PropertyDrawer*). L'Inspector garde un indice d'angles à côté du quaternion, `m_LocalEulerAnglesHint` dans les scènes YAML (**supposé**, vu dans des fichiers `.unity`, non documenté) : le nom `eulerHint` en vient. |
 | **Godot**, les dessinateurs | `EditorInspectorPlugin` | La rotation d'un `Node3D` est « edited in degrees in the inspector », en angles d'Euler ou en quaternion selon `rotation_edit_mode` (**documenté**, *Node3D*) ; le dessinateur de propriété d'un plugin est `EditorProperty` (**supposé**). |

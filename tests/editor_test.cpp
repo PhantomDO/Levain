@@ -457,29 +457,67 @@ TEST_CASE("le champ d'une donnée en lecture seule est grisé : il ne se tape pa
     CHECK(typing.sets == 0);
 }
 
+namespace
+{
+
+/// L'angle entre deux rotations, en degrés (-q est la même rotation). Par `atan2` : l'`acos` d'un
+/// produit scalaire près de 1 perd en flottant de quoi voir un dixième de degré.
+float degreesBetween(const glm::quat& left, const glm::quat& right)
+{
+    const glm::quat delta = glm::inverse(left) * right;
+    return glm::degrees(
+        2.0f * std::atan2(glm::length(glm::vec3{delta.x, delta.y, delta.z}), std::abs(delta.w)));
+}
+
+bool sameRotation(const glm::quat& left, const glm::quat& right)
+{
+    return degreesBetween(left, right) < 0.001f;
+}
+
+} // namespace
+
 TEST_CASE(
-    "eulerHint garde les angles tapés tant qu'ils donnent la rotation, et relit le quaternion "
-    "sinon")
+    "eulerHint lit le lacet sur ±180°, garde les angles tapés tant qu'ils donnent la rotation")
 {
     using levain::editor::eulerHint;
     using levain::editor::rotationFromEuler;
-    // 100° de lacet : le quaternion se relit en 80° avec le tangage et le roulis retournés.
-    const glm::vec3 typed{0.0f, 100.0f, 0.0f};
+    // Ce que le jeu écrit tourne le lacet d'abord (`applyFpsInput`, `turnTowards`) : -95° et 150°
+    // de lacet se lisent tels quels, pas en (180°, -85°, 180°) comme `glm::eulerAngles`.
+    const glm::vec3 turned =
+        eulerHint(glm::angleAxis(glm::radians(-95.0f), glm::vec3{0, 1, 0}), {});
+    CHECK(turned.x == doctest::Approx(0.0f));
+    CHECK(turned.y == doctest::Approx(-95.0f));
+    CHECK(turned.z == doctest::Approx(0.0f));
+    const glm::quat camera = glm::angleAxis(glm::radians(150.0f), glm::vec3{0, 1, 0}) *
+                             glm::angleAxis(glm::radians(-30.0f), glm::vec3{1, 0, 0});
+    const glm::vec3 looking = eulerHint(camera, {});
+    CHECK(looking.x == doctest::Approx(-30.0f));
+    CHECK(looking.y == doctest::Approx(150.0f));
+
+    // Un tangage de 100° dépasse les ±90° : le quaternion se relit en 80°, le lacet et le roulis
+    // retournés. Les angles tapés restent tant qu'ils donnent encore la rotation.
+    const glm::vec3 typed{100.0f, 0.0f, 0.0f};
     const glm::quat rotation = rotationFromEuler(typed);
     const glm::vec3 reread = eulerHint(rotation, std::nullopt);
-    CHECK(reread.y == doctest::Approx(80.0f));
+    CHECK(reread.x == doctest::Approx(80.0f));
     CHECK(sameRotation(rotationFromEuler(reread), rotation));
     CHECK(eulerHint(rotation, typed) == typed);
 
+    // À ±90° de tangage le lacet et le roulis se confondent : les angles lus donnent la rotation.
+    const glm::quat locked = rotationFromEuler({90.0f, 20.0f, 30.0f});
+    CHECK(sameRotation(rotationFromEuler(eulerHint(locked, {})), locked));
+
     // Quelqu'un d'autre a tourné l'entité : les angles tapés ne valent plus, la rotation se relit.
-    const glm::quat turned = rotationFromEuler({10.0f, 20.0f, 30.0f});
-    const glm::vec3 now = eulerHint(turned, typed);
+    const glm::vec3 now = eulerHint(rotationFromEuler({10.0f, 20.0f, 30.0f}), typed);
     CHECK(now.x == doctest::Approx(10.0f));
     CHECK(now.y == doctest::Approx(20.0f));
     CHECK(now.z == doctest::Approx(30.0f));
 
-    // Une rotation nulle se lit 0, jamais -0 (« -0.000 » à l'écran).
-    CHECK_FALSE(std::signbit(eulerHint(glm::quat{1.0f, 0.0f, 0.0f, 0.0f}, std::nullopt).y));
+    // Une rotation nulle, ou à peine tournée, ne se lit jamais « -0.000 » à l'écran.
+    const glm::vec3 none = eulerHint(glm::quat{1.0f, 0.0f, 0.0f, 0.0f}, {});
+    const glm::vec3 tiny = eulerHint(rotationFromEuler({0.0f, 0.0f, -0.0001f}), {});
+    CHECK_FALSE(std::signbit(none.y));
+    CHECK_FALSE(std::signbit(tiny.z));
 
     // Ce qui s'écrit est normalisé, quels que soient les angles.
     CHECK(glm::length(rotationFromEuler({1000.0f, -300.0f, 45.0f})) == doctest::Approx(1.0f));
@@ -494,8 +532,9 @@ TEST_CASE("les angles tapés restent affichés d'une modification à l'autre, la
 
     typing.type<editor_test::Facing>(entity, "200"); // le tangage, premier des trois angles
     CHECK(sameRotation(rotation(), levain::editor::rotationFromEuler({200.0f, 0.0f, 0.0f})));
-    // Le lacet est le deuxième. 100° dépasse les ±90° que rend `glm::eulerAngles` : relu, le
-    // quaternion donnerait 80° et deux autres angles. L'inspecteur garde ceux qui ont été tapés.
+    // Le lacet est le deuxième. 200° de tangage dépasse les ±90° que relit l'inspecteur : relu, le
+    // quaternion donnerait -20° et deux autres angles, et le lacet tapé en tournerait un autre.
+    // L'inspecteur garde les angles qui ont été tapés.
     typing.type<editor_test::Facing>(entity, "100", 90.0f);
     typing.type<editor_test::Facing>(entity, "10");
     CHECK(sameRotation(rotation(), levain::editor::rotationFromEuler({10.0f, 100.0f, 0.0f})));
