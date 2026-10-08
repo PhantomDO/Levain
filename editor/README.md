@@ -14,13 +14,21 @@ hiérarchie et l'inspecteur suivent.
 
 ## Invariants
 
-1. **Natif seulement**, hors du bloc `PROJECT_IS_TOP_LEVEL` : la page web n'a pas d'éditeur, et un jeu qui
+1. **Le jeu livré n'embarque pas l'éditeur.** Ni une cible du moteur (`engine/`) ni la cible runtime d'un plugin
+   ne lient `levain_editor` : `levain_check_plugin_boundaries` le refuse au configure (`cmake/LevainPlugin.cmake`,
+   vérifié par les tests `cmake.plugins.*`). `build.no-editor` refuse un symbole `levain::editor::` dans
+   `levain_sandbox`, et `build.editor-symbols` en exige dans `levain_sandbox_editor` : sans lui, un motif périmé
+   laisserait le premier vert sans rien lire (règle n°7). La cible éditeur d'un plugin (M7.6) pourra le lier.
+   Le configure ne lit que les liens directs : une cible intermédiaire qui lie l'éditeur lui échappe, et seul
+   `build.no-editor` la rattrape, pour le sandbox.
+2. **L'éditeur ne lie jamais un plugin** : la même fonction parcourt `editor/` comme `engine/`.
+3. **Natif seulement**, hors du bloc `PROJECT_IS_TOP_LEVEL` : la page web n'a pas d'éditeur, et un jeu qui
    récupère Levain par `FetchContent` reçoit la bibliothèque.
-2. **La boucle ne change pas** : `withEditor` enveloppe la fonction de démarrage du programme et ses points
+4. **La boucle ne change pas** : `withEditor` enveloppe la fonction de démarrage du programme et ses points
    d'accroche (ADR-0029).
-3. **L'exécutable éditeur ouvre les panneaux** : son `main` pose `settings.showUiPanels = true` avant de lire
+5. **L'exécutable éditeur ouvre les panneaux** : son `main` pose `settings.showUiPanels = true` avant de lire
    les options, que `--ui off` les ferme encore.
-4. **Un `--select` introuvable fait échouer le démarrage**, en nommant l'entité (règle n°7).
+6. **Un `--select` introuvable fait échouer le démarrage**, en nommant l'entité (règle n°7).
 
 ## Points d'entrée
 

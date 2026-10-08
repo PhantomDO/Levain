@@ -187,6 +187,17 @@ if(NOT LEVAIN_PROFILING AND NOT EMSCRIPTEN)
         FAIL_REGULAR_EXPRESSION "tracy::" PASS_REGULAR_EXPRESSION "levain::")
 endif()
 
+# Le jeu livré n'embarque pas l'éditeur (ADR-0034) : aucun symbole levain::editor:: dans le sandbox.
+# Le contrôle exige des symboles levain::app::, et le même nm sur l'exécutable éditeur doit en
+# trouver : sans quoi un motif périmé le laisserait vert sans rien lire (règle n°7).
+if(NOT EMSCRIPTEN)
+    add_test(NAME build.no-editor COMMAND ${CMAKE_NM} -C $<TARGET_FILE:levain_sandbox>)
+    set_tests_properties(build.no-editor PROPERTIES
+        FAIL_REGULAR_EXPRESSION "levain::editor::" PASS_REGULAR_EXPRESSION "levain::app::")
+    add_test(NAME build.editor-symbols COMMAND ${CMAKE_NM} -C $<TARGET_FILE:levain_sandbox_editor>)
+    set_tests_properties(build.editor-symbols PROPERTIES PASS_REGULAR_EXPRESSION "levain::editor::")
+endif()
+
 add_test(NAME assets.metas-committed
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR}
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/check_asset_metas.cmake)
@@ -241,10 +252,11 @@ foreach(scene triangle cube cube-instance lines shadow)
     add_test(NAME smoke.webgpu.${scene} COMMAND levain_smoke_render ${scene} webgpu)
 endforeach()
 
-# ADR-0018 : le moteur vu d'un jeu. La frontière des plugins, sur un moteur miniature qu'on
-# configure trois fois ; les deux scénarios interdits doivent échouer avec le bon message, et non
-# pour une autre raison.
-foreach(case allowed engine-links-plugin undeclared-dependency)
+# ADR-0018 et ADR-0034 : le moteur vu d'un jeu. La frontière des plugins et de l'éditeur, sur un
+# moteur miniature qu'on configure une fois par scénario ; les scénarios interdits doivent échouer
+# avec le bon message, et non pour une autre raison.
+foreach(case allowed engine-links-plugin undeclared-dependency editor-links-plugin engine-links-editor
+             plugin-links-editor no-editor)
     add_test(NAME cmake.plugins.${case}
              COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/cmake/plugin_boundaries
                      -B ${CMAKE_CURRENT_BINARY_DIR}/plugin_boundaries/${case} -G Ninja
@@ -255,6 +267,16 @@ set_tests_properties(cmake.plugins.engine-links-plugin PROPERTIES
     PASS_REGULAR_EXPRESSION "la cible du moteur fixture_core lie le plugin terrain")
 set_tests_properties(cmake.plugins.undeclared-dependency PROPERTIES
     PASS_REGULAR_EXPRESSION "le plugin grass lie fixture_core sans l'avoir déclaré")
+set_tests_properties(cmake.plugins.editor-links-plugin PROPERTIES
+    PASS_REGULAR_EXPRESSION "la cible de l'éditeur levain_editor lie le plugin terrain")
+set_tests_properties(cmake.plugins.engine-links-editor PROPERTIES
+    PASS_REGULAR_EXPRESSION "la cible du moteur fixture_core lie l'éditeur levain_editor")
+set_tests_properties(cmake.plugins.plugin-links-editor PROPERTIES
+    PASS_REGULAR_EXPRESSION "le plugin water lie l'éditeur levain_editor")
+# CMake replie son message selon la longueur du chemin, différente en CI : chaque espace peut y
+# devenir un retour à la ligne.
+set_tests_properties(cmake.plugins.no-editor PROPERTIES
+    PASS_REGULAR_EXPRESSION "aucune cible sous[\n ]+[^\n ]*/editor[\n ]+:[\n ]+le[\n ]+contrôle")
 
 # Le manifeste vcpkg d'un jeu doit contenir celui du moteur.
 add_test(NAME cmake.vcpkg-manifest

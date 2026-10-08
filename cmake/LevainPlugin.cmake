@@ -8,10 +8,14 @@
 # crée la cible `terrain`, avec son alias `plugin::terrain`, ses en-têtes dans `include/`, et ses
 # dépendances liées en PUBLIC.
 #
-# Deux règles sont vérifiées à la fin de la configuration, sur tout le projet, jeu compris :
+# Trois règles sont vérifiées à la fin de la configuration, sur tout le projet, jeu compris :
 #   1. un plugin ne lie que ce qu'il a déclaré dans DEPENDS ;
-#   2. une cible du moteur (sous `engine/`) ne lie jamais un plugin.
-# Une règle enfreinte fait échouer la configuration (règle n°7) : rien ne se construit.
+#   2. une cible du moteur (sous `engine/`) ou de l'éditeur (sous `editor/`) ne lie jamais un plugin ;
+#   3. ni une cible du moteur ni la cible runtime d'un plugin ne lie l'éditeur (ADR-0034) : le jeu
+#      livré n'en embarque rien. La cible éditeur d'un plugin, elle, le pourra.
+# Une règle enfreinte fait échouer la configuration (règle n°7) : rien ne se construit. Les règles
+# 2 et 3 ne lisent que les liens directs : une cible intermédiaire qui lie l'éditeur passe, et
+# seul `build.no-editor` la rattrape, aux symboles de `levain_sandbox`.
 
 include_guard(GLOBAL)
 
@@ -71,6 +75,22 @@ function(levain_resolved_target item out)
     set(${out} "${resolved}" PARENT_SCOPE)
 endfunction()
 
+# Les cibles que `target` lie directement, alias résolus.
+function(levain_linked_targets target out)
+    get_property(linked TARGET ${target} PROPERTY LINK_LIBRARIES)
+    get_property(interface TARGET ${target} PROPERTY INTERFACE_LINK_LIBRARIES)
+    set(targets "")
+    foreach(item IN LISTS linked interface)
+        levain_resolved_target("${item}" resolved)
+        if(resolved)
+            list(APPEND targets "${resolved}")
+        endif()
+    endforeach()
+    # Une cible liée en PUBLIC est dans les deux listes : une seule fois dans le rapport.
+    list(REMOVE_DUPLICATES targets)
+    set(${out} ${targets} PARENT_SCOPE)
+endfunction()
+
 function(levain_check_plugin_boundaries)
     set(failures "")
 
@@ -89,29 +109,51 @@ function(levain_check_plugin_boundaries)
         endforeach()
     endforeach()
 
-    # 2. Le moteur ne dépend jamais d'un plugin.
+    # 2. Ni le moteur ni l'éditeur ne dépendent d'un plugin.
     get_property(root GLOBAL PROPERTY LEVAIN_ROOT_DIR)
     get_property(rootChildren DIRECTORY "${root}" PROPERTY SUBDIRECTORIES)
     set(engineTargets "")
+    set(editorTargets "")
     foreach(child IN LISTS rootChildren)
         # Un préfixe, pas une expression régulière : le chemin peut contenir « + » ou « . ».
         string(FIND "${child}" "${root}/engine/" position)
         if(position EQUAL 0)
             levain_targets_under("${child}" moduleTargets)
             list(APPEND engineTargets ${moduleTargets})
+        elseif(child STREQUAL "${root}/editor")
+            levain_targets_under("${child}" editorTargets)
         endif()
     endforeach()
     if(NOT engineTargets)
         message(FATAL_ERROR "aucune cible sous ${root}/engine : le contrôle ne vérifierait rien")
     endif()
-    foreach(target IN LISTS engineTargets)
-        get_property(linked TARGET ${target} PROPERTY LINK_LIBRARIES)
-        get_property(interface TARGET ${target} PROPERTY INTERFACE_LINK_LIBRARIES)
-        foreach(item IN LISTS linked interface)
-            levain_resolved_target("${item}" resolved)
-            if(resolved AND resolved IN_LIST plugins)
-                list(APPEND failures
-                     "la cible du moteur ${target} lie le plugin ${resolved} (ADR-0018)")
+    # Le navigateur n'a pas d'éditeur (ADR-0034) ; ailleurs, sans lui, la règle 3 ne lirait rien.
+    if(NOT editorTargets AND NOT EMSCRIPTEN)
+        message(FATAL_ERROR "aucune cible sous ${root}/editor : le contrôle ne vérifierait rien")
+    endif()
+    foreach(target IN LISTS engineTargets editorTargets)
+        set(kind "du moteur")
+        if(target IN_LIST editorTargets)
+            set(kind "de l'éditeur")
+        endif()
+        levain_linked_targets(${target} linked)
+        foreach(item IN LISTS linked)
+            if(item IN_LIST plugins)
+                list(APPEND failures "la cible ${kind} ${target} lie le plugin ${item} (ADR-0018)")
+            endif()
+        endforeach()
+    endforeach()
+
+    # 3. Le jeu livré n'embarque pas l'éditeur.
+    foreach(target IN LISTS engineTargets plugins)
+        set(kind "la cible du moteur")
+        if(target IN_LIST plugins)
+            set(kind "le plugin")
+        endif()
+        levain_linked_targets(${target} linked)
+        foreach(item IN LISTS linked)
+            if(item IN_LIST editorTargets)
+                list(APPEND failures "${kind} ${target} lie l'éditeur ${item} (ADR-0034)")
             endif()
         endforeach()
     endforeach()
