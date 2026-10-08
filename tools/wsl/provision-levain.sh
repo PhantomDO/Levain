@@ -14,7 +14,8 @@ firstBuild=yes
 [ "${2:-}" = "--skip-first-build" ] && firstBuild=no
 
 VCPKG_TAG=2026.07.29 # = VCPKG_TAG de ci.yml, et le builtin-baseline de vcpkg.json
-LLVM_VERSION=23      # = LLVM_VERSION de ci.yml : clang-format change de sortie d'une version majeure à l'autre
+LLVM_VERSION=23      # = LLVM_VERSION de ci.yml et de cmake/toolchains/windows-clang-cl.cmake : clang-format
+                     # change de sortie d'une version majeure à l'autre
 EMSDK_VERSION=6.0.10 # = EMSDK_VERSION de ci.yml
 
 echo "== l'utilisateur $user"
@@ -46,7 +47,13 @@ echo "== LLVM $LLVM_VERSION (apt.llvm.org, comme la CI)"
 # bash exécuterait sans erreur (la leçon de ci.yml).
 wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
 bash /tmp/llvm.sh "$LLVM_VERSION"
-apt-get install -y "clang-format-$LLVM_VERSION" "clang-tidy-$LLVM_VERSION"
+# llvm-N apporte llvm-lib, llvm-rc et llvm-mt, que la toolchain Windows (cmake/toolchains/windows-clang-cl.cmake)
+# lit dans /usr/lib/llvm-N/bin avec clang-cl et lld-link, que livrent clang-N et lld-N (llvm.sh).
+apt-get install -y "clang-format-$LLVM_VERSION" "clang-tidy-$LLVM_VERSION" "llvm-$LLVM_VERSION"
+for tool in clang-cl lld-link llvm-lib llvm-rc llvm-mt; do
+    [ -x "/usr/lib/llvm-$LLVM_VERSION/bin/$tool" ] \
+        || { echo "erreur : $tool manque dans /usr/lib/llvm-$LLVM_VERSION/bin" >&2; exit 1; }
+done
 # Des liens dans /usr/local/bin, qui précède /usr/bin : /usr/bin/clang++ est un vrai fichier du paquet clang,
 # qu'update-alternatives ne remplacerait pas.
 for tool in clang clang++ clang-format clang-tidy; do
@@ -85,6 +92,29 @@ mkdir -p Projects
 # Les assets de test tiers, jamais versionnés (ADR-0018) : sans eux, le build web refuse de se configurer.
 (cd Projects/Levain && ./tools/fetch-assets.sh)
 
+# Le winsysroot pour compiler Windows depuis Linux (ADR-0035) : la STL et le SDK de Microsoft, lus par deux liens
+# dans les Build Tools ou le Visual Studio du Windows hôte, le plus récent (VC/Tools/MSVC), sans rien copier. Leur
+# licence est celle de Microsoft : ils servent à compiler, et ne vont ni dans le dépôt ni dans une release.
+# Un `if` et non `[ ] &&` dans les boucles : sous `set -e` avec pipefail, un `[ ]` faux sortirait du script.
+vcDir=$(for vc in "/mnt/c/Program Files"*/"Microsoft Visual Studio"/*/*/VC; do
+    for msvc in "$vc"/Tools/MSVC/*/; do
+        if [ -d "$msvc" ]; then printf '%s\t%s\n' "$(basename "$msvc")" "$vc"; fi
+    done
+done | sort -V | tail -1 | cut -f2)
+kitsDir=
+winsysrootMissing=no
+for kits in "/mnt/c/Program Files (x86)/Windows Kits" "/mnt/c/Program Files/Windows Kits"; do
+    if [ -z "$kitsDir" ] && [ -d "$kits/10/Include" ]; then kitsDir=$kits; fi
+done
+if [ -n "$vcDir" ] && [ -n "$kitsDir" ]; then
+    mkdir -p ~/winsysroot
+    ln -sfn "$vcDir" ~/winsysroot/VC
+    ln -sfn "$kitsDir" ~/winsysroot/"Windows Kits"
+    echo "== le winsysroot : ~/winsysroot, lu dans $vcDir et $kitsDir"
+else
+    winsysrootMissing=yes # dit à la toute fin, après le premier build : ici, il passerait inaperçu
+fi
+
 if ! grep -q "levain-wsl" ~/.bashrc; then
     cat >> ~/.bashrc << 'RC'
 
@@ -96,6 +126,8 @@ export PATH="$HOME/.local/bin:$PATH"
 # variables à la place de RADV, le pilote de la machine de référence.
 export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
 export LEVAIN_VK_PRELOAD=/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so
+# La STL et le SDK de Microsoft pour compiler Windows (cmake/toolchains/windows-clang-cl.cmake), posés plus haut.
+export LEVAIN_WINSYSROOT="$HOME/winsysroot"
 RC
 fi
 
@@ -107,6 +139,12 @@ if [ "$FIRST_BUILD" = yes ]; then
     cmake --preset linux-debug
     cmake --build --preset linux-debug
     SDL_VIDEO_DRIVER=offscreen ctest --test-dir build/linux-debug --output-on-failure --timeout 120
+fi
+if [ "$winsysrootMissing" = yes ]; then
+    echo "== ATTENTION : ni Build Tools ni Visual Studio avec le SDK Windows sous /mnt/c. Le build Windows"
+    echo "   (cmake --preset windows-debug, l'étape windows-debug de tools/verify.sh) REFUSERA de se configurer"
+    echo "   tant que ~/winsysroot n'existe pas : installer les Build Tools (composant « Desktop development with"
+    echo "   C++ », SDK Windows 11), puis faire les deux liens de tools/wsl/README.md."
 fi
 USER_STEPS
 chmod 0644 /tmp/levain-user-steps.sh

@@ -89,10 +89,42 @@ Après un `wsl --shutdown`, la conversation n'est pas perdue : son historique es
   ```
 
 - **Le sandbox natif en fenêtre** : WSLg affiche les fenêtres Linux sur le bureau Windows, mais le rendu passe par
-  Vulkan logiciel : lent, et sans valeur de mesure.
+  Vulkan logiciel : lent, et sans valeur de mesure. Sur la vraie carte, l'exe Windows (« Compiler pour Windows »
+  ci-dessous).
 
 Garder les dépôts dans la distro, pas sous `/mnt/c` : les fichiers de Windows vus de WSL sont lents, et la
 surveillance des fichiers y marche mal.
+
+## Compiler pour Windows
+
+Le script lit les Build Tools (ou le Visual Studio) du Windows hôte, sous `/mnt/c`, et en fait `~/winsysroot` :
+deux liens vers la STL et le SDK de Microsoft, que `LEVAIN_WINSYSROOT` désigne (`~/.bashrc`). Rien n'est copié ni
+installé dans la distro. Sans eux, le script le dit à la fin, et le build Windows refuse de se configurer ; après
+les avoir installés (composant « Desktop development with C++ »), à la main :
+
+```bash
+mkdir -p ~/winsysroot
+ln -sfn "/mnt/c/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/VC" ~/winsysroot/VC   # le dossier VC du vôtre
+ln -sfn "/mnt/c/Program Files (x86)/Windows Kits" ~/winsysroot/"Windows Kits"
+grep -q LEVAIN_WINSYSROOT ~/.bashrc || echo 'export LEVAIN_WINSYSROOT="$HOME/winsysroot"' >> ~/.bashrc
+export LEVAIN_WINSYSROOT=~/winsysroot
+```
+
+Une distro outillée avant le 2026-10-08, comme `levain-dev`, n'a ni `llvm-23` ni la variable : le bloc de
+`~/.bashrc` ne s'écrit qu'une fois. À la main : `sudo apt install llvm-23`, puis les commandes ci-dessus. Garder
+les Build Tools tels quels : la toolchain fige la version de la STL et du SDK (MSVC 14.51, SDK 10.0.26100), celle
+de la CI, et refuse un winsysroot qui ne les a pas (ADR-0035).
+
+```bash
+cmake --preset windows-release && cmake --build --preset windows-release   # 16 min la première fois : les dépendances
+build/windows-release/sandbox/levain_sandbox.exe --seconds 3               # l'interop de WSL le lance sous Windows
+```
+
+L'exe tourne sous Windows, sur la vraie carte graphique, par son pilote Vulkan. Dans un worktree, copier les
+assets dans `assets-cache/` plutôt que de les lier : Windows ne suit pas un lien symbolique de la distro. Le Debug refuse de
+démarrer tant que les couches de validation Vulkan ne sont pas livrées pour Windows (ADR-0035, décision 6).
+`tools/verify.sh` compile `windows-debug` (sans le lancer) et échoue sans `LEVAIN_WINSYSROOT` ; `NO_WINDOWS=1`
+saute l'étape.
 
 ## Les limites
 

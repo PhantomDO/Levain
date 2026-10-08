@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # La vérification complète d'une branche avant de pousser, comme la CI : le format de tout l'arbre, les trois
-# presets natifs compilés et testés, clang-tidy sur les fichiers changés, puis le build web et ses tests.
+# presets natifs compilés et testés, le build Windows (compilé seulement), clang-tidy sur les fichiers changés,
+# puis le build web et ses tests.
 # Dans la distrobox dev-ubuntu, depuis la racine du dépôt (ou d'un worktree) :
 #
 #   tools/verify.sh                  # BASE=origin/main : les fichiers changés depuis main, pour clang-tidy
 #   BASE=<branche> tools/verify.sh   # une PR empilée : relire contre la précédente
 #   NO_WEB=1 tools/verify.sh         # sans le build web (il n'y a ni physique ni app dans le navigateur)
+#   NO_WINDOWS=1 tools/verify.sh     # sans le build Windows (pas de winsysroot : LEVAIN_WINSYSROOT, docs/SETUP.md)
 #
 # Une ligne par étape, OK ou FAIL ; les journaux complets dans build/verify/. Le code de sortie est non nul dès
 # qu'une étape échoue (règle n°7) : un script qui rend 0 quoi qu'il arrive laisse pousser une branche rouge.
@@ -57,6 +59,26 @@ for preset in ${PRESETS:-linux-debug linux-release linux-asan}; do
         step "$preset" FAIL "$summary"
     fi
 done
+
+# Windows, compilé depuis Linux par clang-cl (ADR-0035) : le build seulement. Lancer les binaires Windows est le
+# travail des PR suivantes (les tests par ctest, #345 ; la CI avec un runner Windows, #346). Sans winsysroot,
+# l'étape ÉCHOUE en nommant la variable (règle n°7) : un contrôle qui se contenterait de ne pas s'exécuter
+# laisserait passer une branche qui casse Windows. NO_WINDOWS=1 la saute, et le dit comme NO_WEB.
+if [ -z "${NO_WINDOWS:-}" ]; then
+    winsysroot=${LEVAIN_WINSYSROOT:-}
+    if [ -z "$winsysroot" ]; then
+        step windows-debug FAIL "LEVAIN_WINSYSROOT n'est pas posée (docs/SETUP.md) ; NO_WINDOWS=1 saute l'étape"
+    elif [ ! -d "$winsysroot/VC/Tools/MSVC" ] || [ ! -d "$winsysroot/Windows Kits/10" ]; then
+        step windows-debug FAIL "LEVAIN_WINSYSROOT=$winsysroot : il y manque VC/Tools/MSVC ou « Windows Kits/10 »"
+    elif { cmake --preset windows-debug && cmake --build --preset windows-debug; } \
+        > "$logs/build-windows-debug.log" 2>&1; then
+        step windows-debug OK "build seulement"
+    else
+        step windows-debug FAIL "build, $logs/build-windows-debug.log"
+    fi
+else
+    echo "windows-debug : SAUTÉ (NO_WINDOWS)"
+fi
 
 # clang-tidy sur les seuls .cpp changés que le build natif compile : ceux du navigateur ne s'analysent pas sans
 # leurs options (build/GOTCHA.md). Une base inconnue ou un build Debug absent échouent : sans eux, la liste serait

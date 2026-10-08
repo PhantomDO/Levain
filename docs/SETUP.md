@@ -36,6 +36,19 @@ free -h
 
 vcpkg sera installé et configuré en M0.2 ; NVRHI et flecs arrivent par vcpkg.
 
+**Compiler pour Windows** (ADR-0035) : clang-cl lit la STL et le SDK de Microsoft dans un *winsysroot*, la
+disposition de Visual Studio (`VC/Tools/MSVC` et `Windows Kits/10`), que la variable `LEVAIN_WINSYSROOT` désigne.
+Sans elle, la configuration refuse, et l'étape `windows-debug` de `tools/verify.sh` échoue en la nommant ;
+`NO_WINDOWS=1` saute l'étape.
+
+```bash
+export LEVAIN_WINSYSROOT=~/winsysroot   # deux liens vers VC et « Windows Kits » d'un Visual Studio ou de ses Build Tools
+cmake --preset windows-debug && cmake --build --preset windows-debug   # vcpkg compile les dépendances pour Windows
+```
+
+Sur un PC Windows, la distro WSL ci-dessous fait ces liens toute seule. Sur la machine de référence, le winsysroot
+viendra de xwin, par le script de la CI (#346) : d'ici là, `NO_WINDOWS=1 tools/verify.sh`.
+
 Depuis un PC Windows : une distro WSL dédiée, outillée comme la CI, avec Claude Code en ligne de commande, et
 supprimable d'une commande ([`tools/wsl/README.md`](../tools/wsl/README.md)).
 
