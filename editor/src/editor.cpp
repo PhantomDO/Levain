@@ -93,9 +93,12 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             }
             if (app.ui.panelsOpen)
             {
+                // Les écritures de l'inspecteur et leurs observateurs passent après le parcours.
+                app.world.defer_begin();
                 drawHierarchy(app.world, editor->hierarchy, editor->selected, app.ui.dock.left);
                 drawInspector(app.world, editor->inspector, editor->selected,
                               app.ui.dock.inspector);
+                app.world.defer_end();
             }
         };
         hooks->finish = [finish = std::move(hooks->finish), editor](app::App& app)
