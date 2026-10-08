@@ -34,6 +34,12 @@ cmake --preset linux-debug && cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug --output-on-failure
 ```
 
+Windows (`windows-debug`, `windows-release`), depuis la distro WSL : `LEVAIN_WINSYSROOT` posée, puis
+`ctest --test-dir build/windows-debug -j 4 --timeout 120 --output-on-failure`. Les contrôles qui lancent un outil de
+l'hôte (`cmake -P`, Python, la lecture des symboles dans le PDB par `llvm-pdbutil`, `cmake.plugins.*`) portent le
+label `host` (`levain_add_host_test`, `tests/CMakeLists.txt`) : `ctest -L host` les lance seuls, `ctest -LE host`
+lance les programmes de la cible, ce que fera un runner Windows (#346).
+
 Le premier `cmake --preset` est long : vcpkg compile les dépendances depuis les sources. Les suivants sont
 instantanés (cache `~/.cache/vcpkg`). Pour clangd : `ln -sf build/linux-debug/compile_commands.json .`
 
