@@ -121,8 +121,8 @@ build/windows-release/sandbox/levain_sandbox.exe --seconds 3               # l'i
 ```
 
 L'exe tourne sous Windows, sur la vraie carte graphique, par son pilote Vulkan. Dans un worktree, copier les
-assets dans `assets-cache/` plutôt que de les lier : Windows ne suit pas un lien symbolique de la distro. Le Debug refuse de
-démarrer tant que les couches de validation Vulkan ne sont pas livrées pour Windows (ADR-0035, décision 6).
+assets dans `assets-cache/` plutôt que de les lier : Windows ne suit pas un lien symbolique de la distro. Le Debug lance les
+couches de validation Vulkan du port vcpkg, que le build copie à côté de chaque exe (ADR-0035, décision 6).
 `tools/verify.sh` compile `windows-debug` (sans le lancer) et échoue sans `LEVAIN_WINSYSROOT` ; `NO_WINDOWS=1`
 saute l'étape.
 

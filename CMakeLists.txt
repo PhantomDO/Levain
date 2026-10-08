@@ -65,6 +65,15 @@ if(WIN32)
         string(REGEX REPLACE "/INCREMENTAL(:YES)?( |$)" "/INCREMENTAL:NO\\2" CMAKE_EXE_LINKER_FLAGS_${config}
                "${CMAKE_EXE_LINKER_FLAGS_${config}}")
     endforeach()
+    # Compilé dans une distro WSL, un PDB nomme les sources par leur chemin dans la distro (/home/…), que Visual
+    # Studio, RenderDoc et PIX ne trouvent pas sous Windows : on le réécrit en chemin UNC de la distro. Avec des
+    # barres obliques : LLVM récrit un \\ initial en \ dans le PDB (mesuré), et perd le préfixe UNC, quand // y
+    # reste, que Windows lit comme \\. Seul le débogage est touché, pas __FILE__ (ce serait -ffile-prefix-map).
+    if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND DEFINED ENV{WSL_DISTRO_NAME})
+        foreach(root IN ITEMS "${PROJECT_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
+            add_compile_options("/clang:-fdebug-prefix-map=${root}=//wsl.localhost/$ENV{WSL_DISTRO_NAME}${root}")
+        endforeach()
+    endif()
 endif()
 
 # ADR-0001 dit « sans modules ». CMake active pourtant le scan de modules dès C++20 avec
