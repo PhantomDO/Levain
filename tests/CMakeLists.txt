@@ -120,35 +120,62 @@ target_compile_definitions(levain_tests PRIVATE
 # reconnaîtrait toute sortie. Le garde-fou lit le rapporteur console de doctest : un autre
 # rapporteur (`JUNIT_OUTPUT_DIR`) ou `--quiet` le rendraient muet.
 include(doctest)
-# SDL_VIDEO_DRIVER=offscreen : window_test.cpp ouvre une vraie fenêtre, sans écran en CI.
-set(testProperties ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen" FAIL_REGULAR_EXPRESSION "test cases: 0 [|]")
+# Le pilote vidéo de SDL des tests qui ouvrent une fenêtre (window_test.cpp) ou une surface Vulkan. Sous Linux,
+# offscreen : pas d'écran en CI, et sa surface Vulkan est VK_EXT_headless_surface, que lavapipe offre. Sous Windows,
+# ni le lavapipe de mesa-dist-win (le runner de la CI) ni le pilote NVIDIA ne l'offrent : une vraie fenêtre, sur le
+# bureau du runner (#346). Lancé depuis la distro, l'exe ne reçoit pas cette variable (WSLENV, build/GOTCHA.md).
+if(WIN32)
+    set(testVideo "SDL_VIDEO_DRIVER=windows")
+else()
+    set(testVideo "SDL_VIDEO_DRIVER=offscreen")
+endif()
+set(testProperties ENVIRONMENT "${testVideo}" FAIL_REGULAR_EXPRESSION "test cases: 0 [|]")
 if(CMAKE_CROSSCOMPILING AND NOT EMSCRIPTEN)
     # Compilé pour Windows depuis Linux (ADR-0035), l'exécutable ne se lance pas sur la machine de build : seule
     # l'interop de WSL, ou un runner Windows, sait le faire. La découverte ne peut donc pas être un pas du build :
     # elle se fait au moment des tests, quand ctest lit sa liste, sur la machine qui lance l'exécutable (le mode
-    # PRE_TEST de gtest_discover_tests, que doctest_discover_tests n'a pas). On rejoue son script depuis un fichier
-    # que ctest inclut. Si la découverte échoue, un test rouge le dit : sinon ctest annoncerait « No tests were
-    # found » et sortirait en 0 (règle n°7). Le web, lui, a node pour émulateur : la découverte du build suffit.
-    # Les -D reprennent ceux que doctest_discover_tests passe à doctestAddTests.cmake, et
+    # PRE_TEST de gtest_discover_tests, que doctest_discover_tests n'a pas). ctest inclut un fichier qui inclut à
+    # son tour le script de doctest, copié à côté : il ne nomme ainsi aucun programme de la machine de build (pas le
+    # cmake de Linux), et le même arbre se teste depuis la distro ou sur le runner Windows de la CI (#346). Ce
+    # script s'arrête en FATAL_ERROR si l'exécutable ne répond pas, ce qui arrêterait ctest entier, `-L host` du
+    # job Linux compris : la liste est donc demandée une fois avant, et un refus laisse le test rouge
+    # levain_tests_NOT_DISCOVERED (zéro cas exécuté), sans quoi ctest annoncerait « No tests were found » et
+    # sortirait en 0 (règle n°7). Le web, lui, a node pour émulateur : la découverte du build suffit.
+    # Les TEST_* reprennent ceux que doctest_discover_tests passe à doctestAddTests.cmake, et
     # _DOCTEST_DISCOVER_TESTS_SCRIPT est une variable interne de doctest.cmake (doctest 2.5.3) : relire ce bloc
     # à chaque mise à jour de doctest. Une variable renommée se dit dès la configuration.
     if(NOT EXISTS "${_DOCTEST_DISCOVER_TESTS_SCRIPT}")
         message(FATAL_ERROR "doctest.cmake ne donne plus _DOCTEST_DISCOVER_TESTS_SCRIPT : relire la découverte "
                             "au moment des tests (tests/CMakeLists.txt).")
     endif()
+    configure_file("${_DOCTEST_DISCOVER_TESTS_SCRIPT}" doctestAddTests.cmake COPYONLY)
     set(discoveredTests "${CMAKE_CURRENT_BINARY_DIR}/levain_tests_discovered.cmake")
     file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/levain_tests_discover.cmake" CONTENT
-"execute_process(
-    COMMAND \"${CMAKE_COMMAND}\" \"-DTEST_TARGET=levain_tests\" \"-DTEST_EXECUTABLE=$<TARGET_FILE:levain_tests>\"
-            \"-DTEST_WORKING_DIR=${CMAKE_CURRENT_BINARY_DIR}\" \"-DTEST_PROPERTIES=${testProperties}\"
-            \"-DTEST_LIST=levain_tests_TESTS\" \"-DCTEST_FILE=${discoveredTests}\"
-            -P \"${_DOCTEST_DISCOVER_TESTS_SCRIPT}\"
-    RESULT_VARIABLE discovered ERROR_VARIABLE reason)
-if(discovered EQUAL 0)
+"execute_process(COMMAND \"$<TARGET_FILE:levain_tests>\" --list-test-cases
+    RESULT_VARIABLE listed OUTPUT_QUIET ERROR_VARIABLE reason)
+if(listed EQUAL 0)
+    block()
+        set(TEST_TARGET levain_tests)
+        # Sous Windows, « /home/… » n'a pas de lecteur : ctest et l'exe le prennent sur celui du dossier courant,
+        # mais execute_process le refuse en WORKING_DIRECTORY (« no such file or directory »), et en exécutable sous
+        # un dossier courant \\wsl.localhost. REAL_PATH donne le lecteur, ou le partage.
+        file(REAL_PATH \"$<TARGET_FILE:levain_tests>\" TEST_EXECUTABLE)
+        file(REAL_PATH \"${CMAKE_CURRENT_BINARY_DIR}\" TEST_WORKING_DIR)
+        # ctest lit ce fichier sans politique posée : sous Windows, execute_process décoderait la liste des cas
+        # dans la page de code de la console, et les noms accentués ne désigneraient plus aucun cas.
+        if(POLICY CMP0176)
+            cmake_policy(SET CMP0176 NEW) # sortie des processus en UTF-8, celle du manifeste de l'exe
+        endif()
+        set(TEST_PROPERTIES \"${testProperties}\")
+        set(TEST_LIST levain_tests_TESTS)
+        set(CTEST_FILE \"${discoveredTests}\")
+        include(\"${CMAKE_CURRENT_BINARY_DIR}/doctestAddTests.cmake\")
+    endblock()
     include(\"${discoveredTests}\")
 else()
-    message(WARNING \"levain_tests : la découverte des cas a échoué : \${reason}\")
-    add_test(levain_tests_NOT_DISCOVERED \"${CMAKE_COMMAND}\" -E false)
+    message(WARNING \"levain_tests : la découverte des cas a échoué : \${listed} \${reason}\")
+    add_test(levain_tests_NOT_DISCOVERED \"$<TARGET_FILE:levain_tests>\" --test-case=levain_tests_NOT_DISCOVERED)
+    set_tests_properties(levain_tests_NOT_DISCOVERED PROPERTIES FAIL_REGULAR_EXPRESSION \"test cases: 0 [|]\")
 endif()
 ")
     set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES "${CMAKE_CURRENT_BINARY_DIR}/levain_tests_discover.cmake")
@@ -279,21 +306,21 @@ levain_add_host_test(assets.metas-committed
 add_executable(levain_light_clusters light_clusters_gpu.cpp)
 target_link_libraries(levain_light_clusters PRIVATE levain::gpu levain::platform levain::render)
 add_test(NAME gpu.light-clusters.vulkan COMMAND levain_light_clusters vulkan)
-set_tests_properties(gpu.light-clusters.vulkan PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+set_tests_properties(gpu.light-clusters.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 add_test(NAME gpu.light-clusters.webgpu COMMAND levain_light_clusters webgpu)
 
 # L'HDRI converti en cubemap, mips comprises (IBL, #130), sur les deux backends.
 add_executable(levain_environment environment_gpu.cpp)
 target_link_libraries(levain_environment PRIVATE levain::gpu levain::platform levain::render)
 add_test(NAME gpu.environment.vulkan COMMAND levain_environment vulkan)
-set_tests_properties(gpu.environment.vulkan PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+set_tests_properties(gpu.environment.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 add_test(NAME gpu.environment.webgpu COMMAND levain_environment webgpu)
 
 # L'UI d'ImGui dessinée par NVRHI, couleurs et découpe relues (ADR-0032), sur les deux backends.
 add_executable(levain_ui_gpu ui_gpu.cpp)
 target_link_libraries(levain_ui_gpu PRIVATE levain::gpu levain::platform levain::render levain::ui)
 add_test(NAME gpu.ui.vulkan COMMAND levain_ui_gpu vulkan)
-set_tests_properties(gpu.ui.vulkan PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+set_tests_properties(gpu.ui.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 add_test(NAME gpu.ui.webgpu COMMAND levain_ui_gpu webgpu)
 
 # ImGui reste dans ui/ et au-dessus, et SDL hors de ui/ (SPECS §7, ADR-0032).
@@ -306,7 +333,7 @@ add_executable(levain_gpu_alone gpu_alone.cpp)
 target_link_libraries(levain_gpu_alone PRIVATE levain::gpu)
 
 # Tests de fumée du rendu (#16, M2.1) : dessinent une scène hors écran et comparent l'image à une
-# référence. SDL_VIDEO_DRIVER=offscreen : pas d'écran en CI, la surface est « headless » (lavapipe).
+# référence, sans écran en CI Linux (testVideo, plus haut).
 add_executable(levain_smoke_render smoke_render.cpp)
 target_link_libraries(levain_smoke_render PRIVATE
     levain::assets levain::gpu levain::render levain::platform)
@@ -316,7 +343,7 @@ target_compile_definitions(levain_smoke_render PRIVATE
 # lines : le cube de « cube » et trois lignes de debug, dont une cachée en partie par le cube.
 foreach(scene triangle cube cube-instance lines shadow)
     add_test(NAME smoke.${scene} COMMAND levain_smoke_render ${scene})
-    set_tests_properties(smoke.${scene} PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+    set_tests_properties(smoke.${scene} PROPERTIES ENVIRONMENT "${testVideo}")
 endforeach()
 # Les mêmes scènes par le backend WebGPU de NVRHI, sur Dawn : mêmes références (ADR-0023, #184).
 foreach(scene triangle cube cube-instance lines shadow)
