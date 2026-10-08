@@ -2,8 +2,8 @@
 
 ## Rôle
 
-Le socle : types de base, logs, assertions, allocateurs, temps, fichiers. Tout le moteur en dépend, et lui ne
-dépend de rien — ni SDL3, ni NVRHI, ni flecs.
+Le socle : types de base, logs, assertions, allocateurs, temps, fichiers, environnement. Tout le moteur en
+dépend, et lui ne dépend de rien — ni SDL3, ni NVRHI, ni flecs.
 
 **État en M1.1** : logs par catégorie, assertions, politique d'erreurs de
 l'[ADR-0008](../../docs/adr/0008-gestion-erreurs.md), allocateurs linéaire et pool, macros de profilage Tracy,
@@ -51,4 +51,5 @@ Les en-têtes publics vivent sous `include/levain/core/`, l'implémentation sous
 | **Unity** | — | Le cœur C++ d'Unity n'est pas public. Ne pas supposer de correspondance. |
 
 La différence qui compte : chez Unreal et Godot, `Core` porte aussi la réflexion et le système d'objets. Chez
-nous, flecs s'en charge, donc `core` reste plus petit — logs, mémoire, temps, fichiers, et rien d'autre.
+nous, flecs s'en charge, donc `core` reste plus petit — logs, mémoire, temps, fichiers, environnement, et rien
+d'autre.

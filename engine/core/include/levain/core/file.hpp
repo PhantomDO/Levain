@@ -15,10 +15,11 @@ namespace levain::core
 /// (ADR-0008), pas un bug : c'est au contenu du disque qu'on ne peut pas se fier.
 [[nodiscard]] Result<std::vector<std::byte>> readFile(const std::filesystem::path& path);
 
-/// Le nom d'un fichier pour une bibliothèque C qui le prend en `char*` (ktx, stb : elles le passent
-/// à `fopen`). Le piège : sous Windows, `path::c_str()` rend des `wchar_t`, que ces fonctions
-/// refusent ; `string()` rend des `char` dans la page de code du processus, qui est l'UTF-8 une
-/// fois le manifeste de l'ADR-0035 en place. Sous Linux, c'est le nom tel quel.
+/// Le nom d'un fichier pour une bibliothèque C qui le prend en `char*` (ktx, stb). Le piège : sous
+/// Windows, `path::c_str()` rend des `wchar_t`, que ces fonctions refusent ; `string()` rend des
+/// `char` dans la page de code du processus, que stb passe à `fopen_s`, mais que ktx lit toujours
+/// en UTF-8 (`ktxFOpenUTF8`) : les deux ne s'accordent que par le manifeste UTF-8 de l'ADR-0035.
+/// Sous Linux, c'est le nom tel quel.
 [[nodiscard]] std::string pathForC(const std::filesystem::path& path);
 
 /// Les dates de modification des fichiers d'un dossier, pour repérer ceux qui changent (le

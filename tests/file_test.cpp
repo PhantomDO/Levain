@@ -76,7 +76,8 @@ TEST_CASE("pathForC garde un chemin ASCII et un chemin UTF-8 octet pour octet")
 {
     CHECK(levain::core::pathForC(std::filesystem::path{"dossier/image.png"}) ==
           "dossier/image.png");
-    // « été » en UTF-8 : C3 A9, t, C3 A9, écrits en clair pour ne pas dépendre du fichier source.
+    // « été » en octets UTF-8 (C3 A9, t, C3 A9). Sous Windows, `string()` ne les rend qu'avec le
+    // manifeste UTF-8 de l'ADR-0035 : sans lui, ce cas échoue, et c'est voulu (règle n°7).
     CHECK(levain::core::pathForC(std::filesystem::path{u8"dossier/été.png"}) ==
           "dossier/\xC3\xA9t\xC3\xA9.png");
 }
