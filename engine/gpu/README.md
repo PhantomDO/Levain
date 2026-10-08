@@ -17,9 +17,10 @@ Il reproduit les images de Vulkan (test de fumée à 0 pixel près, renard et Sp
 **État en M1.4** : le backend **Direct3D 12** (#18, ADR-0035), dans les builds Windows seulement, choisi au
 lancement (`levain_sandbox --gpu d3d12`) ; Vulkan reste le défaut. Il présente dans la fenêtre par une swapchain
 DXGI, calée sur l'écran comme sous Vulkan. Sur la RTX 4070 de Donnovan, en Debug, sans un message des couches de
-debug de Direct3D 12 et de DXGI : le sandbox (10 s, puis redimensionné, réduit et restauré), les cinq tests de fumée
-à 0 pixel près, les trois tests GPU (`levain_light_clusters.exe d3d12`, `levain_environment.exe d3d12`,
-`levain_ui_gpu.exe d3d12`). Reste un écart de cadence, observé et pas encore expliqué : en Release, à 165 Hz,
+debug de Direct3D 12 et de DXGI : le sandbox (10 s, puis redimensionné, réduit et restauré par
+`tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`), les cinq
+tests de fumée à 0 pixel près, les trois tests GPU (`levain_light_clusters.exe d3d12`, `levain_environment.exe
+d3d12`, `levain_ui_gpu.exe d3d12`). Reste un écart de cadence, observé et pas encore expliqué : en Release, à 165 Hz,
 145 images/s contre 160 sous Vulkan, au même temps GPU (build/GOTCHA.md). Les tests ne sont pas déclarés à ctest en
 `d3d12` : un runner sans GPU n'a que WARP, que choisira #19, avec deux prérequis relevés ici :
 

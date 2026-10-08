@@ -237,7 +237,14 @@ sous Vulkan aussi : elles passent avant le backend.
   sans un message, quand le script a un `Add-Type @" … "@` ; `-EncodedCommand` (le script en UTF-16LE, en base64,
   `iconv -t utf-16le | base64 -w0`) passe. `SetWindowPos` et `ShowWindow` (réduire, restaurer) de `user32.dll`, sur
   le `MainWindowHandle` de `Get-Process levain_sandbox`, ont ainsi redimensionné le sandbox en D3D12 trois fois,
-  réduit et restauré, sans un message des couches de debug.
+  réduit et restauré, sans un message des couches de debug. Versionné (`tools/wsl/resize-sandbox.ps1`, le pilote, et
+  `resize-sandbox.sh`, qui le lance et vérifie le journal) ; la commande, de la distro, depuis la racine du dépôt :
+  `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`, qui
+  finit sur « resize-sandbox : OK (4 redimensionnements, masquée puis visible, sans message des couches ; …) ».
+  Deux autres pièges du pilote : sortie redirigée, PowerShell écrit dans la page de code de la console (les accents
+  perdus, d'où `[Console]::OutputEncoding` en UTF-8) et envoie sa barre de progression en XML sur la sortie d'erreur
+  (`$ProgressPreference`). Contre-test : `--seconds 2`, le sandbox fermé avant la séquence, et le script échoue
+  (« pilote : SetWindowPos 1600 x 900 refusé », puis « FAIL (pilote, code 1) », code 1).
 
 - **`IID_PPV_ARGS` ne compile pas** : il passe par `__uuidof`, une extension de Microsoft, et `-pedantic-errors`
   la refuse (« extension used », `-Wlanguage-extension-token`). Parade, sans couper l'avertissement (règle n°4) :
