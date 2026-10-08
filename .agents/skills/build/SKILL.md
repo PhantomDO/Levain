@@ -194,5 +194,6 @@ configuration), `ctest -L host` sur les deux arbres, puis un artefact par config
 leurs voisins, les shaders, les fichiers de ctest, `tests/data` et `data`, rien de Microsoft. `windows-debug` et
 `windows-release`, sur `windows-2025-vs2026` : l'arbre extrait sous `C:\home\runner\work\…`, où les chemins
 Linux compilés dans les tests se résolvent ; lavapipe de mesa-dist-win et le chargeur Vulkan de LunarG (versions et
-SHA-256 dans `ci.yml`) ; la CRT du runner vérifiée ; puis `ctest -LE host`, la découverte des cas de doctest faite
+SHA-256 dans `ci.yml`), lavapipe et les couches inscrits au registre (le runner est administrateur) ; la CRT du
+runner vérifiée ; puis `ctest -LE host`, la découverte des cas de doctest faite
 là, leur nombre comparé à `levain_tests.exe --count`. Le sandbox n'y est pas lancé.

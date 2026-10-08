@@ -12,6 +12,11 @@ les chemins `/home/…` s'y lisent comme sur le runner (lavapipe par `VK_DRIVER_
 - **Le lavapipe de mesa-dist-win n'a pas `VK_EXT_headless_surface`** (vulkaninfo : 16 extensions d'instance, aucune
   « headless ») : sous `SDL_VIDEO_DRIVER=offscreen`, « Installed Vulkan doesn't implement the VK_EXT_headless_surface
   extension ». Parade : sous Windows, les tests prennent le pilote `windows`, une vraie fenêtre (`VK_KHR_win32_surface`).
+- **Le runner Windows lance tout en administrateur, et le chargeur Vulkan ignore alors les chemins de
+  l'environnement** (`VK_DRIVER_FILES`, `VK_ADD_LAYER_PATH` : « Loader is running with elevated permissions »,
+  `loader_environment.c`) : vulkaninfo, « Found no drivers! », alors que la variable était posée ; en local, non
+  élevé, elle marchait. Parade : lavapipe et les couches de l'artefact inscrits au registre de la machine jetable
+  (`HKLM\SOFTWARE\Khronos\Vulkan\Drivers` et `ExplicitLayers`) ; vulkaninfo doit nommer les deux avant les tests.
 - **Un faux `.exe` lancé de la distro ouvre sur le bureau de Windows un dialogue modal** (« Application 16 bits non
   prise en charge »), et le processus attend qu'on le ferme. Un contre-test efface l'exe, il ne le remplace pas.
 - **Un job sauté parce que celui dont il dépend a échoué compte comme réussi** pour la protection de `main` :

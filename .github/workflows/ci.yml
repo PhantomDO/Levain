@@ -853,11 +853,19 @@ jobs:
           }
           # À côté des exécutables : Dawn ne cherche le chargeur qu'à côté de l'exe et dans System32 (build/GOTCHA.md).
           Copy-Item vulkan-rt\vulkan-1.dll "$env:TESTS_DIR\tests"
-          "VK_DRIVER_FILES=$PWD\vulkan-rt\lvp_icd.x86_64.json" >> $env:GITHUB_ENV
+          # Tout tourne ici en administrateur, et le chargeur ignore alors VK_DRIVER_FILES et VK_ADD_LAYER_PATH
+          # (« running with elevated permissions », loader_environment.c) : lavapipe et les couches de validation de
+          # l'artefact s'inscrivent au registre de cette machine jetable, comme le ferait un pilote installé.
+          $khronos = 'HKLM:\SOFTWARE\Khronos\Vulkan'
+          foreach ($entry in @{ Drivers = "$PWD\vulkan-rt\lvp_icd.x86_64.json"
+                                ExplicitLayers = "$env:TESTS_DIR\tests\VkLayer_khronos_validation.json" }.GetEnumerator()) {
+            if (-not (Test-Path "$khronos\$($entry.Key)")) { New-Item -Force "$khronos\$($entry.Key)" | Out-Null }
+            New-ItemProperty "$khronos\$($entry.Key)" -Name $entry.Value -PropertyType DWord -Value 0 | Out-Null
+          }
 
       # La CRT vient du runner (ADR-0035 : rien de Microsoft dans l'artefact) : au moins celle de la STL qui a compilé,
       # Debug comprise, sans quoi un exe s'arrêterait au chargement, ou plus loin, sur une fonction qui manque. Puis
-      # lavapipe, que le chargeur doit trouver : vulkaninfo le nomme.
+      # lavapipe et les couches de validation, que le chargeur doit trouver : vulkaninfo les nomme.
       - name: Vérifier le runner
         run: |
           $ErrorActionPreference = 'Stop'
@@ -872,6 +880,7 @@ jobs:
           $summary = & vulkan-rt\vulkaninfo.exe --summary | Out-String
           $summary
           if ($summary -notmatch 'llvmpipe') { throw "lavapipe n'est pas chargé par le chargeur Vulkan" }
+          if ($summary -notmatch 'VK_LAYER_KHRONOS_validation') { throw "le chargeur ne voit pas les couches de validation" }
 
       # Tout sauf les contrôles de l'hôte, chaque cas de levain_tests dans son processus, comme sous Linux : la
       # découverte des cas se fait ici, quand ctest lit sa liste (tests/CMakeLists.txt). Leur nombre doit être celui
