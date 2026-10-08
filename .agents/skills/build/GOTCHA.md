@@ -809,6 +809,26 @@ Corrigé par la PR de #354 (2026-10-08) : le piège reste, sa parade est en plac
   `tests/CMakeLists.txt`, pas par un `#define` que clang-tidy refuserait (préfixe `LEVAIN_`).
 - **`main` et les exceptions** : `std::print` peut lever, et une exception qui sort de `main` est signalée par
   clang-tidy. Un `try`/`catch` au sommet de `main` (ADR-0008).
+- **Un destructeur qui efface un dossier** (2026-10-08, #360) : `std::filesystem::remove_all` lève, et sa version
+  à `std::error_code` peut encore lever `std::bad_alloc`. clang-tidy ne le voit qu'avec les options de Windows :
+  la STL de Microsoft définit `remove_all` dans son en-tête, libstdc++ dans sa bibliothèque. Parade : un
+  `try`/`catch (const std::exception&)` dans le destructeur, et un `FAIL_CHECK` qui nomme l'erreur
+  (`TempRoot`, `tests/registry_test.cpp`) par un `doctest::String` : doctest écrit un `const char*` comme un
+  pointeur (vu au contre-test), et dans le `catch`, un flux de la STL de Microsoft (un `std::string_view`
+  écrit) mène au `throw;` d'`ios_base::clear`, que clang-tidy prend pour une relance de l'exception rattrapée.
+- **Une énumération C dans un masque** (2026-10-08, #360) : `bugprone-signed-bitwise`, sous Windows seulement.
+  Sans type fixé, son type sous-jacent est `int` dans l'ABI de Microsoft, `unsigned int` sous Linux quand aucune
+  valeur n'est négative. Parade : le bit dans une constante du type des drapeaux (`VkFlags`, non signé), comme
+  `isValidationError` (`engine/gpu/src/device_vk.cpp`).
+- **`bugprone-exception-escape` ignore `std::bad_alloc`, pas sa sous-classe** (2026-10-08, #360) : le filtre
+  compare le nom exact (`filterIgnoredExceptions`, `clang-tidy/utils/ExceptionAnalyzer.cpp` de LLVM ; vérifié :
+  `throw std::bad_alloc{}` dans une fonction `noexcept` passe, `throw std::bad_array_new_length{}` est signalé).
+  Toute allocation de la STL de Microsoft passe par `_Get_size_of_n`, qui lève `bad_array_new_length` dans
+  l'en-tête si `n × sizeof(T)` déborde ; celle de libstdc++ lève hors de l'en-tête, invisible. Or `std::map`,
+  `std::set` et les conteneurs à hachage de Microsoft allouent en se déplaçant (le nœud sentinelle, le
+  *container proxy* du Debug, les seaux de l'objet quitté), avec des tailles constantes (1 et 16) qui ne
+  débordent jamais : sous Windows, le déplacement implicite de tout type qui en tient un, et qui sert, est
+  signalé (14 types de `main`), pour une exception impossible. Parade : à décider par Donnovan (#360).
 
 ## Bureau de Donnovan
 
