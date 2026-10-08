@@ -13,6 +13,7 @@
 
 #include "levain/app/app.hpp"
 #include "levain/editor/hierarchy.hpp"
+#include "levain/editor/inspector.hpp"
 
 namespace levain::editor
 {
@@ -38,6 +39,7 @@ struct Editor
     /// dont flecs recycle l'index, ne passe pas pour la nouvelle (`selectedIfAlive`).
     flecs::entity_t selected = 0;
     Hierarchy hierarchy;
+    Inspector inspector;
 };
 
 /// L'entité choisie si elle vit encore ; l'entité nulle sinon, ou sans choix. Une sélection

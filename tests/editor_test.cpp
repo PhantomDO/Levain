@@ -8,11 +8,15 @@
 
 #include <doctest/doctest.h>
 #include <flecs.h>
+#include <imgui.h>
 
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
+#include "levain/editor/inspector.hpp"
 #include "levain/scene/components.hpp"
+#include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
+#include "levain/ui/context.hpp"
 
 namespace
 {
@@ -140,4 +144,111 @@ TEST_CASE("la hiérarchie tait les entités de flecs, et un singleton va dans «
     CHECK(std::ranges::count(singletons, world.component<levain::scene::Velocity>().id()) == 0);
     CHECK(std::ranges::count(singletons, scene.id()) == 0);
     CHECK(std::ranges::count(singletons, world.component<flecs::Component>().id()) == 0);
+}
+
+namespace editor_test
+{
+
+enum class Mode : std::uint8_t
+{
+    Calm,
+    Wild,
+};
+
+struct Inner
+{
+    float a = 0.0f;
+    float b = 0.0f;
+};
+
+/// Un champ de chaque sorte : nombres, booléen, enum, agrégat imbriqué, feuille glm.
+struct Tuning
+{
+    float gain = 0.5f;
+    std::int32_t count = 3;
+    bool enabled = true;
+    Mode mode = Mode::Wild;
+    Inner inner{};
+    glm::vec3 offset{0.0f};
+};
+
+struct Weights // un tableau en ligne, décrit à la main
+{
+    std::array<float, 6> w{};
+};
+
+struct Undescribed
+{
+    int hidden = 0;
+};
+
+struct Tag
+{
+};
+
+} // namespace editor_test
+
+namespace
+{
+
+using editor_test::Tuning;
+
+void describeTestComponents(flecs::world& world)
+{
+    world.import<levain::scene::SceneModule>();
+    levain::scene::describeAuthored<Tuning>(world).range(&Tuning::gain, 0.0, 1.0);
+    world.component<editor_test::Weights>().member<float>("w", 6);
+    world.component<editor_test::Undescribed>();
+}
+
+/// Une image d'ImGui, sans GPU.
+template <class Draw> void uiFrame(const Draw& draw)
+{
+    levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 640, .height = 480}, 1.0 / 60.0);
+    ImGui::NewFrame();
+    draw();
+    ImGui::EndFrame();
+}
+
+} // namespace
+
+TEST_CASE("l'inspecteur dessine un widget par champ, en suivant la description du composant")
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    flecs::world world;
+    describeTestComponents(world);
+    levain::editor::Inspector inspector = levain::editor::createInspector(world);
+    const flecs::entity entity = world.entity("réglée")
+                                     .set(Tuning{})
+                                     .set(levain::scene::WorldTransform{})
+                                     .set(editor_test::Weights{})
+                                     .set(editor_test::Undescribed{})
+                                     .add<editor_test::Tag>();
+
+    uiFrame([&] { levain::editor::drawInspector(world, inspector, entity, 0); });
+    // Tuning : gain, count, enabled, mode, inner.a, inner.b, offset. WorldTransform : les quatre
+    // colonnes de sa matrice. Weights : [0-3] et [4-5]. Le composant non décrit, l'étiquette et le
+    // nom : une ligne chacun, aucun champ.
+    CHECK(inspector.fieldsDrawn == 7 + 4 + 2);
+
+    // Sans sélection, ou une entité détruite : aucun champ.
+    entity.destruct();
+    uiFrame([&] { levain::editor::drawInspector(world, inspector, entity, 0); });
+    CHECK(inspector.fieldsDrawn == 0);
+}
+
+TEST_CASE("un composant non décrit, une étiquette, une paire : une ligne à leur nom")
+{
+    flecs::world world;
+    describeTestComponents(world);
+    const levain::editor::Inspector inspector = levain::editor::createInspector(world);
+    const flecs::entity entity = world.entity("nommée").set(editor_test::Undescribed{});
+
+    // La clé de sauvegarde, le nom C++ : jamais les octets de la valeur.
+    CHECK(levain::editor::componentLabelOf(world, world.id<editor_test::Undescribed>()) ==
+          "editor_test.Undescribed");
+    CHECK(levain::editor::componentLabelOf(world, world.pair<flecs::Identifier>(flecs::Name)) ==
+          "(Identifier,Name)");
+    CHECK(levain::editor::inspectComponent(world, inspector, entity,
+                                           world.id<editor_test::Undescribed>()) == 0);
 }

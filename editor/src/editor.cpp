@@ -15,15 +15,17 @@ namespace levain::editor
 namespace
 {
 
-/// Le bilan de l'éditeur, une ligne que la CI lit : les entités que la hiérarchie listait à la
-/// dernière image, zéro si elle n'a jamais été dessinée, et la sélection. La CI échoue si la ligne
-/// manque, si elle compte zéro entité, ou si la sélection n'est pas celle de `--select`.
+/// Le bilan de l'éditeur, une ligne que la CI lit : les entités que la hiérarchie listait et les
+/// champs que l'inspecteur a dessinés pour la sélection à la dernière image, zéro pour un panneau
+/// jamais dessiné, et la sélection. La CI échoue si la ligne manque, si elle compte zéro entité ou
+/// zéro champ, ou si la sélection n'est pas celle de `--select`.
 void logEditor(const flecs::world& world, const Editor& editor)
 {
     const flecs::entity selected = selectedIfAlive(world, editor.selected);
     const std::string name = selected ? std::string{selected.path("::", "").c_str()} : "aucune";
-    core::log("editor", core::LogLevel::Info, "éditeur : {} entités ; sélection : {}",
-              editor.hierarchy.rows.size(), name);
+    core::log("editor", core::LogLevel::Info,
+              "éditeur : {} entités, {} champs dessinés ; sélection : {}",
+              editor.hierarchy.rows.size(), editor.inspector.fieldsDrawn, name);
 }
 
 } // namespace
@@ -67,8 +69,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         {
             return hooks;
         }
-        const auto editor = std::make_shared<Editor>(
-            Editor{.selected = 0, .hierarchy = createHierarchy(app.world)});
+        const auto editor =
+            std::make_shared<Editor>(Editor{.selected = 0,
+                                            .hierarchy = createHierarchy(app.world),
+                                            .inspector = createInspector(app.world)});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -90,6 +94,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             if (app.ui.panelsOpen)
             {
                 drawHierarchy(app.world, editor->hierarchy, editor->selected, app.ui.dock.left);
+                drawInspector(app.world, editor->inspector, editor->selected,
+                              app.ui.dock.inspector);
             }
         };
         hooks->finish = [finish = std::move(hooks->finish), editor](app::App& app)
