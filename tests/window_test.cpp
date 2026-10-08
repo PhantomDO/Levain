@@ -37,7 +37,10 @@ void setEnvironmentVariable(const char* name, const std::optional<std::string>& 
 /// sa fenêtre s'ouvre alors sur le vrai bureau, où arrivent des événements du système, que le
 /// moteur ne traduit pas tous. Mesurés, plusieurs tests lancés ensemble :
 /// SDL_EVENT_WINDOW_FOCUS_LOST et SDL_EVENT_MOUSE_ADDED, qui font revenir SDL_WaitEventTimeout bien
-/// avant l'échéance.
+/// avant l'échéance. SDL 3.4 lit sa propre copie de l'environnement (SDL_GetEnvironment), prise à
+/// SDL_Init et jetée par SDL_Quit : la variable posée ici compte parce que chaque fenêtre initialise
+/// puis arrête SDL (engine/platform/src/window.cpp). Le REQUIRE vérifie la variable, pas le pilote
+/// que SDL retient.
 struct ScopedOffscreenDriver
 {
     ScopedOffscreenDriver() { setEnvironmentVariable("SDL_VIDEO_DRIVER", "offscreen"); }

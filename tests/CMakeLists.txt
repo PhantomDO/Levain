@@ -86,6 +86,8 @@ else()
 
     # Le programme que lancent les tests de runProcess : de la cible, comme levain_tests, donc le même sous
     # Windows que sous Linux (process_helper.cpp). Le cmake de l'hôte, qu'ils lançaient, est un binaire Linux.
+    # Son chemin est compilé dans les tests, comme les dossiers de données : sous Windows, il ne marche que lancé
+    # depuis la distro, jusqu'à ce que ctest donne les chemins (ADR-0035, #346).
     add_executable(levain_process_helper process_helper.cpp)
     add_dependencies(levain_tests levain_process_helper)
     target_compile_definitions(levain_tests PRIVATE

@@ -89,7 +89,9 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   `SDL_VIDEO_DRIVER` (WSLENV, ci-dessus), la fenêtre s'ouvre sur le vrai bureau, qui lui envoie
   `SDL_EVENT_WINDOW_FOCUS_LOST` ou `SDL_EVENT_MOUSE_ADDED` ; `SDL_WaitEventTimeout` rend la main au premier événement,
   même un que le moteur ne traduit pas (`events.window` reste vide). 11 échecs sur 40 lancements à 8 en parallèle ;
-  0 sur 80 en offscreen. Le moteur est juste (« jusqu'au premier événement », et la boucle de `app.cpp` recalcule son
+  0 sur 80 en offscreen (depuis la distro, dans `build/windows-debug/tests` : 5 tours de 8
+  `./levain_tests.exe -tc="waitEvents*" &` puis `wait`, en comptant les codes non nuls ; offscreen :
+  `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER` devant l'exe). Le moteur est juste (« jusqu'au premier événement », et la boucle de `app.cpp` recalcule son
   reste) ; c'est le test qui dépendait de l'environnement : il pose le pilote offscreen lui-même et le vérifie.
 - **Les symboles d'un exe Windows se lisent dans le PDB** : `llvm-pdbutil dump -publics`, noms décorés à la MSVC, que
   `llvm-undname` démêle. Chercher `@editor@levain@@` dans la forme décorée en rate : un nom déjà écrit dans le symbole y
@@ -106,7 +108,7 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
 - **Cause** : le `CMakeLists.txt` racine appelle `enable_testing()` après `add_subdirectory(shaders)` et celui des
   plugins. Un dossier configuré avant n'écrit pas de `CTestTestfile.cmake` : ses `add_test` ne mènent nulle part.
 - **Parade** : `enable_testing()` avant ces sous-dossiers. Mesuré en le déplaçant (sans le garder) : 27 tests `dxil.*`
-  s'enregistrent et passent, sous Linux. Pas fait dans #345 (hors périmètre) ; leur label `host` est déjà posé
+  s'enregistrent et passent, sous Linux. Pas fait dans #345 (hors périmètre), suivi par #354 ; leur label `host` est déjà posé
   (`levain_add_shader`), pour que le runner Windows ne lance pas `dxc`. Un `CTestTestfile.cmake` déjà écrit reste dans
   un arbre de build quand on retire `enable_testing()` : l'effacer, sinon ctest compte encore les tests.
 
