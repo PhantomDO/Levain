@@ -22,7 +22,8 @@ endif()
 # Les versions de la STL et du SDK, figées (ADR-0035, décision 2) : celles des Build Tools du portable de
 # Donnovan, et de xwin en CI. Écrites ici, elles entrent dans l'ABI des ports (vcpkg hache ce fichier) ; sans
 # elles, clang-cl prendrait la plus récente du winsysroot, et une mise à jour des Build Tools changerait la STL
-# sans recompiler les ports. Les changer, c'est les changer aussi pour xwin.
+# sans recompiler les ports. Les changer, c'est changer aussi le manifeste figé de tools/winsysroot.sh (vsmanUrl,
+# vsmanSha256) pour un manifeste qui les propose, et sur lequel ses deux corrections s'appliquent encore.
 set(levainMsvcVersion 14.51.36231)
 set(levainWinSdkVersion 10.0.26100.0)
 if(NOT IS_DIRECTORY "${levainWinsysroot}/VC/Tools/MSVC/${levainMsvcVersion}"
