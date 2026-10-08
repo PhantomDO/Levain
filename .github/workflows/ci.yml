@@ -664,22 +664,34 @@ jobs:
       - name: Bootstrap vcpkg
         run: ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
-      # Comme pour les jobs Linux : les ports de l'hôte (slangc, dxc) dépendent du compilateur du runner.
+      # Ce que vcpkg met dans l'ABI de tous les ports et qui tient au runner. Comme pour les jobs Linux, Ubuntu et
+      # GCC, qui compile les ports de l'hôte (slangc, dxc, vcpkg-cmake, dont dépendent ceux de Windows) ; et clang-cl,
+      # qui compile les ports Windows, et dont vcpkg hache le binaire (« Detecting compiler hash for triplet
+      # x64-windows-clang »). Le llvm-23 d'apt.llvm.org est republié à chaque commit de la branche 23.x : sans son
+      # empreinte dans la clé, vcpkg recompilerait tous les ports (1 h 40) à chaque exécution, sous une clé inchangée
+      # que le cache ne réécrirait jamais.
       - name: Image du runner
         run: |
           set -euo pipefail
           . /etc/os-release
           cc_sha=$(cat "$(readlink -f "$(command -v cc)")" "$(readlink -f "$(command -v c++)")" | sha1sum | cut -c1-12)
-          echo "IMAGE=$ID-$VERSION_ID-$cc_sha" >> "$GITHUB_ENV"
+          cl_sha=$(sha1sum < "$(readlink -f /usr/lib/llvm-${{ env.LLVM_VERSION }}/bin/clang-cl)" | cut -c1-12)
+          echo "IMAGE=$ID-$VERSION_ID-$cc_sha-$cl_sha" >> "$GITHUB_ENV"
 
       # La STL et le SDK de Microsoft, par xwin (tools/winsysroot.sh, ADR-0035, décision 2), aux versions de la
-      # toolchain. Le chemin porte l'empreinte des deux fichiers : il entre dans l'ABI des ports (VCPKG_ENV_PASSTHROUGH
-      # du triplet), et un winsysroot différent les recompile au lieu de reprendre ceux du cache.
+      # toolchain. Le chemin entre dans l'ABI de tous les ports (VCPKG_ENV_PASSTHROUGH du triplet : ENV:LEVAIN_WINSYSROOT
+      # dans leur vcpkg_abi_info.txt). Il porte l'empreinte du tampon du script, qui nomme ce qui fait le contenu du
+      # winsysroot (xwin, le manifeste, les versions, le code du script sans ses commentaires) : un autre winsysroot
+      # recompile les ports au lieu de reprendre ceux du cache, un commentaire corrigé dans le script, non.
       - name: Chemin du winsysroot
         id: winsysroot
         run: |
           set -euo pipefail
-          echo "LEVAIN_WINSYSROOT=$HOME/winsysroot-${{ hashFiles('tools/winsysroot.sh', 'cmake/toolchains/windows-clang-cl.cmake') }}" >> "$GITHUB_ENV"
+          stamp=$(tools/winsysroot.sh --stamp)
+          id=$(sha256sum <<< "$stamp" | cut -c1-16)
+          echo "winsysroot $id : $stamp"
+          echo "WINSYSROOT_ID=$id" >> "$GITHUB_ENV"
+          echo "LEVAIN_WINSYSROOT=$HOME/winsysroot-$id" >> "$GITHUB_ENV"
           msvc=$(sed -nE 's/^set\(levainMsvcVersion ([0-9.]+)\)$/\1/p' cmake/toolchains/windows-clang-cl.cmake)
           echo "msvc=$msvc" >> "$GITHUB_OUTPUT"
 
@@ -687,20 +699,23 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.LEVAIN_WINSYSROOT }}
-          key: winsysroot-${{ hashFiles('tools/winsysroot.sh', 'cmake/toolchains/windows-clang-cl.cmake') }}
+          key: winsysroot-${{ env.WINSYSROOT_ID }}
 
       - name: Winsysroot
         run: tools/winsysroot.sh "$LEVAIN_WINSYSROOT"
 
-      # Comme pour les jobs Linux (restore-keys : un manifeste modifié ne recompile que ce qui manque), avec ce qui
-      # entre dans l'ABI des ports Windows : les triplets, la toolchain et le winsysroot.
+      # Comme pour les jobs Linux, restore-keys : un manifeste ou un port overlay modifié ne recompile que ce qui
+      # change. Le préfixe porte ce qui change l'ABI de tous les ports Windows à la fois : l'image, la version de
+      # vcpkg, le winsysroot, la toolchain et les triplets, celui de l'hôte compris (vcpkg-cmake, port de l'hôte,
+      # entre dans l'ABI de presque tous les ports Windows). Un cache d'un autre préfixe n'apporterait que des
+      # archives mortes, environ 1 Go, que le cache suivant garderait.
       - name: Cache vcpkg
         id: vcpkg-cache
         uses: actions/cache/restore@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-windows-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**', 'cmake/toolchains/**', 'tools/winsysroot.sh') }}
-          restore-keys: vcpkg-windows-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-
+          key: vcpkg-windows-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ env.WINSYSROOT_ID }}-${{ hashFiles('cmake/toolchains/**', 'triplets/x64-windows-clang.cmake', 'triplets/x64-linux.cmake') }}-${{ hashFiles('vcpkg.json', 'ports/**') }}
+          restore-keys: vcpkg-windows-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ env.WINSYSROOT_ID }}-${{ hashFiles('cmake/toolchains/**', 'triplets/x64-windows-clang.cmake', 'triplets/x64-linux.cmake') }}-
 
       - name: Créer le dossier de cache
         run: mkdir -p vcpkg-cache
@@ -731,8 +746,11 @@ jobs:
             cmake --build --preset $preset
           done
 
-      # Les contrôles de l'hôte, sur les deux arbres. La découverte des cas de levain_tests y échoue (un .exe ne se
-      # lance pas ici) et le dit : son test rouge n'a pas le label host, c'est le runner Windows qui la fait.
+      # Les contrôles de l'hôte, sur les deux arbres. La découverte des cas de levain_tests y échoue et le dit : le
+      # .exe, que Linux refuse de lancer (ENOEXEC), est alors passé à /bin/sh par execvp, d'où un « Syntax error: word
+      # unexpected » sans conséquence. Son test rouge, levain_tests_NOT_DISCOVERED, n'a pas le label host : c'est le
+      # runner Windows qui fait la découverte. Puis la liste des tests hors doctest, que le runner devra trouver tous :
+      # un CTestTestfile perdu en route y ferait disparaître les siens sans bruit, ctest sautant un dossier absent.
       - name: Contrôles de l'hôte
         run: |
           set -euo pipefail
@@ -741,6 +759,11 @@ jobs:
             # Les dxil.* doivent exister, comme dans les jobs Linux (#354).
             dxil=$(ctest --test-dir build/$preset -N -R '^dxil[.]' | sed -nE 's/^Total Tests: ([0-9]+)/\1/p')
             [ "${dxil:-0}" -ge 27 ] || { echo "::error::$preset : seulement ${dxil:-0} tests dxil.*, 27 attendus"; exit 1; }
+            ctest --test-dir build/$preset --show-only=json-v1 -LE host \
+              | python3 -I -c 'import json, sys; sys.stdout.writelines(t["name"] + "\n" for t in json.load(sys.stdin)["tests"]
+                  if not (t.get("command") or [""])[0].endswith("/levain_tests.exe"))' > build/$preset/expected-windows-tests.txt
+            echo "$preset : $(wc -l < build/$preset/expected-windows-tests.txt) tests hors doctest attendus sous Windows"
+            [ -s build/$preset/expected-windows-tests.txt ] || { echo "::error::$preset : aucun test hors doctest"; exit 1; }
           done
 
       # Ce que ctest lance sur le runner Windows, aux mêmes chemins : les exécutables de tests/ et leurs voisins
@@ -753,6 +776,7 @@ jobs:
           for preset in windows-debug windows-release; do
             b=build/$preset
             { find "$b" -path "$b/vcpkg_installed" -prune -o -name CTestTestfile.cmake -print
+              echo "$b/expected-windows-tests.txt"
               find "$b/tests" -maxdepth 1 \( -name '*.exe' -o -name '*.dll' -o -name '*.json' -o -name '*.cmake' \)
               find "$b/shaders" -maxdepth 1 -type f
               find tests/data data -type f
@@ -779,7 +803,7 @@ jobs:
 
   # Les programmes de la cible, lancés sous Windows (ADR-0035, décision 4) : ctest, sur les fichiers que
   # windows-build a écrits, sans les contrôles de l'hôte (`-LE host`), Debug compris : seul le Debug arrête une
-  # erreur de validation (règle n°4).
+  # erreur de validation (règle n°4). Le sandbox et l'éditeur sous Windows : PR suivante, décision 4 de l'ADR-0035.
   windows-test:
     name: ${{ matrix.preset }}
     needs: windows-build
@@ -873,7 +897,9 @@ jobs:
           foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'msvcp140d.dll', 'vcruntime140d.dll', 'ucrtbased.dll') {
             $info = (Get-Item "$env:SystemRoot\System32\$dll").VersionInfo
             "$dll $($info.FileVersion)"
-            if ($dll -notlike 'ucrt*' -and ($info.FileMajorPart -ne $msvc.Major -or $info.FileMinorPart -lt $msvc.Minor)) {
+            # La version entière, build compris : une CRT 14.51.36100 est plus ancienne que la STL 14.51.36231.
+            $found = [version]::new($info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart)
+            if ($dll -notlike 'ucrt*' -and ($found.Major -ne $msvc.Major -or $found -lt $msvc)) {
               throw "$dll $($info.FileVersion), plus ancienne que la STL $msvc qui a compilé"
             }
           }
@@ -884,8 +910,9 @@ jobs:
 
       # Tout sauf les contrôles de l'hôte, chaque cas de levain_tests dans son processus, comme sous Linux : la
       # découverte des cas se fait ici, quand ctest lit sa liste (tests/CMakeLists.txt). Leur nombre doit être celui
-      # que donne l'exe : une liste tronquée passerait sinon pour verte (règle n°7). Une vraie fenêtre pour les tests
-      # qui en ouvrent une : le lavapipe de Windows n'a pas la surface du pilote offscreen de SDL (testVideo).
+      # que donne l'exe, et les autres tests ceux que windows-build a listés, ni plus ni moins : une liste tronquée
+      # passerait sinon pour verte (règle n°7). Une vraie fenêtre pour les tests qui en ouvrent une : le lavapipe de
+      # Windows n'a pas la surface du pilote offscreen de SDL (testVideo).
       - name: Tests
         working-directory: ${{ env.TESTS_DIR }}
         run: |
@@ -893,10 +920,19 @@ jobs:
           ctest -LE host --output-on-failure --timeout 120 --no-tests=error
           if ($LASTEXITCODE -ne 0) { throw "ctest : code $LASTEXITCODE" }
           $count = [int](& tests\levain_tests.exe --count | Select-String 'filters: (\d+)').Matches[0].Groups[1].Value
-          $listed = @((ctest --show-only=json-v1 -LE host | ConvertFrom-Json).tests |
-            Where-Object { $_.command -and $_.command[0] -like '*/levain_tests.exe' }).Count
+          $tests = (ctest --show-only=json-v1 -LE host | ConvertFrom-Json).tests
+          $isCase = { $_.command -and $_.command[0] -like '*/levain_tests.exe' }
+          $listed = @($tests | Where-Object $isCase).Count
           "levain_tests : $count cas dans l'exe, $listed lancés par ctest"
           if ($count -lt 1 -or $listed -ne $count) { throw "ctest n'a pas lancé tous les cas de levain_tests" }
+          $others = @($tests | Where-Object { -not (& $isCase) } | ForEach-Object name)
+          $expected = @(Get-Content expected-windows-tests.txt)
+          $missing = @($expected | Where-Object { $_ -cnotin $others })
+          $extra = @($others | Where-Object { $_ -cnotin $expected })
+          "tests hors doctest : $($others.Count) lancés par ctest, $($expected.Count) listés par windows-build"
+          if ($expected.Count -lt 1 -or $missing -or $extra) {
+            throw "tests hors doctest différents de windows-build : manquent [$($missing -join ', ')], en trop [$($extra -join ', ')]"
+          }
 
   # Le code CPU compilé en WebAssembly, ses tests lancés par Node (ADR-0023, #182). Un job à part :
   # ni LLVM, ni Vulkan, ni X11, mais Emscripten, figé sur la version de la machine de référence.
