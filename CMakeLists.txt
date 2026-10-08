@@ -22,21 +22,50 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Garde-fou de conformité C++23 (ADR-0001, périmètre revu par ADR-0011).
+# Garde-fou de conformité C++23 (ADR-0001, périmètre revu par ADR-0011 et ADR-0035).
 #
 # -pedantic-errors transforme toute extension post-C++23 en erreur de compilation : du
 # code C++26 écrit par distraction casse le build au lieu de passer en douce.
 #
-# Le projet cible Linux et Clang uniquement (ADR-0011). Le bloc MSVC de la v0.3 — et son
-# /Zc:__cplusplus, sans lequel MSVC prétend être en C++98 — est retiré. À remettre le jour
-# où Windows redevient une cible, avec la CI qui va avec.
-add_compile_options(-pedantic-errors)
-
+# Clang partout, Windows compris : clang-cl y reçoit -clang:-std=c++23 de CMake (vérifié plus bas) et annonce
+# __cplusplus 202302, sans le /Zc:__cplusplus de MSVC (mesuré par l'essai de l'ADR-0035).
+#
 # Avertissements traités comme des erreurs. Sans -Wall ni -Wextra, la règle « zéro warning »
 # (AGENTS.md, règle n°4) ne couvrait que les avertissements actifs par défaut : presque rien.
 # Mesuré à l'activation (M1.1) : 4 avertissements, tous du même type, corrigés. Les en-têtes
 # des dépendances vcpkg arrivent en -isystem et ne comptent pas.
-add_compile_options(-Wall -Wextra -Werror)
+if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    # clang-cl lit -Wall comme /Wall, c'est-à-dire -Weverything : les options de clang y passent par
+    # /clang:, pour avoir exactement les mêmes avertissements que sous Linux.
+    add_compile_options(/clang:-pedantic-errors /clang:-Wall /clang:-Wextra /WX)
+    # Un CMake plus ancien passe /std:c++latest à clang-cl pour C++23 : le brouillon d'après C++26
+    # (__cplusplus 202700, ADR-0035), où -pedantic-errors ne garde plus rien.
+    if(NOT CMAKE_CXX23_STANDARD_COMPILE_OPTION STREQUAL "-clang:-std=c++23")
+        message(FATAL_ERROR "CMake ${CMAKE_VERSION} passe « ${CMAKE_CXX23_STANDARD_COMPILE_OPTION} » à clang-cl "
+                            "pour C++23, pas -clang:-std=c++23 : un CMake plus récent est nécessaire (ADR-0035).")
+    endif()
+else()
+    add_compile_options(-pedantic-errors -Wall -Wextra -Werror)
+endif()
+
+if(WIN32)
+    # windows.h, qu'amènent Vulkan et SDL, définit des macros min et max qui cassent std::max et
+    # numeric_limits<…>::max(). Ce n'est pas un avertissement coupé : jamais _CRT_SECURE_NO_WARNINGS
+    # ici (règle n°4), les appels que la CRT de Microsoft juge « unsafe » passent par une fonction nommée.
+    add_compile_definitions(NOMINMAX)
+    # Chaque programme en UTF-8 (cmake/windows/utf8.manifest) : sans lui, argv et les chemins passés
+    # aux fonctions C sont dans la page de code ANSI, et un nom accentué (un cas de test, un asset)
+    # n'arrive pas intact.
+    add_link_options(/MANIFEST:EMBED "/MANIFESTINPUT:${PROJECT_SOURCE_DIR}/cmake/windows/utf8.manifest")
+    # En Debug, CMake ajoute /INCREMENTAL (le défaut de MSVC), et lie alors en deux passes pour y mettre le
+    # manifeste : son /MANIFEST /MANIFESTFILE, passé après le nôtre, annule /MANIFEST:EMBED, et lld-link s'arrête
+    # sur « /manifestinput: requires /manifest:embed ». lld-link ne lie jamais en incrémental : on le dit, pour
+    # chaque configuration qui le demande.
+    foreach(config DEBUG RELWITHDEBINFO)
+        string(REGEX REPLACE "/INCREMENTAL(:YES)?( |$)" "/INCREMENTAL:NO\\2" CMAKE_EXE_LINKER_FLAGS_${config}
+               "${CMAKE_EXE_LINKER_FLAGS_${config}}")
+    endforeach()
+endif()
 
 # ADR-0001 dit « sans modules ». CMake active pourtant le scan de modules dès C++20 avec
 # Ninja : deux étapes par fichier (scan + dyndep) pour un résultat toujours vide. On le coupe.

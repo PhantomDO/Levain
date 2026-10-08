@@ -111,9 +111,40 @@ target_compile_definitions(levain_tests PRIVATE
 # rapporteur (`JUNIT_OUTPUT_DIR`) ou `--quiet` le rendraient muet.
 include(doctest)
 # SDL_VIDEO_DRIVER=offscreen : window_test.cpp ouvre une vraie fenêtre, sans écran en CI.
-doctest_discover_tests(levain_tests PROPERTIES
-    ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen"
-    FAIL_REGULAR_EXPRESSION "test cases: 0 [|]")
+set(testProperties ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen" FAIL_REGULAR_EXPRESSION "test cases: 0 [|]")
+if(CMAKE_CROSSCOMPILING AND NOT EMSCRIPTEN)
+    # Compilé pour Windows depuis Linux (ADR-0035), l'exécutable ne se lance pas sur la machine de build : seule
+    # l'interop de WSL, ou un runner Windows, sait le faire. La découverte ne peut donc pas être un pas du build :
+    # elle se fait au moment des tests, quand ctest lit sa liste, sur la machine qui lance l'exécutable (le mode
+    # PRE_TEST de gtest_discover_tests, que doctest_discover_tests n'a pas). On rejoue son script depuis un fichier
+    # que ctest inclut. Si la découverte échoue, un test rouge le dit : sinon ctest annoncerait « No tests were
+    # found » et sortirait en 0 (règle n°7). Le web, lui, a node pour émulateur : la découverte du build suffit.
+    # Les -D reprennent ceux que doctest_discover_tests passe à doctestAddTests.cmake, et
+    # _DOCTEST_DISCOVER_TESTS_SCRIPT est une variable interne de doctest.cmake (doctest 2.5.3) : relire ce bloc
+    # à chaque mise à jour de doctest. Une variable renommée se dit dès la configuration.
+    if(NOT EXISTS "${_DOCTEST_DISCOVER_TESTS_SCRIPT}")
+        message(FATAL_ERROR "doctest.cmake ne donne plus _DOCTEST_DISCOVER_TESTS_SCRIPT : relire la découverte "
+                            "au moment des tests (tests/CMakeLists.txt).")
+    endif()
+    set(discoveredTests "${CMAKE_CURRENT_BINARY_DIR}/levain_tests_discovered.cmake")
+    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/levain_tests_discover.cmake" CONTENT
+"execute_process(
+    COMMAND \"${CMAKE_COMMAND}\" \"-DTEST_TARGET=levain_tests\" \"-DTEST_EXECUTABLE=$<TARGET_FILE:levain_tests>\"
+            \"-DTEST_WORKING_DIR=${CMAKE_CURRENT_BINARY_DIR}\" \"-DTEST_PROPERTIES=${testProperties}\"
+            \"-DTEST_LIST=levain_tests_TESTS\" \"-DCTEST_FILE=${discoveredTests}\"
+            -P \"${_DOCTEST_DISCOVER_TESTS_SCRIPT}\"
+    RESULT_VARIABLE discovered ERROR_VARIABLE reason)
+if(discovered EQUAL 0)
+    include(\"${discoveredTests}\")
+else()
+    message(WARNING \"levain_tests : la découverte des cas a échoué : \${reason}\")
+    add_test(levain_tests_NOT_DISCOVERED \"${CMAKE_COMMAND}\" -E false)
+endif()
+")
+    set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES "${CMAKE_CURRENT_BINARY_DIR}/levain_tests_discover.cmake")
+else()
+    doctest_discover_tests(levain_tests PROPERTIES ${testProperties})
+endif()
 
 # Le reste (benchmarks, contrôles des sources, rendu hors écran) ne concerne que le build natif.
 if(EMSCRIPTEN)
