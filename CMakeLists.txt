@@ -73,8 +73,11 @@ add_subdirectory(plugins/water)
 add_subdirectory(plugins/grass)
 add_subdirectory(plugins/character)
 # Le cuiseur est un outil de la machine de développement : les assets arrivent cuits au navigateur.
+# L'éditeur aussi (ADR-0034) : la page web n'en a pas. Hors du bloc qui suit, un jeu qui récupère
+# le moteur reçoit la bibliothèque, dont il construit son exécutable éditeur.
 if(NOT EMSCRIPTEN)
     add_subdirectory(tools/cook)
+    add_subdirectory(editor)
 endif()
 
 # La démo et les tests ne concernent que le moteur : un jeu qui l'inclut n'en paie pas la

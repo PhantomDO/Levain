@@ -5,12 +5,14 @@
 #   - meshoptimizer : engine/assets/src (ADR-0028) ;
 #   - ozz-animation : engine/animation/src (ADR-0022) ;
 #   - Jolt : engine/physics/src (ADR-0026).
-# Le reste du moteur, les plugins et le cuiseur compris, ne voit que nos types. Lancé par ctest :
+# Le reste du moteur, les plugins, l'éditeur et le cuiseur compris, ne voit que nos types. Lancé par
+# ctest :
 #   cmake -DROOT=<dépôt> -P check_asset_libraries_visibility.cmake
 #
 # Le contrôle échoue bruyamment (règle n°7) : sans aucun fichier à lire, il ne vérifierait rien.
-file(GLOB_RECURSE files "${ROOT}/engine/*.cpp" "${ROOT}/engine/*.hpp" "${ROOT}/plugins/*.cpp"
-     "${ROOT}/plugins/*.hpp" "${ROOT}/sandbox/*.cpp" "${ROOT}/tests/*.cpp" "${ROOT}/tools/*.cpp")
+file(GLOB_RECURSE files "${ROOT}/editor/*.cpp" "${ROOT}/editor/*.hpp" "${ROOT}/engine/*.cpp"
+     "${ROOT}/engine/*.hpp" "${ROOT}/plugins/*.cpp" "${ROOT}/plugins/*.hpp" "${ROOT}/sandbox/*.cpp"
+     "${ROOT}/tests/*.cpp" "${ROOT}/tools/*.cpp")
 if(NOT files)
     message(FATAL_ERROR "aucune source sous ${ROOT} : le contrôle ne vérifierait rien")
 endif()

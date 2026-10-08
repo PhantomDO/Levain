@@ -42,9 +42,9 @@ lance pas le sandbox comme la CI (Fox, Sponza, terrain, hot-reload). Le détail,
 Format et analyse statique, comme la CI :
 
 ```bash
-find engine sandbox tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror
+find editor engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror
 # les fichiers du build natif seulement : ceux du navigateur ne s'analysent pas sans leurs options
-jq -r '.[].file' build/linux-debug/compile_commands.json | grep -E "^$PWD/(engine|sandbox|tests|tools)/" \
+jq -r '.[].file' build/linux-debug/compile_commands.json | grep -E "^$PWD/(editor|engine|plugins|sandbox|tests|tools)/" \
   | sort -u | xargs clang-tidy -p build/linux-debug --warnings-as-errors='*'
 ```
 

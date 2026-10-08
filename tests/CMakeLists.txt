@@ -33,6 +33,7 @@ set(nativeTests
     camera_control_test.cpp
     camera_test.cpp
     culling_test.cpp
+    editor_test.cpp
     environment_test.cpp
     grass_test.cpp
     input_test.cpp
@@ -73,9 +74,9 @@ if(EMSCRIPTEN)
 else()
     add_executable(levain_tests doctest_main.cpp ${cpuTests} ${nativeTests})
     target_link_libraries(levain_tests PRIVATE
-        levain::animation levain::app levain::assets levain::core levain::gpu levain::input levain::physics
-        levain::platform levain::render levain::scene levain::ui plugin::character plugin::grass plugin::terrain
-        plugin::water doctest::doctest)
+        levain::animation levain::app levain::assets levain::core levain::editor levain::gpu levain::input
+        levain::physics levain::platform levain::render levain::scene levain::ui plugin::character plugin::grass
+        plugin::terrain plugin::water doctest::doctest)
     # La scène du lac de la démo (sandbox/src/lake_shore.hpp), que terrain_test.cpp simule sans GPU.
     target_include_directories(levain_tests PRIVATE ${PROJECT_SOURCE_DIR}/sandbox/src)
     # Le WGSL produit par le build, que webgpu_test.cpp fait compiler au backend WebGPU.

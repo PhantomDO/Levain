@@ -72,6 +72,11 @@
 #include "levain/terrain/terrain_pass.hpp"
 #include "levain/water/water_pass.hpp"
 
+// L'exécutable éditeur (ADR-0034) : ce fichier compilé une seconde fois, avec cette définition.
+#ifdef LEVAIN_SANDBOX_EDITOR
+#include "levain/editor/editor.hpp"
+#endif
+
 namespace
 {
 
@@ -1298,8 +1303,16 @@ int main(int argc, char** argv)
                                 .buildDir = LEVAIN_BUILD_DIR,
                                 .sourceDir = LEVAIN_SHADER_SOURCE_DIR};
         settings.defaultSky = std::filesystem::path{LEVAIN_DEFAULT_SKY};
-        const std::optional<SandboxOptions> options =
-            parseOptions(std::span{argv, static_cast<std::size_t>(argc)}, settings);
+        std::span<char* const> arguments{argv, static_cast<std::size_t>(argc)};
+#ifdef LEVAIN_SANDBOX_EDITOR
+        // Les panneaux ouverts avant la lecture des options, que `--ui off` les ferme encore ; les
+        // options de l'éditeur retirées avant celles du sandbox, qui les refuserait.
+        settings.showUiPanels = true;
+        levain::editor::EditorOptions editorOptions;
+        const std::vector<char*> rest = levain::editor::takeEditorOptions(arguments, editorOptions);
+        arguments = rest;
+#endif
+        const std::optional<SandboxOptions> options = parseOptions(arguments, settings);
         if (!options)
         {
             std::println(stderr,
@@ -1321,8 +1334,12 @@ int main(int argc, char** argv)
 
         std::print("Levain {} — {} — __cplusplus {}\n", levain::core::version(),
                    levain::core::toolchain(), __cplusplus);
-        return levain::app::runApp(settings, [options = *options](levain::app::App& app)
-                                   { return startSandbox(app, options); });
+        levain::app::StartFunction start = [options = *options](levain::app::App& app)
+        { return startSandbox(app, options); };
+#ifdef LEVAIN_SANDBOX_EDITOR
+        start = levain::editor::withEditor(std::move(start), std::move(editorOptions));
+#endif
+        return levain::app::runApp(settings, start);
     }
     catch (const std::exception& e)
     {

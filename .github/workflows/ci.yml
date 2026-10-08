@@ -479,6 +479,27 @@ jobs:
             fi
           done
 
+      # L'éditeur (M7.2, ADR-0034) : l'exécutable éditeur du sandbox, panneaux ouverts, une entité
+      # choisie par son chemin, sous validation et sous les sanitizers. Son bilan doit compter des
+      # entités et garder la sélection de --select : une ligne absente, zéro entité ou une autre
+      # sélection font échouer l'étape, qui sinon resterait verte sans rien vérifier (règle n°7).
+      - name: L'éditeur
+        if: matrix.preset == 'linux-debug' || matrix.preset == 'linux-asan'
+        env:
+          SDL_VIDEO_DRIVER: offscreen
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
+        run: |
+          set -euo pipefail
+          timeout --foreground --preserve-status -k 10 120 \
+            ./build/${{ matrix.preset }}/sandbox/levain_sandbox_editor --select grid::cube_1_2 \
+            --seconds 3 | tee editor.log
+          line=$(grep -o "éditeur : [0-9]* entités ; sélection : .*" editor.log) \
+            || { echo "::error::l'éditeur n'a pas rendu compte de ses entités"; exit 1; }
+          entities=$(echo "$line" | grep -o "[0-9]* entités" | grep -o "^[0-9]*")
+          [ "$entities" -gt 0 ] || { echo "::error::l'éditeur ne compte aucune entité : $line"; exit 1; }
+          echo "$line" | grep -q "sélection : grid::cube_1_2$" \
+            || { echo "::error::la sélection n'est pas celle de --select : $line"; exit 1; }
+
       # Le cuiseur, sans GPU (ADR-0020), en Release seulement : l'encodage UASTC y est 5 fois plus
       # rapide qu'en Debug (1,0 s contre 5,1 s pour la texture du camion), et cuire Sponza en Debug
       # prendrait une dizaine de minutes. Debug et ASan chargent donc les sources, Release le cuit :
@@ -566,7 +587,7 @@ jobs:
       - name: Format
         if: matrix.preset == 'linux-debug'
         run: |
-          find engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' \
+          find editor engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' \
             | xargs clang-format --dry-run --Werror
 
       - name: Analyse statique
@@ -575,7 +596,7 @@ jobs:
           # Les fichiers que ce build compile, et eux seuls : ceux du navigateur (Emscripten) n'y sont
           # pas, et clang-tidy les analyserait sans leurs options, donc à tort.
           jq -r '.[].file' build/${{ matrix.preset }}/compile_commands.json \
-            | grep -E "^$PWD/(engine|plugins|sandbox|tests|tools)/" | sort -u \
+            | grep -E "^$PWD/(editor|engine|plugins|sandbox|tests|tools)/" | sort -u \
             | xargs clang-tidy -p build/${{ matrix.preset }} --warnings-as-errors='*'
 
   # Le code CPU compilé en WebAssembly, ses tests lancés par Node (ADR-0023, #182). Un job à part :
