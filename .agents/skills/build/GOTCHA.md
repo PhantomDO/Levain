@@ -809,6 +809,50 @@ Corrigé par la PR de #354 (2026-10-08) : le piège reste, sa parade est en plac
   `tests/CMakeLists.txt`, pas par un `#define` que clang-tidy refuserait (préfixe `LEVAIN_`).
 - **`main` et les exceptions** : `std::print` peut lever, et une exception qui sort de `main` est signalée par
   clang-tidy. Un `try`/`catch` au sommet de `main` (ADR-0008).
+- **Un destructeur qui efface un dossier** (2026-10-08, #360). **Symptôme** : « an exception may be thrown in
+  function '~TempRoot' » (`tests/registry_test.cpp`), avec la base `windows-debug` seulement. **Cause** :
+  `std::filesystem::remove_all` lève ; la STL de Microsoft le définit dans son en-tête, libstdc++ dans sa
+  bibliothèque, où clang-tidy ne le lit pas. **Parade** : un `try`/`catch (const std::exception&)` dans le
+  destructeur, et un `FAIL_CHECK` qui nomme l'erreur. Pas la version à `std::error_code`, que clang-tidy
+  accepterait (l'option `IgnoredExceptions` plus bas) : son message ne donne que la cause (« Permission
+  denied »), quand `filesystem_error` nomme le dossier (sous Linux, jusqu'au fichier qui résiste), ce qu'il faut
+  sous Windows pour trouver la poignée oubliée. Le message passe par un `doctest::String` : doctest écrit un
+  `const char*` comme un pointeur (vu au contre-test), et dans le `catch`, un flux de la STL de Microsoft (un
+  `std::string_view` écrit) mène au `throw;` d'`ios_base::clear`, que clang-tidy prend pour une relance de
+  l'exception rattrapée.
+- **Une énumération C dans un masque** (2026-10-08, #360) : `bugprone-signed-bitwise`, sous Windows seulement.
+  Sans type fixé, son type sous-jacent est `int` dans l'ABI de Microsoft, `unsigned int` sous Linux quand aucune
+  valeur n'est négative. Parade : le bit dans une constante du type des drapeaux (`VkFlags`, non signé), comme
+  `isValidationError` (`engine/gpu/src/device_vk.cpp`).
+- **`bugprone-exception-escape` ignore `std::bad_alloc`, pas sa sous-classe** (2026-10-08, #360).
+  **Symptôme** : avec la base `windows-debug`, le déplacement implicite de 14 types de `main` (`FileWatch`,
+  `AssetRegistry`, `Model`, `UiPass`, `App`, `Editor`…) est signalé, « an exception may be thrown in function »,
+  jamais sous Linux. **Cause** : le check ignore exprès `std::bad_alloc`, mais par son nom exact
+  (`filterIgnoredExceptions`, `clang-tidy/utils/ExceptionAnalyzer.cpp` de LLVM ; vérifié avec clang-tidy 23.1.3 :
+  `throw std::bad_alloc{}` dans une fonction `noexcept` passe, `throw std::bad_array_new_length{}` est signalé).
+  Toute allocation de la STL de Microsoft passe par `_Get_size_of_n`, le contrôle de débordement de
+  `n × sizeof(T)`, qui lève `bad_array_new_length` dans l'en-tête ; celle de libstdc++ lève hors de l'en-tête,
+  invisible. Or `std::map`, `std::set` et les conteneurs hachés de Microsoft allouent en se déplaçant (le nœud
+  sentinelle, le *container proxy* du Debug, les seaux de l'objet quitté), avec n = 1 ou 16 : le débordement est
+  impossible. Un code qui le contournerait était pire : un déplacement `noexcept` reste signalé, un
+  `noexcept(condition)` déclaré à la main fait perdre aux 14 types leur statut d'agrégat (et leurs initialiseurs
+  désignés), et à tout type qui en contiendra un. **Parade** (choix de Donnovan, 2026-10-08) : dans `.clang-tidy`,
+  `bugprone-exception-escape.IgnoredExceptions: bad_array_new_length`, l'exemption de `bad_alloc` étendue à sa
+  sous-classe. L'option compare le nom seul : écrite `std::bad_array_new_length`, elle ne fait rien, sans un
+  mot (vérifié). Contre-testé sur les 147 fichiers de `windows-debug`, de la racine du dépôt : avec la ligne,
+  code 0 et 0 constat ; sans elle, code 123 et 14 constats distincts, tous ces déplacements.
+
+  ```bash
+  d=$(mktemp -d)
+  python3 -c 'import json; print("\n".join({e["file"] for e in json.load(open("build/windows-debug/compile_commands.json"))}))' \
+    | grep -E "^$PWD/(editor|engine|plugins|sandbox|tests|tools)/" | sort -u > "$d/fichiers.txt"
+  xargs -P 12 -n 4 clang-tidy -p build/windows-debug --warnings-as-errors='*' < "$d/fichiers.txt" > "$d/avec.log" 2>&1; echo $?
+  grep -E '(warning|error): ' "$d/avec.log" | sort -u | wc -l                     # 0, code 0
+  grep -v 'IgnoredExceptions, value' .clang-tidy > "$d/sans.yaml"                 # la copie sans la ligne
+  xargs -P 12 -n 4 clang-tidy -p build/windows-debug --warnings-as-errors='*' --config-file="$d/sans.yaml" \
+    < "$d/fichiers.txt" > "$d/sans.log" 2>&1; echo $?
+  grep -E '(warning|error): ' "$d/sans.log" | sort -u | wc -l                     # 14, code 123
+  ```
 
 ## Bureau de Donnovan
 

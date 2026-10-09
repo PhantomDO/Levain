@@ -1,6 +1,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -35,7 +36,26 @@ struct TempRoot
         fs::create_directories(path / "sous-dossier");
     }
 
-    ~TempRoot() { fs::remove_all(path); }
+    // Une exception qui sort d'un destructeur arrête tout le programme de test (std::terminate) :
+    // l'effacement la rattrape et fait échouer le test en la nommant. Sous Windows, un fichier
+    // resté ouvert, une poignée que le code testé aurait oubliée, l'empêche. La version à
+    // `std::error_code` ne dirait pas où : son message ne donne que la cause (« Permission
+    // denied »), quand `filesystem_error` nomme le dossier (sous Linux, jusqu'au fichier qui
+    // résiste), ce qu'il faut sous Windows pour trouver la poignée oubliée.
+    ~TempRoot()
+    {
+        try
+        {
+            fs::remove_all(path);
+        }
+        catch (const std::exception& failure)
+        {
+            // `doctest::String` : doctest écrirait un `const char*` comme un pointeur, et un
+            // `std::string_view` passerait par les flux de la STL de Microsoft, dont le `throw;` de
+            // `ios_base::clear` semble à clang-tidy relancer l'exception rattrapée.
+            FAIL_CHECK("dossier temporaire non effacé : " << doctest::String{failure.what()});
+        }
+    }
 
     TempRoot(const TempRoot&) = delete;
     TempRoot& operator=(const TempRoot&) = delete;
