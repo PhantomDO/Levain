@@ -27,7 +27,8 @@ les chemins `/home/…` s'y lisent comme sur le runner (lavapipe par `VK_DRIVER_
 - **Un faux `.exe` lancé de la distro ouvre sur le bureau de Windows un dialogue modal** (« Application 16 bits non
   prise en charge »), et le processus attend qu'on le ferme. Un contre-test efface l'exe, il ne le remplace pas.
 - **Un job sauté parce que celui dont il dépend a échoué compte comme réussi** pour la protection de `main` :
-  `windows-build` est un check requis, avec `windows-debug` et `windows-release`.
+  `windows-build`, `windows-debug` et `windows-release` sont requis tous les trois ensemble, à partir de la fusion de
+  #359 (sondage de Donnovan du 2026-10-08) ; l'agent de la session les ajoute juste après la fusion.
 
 ## La découverte de doctest faite par ctest, et le winsysroot de xwin (2026-10-08)
 

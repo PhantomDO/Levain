@@ -5,10 +5,12 @@ on:
     branches: [main]
   pull_request:
 
-# Une PR poussée trois fois de suite n'occupe pas trois fois les runners.
+# Une PR poussée trois fois de suite n'occupe pas trois fois les runners. Sur main, un passage n'est jamais annulé :
+# celui qui suit une clé changée n'enregistre le cache vcpkg Windows qu'au bout d'1 h 20, et seul main le donne aux
+# PR suivantes (les caches d'une PR ne se lisent pas ailleurs). GitHub ne garde que le dernier passage en attente.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -681,8 +683,9 @@ jobs:
       # La STL et le SDK de Microsoft, par xwin (tools/winsysroot.sh, ADR-0035, décision 2), aux versions de la
       # toolchain. Le chemin entre dans l'ABI de tous les ports (VCPKG_ENV_PASSTHROUGH du triplet : ENV:LEVAIN_WINSYSROOT
       # dans leur vcpkg_abi_info.txt). Il porte l'empreinte du tampon du script, qui nomme ce qui fait le contenu du
-      # winsysroot (xwin, le manifeste, les versions, le code du script sans ses commentaires) : un autre winsysroot
-      # recompile les ports au lieu de reprendre ceux du cache, un commentaire corrigé dans le script, non.
+      # winsysroot (xwin, le manifeste, les versions, le code du script sans ses lignes de commentaire) : un autre
+      # winsysroot recompile les ports au lieu de reprendre ceux du cache, une ligne de commentaire corrigée, non ; un
+      # commentaire en fin de ligne de code, si.
       - name: Chemin du winsysroot
         id: winsysroot
         run: |

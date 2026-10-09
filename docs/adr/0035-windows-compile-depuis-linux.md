@@ -223,6 +223,10 @@ Visual Studio reste à essayer.
   ouvrent une vraie fenêtre. Le runner est administrateur, et le chargeur y ignore `VK_ADD_LAYER_PATH` : les couches
   y sont inscrites au registre, et seul le PC de Donnovan passe par la décision 6. Le sandbox et l'éditeur : PR
   suivante.
+- **Mis à jour le 2026-10-09, après la relecture de la PR de la CI.** Cache d'Actions : 10,54 Go après les deux clés de
+  #359, au-delà de 10 Go ; GitHub chasse d'abord les entrées mortes, et les caches de `main` étaient tous là. En
+  régime établi, `main` garde 3,65 Go (Linux et web) plus 1,15 Go (Windows). À froid : de 1 h 28 à 1 h 52 (runs
+  37853947275 et 37826674786).
 
 ### Les PR et le reste
 
