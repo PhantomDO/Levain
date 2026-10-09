@@ -56,11 +56,17 @@ if(WIN32)
     # windows.h, qu'amènent Vulkan et SDL, définit des macros min et max qui cassent std::max et
     # numeric_limits<…>::max(). Ce n'est pas un avertissement coupé : jamais _CRT_SECURE_NO_WARNINGS
     # ici (règle n°4), les appels que la CRT de Microsoft juge « unsafe » passent par une fonction nommée.
-    add_compile_definitions(NOMINMAX)
+    # WIN32_LEAN_AND_MEAN l'allège (ni Winsock ni OLE) : posé ici, pas dans chaque fichier, où clang-tidy
+    # refuse une macro qui ne commence pas par LEVAIN_ (ADR-0009).
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
     # Chaque programme en UTF-8 (cmake/windows/utf8.manifest) : sans lui, argv et les chemins passés
     # aux fonctions C sont dans la page de code ANSI, et un nom accentué (un cas de test, un asset)
     # n'arrive pas intact.
     add_link_options(/MANIFEST:EMBED "/MANIFESTINPUT:${PROJECT_SOURCE_DIR}/cmake/windows/utf8.manifest")
+    # Le routage des rapports de la CRT (engine/core/src/crt_report.cpp) : chaque exécutable du moteur référence son
+    # ancre, que core définit. Un exécutable qui ne lie pas core s'arrête à l'édition de liens sur « undefined
+    # symbol: LevainCrtReportRouted » : l'oubli ne passe pas. En Release, l'ancre n'installe rien.
+    add_link_options(/INCLUDE:LevainCrtReportRouted)
     # En Debug, CMake ajoute /INCREMENTAL (le défaut de MSVC), et lie alors en deux passes pour y mettre le
     # manifeste : son /MANIFEST /MANIFESTFILE, passé après le nôtre, annule /MANIFEST:EMBED, et lld-link s'arrête
     # sur « /manifestinput: requires /manifest:embed ». lld-link ne lie jamais en incrémental : on le dit, pour

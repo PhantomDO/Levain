@@ -42,6 +42,11 @@ les `dxil.*`) : `ctest -L host` les lance seuls, `ctest -LE host` lance les prog
 runner Windows de la CI. Le winsysroot de la machine de référence : `tools/winsysroot.sh` (xwin, celui de la CI),
 dans un dossier nommé d'après son tampon (docs/SETUP.md).
 
+En Debug, un exe Windows n'ouvre ni la fenêtre de la CRT ni celle d'une exception quand il échoue (assertion, STL,
+`abort()`, plantage) : le message va sur stderr et le programme s'arrête, code non nul (`engine/core/README.md`) ; un
+nouvel exécutable l'a sans rien faire s'il lie `levain::core`. La Release est inchangée (décision à prendre), et
+`SDL_assert` ouvre encore sa propre fenêtre.
+
 Le premier `cmake --preset` est long : vcpkg compile les dépendances depuis les sources. Les suivants sont
 instantanés (cache `~/.cache/vcpkg`). Pour clangd : `ln -sf build/linux-debug/compile_commands.json .`
 

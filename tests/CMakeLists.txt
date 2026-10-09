@@ -50,6 +50,10 @@ set(nativeTests
     water_test.cpp
     webgpu_test.cpp
     window_test.cpp)
+if(WIN32)
+    # Les fonctions pures du routage des rapports de la CRT (engine/core/include/levain/core/crt_report.hpp).
+    list(APPEND nativeTests crt_report_test.cpp)
+endif()
 if(EMSCRIPTEN)
     add_executable(levain_tests doctest_main.cpp ${cpuTests})
     target_link_libraries(levain_tests PRIVATE

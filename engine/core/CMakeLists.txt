@@ -14,6 +14,16 @@ add_library(levain::core ALIAS levain_core)
 
 target_include_directories(levain_core PUBLIC include)
 
+# Windows, en Debug : plus de fenêtre de la CRT quand un programme échoue (crt_report.hpp). Le fichier ne contient rien
+# qu'un exécutable appellerait : une bibliothèque statique ne livre que les objets qu'on lui demande, donc un
+# `/INCLUDE:` force la référence à son ancre. INTERFACE : il suit `levain::core` dans l'édition de liens de tout
+# exécutable qui la lie, celui d'un jeu compris ; le CMakeLists racine le pose aussi sur les exécutables du moteur,
+# pour qu'un nouvel exécutable qui ne lierait pas core échoue au lieu d'être oublié.
+if(WIN32)
+    target_sources(levain_core PRIVATE src/crt_report.cpp)
+    target_link_options(levain_core INTERFACE /INCLUDE:LevainCrtReportRouted)
+endif()
+
 # spdlog est PRIVATE : ses en-têtes ne fuient pas dans l'API de core, et les modules qui
 # lient levain::core ne le voient pas. C'est ce qui fait tenir l'invariant n°1 du README.
 target_link_libraries(levain_core PRIVATE spdlog::spdlog)

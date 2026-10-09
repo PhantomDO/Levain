@@ -163,6 +163,12 @@ le port vcpkg, pour la règle n°5.
 - **Dawn ne trouve pas `vulkan-1.dll`** (« Windows Error: 87 ») et retombe en silence sur son backend Null, qui
   ne dessine rien : il reçoit le dossier `System32`. Un test WebGPU refusera désormais le backend Null (règle
   n°7) : sous Windows, six des neuf tests WebGPU de `levain_tests` passaient sur ce backend.
+- **En Debug, plus de fenêtre de la CRT ni d'une exception Windows quand un programme échoue** : la CRT de Debug
+  ouvre « Debug Assertion Failed! » pour un `_ASSERT` ou une vérification de la STL, `abort()` et un plantage ouvrent
+  la leur, et une CI ou un agent attend alors un délai sans rien lire. `levain_core` route ces rapports vers stderr et
+  arrête le programme (code non nul), sauf sous un débogueur ; tout exécutable qui le lie l'a, sans le demander
+  (`engine/core/README.md`). Debug seulement ; la Release est une décision à prendre (sondage). La fenêtre de
+  `SDL_assert`, que SDL ouvre elle-même, reste.
 - **Chaque programme tourne en UTF-8**, par un manifeste (`activeCodePage`) : sans lui, argv arrive dans la page
   de code ANSI, et `ctest` ne trouvait pas les cas de test accentués. Les chemins passés aux fonctions C
   (`path.string()`, pour ktx et stb) n'ont les accents justes que grâce à lui. Le manifeste fixe un plancher :
