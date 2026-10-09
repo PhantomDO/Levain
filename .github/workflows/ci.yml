@@ -389,6 +389,8 @@ jobs:
       # Windows les recrée sur son lecteur C:.
       workspace: ${{ github.workspace }}
       msvc: ${{ steps.winsysroot.outputs.msvc }}
+      # La clé du cache des assets de test des jobs Linux, que le runner Windows, sans le dépôt, ne calcule pas.
+      assets: ${{ steps.artifacts.outputs.assets }}
 
     env:
       VCPKG_TAG: "2026.07.29"
@@ -535,20 +537,26 @@ jobs:
             [ -s build/$preset/expected-windows-tests.txt ] || { echo "::error::$preset : aucun test hors doctest"; exit 1; }
           done
 
-      # Ce que ctest lance sur le runner Windows, aux mêmes chemins : les exécutables de tests/ et leurs voisins
-      # (couches de validation), les shaders, les fichiers de ctest, les données des sources. Ni objets, ni
+      # Ce que le runner Windows lance, aux mêmes chemins : pour ctest, les exécutables de tests/ et leurs voisins
+      # (couches de validation), les shaders, les fichiers de ctest, les données des sources ; pour
+      # tools/ci-programs.sh, le sandbox, son éditeur et leurs voisins, le cuiseur et les scripts. Ni objets, ni
       # bibliothèques, ni PDB (les symboles se lisent ici), ni rien de Microsoft (ADR-0035 : la CRT est celle du
-      # runner).
+      # runner). Ni les assets de test : l'artefact d'un dépôt public se télécharge, et la licence de Sponza en
+      # interdit la redistribution (tools/assets.lock) ; le runner Windows les prend lui-même.
       - name: Préparer les artefacts
+        id: artifacts
         run: |
           set -euo pipefail
+          echo "assets=assets-${{ hashFiles('tools/assets.lock') }}" >> "$GITHUB_OUTPUT"
           for preset in windows-debug windows-release; do
             b=build/$preset
             { find "$b" -path "$b/vcpkg_installed" -prune -o -name CTestTestfile.cmake -print
               echo "$b/expected-windows-tests.txt"
-              find "$b/tests" -maxdepth 1 \( -name '*.exe' -o -name '*.dll' -o -name '*.json' -o -name '*.cmake' \)
+              find "$b/tests" "$b/sandbox" -maxdepth 1 \( -name '*.exe' -o -name '*.dll' -o -name '*.json' -o -name '*.cmake' \)
+              echo "$b/tools/cook/levain_cook.exe"
               find "$b/shaders" -maxdepth 1 -type f
               find tests/data data -type f
+              printf '%s\n' tools/ci-programs.sh tools/texture-hot-reload.sh tools/fetch-assets.sh tools/assets.lock
             } | sort -u > $preset.files
             tar -cf $preset.tar -T $preset.files
             echo "$preset : $(wc -l < $preset.files) fichiers, $(du -h $preset.tar | cut -f1)"
@@ -572,7 +580,8 @@ jobs:
 
   # Les programmes de la cible, lancés sous Windows (ADR-0035, décision 4) : ctest, sur les fichiers que
   # windows-build a écrits, sans les contrôles de l'hôte (`-LE host`), Debug compris : seul le Debug arrête une
-  # erreur de validation (règle n°4). Le sandbox et l'éditeur sous Windows : PR suivante, décision 4 de l'ADR-0035.
+  # erreur de validation (règle n°4). Puis le sandbox, son éditeur et le cuiseur, comme dans le job Linux de la même
+  # configuration : les mêmes étapes, sous les mêmes conditions, par le même script (tools/ci-programs.sh).
   windows-test:
     name: ${{ matrix.preset }}
     needs: windows-build
@@ -598,6 +607,9 @@ jobs:
       # Donnovan, il passerait devant celui du pilote NVIDIA. SHA-256 publié par LunarG.
       VULKAN_RT_VERSION: "1.4.350.0"
       VULKAN_RT_SHA256: 23ce69f32cef3e2799617e2b1776cd0c71030d23a91f8375821cc40d76b185b9
+      # Une vraie fenêtre, sur le bureau du runner : le lavapipe de Windows n'a pas la surface du pilote offscreen de
+      # SDL (VK_EXT_headless_surface, build/GOTCHA.md). Les tests la demandent d'eux-mêmes (testVideo).
+      SDL_VIDEO_DRIVER: windows
 
     steps:
       - uses: actions/download-artifact@v4
@@ -615,6 +627,26 @@ jobs:
           & "$env:SystemRoot\System32\tar.exe" -xf '${{ matrix.preset }}.tar' -C $mirror
           if ($LASTEXITCODE -ne 0) { throw "extraction de ${{ matrix.preset }}.tar : code $LASTEXITCODE" }
           "TESTS_DIR=$mirror\build\${{ matrix.preset }}" >> $env:GITHUB_ENV
+          # Avec des barres obliques : le bash de Git le lit comme PowerShell et Actions (working-directory).
+          "MIRROR=$($mirror -replace '\\', '/')" >> $env:GITHUB_ENV
+
+      # Les assets de test, hors de l'artefact (licence de Sponza) : le cache des jobs Linux, lu sans être réécrit
+      # (enableCrossOsArchive : une archive faite sous Linux se lit sous Windows), puis tools/fetch-assets.sh vérifie
+      # chaque fichier par son SHA-256 et prend sur le réseau ce qui manque.
+      - name: Cache des assets de test (celui des jobs Linux)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            assets-cache
+            !assets-cache/.cooked
+          key: ${{ needs.windows-build.outputs.assets }}
+          enableCrossOsArchive: true
+
+      - name: Assets de test
+        shell: bash
+        run: |
+          if [ -d assets-cache ]; then mv assets-cache "$MIRROR/"; fi
+          "$MIRROR/tools/fetch-assets.sh"
 
       - name: Cache de lavapipe et du chargeur Vulkan
         uses: actions/cache@v4
@@ -645,7 +677,7 @@ jobs:
             if (-not (Test-Path vulkan-rt\$file)) { throw "$file manque dans vulkan-rt" }
           }
           # À côté des exécutables : Dawn ne cherche le chargeur qu'à côté de l'exe et dans System32 (build/GOTCHA.md).
-          Copy-Item vulkan-rt\vulkan-1.dll "$env:TESTS_DIR\tests"
+          foreach ($dir in 'tests', 'sandbox') { Copy-Item vulkan-rt\vulkan-1.dll "$env:TESTS_DIR\$dir" }
           # Tout tourne ici en administrateur, et le chargeur ignore alors VK_DRIVER_FILES et VK_ADD_LAYER_PATH
           # (« running with elevated permissions », loader_environment.c) : lavapipe et les couches de validation de
           # l'artefact s'inscrivent au registre de cette machine jetable, comme le ferait un pilote installé.
@@ -702,6 +734,82 @@ jobs:
           if ($expected.Count -lt 1 -or $missing -or $extra) {
             throw "tests hors doctest différents de windows-build : manquent [$($missing -join ', ')], en trop [$($extra -join ', ')]"
           }
+
+      # Le sandbox, son éditeur et le cuiseur, comme dans le job Linux de la même configuration (windows-debug pour
+      # linux-debug, windows-release pour linux-release) : les mêmes étapes, sous les mêmes conditions, par le même
+      # script, dans le bash de Git, à la racine du miroir. Rien pour linux-asan, qui n'a pas d'équivalent ici.
+      - name: Lancer le sandbox
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh sandbox build/${{ matrix.preset }}
+
+      - name: Hot-reload des textures
+        if: matrix.preset == 'windows-release'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        env:
+          SANDBOX: ./build/${{ matrix.preset }}/sandbox/levain_sandbox.exe
+        run: tools/texture-hot-reload.sh
+
+      - name: Lancer le sandbox avec Fox
+        if: matrix.preset == 'windows-debug'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh fox build/${{ matrix.preset }}
+
+      - name: Lancer le sandbox sur le terrain
+        if: matrix.preset == 'windows-debug'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh terrain build/${{ matrix.preset }}
+
+      - name: Lancer le sandbox avec la physique
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh physics build/${{ matrix.preset }}
+
+      - name: Lancer le sandbox avec Sponza
+        if: matrix.preset == 'windows-debug'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh sponza build/${{ matrix.preset }}
+
+      - name: Lancer le sandbox avec le personnage
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh character build/${{ matrix.preset }}
+
+      - name: Lancer le sandbox avec le renard dans la vallée
+        if: matrix.preset == 'windows-debug'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh hike build/${{ matrix.preset }}
+
+      - name: L'interface
+        if: matrix.preset == 'windows-debug'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh ui build/${{ matrix.preset }}
+
+      - name: L'éditeur
+        if: matrix.preset == 'windows-debug'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh editor build/${{ matrix.preset }}
+
+      # Sans cache des fichiers cuits : le cuiseur repart de zéro à chaque passage (le contrôle du cache du job Linux
+      # n'a donc rien à vérifier ici), et Sponza cuite lit ce qu'il vient d'écrire.
+      - name: Cuire les assets de test
+        if: matrix.preset == 'windows-release'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: build/${{ matrix.preset }}/tools/cook/levain_cook.exe assets-cache
+
+      - name: Lancer le sandbox avec Sponza cuite
+        if: matrix.preset == 'windows-release'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh cooked build/${{ matrix.preset }}
 
   # Le code CPU compilé en WebAssembly, ses tests lancés par Node (ADR-0023, #182). Un job à part :
   # ni LLVM, ni Vulkan, ni X11, mais Emscripten, figé sur la version de la machine de référence.
