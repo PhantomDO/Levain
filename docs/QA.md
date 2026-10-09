@@ -181,7 +181,14 @@ le même workflow complet sur chaque PR et dans sa file de fusion GitHub (`merge
 `.github/workflows/runner.yml`). Unreal a Horde et ses *preflights*, un build lancé avant la soumission d'un
 changement (**documenté** pour l'outil ; **supposé** pour l'usage chez Epic).
 
-Références : `AGENTS.md`, règle n°1 et son exception ; `.github/workflows/ci.yml`, « Cache des assets cuits ».
+**Mis à jour le 2026-10-09 : Donnovan a tranché dans l'autre sens.** Les piles ont coûté trois jours d'attente (la
+CI de dix PR empilées, dont `windows-build` de 57 à 115 minutes au lieu de 7 à 16), et la CI ne tourne plus qu'une fois
+par fonctionnalité, sur la PR vers `main`, ou à la main sur la branche. Le prix est celui décrit plus haut : les
+commits intermédiaires de la branche de la fonctionnalité ne sont pas vérifiés seuls par la CI, mais par
+`tools/verify.sh` avant chaque fusion. La décision, avec les mots de Donnovan, est dans `AGENTS.md`, règle n°1.
+
+Références : `AGENTS.md`, règle n°1 (sa version d'avant le 2026-10-09 expliquait les piles) ;
+`.github/workflows/ci.yml`, « Cache des assets cuits ».
 
 ### Ce n'est pas plutôt le volume qui doit savoir qui est en lui ? (2026-10-05, M6.2)
 

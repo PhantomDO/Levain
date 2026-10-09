@@ -30,6 +30,9 @@ Chaque entrée : symptôme, cause, parade, date. La plus récente en haut.
 
 ## `merge-stack.sh` arrêté par GitHub, deux fois dans la journée (2026-10-08, 2026-10-09)
 
+*(2026-10-09 : les piles ne s'utilisent plus et `tools/merge-stack.sh` est supprimé, la CI ne tournant qu'une fois par
+fonctionnalité, AGENTS.md règle n°1 ; l'entrée reste comme histoire.)*
+
 - **Symptômes** : « #348 : checks pas verts (error connecting to api.github.com) » alors que la CI tournait ;
   puis, une pile plus loin, « #351 : base non changée » après la fusion de #350.
 - **Causes** : une coupure réseau, que `gh pr checks` rend comme une sortie en erreur ; et `gh pr edit --base`, qui

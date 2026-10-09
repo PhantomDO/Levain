@@ -383,6 +383,21 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   12 changent les clés du cache vcpkg : surveiller `gh api repos/PhantomDO/Levain/actions/cache/usage`, 11,77 Go en 24
   entrées à 16 h 38 (11,15 Go en 23 entrées à 14 h 50). Puis #19 (le test de fumée sous WARP), la clôture de M7.2 avec
   Donnovan, et celle de M1.4 avec lui, après #18 et #19 : son temps, le ratio.
+- **Addendum, la CI une fois par fonctionnalité** (décision de Donnovan, 2026-10-09 ; AGENTS.md, règle n°1, a ses
+  mots) : la CI ne tourne plus que pour une PR vers `main`, à la main sur une branche de fonctionnalité, et pour `main`.
+  Les morceaux d'une fonctionnalité entrent dans sa branche sans CI, vérifiés par `tools/verify.sh` et relus ; une seule
+  PR vers `main`, à la fin. Pourquoi : dix PR empilées (#371 à #375, #377 à #381) de huit jobs chacune dans la file
+  (`gh pr list --state open`, `gh api repos/PhantomDO/Levain/actions/runs/37953886004/jobs`), des empilements refaits à
+  chaque correction du milieu, des instabilités du runner (le hot-reload des textures, run 37953850764), et un cache
+  vcpkg Windows perdu : `windows-build` a duré de 57 à 115 min aux derniers passages (#375 : 57 ; #377 à #381 : 113, 78,
+  60, 114, 80) contre 7 à 16 min le matin (`gh api …/actions/runs/<id>/jobs`, `started_at` et `completed_at`). Cause du
+  cache : les PR enregistraient chacune leur copie de 1 Go, que chacune était seule à relire, et chassaient celles de
+  `main` (10,1 Go en 22 caches) : issue **#382**. Faits : `ci.yml` n'enregistre plus les caches de plus de 100 Mo que
+  depuis `main`, `tools/texture-hot-reload.sh` renomme ce qu'il écrit, `tools/merge-stack.sh` est supprimé. À vérifier
+  au premier passage : que `main` réécrive les caches, et le temps de `windows-build`. La pile #371 à #381 est fusionnée
+  (merge commits, `main` en 8f52e9b) : la prochaine étape ci-dessus est faite pour la pile, et le correctif de
+  `merge-stack.sh` qu'elle annonçait est remplacé par sa suppression. Restent #19, puis les clôtures de M7.2 et de M1.4
+  avec Donnovan.
 
 ## 2026-10-08 — M1.4 — Windows revient : l'ADR-0035, la chaîne clang-cl, le moteur sur la RTX 4070
 

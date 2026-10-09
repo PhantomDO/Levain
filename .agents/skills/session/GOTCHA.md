@@ -61,6 +61,9 @@ Un piège par entrée : symptôme, cause, parade. Le plus récent en haut.
 
 ## Supprimer la base d'une PR empilée la ferme (2026-10-05)
 
+*(2026-10-09 : les piles ne s'utilisent plus et `tools/merge-stack.sh` est supprimé, la CI ne tournant qu'une fois par
+fonctionnalité, AGENTS.md règle n°1 ; l'entrée reste comme histoire.)*
+
 - **Symptôme** : `gh pr merge 269 --merge --delete-branch`, puis #271, empilée sur sa branche, ne passe pas à
   `main` : elle est **fermée**, et `gh pr edit --base main` la refuse (« closed pull request »).
 - **Cause** (**supposée**) : la doc de GitHub annonce la redirection quand la branche de tête est supprimée après
@@ -73,6 +76,9 @@ Un piège par entrée : symptôme, cause, parade. Le plus récent en haut.
   relance la CI (`reopened`), pas le changement de base.
 
 ## Modifier une branche au milieu d'une pile : la propager tout de suite (2026-10-05)
+
+*(2026-10-09 : les piles ne s'utilisent plus et `tools/merge-stack.sh` est supprimé, la CI ne tournant qu'une fois par
+fonctionnalité, AGENTS.md règle n°1 ; l'entrée reste comme histoire.)*
 
 - **Symptôme** : après plusieurs `commit --amend` sur la branche C d'une pile B → C → D → E, un rebase de D et
   E « sur C » rejoue le commit de B et s'arrête sur des conflits ; D et E reposaient en fait sur une version de

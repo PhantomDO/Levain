@@ -22,27 +22,34 @@ Références pour NVRHI : Donut et Donut-Samples (NVIDIA, MIT), à lire et adapt
   son attention compte. Il est développeur C++ expérimenté (Unreal, Unity) : pas besoin d'expliquer le C++, mais
   il faut expliquer les concepts moteur. Les détails de Vulkan ne l'intéressent pas : expliquer ce que NVRHI fait
   pour nous, pas l'API qu'il y a en dessous, sauf s'il le demande.
-- **Le mode autonome** (décidé par Donnovan le 2026-10-04) : un subagent relit chaque PR à sa place ; l'agent
-  fusionne après corrections et CI verte, ADR compris. Donnovan pose ses choix par sondage, et son choix vaut
-  validation de l'ADR (règle n°3) ; il relit après coup.
+- **Le mode autonome** (décidé par Donnovan le 2026-10-04) : un subagent relit chaque PR à sa place ; l'agent fusionne
+  après corrections et vérification (la CI verte, pour la PR vers `main`), ADR compris. Donnovan pose ses choix par
+  sondage, et son choix vaut validation de l'ADR (règle n°3) ; il relit après coup.
 
 ## Règles non négociables
 
-1. **Une seule PR ouverte à la fois.** Ne pas commencer une nouvelle tâche tant que la PR précédente n'est pas
-   relue et fusionnée.
-   Exception décidée par Donnovan (2026-10-05) : les PR d'un même milestone, déjà relues, s'ouvrent ensemble,
-   **empilées** (chacune a pour base la branche de la précédente). Leurs CI tournent en parallèle ; elles
-   fusionnent ensuite dans l'ordre, en **merge commit** : la PR suivante garde ainsi son SHA et sa CI, là où un
-   squash l'obligerait à se rebaser et à repasser la CI. Chaque commit de `main` reste vérifié, sans attendre
-   la CI d'une PR pour ouvrir la suivante. Trois pièges :
-   - fusionner avec `tools/merge-stack.sh <N> <N+1> …` : chaque PR fusionne sans supprimer sa branche, la base
-     de la suivante passe à `main`, puis la branche est supprimée. Supprimer la branche d'abord **ferme** la PR
-     suivante au lieu de la rediriger (vu avec #271), et ne rien faire la laisserait fusionner dans la branche
-     de la précédente, sans check requis ;
-   - si `main` a bougé hors de la pile, intégrer `main` au bas de la pile et laisser la CI repasser ;
-   - une correction au milieu de la pile se propage aux PR suivantes, dont la CI repasse avant la fusion.
-   La protection de `main` doit garder `strict: false` (pas d'obligation d'être à jour), sans quoi chaque
-   fusion invaliderait la CI de la suivante.
+1. **La CI ne tourne qu'une fois par fonctionnalité, avant la fusion dans `main`, sur la PR vers `main`.** Décidé par
+   Donnovan le 2026-10-09, après trois jours à attendre une CI qui tournait pour chaque PR d'une pile, dit telle qu'il
+   l'a écrit, fautes comprises : « On a perdu énormément de temps avec cette CI, je pense que le mieux c'est qu'on ne
+   fasse les test CI seulement quand on merge dans master pas à chaque PR, et du coup tant qu'on à pas fini la feature
+   on ne fait pas de merge dans master tu en pense quoi ? Parce que la ça fait 3 jours qu'on attend parfois 3h juste
+   pour savoir si un commit passe. Je pers mon temps et toi aussi. » Au sondage « Quand est-ce que la CI tourne ? », sa
+   réponse : « Avant la fusion (Recommandé) ».
+   - **Une branche par fonctionnalité** (un milestone, ou un ensemble qui n'a de sens que fini), tirée de `main`, qui
+     ne reçoit rien d'autre. Ses morceaux y entrent par des PR qui l'ont pour base, **une seule ouverte à la fois** :
+     la suivante ne s'ouvre qu'une fois la précédente relue et fusionnée.
+   - **Un morceau** est relu par un subagent (règle n°2), vérifié par `tools/verify.sh` (`BASE=<la branche de la
+     fonctionnalité>`) et, s'il touche Windows, par les tests Windows du portable (build/SKILL.md), puis fusionné dans
+     la branche de la fonctionnalité en merge commit. Le workflow ne se déclenche pas pour une PR dont la base n'est
+     pas `main` : aucune CI GitHub à attendre.
+   - **Une seule PR vers `main`, à la fin**, la fonctionnalité entière : sa CI est la porte, ses checks requis la
+     condition de la fusion, qui se fait en **merge commit**. Tant que la fonctionnalité n'est pas finie, rien ne
+     fusionne dans `main` ; si `main` a bougé entre-temps (un correctif urgent), l'intégrer à la branche avant cette PR.
+   - **La CI à la main** avant une étape risquée (toolchain, dépendances, CI elle-même, nouveau backend), sans attendre
+     la fin : `gh workflow run ci.yml --ref <branche>` (le déclencheur `workflow_dispatch` n'existe que si `ci.yml`
+     est sur `main`). Les caches lourds ne sont enregistrés que par `main` (#382) : une fonctionnalité qui change les
+     ports recompile vcpkg à chaque passage jusqu'à sa fusion.
+   La protection de `main` garde ses checks requis et `strict: false` (pas d'obligation d'être à jour).
 2. **Une PR se relit en 30 minutes au plus** (environ 400 lignes hors tiers et généré). Sinon, découper.
    Exception admise par Donnovan (2026-09-21) : du code Vulkan qui forme un bloc peut dépasser, **s'il reste
    lisible et que l'écart est signalé** dans la PR avec sa raison.
@@ -52,6 +59,8 @@ Références pour NVRHI : Donut et Donut-Samples (NVIDIA, MIT), à lire et adapt
    Exception décidée par Donnovan (2026-10-06) : une PR qui **déplace du code sans le changer** peut dépasser,
    si l'écart est signalé et que le guide de lecture dit de la lire avec `git diff --color-moved` : seules les
    lignes changées en route ressortent (ADR-0029).
+   La règle vaut pour **les morceaux**, les PR vers la branche d'une fonctionnalité, et non pour la PR finale vers
+   `main`, qui ne contient que des morceaux déjà relus.
 3. **Décision structurante = ADR d'abord** (`docs/adr/`, modèle `0000-modele.md`), validé par Donnovan avant
    l'implémentation.
 4. **Zéro erreur de validation en Debug** (couche de validation NVRHI, validation layers Vulkan, couche de debug
@@ -85,7 +94,7 @@ rencontre (symptôme, cause, parade, date).
 |---|---|
 | [`session`](.agents/skills/session/SKILL.md) | Début et fin de session, branche, PR, journal, board, temps de Donnovan |
 | [`build`](.agents/skills/build/SKILL.md) | Compiler, tester, sanitizers, profilage, CI, tests manuels de la fenêtre |
-| [`pr-autonome`](.agents/skills/pr-autonome/SKILL.md) | Chaque PR en mode autonome : worktree, workflow, vérification, contre-tests, relecture, pile, fusion |
+| [`pr-autonome`](.agents/skills/pr-autonome/SKILL.md) | Chaque PR en mode autonome : worktree, workflow, vérification, contre-tests, relecture, fusion dans la branche de la fonctionnalité, PR finale vers `main` |
 | [`cloture`](.agents/skills/cloture/SKILL.md) | Clôture d'un milestone ou d'une phase : tag, release, ratio, recalibrage |
 | [`questions`](.agents/skills/questions/SKILL.md) | Répondre à une question de Donnovan, comparer avec les autres moteurs |
 

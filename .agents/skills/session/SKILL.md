@@ -15,16 +15,19 @@ Lire d'abord [`GOTCHA.md`](GOTCHA.md).
 
 ## Pendant
 
-- Branche `m<phase>.<n>/<sujet>`, commits en Conventional Commits (en anglais).
+- Branche `m<phase>.<n>/<sujet>` pour la fonctionnalité, ses morceaux en `m<phase>.<n>/<sujet>-<morceau>` (AGENTS.md,
+  règle n°1) ; commits en Conventional Commits (en anglais).
 - Le code suit la section « Écrire le code » d'`AGENTS.md`.
-- Mesurer la taille de la PR **avant** de l'annoncer : `git add -A -N && git diff --numstat main`.
+- Mesurer la taille de la PR **avant** de l'annoncer : `git add -A -N && git diff --numstat <base de la PR>` (la
+  branche de la fonctionnalité pour un morceau, `main` pour la PR finale).
 
 ## À la fin
 
 1. Mesurer les critères du milestone et noter les commandes utilisées.
 2. Ouvrir la PR avec le modèle `.github/pull_request_template.md`. Le **guide de lecture** est la partie la plus
    importante : fichiers dans l'ordre, et pour chacun ce qu'il faut y comprendre. En mode autonome, la boucle
-   entière (worktree, vérification, contre-tests, relecture, pile, fusion) est dans le skill
+   entière (worktree, vérification, contre-tests, relecture, fusion dans la branche de la fonctionnalité, PR finale vers
+   `main`) est dans le skill
    [`pr-autonome`](../pr-autonome/SKILL.md).
 3. Ajouter une entrée à `docs/JOURNAL.md` (format dans le fichier), la plus récente en haut.
 4. Mettre à jour le board : Status, et « Passé (h) » dès que Donnovan donne son temps.
