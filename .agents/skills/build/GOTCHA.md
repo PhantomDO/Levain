@@ -72,6 +72,64 @@ du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
   passe par le registre, qui désigne ceux de `tests/`.
 - **Le `start` des 4 processeurs ne rend pas le code de l'enfant** : lire les `::error::` du journal.
 
+## Un échec sous Windows ouvre une fenêtre, et le message n'arrive pas au journal (2026-10-08)
+
+Corrigé en Debug par `engine/core/src/crt_report.cpp` (`engine/core/README.md`, « Les rapports de la CRT ») ; la
+Release est à décider, et le piège reste pour qui s'en passerait.
+
+- **Symptôme** : `levain_sandbox.exe` lancé de la distro ouvre « Debug Assertion Failed! » (« vector subscript out of
+  range »), `abort()` et un plantage ouvrent leur fenêtre : la CI ou l'agent attend le délai de ctest.
+- **Vu rouge sur le code livré**, les deux `/INCLUDE:LevainCrtReportRouted` retirés (2026-10-09, 03:32:20,
+  `ctest --test-dir build/windows-debug -R '^crt[.]report[.]' -j6 --timeout 60 -V`) : 10 rouges sur 12.
+  `stl-subscript`, `crt-assert`, `c-assert`, `abort`, `uncaught-throw`, `debugger.crt-assert` et `debugger.abort`
+  attendent les 10 s du probe, qui les tue : une fenêtre chacun ; `null-write` et `breakpoint` finissent en 2,9 et
+  3,0 s (Windows Error Reporting, sans fenêtre bloquante sur ce portable), stderr vide ; `error-mode` lit
+  « SEM_NOGPFAULTERRORBOX absent ». Restent verts `raise-sigabrt` (`_exit(3)` sans gestionnaire) et `fastfail`, un
+  constat (2,8 s, sans fenêtre ici ; là où WER en afficherait une : non mesuré).
+- **Les fautes de la première version, remises** (03:31:56, même commande) : un filtre qui ne rend pas les exceptions
+  C++ à celui de la vcruntime, `uncaught-throw` rouge (« exception non gérée 0xe06d7363 », `std::set_terminate`
+  jamais appelé) ; un gestionnaire de SIGABRT qui rend la main, `raise-sigabrt` rouge (code 0) ; `Stop` sous
+  débogueur, `debugger.*` rouges (code 3, aucun point d'arrêt). Les 8 autres verts. En Release, `SetErrorMode` hors
+  du `#ifdef _DEBUG` (03:33:01, `ctest --test-dir build/windows-release -R '^crt[.]report[.]' -V`) : `error-mode`
+  rouge. Le crochet forcé en échec : `levain_crt_report_probe.exe error-mode` s'arrête avant `main`, code 3,
+  « routage des rapports de la CRT impossible ».
+- **Le mode FILE vers stderr ne suffit pas** : `_CrtDbgReport` imprime puis rend la main, `_ASSERT` continue. Seul un
+  crochet `_CrtSetReportHook2` arrête. Mesuré : le crochet étroit reçoit aussi les rapports larges (`_ASSERT`), un
+  crochet large en plus n'est jamais appelé.
+- **Le filtre de la vcruntime appelle `std::terminate`** pour une exception C++ (posé en `.CRT$XCAA`,
+  `exe_common.inl`) : le remplacer sans le garder casse `[except.handle]/9`. Parade : lui rendre 0xE06D7363.
+- **La STL sous clang-cl ne fait pas `__fastfail`** : après son rapport, son `_MSVC_STL_DOOM_FUNCTION` est un `ud2`
+  (`__msvc_doom_core.hpp`) : une exception 0xC000001D, que le filtre attrape.
+- **Un enfant hérite du mode d'erreur de son parent** (`CreateProcessW`, `SetErrorMode`) : le probe, qui lie core,
+  passait `SEM_NOGPFAULTERRORBOX` à un enfant sans routage. Parade : `CREATE_DEFAULT_ERROR_MODE`.
+- **Le code de sortie d'un exe lancé de la distro est tronqué à 8 bits** (mesuré : `null-write` 5, `breakpoint` 3,
+  `fastfail` 9, soit 0xC0000005, 0x80000003, 0xC0000409) : c'est ctest, vu de la distro, qui n'a que les 8 bits. Le
+  probe, un processus Windows, voit le code en entier et le compare à celui de chaque scénario (`expectedExitCode` : 3,
+  celui d'`abort()`, pour les rapports de la CRT, `abort` et `raise-sigabrt` ; le code de l'exception pour
+  `null-write` et `breakpoint` ; 0xC0000409 pour `fastfail`, un constat) : un « non nul » aurait laissé passer un
+  crochet qui rend la main à la CRT pour une assertion de la STL (0xC000001D, le `ud2` qui suit son rapport).
+- **Le code exact, vu rouge** (2026-10-09, 04:21 à 04:23, la commande ci-dessus, la copie de `crt_report.cpp` remise
+  ensuite, 12 sur 12) : `onReport` rend `FALSE` dès son début pour `_CRT_ASSERT` : `stl-subscript` rouge (« code
+  0xc000001d au lieu de 0x3 » ; il était vert avec « non nul »), `crt-assert` et `debugger.crt-assert` aussi. Pour
+  `_CRT_ERROR` : seuls `debugger.abort` et `abort`, et ce dernier parce que le probe attend le préfixe de core
+  (« rapport de la CRT (erreur) : ») : `abort()` finit par `_exit(3)` avec ou sans crochet (le `SIGABRT` par défaut,
+  pas un `__fastfail`), et le mode FILE écrit le même message, donc ni le code ni le texte ne le distinguaient.
+  `uncaught-throw`, qui finit par le même `abort()`, reste vert : il ne cherche que le texte de son gestionnaire.
+- **Une bibliothèque statique écarte le fichier que personne ne référence** : sans l'ancre, le routage disparaît du
+  binaire sans un mot (`grep -c 'rapport de la CRT'` sur le probe : 0). Contre-testé avec un exécutable qui ne lie
+  pas core : `lld-link: error: <root>: undefined symbol: LevainCrtReportRouted`.
+- **ctest ne juge pas « message ET code non nul »** : `PASS_REGULAR_EXPRESSION` fait ignorer le code (un `exit 0` avec
+  le message passe), `WILL_FAIL` inverse le verdict de l'expression (message présent : échec), un dépassement de
+  délai n'est pas inversé et ne tue pas la fenêtre de l'enfant (cinq tests `sh -c` dans un CMakeLists de la session).
+  Le probe (`tests/crt_report_probe.cpp`) se pilote lui-même.
+- **Release** : une fonction que seul le code `#ifdef _DEBUG` appelle échoue en `-Wunused-function` (vu sur
+  `windows-release`) : tout le mécanisme y est, hors des fonctions pures.
+- **Un test qui ouvre une fenêtre sur le bureau de Donnovan** : le borner (`timeout`), puis `tasklist.exe | grep -i
+  levain` et `taskkill.exe /F /PID <pid>`. Le probe tue lui-même son enfant au bout de 10 s.
+- **`OutputDebugStringA(vue.data())` échoue à clang-tidy** (`bugprone-suspicious-stringview-data-usage`) : une
+  `string_view` ne promet pas de zéro final. Parade : une copie sur la pile qui en a un (`writeReportLine`), pas un
+  `NOLINT`.
+
 ## Les options de Windows trouvent ce que Linux ne voit pas : 16 constats antérieurs à #18 (2026-10-08)
 
 Corrigé par #360 (2026-10-08) : le piège reste, sa parade est en place. Le symptôme est celui d'avant.
