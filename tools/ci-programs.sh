@@ -139,10 +139,11 @@ runTerrain() {
 }
 
 # Le pixel de `--pick 960,540` est le centre d'une fenêtre de 1920 × 1080, celle que le sandbox demande. Windows
-# réduit une fenêtre redimensionnable à la taille du bureau (celui d'un runner n'est pas documenté) : le pixel
-# visé cesserait d'être le centre, et la sélection échouerait sous un message trompeur (« aucune caisse »), ou
-# passerait sans plus vérifier ce que le commentaire de `runPhysics` dit (règle n°7). La taille se lit sur la
-# capture, relue de la swapchain : le contrôle échoue en nommant la cause, avant ceux qui en dépendent.
+# réduit une fenêtre redimensionnable à la taille du bureau (celui d'un runner est très probablement de 1024 × 768,
+# que l'étape « Bureau du runner » de `ci.yml` règle en 1920 × 1080 : elle ne juge rien, c'est ce contrôle qui
+# juge) : le pixel visé cesserait d'être le centre, et la sélection échouerait sous un message trompeur (« aucune
+# caisse »), ou passerait sans plus vérifier ce que le commentaire de `runPhysics` dit (règle n°7). La taille se
+# lit sur la capture, relue de la swapchain : le contrôle échoue en nommant la cause, avant ceux qui en dépendent.
 requireFullHdCapture() { # $1 = journal, $2 = capture, $3 = backend
     grep -q "capture : $2 (1920 × 1080)" "$1" || {
         echo "::error::la capture $2 ne fait pas 1920 × 1080 (bureau plus petit que la fenêtre ?) : --pick 960,540" \
@@ -222,9 +223,10 @@ runCharacter() {
 # l'eau dessinés. Parti de (204, 280) sur le fond de la vallée, il doit avoir marché vers le lac,
 # au sol, sans dévier : mesuré (206,91 ; −0,05 ; 280,02) sur les deux backends. 120 pas
 # seulement : sous lavapipe, 200 pas prenaient 88 s par backend sur un CPU rapide. Le `timeout` de 450 s est un filet
-# contre un blocage, pas un contrôle (voir l'en-tête) : lavapipe pour Windows sur les 4 processeurs du runner
-# mettait environ 249 s pour WebGPU (le démarrage compris), 300 s ne laissaient que 51 s de marge, et un
-# dépassement tue le processus sans autre message que le code 143.
+# contre un blocage, pas un contrôle (voir l'en-tête) : lavapipe pour Windows, sur le portable limité à 4
+# processeurs comme le runner (le runner n'a pas encore lancé la vallée), a mis environ 249 s pour WebGPU à la
+# première répétition (le démarrage compris) et 122,5 s à la seconde, même commande. 300 s ne laissaient que 51 s
+# de marge, et un dépassement tue le processus sans autre message que le code 143.
 runHike() {
     for gpu in vulkan webgpu; do
         timeout --foreground --preserve-status -k 10 450 \

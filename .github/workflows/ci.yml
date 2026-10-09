@@ -739,12 +739,23 @@ jobs:
             throw "tests hors doctest différents de windows-build : manquent [$($missing -join ', ')], en trop [$($extra -join ', ')]"
           }
 
-      # La taille du bureau, pour mémoire dans le journal : la fenêtre du sandbox (1920 × 1080, redimensionnable) s'y
-      # réduit si le bureau est plus petit, et `--pick 960,540` ne viserait plus le centre. L'étape de la physique
-      # (tools/ci-programs.sh, requireFullHdCapture) échoue alors en le disant ; celle-ci ne juge rien, elle donne la
-      # taille qu'elle a vue. Le runner ne documente pas son bureau (GitHub), d'où la ligne.
+      # Le bureau du runner : la fenêtre du sandbox (1920 × 1080, redimensionnable) se réduit à sa taille, et
+      # `--pick 960,540` ne viserait plus le centre. Le bureau d'un runner Windows est très probablement de 1024 × 768 :
+      # actions/runner-images#2935 (« default display resolution (1024x768) »), et un windows-latest (Windows Server
+      # 2025, la famille de windows-2025-vs2026) mesuré en « Hyper-V Video, 1024×768, 96 dpi » dans
+      # Aiken-Project-A/renpy-capture#7. Ce dépôt y règle le bureau par
+      # `Set-DisplayResolution -Width 1920 -Height 1080 -Force` en `shell: pwsh`, et ses images retrouvent leur taille ;
+      # dans #2935, un mainteneur des images propose la même commande, le demandeur confirme qu'elle marche en
+      # 1920 × 1080, et 1080p serait le plafond. Le portable (2560 × 1600) ne pouvait pas le montrer, et Windows 11 n'a
+      # pas la commande (module ServerCore, Windows Server) : elle n'y a pas été répétée. La première ligne règle le
+      # bureau, la seconde l'affiche ; aucune ne juge. L'étape de la physique (tools/ci-programs.sh,
+      # requireFullHdCapture) reste le garde-fou : si la résolution n'a pas pris, elle échoue en le disant (règle n°7).
+      # Le premier passage de la CI est le contre-test : « 1920 × 1080 » ici, puis dans « capture : physics-vulkan.png »
+      # et « physics-webgpu.png ».
       - name: Bureau du runner
+        shell: pwsh
         run: |
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force
           Get-CimInstance Win32_VideoController |
             Select-Object Name, CurrentHorizontalResolution, CurrentVerticalResolution | Format-List
 
