@@ -85,6 +85,10 @@ comme `abort()` le ferait : WER le voit, et un `raise(SIGABRT)` direct ne revien
 lui-même un plantage ou un `abort()` (« test case CRASHED », code 1) ; un rapport de la CRT (`_ASSERT`, STL), lui, est
 arrêté par notre crochet, qui passe avant son mode de rapport (stderr, code 3).
 
+Contre-tests : `ctest -R crt.report` (`tests/crt_report_probe.cpp`), un scénario par fenêtre ; `debugger.*` s'attache
+à l'enfant et exige un point d'arrêt ; en Release, `error-mode` vérifie que rien n'est posé. Mesures et pièges :
+`build/GOTCHA.md`.
+
 ## Équivalents ailleurs
 
 | Moteur | Module | Ce qu'on y trouve |

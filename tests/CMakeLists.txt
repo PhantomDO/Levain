@@ -336,6 +336,30 @@ levain_add_host_test(deps.imgui-visibility
 add_executable(levain_gpu_alone gpu_alone.cpp)
 target_link_libraries(levain_gpu_alone PRIVATE levain::gpu)
 
+# En Debug, plus de fenêtre de la CRT ni d'une exception quand un programme échoue sous Windows
+# (engine/core/src/crt_report.cpp, ADR-0035). Le probe ne lie que core et n'appelle rien : chaque scénario doit
+# s'arrêter vite, avec un code non nul et son message sur stderr, ce que seul le routage de core, tiré par l'éditeur
+# de liens, lui donne (le piège des bibliothèques statiques). En Release, rien ne change : `error-mode` vérifie
+# qu'aucun réglage n'y est posé. Les autres systèmes n'ont pas ces fenêtres : rien à y contrôler, ce n'est pas un test
+# sauté en silence. Un scénario absent de la table du probe pour ce build est une erreur (usage, code 64).
+# `debugger.*` : le probe, débogueur de l'enfant, exige que le routage lui rende la main par un point d'arrêt.
+if(WIN32)
+    add_executable(levain_crt_report_probe crt_report_probe.cpp)
+    target_link_libraries(levain_crt_report_probe PRIVATE levain::core)
+    set(crtReportTests error-mode)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        list(APPEND crtReportTests stl-subscript crt-assert c-assert abort uncaught-throw raise-sigabrt null-write
+             breakpoint fastfail debugger.crt-assert debugger.abort)
+    endif()
+    foreach(test IN LISTS crtReportTests)
+        # debugger.<scénario> : `--debugger <scénario>`.
+        string(REGEX REPLACE "^debugger[.](.*)$" "--debugger;\\1" arguments "${test}")
+        add_test(NAME crt.report.${test} COMMAND levain_crt_report_probe ${arguments})
+        # Le probe juge à 10 s ; ce délai-ci n'est que le filet d'un probe lui-même bloqué.
+        set_tests_properties(crt.report.${test} PROPERTIES TIMEOUT 30)
+    endforeach()
+endif()
+
 # Tests de fumée du rendu (#16, M2.1) : dessinent une scène hors écran et comparent l'image à une
 # référence, sans écran en CI Linux (testVideo, plus haut).
 add_executable(levain_smoke_render smoke_render.cpp)
