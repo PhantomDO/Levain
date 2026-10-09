@@ -103,8 +103,18 @@ Release est à décider, et le piège reste pour qui s'en passerait.
 - **Un enfant hérite du mode d'erreur de son parent** (`CreateProcessW`, `SetErrorMode`) : le probe, qui lie core,
   passait `SEM_NOGPFAULTERRORBOX` à un enfant sans routage. Parade : `CREATE_DEFAULT_ERROR_MODE`.
 - **Le code de sortie d'un exe lancé de la distro est tronqué à 8 bits** (mesuré : `null-write` 5, `breakpoint` 3,
-  `fastfail` 9, soit 0xC0000005, 0x80000003, 0xC0000409) ; le probe, un processus Windows, le voit en entier. Les
-  tests ne comparent donc qu'à « non nul ».
+  `fastfail` 9, soit 0xC0000005, 0x80000003, 0xC0000409) : c'est ctest, vu de la distro, qui n'a que les 8 bits. Le
+  probe, un processus Windows, voit le code en entier et le compare à celui de chaque scénario (`expectedExitCode` : 3,
+  celui d'`abort()`, pour les rapports de la CRT, `abort` et `raise-sigabrt` ; le code de l'exception pour
+  `null-write` et `breakpoint` ; 0xC0000409 pour `fastfail`, un constat) : un « non nul » aurait laissé passer un
+  crochet qui rend la main à la CRT pour une assertion de la STL (0xC000001D, le `ud2` qui suit son rapport).
+- **Le code exact, vu rouge** (2026-10-09, 04:21 à 04:23, la commande ci-dessus, la copie de `crt_report.cpp` remise
+  ensuite, 12 sur 12) : `onReport` rend `FALSE` dès son début pour `_CRT_ASSERT` : `stl-subscript` rouge (« code
+  0xc000001d au lieu de 0x3 » ; il était vert avec « non nul »), `crt-assert` et `debugger.crt-assert` aussi. Pour
+  `_CRT_ERROR` : seuls `debugger.abort` et `abort`, et ce dernier parce que le probe attend le préfixe de core
+  (« rapport de la CRT (erreur) : ») : `abort()` finit par `exit(3)` avec ou sans crochet (le `SIGABRT` par défaut,
+  pas un `__fastfail`), et le mode FILE écrit le même message, donc ni le code ni le texte ne le distinguaient.
+  `uncaught-throw`, qui finit par le même `abort()`, reste vert : il ne cherche que le texte de son gestionnaire.
 - **Une bibliothèque statique écarte le fichier que personne ne référence** : sans l'ancre, le routage disparaît du
   binaire sans un mot (`grep -c 'rapport de la CRT'` sur le probe : 0). Contre-testé avec un exécutable qui ne lie
   pas core : `lld-link: error: <root>: undefined symbol: LevainCrtReportRouted`.
@@ -116,6 +126,9 @@ Release est à décider, et le piège reste pour qui s'en passerait.
   `windows-release`) : tout le mécanisme y est, hors des fonctions pures.
 - **Un test qui ouvre une fenêtre sur le bureau de Donnovan** : le borner (`timeout`), puis `tasklist.exe | grep -i
   levain` et `taskkill.exe /F /PID <pid>`. Le probe tue lui-même son enfant au bout de 10 s.
+- **`OutputDebugStringA(vue.data())` échoue à clang-tidy** (`bugprone-suspicious-stringview-data-usage`) : une
+  `string_view` ne promet pas de zéro final. Parade : une copie sur la pile qui en a un (`writeReportLine`), pas un
+  `NOLINT`.
 
 ## Les options de Windows trouvent ce que Linux ne voit pas : 16 constats antérieurs à #18 (2026-10-08)
 

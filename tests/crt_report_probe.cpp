@@ -1,6 +1,6 @@
 // Le contre-test de engine/core/src/crt_report.cpp (règle n°7) : chaque scénario fait échouer le
 // programme de l'une des manières qui ouvraient une fenêtre sous Windows, et le programme juge
-// qu'il s'est arrêté vite, avec un code non nul, en disant pourquoi sur stderr.
+// qu'il s'est arrêté vite, avec le code de sortie exact, en disant pourquoi sur stderr.
 //
 //   levain_crt_report_probe <scénario>             le pilote : lance l'enfant ci-dessous et juge
 //   levain_crt_report_probe --debugger <scénario>  le pilote, débogueur de l'enfant
@@ -15,10 +15,10 @@
 #include <array>
 #include <cassert>
 #include <csignal>
-#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <format>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -39,20 +39,16 @@ namespace
 constexpr DWORD ChildTimeoutMilliseconds = 10'000;
 constexpr int UsageError = 64;
 
-// Comment l'enfant doit finir : arrêté par l'échec (code non nul), ou revenu de son scénario
-// (code 0) quand celui-ci ne fait que lire l'état du routage.
-enum class Ending : std::uint8_t
-{
-    Stopped,
-    Returned,
-};
+// Le code d'abort() et du SIGABRT par défaut, que reprend l'arrêt par un rapport de la CRT : écrit
+// ici plutôt que lu dans core, pour que le probe ne juge pas core avec sa propre constante.
+constexpr DWORD AbortExitCode = 3;
 
 struct Scenario
 {
     std::string_view name;
     void (*trigger)();
-    std::string_view expectedOnStderr; ///< Vide : seul le code de sortie juge.
-    Ending ending = Ending::Stopped;
+    std::string_view expectedOnStderr;      ///< Vide : seul le code de sortie juge.
+    DWORD expectedExitCode = AbortExitCode; ///< Exact ; 0 : le scénario revient de `trigger`.
 };
 
 // Ce que l'enfant reçoit du routage, lancé sans le mode d'erreur du pilote (startChild).
@@ -81,7 +77,9 @@ constexpr Scenario Scenarios[] = {
     {"crt-assert", [] { _ASSERT(false); }, "Assertion failed"},
     // L'assert() du C : celui d'IM_ASSERT, de glm et des ports en Debug.
     {"c-assert", [] { assert(false); }, "Assertion failed: false"},
-    {"abort", [] { std::abort(); }, "abort() has been called"},
+    // Le préfixe de core : sans le crochet, le mode FILE de la CRT écrit le même message et abort()
+    // finit tout de même par exit(3) ; seul le préfixe dit qui a arrêté le programme.
+    {"abort", [] { std::abort(); }, "rapport de la CRT (erreur) : abort() has been called"},
     // [except.handle]/9 : std::terminate, donc le gestionnaire de std::set_terminate.
     {"uncaught-throw",
      []
@@ -98,17 +96,16 @@ constexpr Scenario Scenarios[] = {
     // Sans abort() : un gestionnaire de SIGABRT qui rendrait la main laisserait le programme
     // continuer, et finir en 0.
     {"raise-sigabrt", [] { std::raise(SIGABRT); }, ""},
-    {"null-write", [] { *static_cast<volatile int*>(nullptr) = 1; }, "0xc0000005"},
-    {"breakpoint", [] { LEVAIN_DEBUG_BREAK(); },
-     "0x80000003"}, // celui de LEVAIN_ASSERT, sans débogueur
-    // Un constat, pas un contre-test : rien n'intercepte un __fastfail, et sur ce portable Windows
-    // Error Reporting n'ouvre pas de fenêtre ; il ne vérifie que l'arrêt.
-    {"fastfail", [] { __fastfail(7); }, ""},
-    {"error-mode", &printErrorMode, "SEM_NOGPFAULTERRORBOX posé, _OUT_TO_STDERR posé",
-     Ending::Returned},
+    {"null-write", [] { *static_cast<volatile int*>(nullptr) = 1; }, "0xc0000005",
+     EXCEPTION_ACCESS_VIOLATION},
+    // Le point d'arrêt de LEVAIN_ASSERT, sans débogueur.
+    {"breakpoint", [] { LEVAIN_DEBUG_BREAK(); }, "0x80000003", EXCEPTION_BREAKPOINT},
+    // Un constat, pas un contre-test : rien n'intercepte un __fastfail, qui finit par
+    // STATUS_STACK_BUFFER_OVERRUN ; ici, Windows Error Reporting n'ouvre pas de fenêtre.
+    {"fastfail", [] { __fastfail(7); }, "", 0xC0000409},
+    {"error-mode", &printErrorMode, "SEM_NOGPFAULTERRORBOX posé, _OUT_TO_STDERR posé", 0},
 #else
-    {"error-mode", &printErrorMode, "SEM_NOGPFAULTERRORBOX absent, _OUT_TO_STDERR absent",
-     Ending::Returned},
+    {"error-mode", &printErrorMode, "SEM_NOGPFAULTERRORBOX absent, _OUT_TO_STDERR absent", 0},
 #endif
 };
 
@@ -246,13 +243,11 @@ std::string verdictOf(const Scenario& scenario, const ChildResult& result, bool 
                    ? std::string{}
                    : "sorti sans rendre la main au débogueur par un point d'arrêt";
     }
-    if (scenario.ending == Ending::Stopped && result.exitCode == 0)
+    if (result.exitCode != scenario.expectedExitCode)
     {
-        return "sorti avec le code 0 : l'échec n'a pas arrêté le programme";
-    }
-    if (scenario.ending == Ending::Returned && result.exitCode != 0)
-    {
-        return "arrêté (code non nul) : ce scénario ne fait que lire, il devait finir en 0";
+        return std::format("code {:#x} au lieu de {:#x}{}", result.exitCode,
+                           scenario.expectedExitCode,
+                           result.exitCode == 0 ? " : l'échec n'a pas arrêté le programme" : "");
     }
     if (result.standardError.find(scenario.expectedOnStderr) == std::string::npos)
     {
@@ -298,7 +293,7 @@ int main(int argc, char** argv)
     {
         // Hors du try ci-dessous : `uncaught-throw` doit laisser son exception sortir de main.
         scenario->trigger();
-        if (scenario->ending == Ending::Stopped)
+        if (scenario->expectedExitCode != 0)
         {
             std::fputs("l'échec n'a pas arrêté le programme\n", stderr); // le pilote jugera le code
         }

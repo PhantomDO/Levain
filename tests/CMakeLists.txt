@@ -338,8 +338,8 @@ target_link_libraries(levain_gpu_alone PRIVATE levain::gpu)
 
 # En Debug, plus de fenêtre de la CRT ni d'une exception quand un programme échoue sous Windows
 # (engine/core/src/crt_report.cpp, ADR-0035). Le probe ne lie que core et n'appelle rien : chaque scénario doit
-# s'arrêter vite, avec un code non nul et son message sur stderr, ce que seul le routage de core, tiré par l'éditeur
-# de liens, lui donne (le piège des bibliothèques statiques). En Release, rien ne change : `error-mode` vérifie
+# s'arrêter vite, avec son code exact et son message sur stderr, ce que seul le routage de core, tiré par l'éditeur de
+# liens, lui donne (le piège des bibliothèques statiques). En Release, rien ne change : `error-mode` vérifie
 # qu'aucun réglage n'y est posé. Les autres systèmes n'ont pas ces fenêtres : rien à y contrôler, ce n'est pas un test
 # sauté en silence. Un scénario absent de la table du probe pour ce build est une erreur (usage, code 64).
 # `debugger.*` : le probe, débogueur de l'enfant, exige que le routage lui rende la main par un point d'arrêt.
