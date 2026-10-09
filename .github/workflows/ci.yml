@@ -1,16 +1,29 @@
 name: CI
 
+# La CI tourne avant la fusion dans main, une fois par fonctionnalité (AGENTS.md, règle n°1) : une PR vers une branche
+# de fonctionnalité ne déclenche rien, c'est la PR de la fonctionnalité vers main qui est la porte. Entre-temps,
+# `workflow_dispatch` lance tout à la main sur la branche de fonctionnalité (« Run workflow » dans l'onglet Actions, ou
+# `gh workflow run ci.yml --ref <branche>`), avant une étape risquée. GitHub ne propose ce déclencheur que pour un
+# fichier présent sur la branche par défaut.
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
 
-# Une PR poussée trois fois de suite n'occupe pas trois fois les runners. Sur main, un passage n'est jamais annulé :
-# celui qui suit une clé changée n'enregistre le cache vcpkg Windows qu'au bout d'1 h 20, et seul main le donne aux
-# PR suivantes (les caches d'une PR ne se lisent pas ailleurs). GitHub ne garde que le dernier passage en attente.
+# Qui enregistre les caches : seul `push` sur main (voir « Enregistrer … » plus bas). Les PR et les lancements à la main
+# ne font que restaurer. Une PR ne lit que ses propres caches, ceux de sa base et ceux de main, et personne d'autre ne
+# lit les siens : chaque PR en gardait sa copie de 1 Go pour rien, et ces copies chassaient celles de main au-delà des
+# 10 Go que GitHub conserve (#382). Seuls les petits caches (assets de test, winsysroot, lavapipe : moins de 100 Mo)
+# restent écrits par tous.
+#
+# Une PR poussée trois fois de suite n'occupe pas trois fois les runners, ni un lancement à la main relancé. Sur main,
+# un passage n'est jamais annulé : celui qui suit une clé changée n'enregistre le cache vcpkg Windows qu'au bout
+# d'1 h 20, et c'est lui qui le donne aux PR suivantes. GitHub ne garde que le dernier passage en attente.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   build:
@@ -121,7 +134,8 @@ jobs:
       # échouer la CI de #72 sans rien à voir avec le code. restore-keys : un manifeste modifié
       # repart des téléchargements précédents au lieu de tout reprendre.
       - name: Cache des téléchargements vcpkg
-        uses: actions/cache@v4
+        id: vcpkg-downloads
+        uses: actions/cache/restore@v4
         with:
           path: vcpkg-downloads
           key: vcpkg-downloads-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**') }}
@@ -159,7 +173,8 @@ jobs:
       # options de compilation entrent dans l'ABI de chaque paquet. Le triplet wasm n'y est pas : le
       # changer ne doit pas jeter les caches natifs.
       - name: Cache vcpkg
-        uses: actions/cache@v4
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
         with:
           path: vcpkg-cache
           key: vcpkg-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/x64-linux.cmake') }}
@@ -175,6 +190,24 @@ jobs:
         run: |
           cmake --preset ${{ matrix.preset }}
           cmake --build --preset ${{ matrix.preset }}
+
+      # Les deux caches de vcpkg, enregistrés par main seul (#382), à la suite de « Configurer et compiler » : un échec
+      # plus loin (instrumentation, tests) ne les fait pas recompiler au passage suivant, mais si cette étape échoue,
+      # l'enregistrement est sauté. Pas de nouvelle archive après elle. Les trois presets écrivent la même clé : le
+      # premier fini la prend, les autres le signalent sans échouer.
+      - name: Enregistrer les téléchargements vcpkg
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.vcpkg-downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg-downloads
+          key: ${{ steps.vcpkg-downloads.outputs.cache-primary-key }}
+
+      - name: Enregistrer le cache vcpkg
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       # Garde-fou : un preset dont les drapeaux se seraient perdus compilerait sans
       # instrumentation, et le job resterait vert sans avoir rien vérifié.
@@ -308,7 +341,7 @@ jobs:
       - name: Cache des assets cuits
         id: cooked
         if: matrix.preset == 'linux-release'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             assets-cache/.cooked
@@ -326,6 +359,16 @@ jobs:
             echo "::error::cache des assets cuits restauré, mais le cuiseur a recuit des fichiers"
             exit 1
           fi
+
+      # Enregistré par main seul (#382), juste après la cuisson qui le remplit.
+      - name: Enregistrer le cache des assets cuits
+        if: matrix.preset == 'linux-release' && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cooked.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            assets-cache/.cooked
+            assets-cache/**/*.meta
+          key: ${{ steps.cooked.outputs.cache-primary-key }}
 
       - name: Lancer le sandbox avec Sponza cuite
         if: matrix.preset == 'linux-release'
@@ -501,9 +544,10 @@ jobs:
           done
 
       # Enregistré dès que les ports sont là : un échec plus loin ne les fait pas recompiler au push suivant, plus
-      # d'une heure la première fois sur ce runner.
+      # d'une heure la première fois sur ce runner. Par main seul (#382) : une PR ou un lancement à la main restaure,
+      # et recompile si la clé a changé, au lieu de laisser sa copie de 1 Go chasser celle de main.
       - name: Enregistrer le cache vcpkg
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: vcpkg-cache
@@ -858,7 +902,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ninja-build zip unzip
 
       - name: Cache d'Emscripten
-        uses: actions/cache@v4
+        id: emsdk
+        uses: actions/cache/restore@v4
         with:
           path: emsdk
           key: emsdk-${{ env.EMSDK_VERSION }}
@@ -879,7 +924,8 @@ jobs:
         run: git clone --depth 1 --branch "${{ env.VCPKG_TAG }}" https://github.com/microsoft/vcpkg.git vcpkg
 
       - name: Cache des téléchargements vcpkg
-        uses: actions/cache@v4
+        id: vcpkg-downloads
+        uses: actions/cache/restore@v4
         with:
           path: vcpkg-downloads
           key: vcpkg-downloads-web-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
@@ -906,7 +952,8 @@ jobs:
       # Une clé à part des jobs natifs : les paquets wasm32-emscripten ne leur servent pas, et deux
       # jobs qui écrivent la même clé se la disputent. L'image du runner y est aussi, comme pour eux.
       - name: Cache vcpkg
-        uses: actions/cache@v4
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
         with:
           path: vcpkg-cache
           key: vcpkg-web-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}
@@ -942,6 +989,30 @@ jobs:
           # La page du sandbox (#186), que publiera GitHub Pages.
           test -s build/web/sandbox/levain_sandbox.wasm \
             || { echo "::error::le sandbox web n'a pas été construit"; exit 1; }
+
+      # Les trois caches du job web, enregistrés par main seul (#382). Après cette étape et non après leur
+      # restauration : vcpkg y installe ses ports, et Emscripten y range les bibliothèques qu'il construit à la demande,
+      # dans emsdk/.
+      - name: Enregistrer le cache d'Emscripten
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.emsdk.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: emsdk
+          key: ${{ steps.emsdk.outputs.cache-primary-key }}
+
+      - name: Enregistrer les téléchargements vcpkg
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.vcpkg-downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg-downloads
+          key: ${{ steps.vcpkg-downloads.outputs.cache-primary-key }}
+
+      - name: Enregistrer le cache vcpkg
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       # Le refus de --gpu dans un vrai navigateur (#18) : `?args=--gpu vulkan` ou `--gpu d3d12` doit s'afficher dans le
       # statut de la page et y rester (GOTCHA du skill build). Le Firefox du runner, headless : le premier navigateur
