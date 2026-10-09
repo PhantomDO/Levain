@@ -38,8 +38,8 @@ struct TooManyFields // 33 champs, un de plus que la dernière branche de l'éch
 #endif
 
 // Deux refus pour une même struct : `IsStdArray` l'arrête avant, `isIdentifier` quand elle passe.
-// Le second n'a pas d'autre déclencheur sous clang : libstdc++ nomme le membre « _M_elems[2] », que
-// `fieldName` découpe en un nom qui n'en est pas un.
+// Le second n'a pas d'autre déclencheur sous clang : libstdc++ nomme le membre « _M_elems[2] », la
+// STL de MSVC « _Elems[2] », que `fieldName` découpe en un nom qui n'en est pas un.
 #if defined(LEVAIN_REFUSAL_STD_ARRAY) || defined(LEVAIN_REFUSAL_FIELD_NAME_FORMAT)
 struct WithArray // les liaisons l'ouvriraient, mais `fieldName` y lirait « _M_elems[2] »
 {

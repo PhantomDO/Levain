@@ -255,8 +255,8 @@ endforeach()
 # répète la ligne de source sous l'erreur, et le message d'une autre erreur de cette ligne passerait. Le code de
 # sortie n'est pas lu (PASS_REGULAR_EXPRESSION) : une struct devenue valide compile en silence, et le motif manque.
 # Des tests de l'hôte (cmake --build), aussi sur l'arbre clang-cl de Windows, mais pas dans le build web, qui
-# s'arrête avant (return() plus haut). RESOURCE_LOCK : deux builds de l'arbre à la fois (ctest -j) corrompraient
-# le journal de Ninja.
+# s'arrête avant (return() plus haut). RESOURCE_LOCK : deux builds de l'arbre à la fois (ctest -j) pourraient
+# corrompre le journal de Ninja.
 # Hors de compile_commands.json, sinon clang-tidy (tools/verify.sh, ci.yml) compilerait chaque cas et échouerait
 # sur son erreur : la cible `control` bâtie avec le reste, sans cas, garde le fichier dans la base et dans l'analyse.
 add_library(levain_reflection_compile_control OBJECT reflection_compile_refusals.cpp)
