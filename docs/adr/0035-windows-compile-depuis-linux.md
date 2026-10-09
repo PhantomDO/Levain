@@ -232,8 +232,9 @@ Visual Studio reste à essayer.
   configuration : les mêmes étapes, par le même script (`tools/ci-programs.sh`), dans le bash de Git du runner, avec
   une vraie fenêtre. Les assets de test n'entrent pas dans l'artefact, que tout compte GitHub peut télécharger : la
   licence de Sponza l'interdit ; le runner reprend le cache d'assets des jobs Linux, sinon les télécharge. Répété sur
-  le portable, sous lavapipe pour Windows et sur la 4070 : tout passe, sauf une fois sur quatre la vue terrain en
-  Debug sous lavapipe, juste en 3 s (build/GOTCHA.md) ; le runner tranchera.
+  le portable, sous lavapipe pour Windows et sur la 4070 : tout passe, sauf la vue terrain en Debug sous lavapipe,
+  trop lent pour mesurer son temps GPU en 3 s (une fois sur trois, et à chaque fois limité aux 4 processeurs du
+  runner, build/GOTCHA.md) : à trancher par Donnovan, sans argument changé ni étape écartée d'ici là.
 
 ### Les PR et le reste
 

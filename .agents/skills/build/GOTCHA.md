@@ -29,10 +29,14 @@ du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
 - **Lancé de la distro, le bash de Git** a pour dossier courant `//wsl.localhost/levain-dev/…` : `mkdir -p` d'un
   chemin absolu de ce partage échoue (« Read-only file system », il remonte jusqu'à `//wsl.localhost`), un chemin
   relatif passe ; `TMPDIR` dans le scratchpad, sans quoi `mktemp` et `<<<` écrivent dans le `%TEMP%` de Donnovan.
-- **La vue terrain, 3 s sous lavapipe pour Windows, en Debug, est juste** : 3, 6 puis 5 images en 3,3 s sur le
-  portable, d'où 0, 3 puis 2 mesures du minuteur GPU, qui en demande une (« l'étape transparente n'a rien dessiné »,
-  rouge la première fois). Le runner Linux en fait 7. Le runner Windows le dira ; pas d'argument changé ni d'étape
-  écartée sans Donnovan.
+- **lavapipe pour Windows est 1,6 à 5 fois plus lent que celui de la distro**, sur la même machine (Debug, 32
+  processeurs : le terrain 3 à 6 images en 3,3 s contre 16, le personnage 81,5 s contre 51,3 pour 200 pas). Limité à
+  4 processeurs comme le runner (`cmd.exe /c start "" /b /wait /affinity F` devant le bash de Git, et
+  `LP_NUM_THREADS=4`), la vue terrain ne fait que 3 images en 3 s : le minuteur GPU, qui en demande quatre pour une
+  mesure, n'a rien mesuré, et « l'étape transparente n'a rien dessiné » (rouge, comme une fois sur trois sans limite) ;
+  le renard dans la vallée sur WebGPU tourne 234,5 s, sous les 300 s de son `timeout`. Le runner Linux fait 7 images.
+  Pas d'argument changé ni d'étape écartée sans Donnovan. Ce `start` ne rend pas le code de l'enfant : lire les
+  `::error::` du journal.
 
 ## La CI Windows : lavapipe pour Windows, ctest sur des chemins Linux (2026-10-08)
 
