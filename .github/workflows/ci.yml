@@ -735,9 +735,19 @@ jobs:
             throw "tests hors doctest différents de windows-build : manquent [$($missing -join ', ')], en trop [$($extra -join ', ')]"
           }
 
+      # La taille du bureau, pour mémoire dans le journal : la fenêtre du sandbox (1920 × 1080, redimensionnable) s'y
+      # réduit si le bureau est plus petit, et `--pick 960,540` ne viserait plus le centre. L'étape de la physique
+      # (tools/ci-programs.sh, requireFullHdCapture) échoue alors en le disant ; celle-ci ne juge rien, elle donne la
+      # taille qu'elle a vue. Le runner ne documente pas son bureau (GitHub), d'où la ligne.
+      - name: Bureau du runner
+        run: |
+          Get-CimInstance Win32_VideoController |
+            Select-Object Name, CurrentHorizontalResolution, CurrentVerticalResolution | Format-List
+
       # Le sandbox, son éditeur et le cuiseur, comme dans le job Linux de la même configuration (windows-debug pour
-      # linux-debug, windows-release pour linux-release) : les mêmes étapes, sous les mêmes conditions, par le même
-      # script, dans le bash de Git, à la racine du miroir. Rien pour linux-asan, qui n'a pas d'équivalent ici.
+      # linux-debug, windows-release pour linux-release) : les mêmes étapes, sous les mêmes conditions, dans le bash de
+      # Git, à la racine du miroir ; le sandbox et l'éditeur par tools/ci-programs.sh, le hot-reload et la cuisson comme
+      # sous Linux. Rien pour linux-asan, qui n'a pas d'équivalent ici.
       - name: Lancer le sandbox
         shell: bash
         working-directory: ${{ env.MIRROR }}

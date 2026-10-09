@@ -138,6 +138,19 @@ runTerrain() {
     done
 }
 
+# Le pixel de `--pick 960,540` est le centre d'une fenêtre de 1920 × 1080, celle que le sandbox demande. Windows
+# réduit une fenêtre redimensionnable à la taille du bureau (celui d'un runner n'est pas documenté) : le pixel
+# visé cesserait d'être le centre, et la sélection échouerait sous un message trompeur (« aucune caisse »), ou
+# passerait sans plus vérifier ce que le commentaire de `runPhysics` dit (règle n°7). La taille se lit sur la
+# capture, relue de la swapchain : le contrôle échoue en nommant la cause, avant ceux qui en dépendent.
+requireFullHdCapture() { # $1 = journal, $2 = capture, $3 = backend
+    grep -q "capture : $2 (1920 × 1080)" "$1" || {
+        echo "::error::la capture $2 ne fait pas 1920 × 1080 (bureau plus petit que la fenêtre ?) : --pick 960,540" \
+            "ne vise plus le centre ($3) ; journal : $(grep -o "capture : .*" "$1" || echo "aucune ligne de capture")"
+        exit 1
+    }
+}
+
 # Les 1 000 caisses de M6.1 (ADR-0026), et leur sélection par raycast (M6.2, ADR-0027) : Jolt
 # dans l'application, sous la validation, les sanitizers et les deux backends. La plus haute
 # part de 18,4 m (`HighestCrateStart`) : après 3 s, elle doit être descendue, ce que 8 pas
@@ -151,6 +164,7 @@ runPhysics() {
         timeout --foreground --preserve-status -k 10 120 \
             "$sandbox" --gpu $gpu --seconds 3 \
             --view physics --pick 960,540 --capture physics-$gpu.png | logTo physics-$gpu.log
+        requireFullHdCapture physics-$gpu.log physics-$gpu.png $gpu
         line=$(grep -o "physique : [0-9]* corps ; la caisse la plus haute à y = [-0-9.]* m" physics-$gpu.log) \
             || { echo "::error::le sandbox n'a pas rendu compte de la physique ($gpu)"; exit 1; }
         echo "$line" | grep -q "physique : 1001 corps" \
