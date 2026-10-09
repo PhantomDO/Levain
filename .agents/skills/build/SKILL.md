@@ -187,3 +187,20 @@ puis déclarer `http://127.0.0.1:47380/mcp` auprès de l'agent.
 `.github/workflows/ci.yml` : une matrice `linux-debug`, `linux-release`, `linux-asan`, chacun compilé, testé et
 lancé 3 s ; format et clang-tidy sur `linux-debug`. Les trois sont des checks requis pour fusionner sur `main`.
 `linux-release` compile aussi le build profilé (`-DLEVAIN_PROFILING=ON`, sandbox et tests), sans le lancer (#298).
+
+Windows (ADR-0035, #346), en deux temps. `windows-build`, sur Linux : le winsysroot par `tools/winsysroot.sh` (en
+cache, son chemin tiré du tampon du script, `--stamp`), `windows-debug` et `windows-release` compilés (cache vcpkg
+`vcpkg-windows-*`, enregistré dès la configuration ; l'empreinte de clang-cl est dans la clé : un llvm-23 republié
+par apt.llvm.org coûte un passage à froid, de 1 h 28 à 1 h 52 : runs 37853947275 et 37826674786), `ctest -L host`
+sur les deux arbres, la liste des tests hors doctest, puis un artefact par configuration : les exe de `tests/` et
+leurs voisins, les shaders, les fichiers de ctest, `tests/data` et `data`, rien de Microsoft. `windows-debug` et
+`windows-release`, sur `windows-2025-vs2026` : l'arbre extrait sous `C:\home\runner\work\…`, où les chemins
+Linux compilés dans les tests se résolvent ; lavapipe de mesa-dist-win et le chargeur Vulkan de LunarG (versions et
+SHA-256 dans `ci.yml`), lavapipe et les couches inscrits au registre (le runner est administrateur) ; la CRT du
+runner vérifiée ; puis `ctest -LE host`, la découverte des cas de doctest faite
+là, leur nombre comparé à `levain_tests.exe --count`, les autres tests à la liste de `windows-build`. Le sandbox et
+l'éditeur sous Windows : PR suivante, décision 4 de l'ADR-0035.
+
+`windows-build`, `windows-debug` et `windows-release` sont requis tous les trois ensemble dès la fusion de #359
+(sondage de Donnovan du 2026-10-08) : l'agent de la session les pose juste après. Après elle, puis après chaque
+llvm-23 republié, le premier passage de `main` est à froid, comme les PR ouvertes (seul `main` donne son cache).

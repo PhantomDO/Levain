@@ -5,16 +5,16 @@ on:
     branches: [main]
   pull_request:
 
-# Une PR poussée trois fois de suite n'occupe pas trois fois les runners.
+# Une PR poussée trois fois de suite n'occupe pas trois fois les runners. Sur main, un passage n'est jamais annulé :
+# celui qui suit une clé changée n'enregistre le cache vcpkg Windows qu'au bout d'1 h 20, et seul main le donne aux
+# PR suivantes (les caches d'une PR ne se lisent pas ailleurs). GitHub ne garde que le dernier passage en attente.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
-    # Linux seul (ADR-0011). Les jobs Windows de la v0.3 sont retirés : Donnovan n'a pas de
-    # machine Windows et le projet ne le cible pas pour l'instant. Les deux bugs de M0.2 —
-    # /Zc:__cplusplus et la divergence <ostream> — étaient tous deux propres à MSVC.
+    # Linux. Windows a ses jobs plus bas, windows-build puis windows-debug et windows-release (ADR-0035).
     #
     # Les noms `linux-debug`, `linux-release` et `linux-asan` sont les checks requis par la
     # protection de `main` : ne pas les renommer sans mettre la protection à jour d'abord.
@@ -608,6 +608,335 @@ jobs:
           jq -r '.[].file' build/${{ matrix.preset }}/compile_commands.json \
             | grep -E "^$PWD/(editor|engine|plugins|sandbox|tests|tools)/" | sort -u \
             | xargs clang-tidy -p build/${{ matrix.preset }} --warnings-as-errors='*'
+
+  # Windows, compilé depuis Linux par clang-cl (ADR-0035, décision 4), en deux temps. Ce job, sur Linux comme le
+  # développeur, compile `windows-debug` et `windows-release`, lance les contrôles de l'hôte (label `host` : cmake -P,
+  # Python, les symboles des PDB, `cmake.plugins.*`, `dxil.*`) et fait de chaque arbre un artefact ; les jobs
+  # `windows-debug` et `windows-release`, sur un runner Windows, y lancent tout le reste. Un job pour les deux
+  # configurations : elles partagent les ports vcpkg (le triplet compile Debug et Release) et le winsysroot.
+  # Les trois noms sont des checks à rendre requis ensemble : un job sauté parce que celui-ci a échoué compte
+  # comme réussi pour la protection de `main`.
+  windows-build:
+    name: windows-build
+    runs-on: ubuntu-26.04
+    outputs:
+      # Les tests gardent des chemins absolus de ce clone (données, shaders, levain_process_helper) : le runner
+      # Windows les recrée sur son lecteur C:.
+      workspace: ${{ github.workspace }}
+      msvc: ${{ steps.winsysroot.outputs.msvc }}
+
+    env:
+      VCPKG_TAG: "2026.07.29"
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/vcpkg-downloads
+      LLVM_VERSION: "23"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # LLVM comme les jobs Linux, plus llvm-N : llvm-lib, llvm-rc et llvm-mt pour la toolchain, llvm-pdbutil et
+      # llvm-undname pour les symboles des PDB. Ni X11 ni Vulkan : ici ne tournent que des outils de l'hôte.
+      - name: Outils
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y ninja-build zip unzip
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh ${{ env.LLVM_VERSION }}
+          sudo apt-get install -y llvm-${{ env.LLVM_VERSION }}
+          /usr/lib/llvm-${{ env.LLVM_VERSION }}/bin/clang-cl --version | grep -q "version ${{ env.LLVM_VERSION }}\." \
+            || { echo "::error::clang-cl n'est pas en version ${{ env.LLVM_VERSION }}"; exit 1; }
+
+      - name: Cloner vcpkg
+        run: git clone --depth 1 --branch "${{ env.VCPKG_TAG }}" https://github.com/microsoft/vcpkg.git vcpkg
+
+      # Les sources des ports, celles des jobs Linux, lues sans être réécrites : seules celles des ports propres à
+      # Windows (les couches de validation) viennent du réseau, quand ils se recompilent.
+      - name: Téléchargements vcpkg (ceux des jobs Linux)
+        uses: actions/cache/restore@v4
+        with:
+          path: vcpkg-downloads
+          key: vcpkg-downloads-${{ env.VCPKG_TAG }}-${{ hashFiles('vcpkg.json', 'ports/**') }}
+          restore-keys: vcpkg-downloads-${{ env.VCPKG_TAG }}-
+
+      - name: Créer le dossier des téléchargements
+        run: mkdir -p vcpkg-downloads
+
+      - name: Bootstrap vcpkg
+        run: ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+
+      # Ce que vcpkg met dans l'ABI de tous les ports et qui tient au runner. Comme pour les jobs Linux, Ubuntu et
+      # GCC, qui compile les ports de l'hôte (slangc, dxc, vcpkg-cmake, dont dépendent ceux de Windows) ; et clang-cl,
+      # qui compile les ports Windows, et dont vcpkg hache le binaire (« Detecting compiler hash for triplet
+      # x64-windows-clang »). Le llvm-23 d'apt.llvm.org est republié à chaque commit de la branche 23.x : sans son
+      # empreinte dans la clé, vcpkg recompilerait tous les ports (1 h 40) à chaque exécution, sous une clé inchangée
+      # que le cache ne réécrirait jamais.
+      - name: Image du runner
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          cc_sha=$(cat "$(readlink -f "$(command -v cc)")" "$(readlink -f "$(command -v c++)")" | sha1sum | cut -c1-12)
+          cl_sha=$(sha1sum < "$(readlink -f /usr/lib/llvm-${{ env.LLVM_VERSION }}/bin/clang-cl)" | cut -c1-12)
+          echo "IMAGE=$ID-$VERSION_ID-$cc_sha-$cl_sha" >> "$GITHUB_ENV"
+
+      # La STL et le SDK de Microsoft, par xwin (tools/winsysroot.sh, ADR-0035, décision 2), aux versions de la
+      # toolchain. Le chemin entre dans l'ABI de tous les ports (VCPKG_ENV_PASSTHROUGH du triplet : ENV:LEVAIN_WINSYSROOT
+      # dans leur vcpkg_abi_info.txt). Il porte l'empreinte du tampon du script, qui nomme ce qui fait le contenu du
+      # winsysroot (xwin, le manifeste, les versions, le code du script sans ses lignes de commentaire) : un autre
+      # winsysroot recompile les ports au lieu de reprendre ceux du cache, une ligne de commentaire corrigée, non ; un
+      # commentaire en fin de ligne de code, si.
+      - name: Chemin du winsysroot
+        id: winsysroot
+        run: |
+          set -euo pipefail
+          stamp=$(tools/winsysroot.sh --stamp)
+          id=$(sha256sum <<< "$stamp" | cut -c1-16)
+          echo "winsysroot $id : $stamp"
+          echo "WINSYSROOT_ID=$id" >> "$GITHUB_ENV"
+          echo "LEVAIN_WINSYSROOT=$HOME/winsysroot-$id" >> "$GITHUB_ENV"
+          msvc=$(sed -nE 's/^set\(levainMsvcVersion ([0-9.]+)\)$/\1/p' cmake/toolchains/windows-clang-cl.cmake)
+          echo "msvc=$msvc" >> "$GITHUB_OUTPUT"
+
+      - name: Cache du winsysroot
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LEVAIN_WINSYSROOT }}
+          key: winsysroot-${{ env.WINSYSROOT_ID }}
+
+      - name: Winsysroot
+        run: tools/winsysroot.sh "$LEVAIN_WINSYSROOT"
+
+      # Comme pour les jobs Linux, restore-keys : un manifeste ou un port overlay modifié ne recompile que ce qui
+      # change. Le préfixe porte ce qui change l'ABI de tous les ports Windows à la fois : l'image, la version de
+      # vcpkg, le winsysroot, la toolchain et les triplets, celui de l'hôte compris (vcpkg-cmake, port de l'hôte,
+      # entre dans l'ABI de presque tous les ports Windows). Un cache d'un autre préfixe n'apporterait que des
+      # archives mortes, environ 1 Go, que le cache suivant garderait.
+      - name: Cache vcpkg
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-windows-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ env.WINSYSROOT_ID }}-${{ hashFiles('cmake/toolchains/**', 'triplets/x64-windows-clang.cmake', 'triplets/x64-linux.cmake') }}-${{ hashFiles('vcpkg.json', 'ports/**') }}
+          restore-keys: vcpkg-windows-${{ env.IMAGE }}-${{ env.VCPKG_TAG }}-${{ env.WINSYSROOT_ID }}-${{ hashFiles('cmake/toolchains/**', 'triplets/x64-windows-clang.cmake', 'triplets/x64-linux.cmake') }}-
+
+      - name: Créer le dossier de cache
+        run: mkdir -p vcpkg-cache
+
+      # vcpkg installe les ports à la première configuration. Leurs arbres de compilation sont effacés après chacun :
+      # sous clang-cl, celui des couches de validation pèse 3,8 Go (build/GOTCHA.md), et le disque du runner est
+      # compté.
+      - name: Configurer
+        run: |
+          set -euo pipefail
+          for preset in windows-debug windows-release; do
+            cmake --preset $preset "-DVCPKG_INSTALL_OPTIONS=--clean-buildtrees-after-build;--clean-packages-after-build"
+          done
+
+      # Enregistré dès que les ports sont là : un échec plus loin ne les fait pas recompiler au push suivant, plus
+      # d'une heure la première fois sur ce runner.
+      - name: Enregistrer le cache vcpkg
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Compiler
+        run: |
+          set -euo pipefail
+          for preset in windows-debug windows-release; do
+            cmake --build --preset $preset
+          done
+
+      # Les contrôles de l'hôte, sur les deux arbres. La découverte des cas de levain_tests y échoue et le dit : le
+      # .exe, que Linux refuse de lancer (ENOEXEC), est alors passé à /bin/sh par execvp, d'où un « Syntax error »
+      # sans conséquence (« word unexpected » ou « Unterminated quoted string », selon les octets de l'exe). Son test
+      # rouge, levain_tests_NOT_DISCOVERED, n'a pas le label host : c'est le runner Windows qui fait la découverte.
+      # Puis la liste des tests hors doctest, que le runner devra trouver tous : un CTestTestfile perdu en route y
+      # ferait disparaître les siens sans bruit, ctest sautant un dossier absent.
+      - name: Contrôles de l'hôte
+        run: |
+          set -euo pipefail
+          for preset in windows-debug windows-release; do
+            ctest --test-dir build/$preset -L host --output-on-failure --timeout 120 --no-tests=error
+            # Les dxil.* doivent exister, comme dans les jobs Linux (#354).
+            dxil=$(ctest --test-dir build/$preset -N -R '^dxil[.]' | sed -nE 's/^Total Tests: ([0-9]+)/\1/p')
+            [ "${dxil:-0}" -ge 27 ] || { echo "::error::$preset : seulement ${dxil:-0} tests dxil.*, 27 attendus"; exit 1; }
+            ctest --test-dir build/$preset --show-only=json-v1 -LE host \
+              | python3 -I -c 'import json, sys; sys.stdout.writelines(t["name"] + "\n" for t in json.load(sys.stdin)["tests"]
+                  if not (t.get("command") or [""])[0].endswith("/levain_tests.exe"))' > build/$preset/expected-windows-tests.txt
+            echo "$preset : $(wc -l < build/$preset/expected-windows-tests.txt) tests hors doctest attendus sous Windows"
+            [ -s build/$preset/expected-windows-tests.txt ] || { echo "::error::$preset : aucun test hors doctest"; exit 1; }
+          done
+
+      # Ce que ctest lance sur le runner Windows, aux mêmes chemins : les exécutables de tests/ et leurs voisins
+      # (couches de validation), les shaders, les fichiers de ctest, les données des sources. Ni objets, ni
+      # bibliothèques, ni PDB (les symboles se lisent ici), ni rien de Microsoft (ADR-0035 : la CRT est celle du
+      # runner).
+      - name: Préparer les artefacts
+        run: |
+          set -euo pipefail
+          for preset in windows-debug windows-release; do
+            b=build/$preset
+            { find "$b" -path "$b/vcpkg_installed" -prune -o -name CTestTestfile.cmake -print
+              echo "$b/expected-windows-tests.txt"
+              find "$b/tests" -maxdepth 1 \( -name '*.exe' -o -name '*.dll' -o -name '*.json' -o -name '*.cmake' \)
+              find "$b/shaders" -maxdepth 1 -type f
+              find tests/data data -type f
+            } | sort -u > $preset.files
+            tar -cf $preset.tar -T $preset.files
+            echo "$preset : $(wc -l < $preset.files) fichiers, $(du -h $preset.tar | cut -f1)"
+          done
+
+      - name: Envoyer windows-debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-debug
+          path: windows-debug.tar
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Envoyer windows-release
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: windows-release.tar
+          retention-days: 7
+          if-no-files-found: error
+
+  # Les programmes de la cible, lancés sous Windows (ADR-0035, décision 4) : ctest, sur les fichiers que
+  # windows-build a écrits, sans les contrôles de l'hôte (`-LE host`), Debug compris : seul le Debug arrête une
+  # erreur de validation (règle n°4). Le sandbox et l'éditeur sous Windows : PR suivante, décision 4 de l'ADR-0035.
+  windows-test:
+    name: ${{ matrix.preset }}
+    needs: windows-build
+    # Visual Studio 2026 : sa CRT, Debug comprise, est celle de la STL qui a compilé (étape « Vérifier le runner »).
+    runs-on: windows-2025-vs2026
+
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [windows-debug, windows-release]
+
+    defaults:
+      run:
+        shell: pwsh
+
+    env:
+      # lavapipe, le Vulkan logiciel de Mesa, celui des jobs Linux : Mesa n'en publie pas de binaire pour Windows,
+      # mesa-dist-win (pal1000, MIT) si. Version figée, SHA-256 vérifié, comme les assets de test.
+      MESA_VERSION: "26.2.4"
+      MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695
+      # Le chargeur Vulkan, que le runner n'a pas : celui de LunarG, de la version des couches de validation du port
+      # vcpkg, posé à côté des exécutables sur le runner seulement. Pas dans vcpkg.json : à côté des exe du PC de
+      # Donnovan, il passerait devant celui du pilote NVIDIA. SHA-256 publié par LunarG.
+      VULKAN_RT_VERSION: "1.4.350.0"
+      VULKAN_RT_SHA256: 23ce69f32cef3e2799617e2b1776cd0c71030d23a91f8375821cc40d76b185b9
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.preset }}
+
+      # Les tests lisent des chemins Linux absolus, compilés dans les binaires ou écrits par ctest. Sous Windows, un
+      # chemin sans lecteur se lit sur celui du dossier courant : l'arbre est extrait sous C:\home\runner\work\…, et
+      # ctest lancé de là. Le tar de Windows, désigné par son chemin : rien ne dit lequel vient d'abord dans le PATH.
+      - name: Recréer les chemins de Linux
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mirror = 'C:' + ('${{ needs.windows-build.outputs.workspace }}' -replace '/', '\')
+          New-Item -ItemType Directory -Force $mirror | Out-Null
+          & "$env:SystemRoot\System32\tar.exe" -xf '${{ matrix.preset }}.tar' -C $mirror
+          if ($LASTEXITCODE -ne 0) { throw "extraction de ${{ matrix.preset }}.tar : code $LASTEXITCODE" }
+          "TESTS_DIR=$mirror\build\${{ matrix.preset }}" >> $env:GITHUB_ENV
+
+      - name: Cache de lavapipe et du chargeur Vulkan
+        uses: actions/cache@v4
+        with:
+          path: vulkan-rt
+          key: vulkan-rt-${{ env.MESA_VERSION }}-${{ env.MESA_SHA256 }}-${{ env.VULKAN_RT_VERSION }}-${{ env.VULKAN_RT_SHA256 }}
+
+      - name: lavapipe et le chargeur Vulkan
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          function Fetch($url, $file, $sha256) {
+            Invoke-WebRequest $url -OutFile $file
+            if ((Get-FileHash $file -Algorithm SHA256).Hash -ne $sha256) { throw "SHA-256 inattendu pour $url" }
+          }
+          function Extract($archive, [string[]] $files) {
+            7z e $archive -ovulkan-rt @files | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "extraction de $archive : code $LASTEXITCODE" }
+          }
+          if (-not (Test-Path vulkan-rt\vulkan_lvp.dll)) {
+            Fetch "https://github.com/pal1000/mesa-dist-win/releases/download/$env:MESA_VERSION/mesa3d-$env:MESA_VERSION-release-msvc.7z" mesa.7z $env:MESA_SHA256
+            Extract mesa.7z 'x64\vulkan_lvp.dll', 'x64\lvp_icd.x86_64.json'
+            $loader = "VulkanRT-X64-$env:VULKAN_RT_VERSION-Components"
+            Fetch "https://sdk.lunarg.com/sdk/download/$env:VULKAN_RT_VERSION/windows/$loader.zip" loader.zip $env:VULKAN_RT_SHA256
+            Extract loader.zip "$loader\x64\vulkan-1.dll", "$loader\x64\vulkaninfo.exe"
+          }
+          foreach ($file in 'vulkan_lvp.dll', 'lvp_icd.x86_64.json', 'vulkan-1.dll', 'vulkaninfo.exe') {
+            if (-not (Test-Path vulkan-rt\$file)) { throw "$file manque dans vulkan-rt" }
+          }
+          # À côté des exécutables : Dawn ne cherche le chargeur qu'à côté de l'exe et dans System32 (build/GOTCHA.md).
+          Copy-Item vulkan-rt\vulkan-1.dll "$env:TESTS_DIR\tests"
+          # Tout tourne ici en administrateur, et le chargeur ignore alors VK_DRIVER_FILES et VK_ADD_LAYER_PATH
+          # (« running with elevated permissions », loader_environment.c) : lavapipe et les couches de validation de
+          # l'artefact s'inscrivent au registre de cette machine jetable, comme le ferait un pilote installé.
+          $khronos = 'HKLM:\SOFTWARE\Khronos\Vulkan'
+          foreach ($entry in @{ Drivers = "$PWD\vulkan-rt\lvp_icd.x86_64.json"
+                                ExplicitLayers = "$env:TESTS_DIR\tests\VkLayer_khronos_validation.json" }.GetEnumerator()) {
+            if (-not (Test-Path "$khronos\$($entry.Key)")) { New-Item -Force "$khronos\$($entry.Key)" | Out-Null }
+            New-ItemProperty "$khronos\$($entry.Key)" -Name $entry.Value -PropertyType DWord -Value 0 | Out-Null
+          }
+
+      # La CRT vient du runner (ADR-0035 : rien de Microsoft dans l'artefact) : au moins celle de la STL qui a compilé,
+      # Debug comprise, sans quoi un exe s'arrêterait au chargement, ou plus loin, sur une fonction qui manque. Puis
+      # lavapipe et les couches de validation, que le chargeur doit trouver : vulkaninfo les nomme.
+      - name: Vérifier le runner
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msvc = [version]'${{ needs.windows-build.outputs.msvc }}'
+          foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'msvcp140d.dll', 'vcruntime140d.dll', 'ucrtbased.dll') {
+            $info = (Get-Item "$env:SystemRoot\System32\$dll").VersionInfo
+            "$dll $($info.FileVersion)"
+            # La version entière, build compris : une CRT 14.51.36100 est plus ancienne que la STL 14.51.36231.
+            $found = [version]::new($info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart)
+            if ($dll -notlike 'ucrt*' -and ($found.Major -ne $msvc.Major -or $found -lt $msvc)) {
+              throw "$dll $($info.FileVersion), plus ancienne que la STL $msvc qui a compilé"
+            }
+          }
+          $summary = & vulkan-rt\vulkaninfo.exe --summary | Out-String
+          $summary
+          if ($summary -notmatch 'llvmpipe') { throw "lavapipe n'est pas chargé par le chargeur Vulkan" }
+          if ($summary -notmatch 'VK_LAYER_KHRONOS_validation') { throw "le chargeur ne voit pas les couches de validation" }
+
+      # Tout sauf les contrôles de l'hôte, chaque cas de levain_tests dans son processus, comme sous Linux : la
+      # découverte des cas se fait ici, quand ctest lit sa liste (tests/CMakeLists.txt). Leur nombre doit être celui
+      # que donne l'exe, et les autres tests ceux que windows-build a listés, ni plus ni moins : une liste tronquée
+      # passerait sinon pour verte (règle n°7). Une vraie fenêtre pour les tests qui en ouvrent une : le lavapipe de
+      # Windows n'a pas la surface du pilote offscreen de SDL (testVideo).
+      - name: Tests
+        working-directory: ${{ env.TESTS_DIR }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ctest -LE host --output-on-failure --timeout 120 --no-tests=error
+          if ($LASTEXITCODE -ne 0) { throw "ctest : code $LASTEXITCODE" }
+          $count = [int](& tests\levain_tests.exe --count | Select-String 'filters: (\d+)').Matches[0].Groups[1].Value
+          $tests = (ctest --show-only=json-v1 -LE host | ConvertFrom-Json).tests
+          $isCase = { $_.command -and $_.command[0] -like '*/levain_tests.exe' }
+          $listed = @($tests | Where-Object $isCase).Count
+          "levain_tests : $count cas dans l'exe, $listed lancés par ctest"
+          if ($count -lt 1 -or $listed -ne $count) { throw "ctest n'a pas lancé tous les cas de levain_tests" }
+          $others = @($tests | Where-Object { -not (& $isCase) } | ForEach-Object name)
+          $expected = @(Get-Content expected-windows-tests.txt)
+          $missing = @($expected | Where-Object { $_ -cnotin $others })
+          $extra = @($others | Where-Object { $_ -cnotin $expected })
+          "tests hors doctest : $($others.Count) lancés par ctest, $($expected.Count) listés par windows-build"
+          if ($expected.Count -lt 1 -or $missing -or $extra) {
+            throw "tests hors doctest différents de windows-build : manquent [$($missing -join ', ')], en trop [$($extra -join ', ')]"
+          }
 
   # Le code CPU compilé en WebAssembly, ses tests lancés par Node (ADR-0023, #182). Un job à part :
   # ni LLVM, ni Vulkan, ni X11, mais Emscripten, figé sur la version de la machine de référence.

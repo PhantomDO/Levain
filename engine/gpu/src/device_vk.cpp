@@ -131,11 +131,12 @@ std::string describeGpu(vk::PhysicalDevice physicalDevice)
 /// Sous Windows, le chargeur Vulkan ne cherche pas les couches de validation à côté de
 /// l'exécutable : il lit d'abord les dossiers de VK_ADD_LAYER_PATH, puis le registre
 /// (LoaderLayerInterface.md, « Layer Discovery »). Le build copie celles du port vcpkg à côté de
-/// chaque exécutable (cmake/LevainVulkanLayers.cmake, ADR-0035, décision 6), pour que le même
-/// binaire tourne sur le PC de Donnovan et en CI sans rien installer : on désigne ce dossier au
-/// chargeur. Une VK_ADD_LAYER_PATH déjà posée reste maîtresse (un développeur qui essaie d'autres
-/// couches). À appeler avant la création de l'instance. Sous Linux, les couches sont celles du
-/// système (apt) et le chargeur les trouve seul.
+/// chaque exécutable (cmake/LevainVulkanLayers.cmake, ADR-0035, décision 6), pour que le binaire
+/// tourne sur le PC de Donnovan sans rien installer : on désigne ce dossier au chargeur. Le runner
+/// Windows de la CI, lui, lance tout en administrateur, et le chargeur y ignore cette variable :
+/// les couches y sont inscrites au registre (build/GOTCHA.md). Une VK_ADD_LAYER_PATH déjà posée
+/// reste maîtresse (un développeur qui essaie d'autres couches). À appeler avant la création de
+/// l'instance. Sous Linux, les couches sont celles du système (apt) et le chargeur les trouve seul.
 void addLayerPathBesideExecutable()
 {
 #ifdef _WIN32

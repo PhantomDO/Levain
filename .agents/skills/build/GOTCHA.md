@@ -3,6 +3,33 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## La CI Windows : lavapipe pour Windows, ctest sur des chemins Linux (2026-10-08)
+
+Les jobs `windows-*` de `ci.yml` (#346). Répété en local avant la CI : le ctest de Windows lancé de la distro par
+`cmd.exe`, après `pushd \\wsl.localhost\levain-dev\…\build\windows-debug`, qui prête une lettre de lecteur au partage :
+les chemins `/home/…` s'y lisent comme sur le runner (lavapipe par `VK_DRIVER_FILES`, `vulkan-1.dll` à côté des exe).
+
+- **Le lavapipe de mesa-dist-win n'a pas `VK_EXT_headless_surface`** (vulkaninfo : 16 extensions d'instance, aucune
+  « headless ») : sous `SDL_VIDEO_DRIVER=offscreen`, « Installed Vulkan doesn't implement the VK_EXT_headless_surface
+  extension ». Parade : sous Windows, les tests prennent le pilote `windows`, une vraie fenêtre (`VK_KHR_win32_surface`).
+- **Le runner Windows lance tout en administrateur, et le chargeur Vulkan ignore alors les chemins de
+  l'environnement** (`VK_DRIVER_FILES`, `VK_ADD_LAYER_PATH` : « Loader is running with elevated permissions »,
+  `loader_environment.c`) : vulkaninfo, « Found no drivers! », alors que la variable était posée ; en local, non
+  élevé, elle marchait. Parade : lavapipe et les couches de l'artefact inscrits au registre de la machine jetable
+  (`HKLM\SOFTWARE\Khronos\Vulkan\Drivers` et `ExplicitLayers`) ; vulkaninfo doit nommer les deux avant les tests.
+  Conséquence : la CI ne passe plus par `addLayerPathBesideExecutable` (`VK_ADD_LAYER_PATH`, `device_vk.cpp`) ; seul
+  le PC de Donnovan le vérifie, par `ctest -LE host` lancé de la distro.
+- **Sur le runner Linux, la découverte des cas de doctest écrit « Syntax error »** (« levain_tests : la découverte des
+  cas a échoué : 2 …/levain_tests.exe: 1: Syntax error: word unexpected », ou « Unterminated quoted string » pour
+  l'exe de Release, run 37853947275) : le noyau refuse le binaire PE
+  (ENOEXEC), et `execvp` le passe alors à `/bin/sh`, qui le lit comme un script. Sans conséquence : le test rouge
+  `levain_tests_NOT_DISCOVERED` n'a pas le label `host`, et la découverte se fait sur le runner Windows.
+- **Un faux `.exe` lancé de la distro ouvre sur le bureau de Windows un dialogue modal** (« Application 16 bits non
+  prise en charge »), et le processus attend qu'on le ferme. Un contre-test efface l'exe, il ne le remplace pas.
+- **Un job sauté parce que celui dont il dépend a échoué compte comme réussi** pour la protection de `main` :
+  `windows-build`, `windows-debug` et `windows-release` sont requis tous les trois ensemble, à partir de la fusion de
+  #359 (sondage de Donnovan du 2026-10-08) ; l'agent de la session les ajoute juste après la fusion.
+
 ## La découverte de doctest faite par ctest, et le winsysroot de xwin (2026-10-08)
 
 Les cas de `levain_tests` découverts par ctest sur la machine qui lance l'exe (`tests/CMakeLists.txt`), et le
