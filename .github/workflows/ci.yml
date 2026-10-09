@@ -539,10 +539,11 @@ jobs:
 
       # Ce que le runner Windows lance, aux mêmes chemins : pour ctest, les exécutables de tests/ et leurs voisins
       # (couches de validation), les shaders, les fichiers de ctest, les données des sources ; pour
-      # tools/ci-programs.sh, le sandbox, son éditeur et leurs voisins, le cuiseur et les scripts. Ni objets, ni
-      # bibliothèques, ni PDB (les symboles se lisent ici), ni rien de Microsoft (ADR-0035 : la CRT est celle du
-      # runner). Ni les assets de test : l'artefact d'un dépôt public se télécharge, et la licence de Sponza en
-      # interdit la redistribution (tools/assets.lock) ; le runner Windows les prend lui-même.
+      # tools/ci-programs.sh, le sandbox et son éditeur (leurs exe seulement : les couches de validation sont celles de
+      # tests/, où le registre du runner les inscrit), le cuiseur et les scripts. Ni objets, ni bibliothèques, ni PDB
+      # (les symboles se lisent ici), ni rien de Microsoft (ADR-0035 : la CRT est celle du runner). Ni les assets de
+      # test : l'artefact d'un dépôt public se télécharge, et la licence de Sponza en interdit la redistribution
+      # (tools/assets.lock) ; le runner Windows les prend lui-même.
       - name: Préparer les artefacts
         id: artifacts
         run: |
@@ -552,7 +553,8 @@ jobs:
             b=build/$preset
             { find "$b" -path "$b/vcpkg_installed" -prune -o -name CTestTestfile.cmake -print
               echo "$b/expected-windows-tests.txt"
-              find "$b/tests" "$b/sandbox" -maxdepth 1 \( -name '*.exe' -o -name '*.dll' -o -name '*.json' -o -name '*.cmake' \)
+              find "$b/tests" -maxdepth 1 \( -name '*.exe' -o -name '*.dll' -o -name '*.json' -o -name '*.cmake' \)
+              find "$b/sandbox" -maxdepth 1 -name '*.exe'
               echo "$b/tools/cook/levain_cook.exe"
               find "$b/shaders" -maxdepth 1 -type f
               find tests/data data -type f
@@ -581,7 +583,9 @@ jobs:
   # Les programmes de la cible, lancés sous Windows (ADR-0035, décision 4) : ctest, sur les fichiers que
   # windows-build a écrits, sans les contrôles de l'hôte (`-LE host`), Debug compris : seul le Debug arrête une
   # erreur de validation (règle n°4). Puis le sandbox, son éditeur et le cuiseur, comme dans le job Linux de la même
-  # configuration : les mêmes étapes, sous les mêmes conditions, par le même script (tools/ci-programs.sh).
+  # configuration : les mêmes étapes, sous les mêmes conditions ; le sandbox et l'éditeur par le même script
+  # (tools/ci-programs.sh), le hot-reload par tools/texture-hot-reload.sh et la cuisson par levain_cook, comme
+  # sous Linux.
   windows-test:
     name: ${{ matrix.preset }}
     needs: windows-build
