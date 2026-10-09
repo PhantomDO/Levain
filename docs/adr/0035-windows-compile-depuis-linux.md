@@ -131,7 +131,7 @@ le port vcpkg, pour la règle n°5.
    Microsoft, que Donnovan accepte par son choix (l'option du sondage le disait) : elles servent à compiler, et
    ne vont ni dans le dépôt ni dans les artefacts de la CI.
 3. **Vulkan d'abord.** Le moteur tel quel tourne sous Windows ; le backend D3D12 (le contenu de M1.4 :
-   `device_d3d12.cpp`, la swapchain DXGI, `--api vulkan|d3d12`, le test de fumée sous WARP) suit.
+   `device_d3d12.cpp`, la swapchain DXGI, `--gpu vulkan|d3d12`, le test de fumée sous WARP) suit.
 4. **La CI** : un job Linux compile `windows-debug` et `windows-release` et en fait un artefact ; un job Windows
    lance les programmes de la cible, Debug compris, puisque seul le Debug arrête une erreur de validation. Les
    tests Vulkan y tournent sur lavapipe pour Windows, comme sous Linux ; aucun test n'est écarté sans l'accord

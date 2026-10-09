@@ -99,7 +99,7 @@ et les issues des phases 0 et 1 avec leurs estimations. On peut le relancer : il
 1. Récupérer l'artefact Windows de la dernière CI : `gh run download --name <artefact>` (ou l'onglet Actions).
 2. Dans Steam : *Ajouter un jeu* → *Ajouter un jeu non-Steam*, choisir l'exécutable.
 3. Propriétés du raccourci → *Compatibilité* → forcer une version de Proton ; options de lancement :
-   `--api d3d12`.
+   `--gpu d3d12`.
 
 ## 5. Recevoir les notifications
 

@@ -53,6 +53,12 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
     {
         return createOffscreenWebGpuDevice(options.enableValidation);
     }
+#ifdef _WIN32
+    if (options.api == nvrhi::GraphicsAPI::D3D12)
+    {
+        return createD3d12Device(options.enableValidation);
+    }
+#endif
     return createVulkanDevice(window, options.enableValidation);
 }
 

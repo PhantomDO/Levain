@@ -16,8 +16,8 @@
 namespace levain::gpu
 {
 
-/// Les objets du backend que NVRHI ne crée pas. Chaque backend en dérive (`VulkanContext`) ; son
-/// destructeur les détruit.
+/// Les objets du backend que NVRHI ne crée pas. Chaque backend en dérive (`VulkanContext`,
+/// `D3d12Context`) ; son destructeur les détruit.
 struct NativeDevice
 {
     NativeDevice() = default;
@@ -51,6 +51,11 @@ struct Swapchain
 /// Le device Vulkan et sa swapchain (device_vk.cpp).
 [[nodiscard]] core::Result<GpuDevice> createVulkanDevice(const platform::Window& window,
                                                          bool enableValidation);
+
+#ifdef _WIN32
+/// Le device Direct3D 12 (device_d3d12.cpp). Sans swapchain encore : il dessine hors écran.
+[[nodiscard]] core::Result<GpuDevice> createD3d12Device(bool enableValidation);
+#endif
 
 /// Au-delà, le CPU attend le GPU. Sans limite, il empilerait des frames que l'écran afficherait
 /// avec d'autant plus de retard sur l'entrée du joueur.

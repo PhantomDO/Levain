@@ -42,6 +42,15 @@ if(WIN32)
     levain_ship_vulkan_layers()
 endif()
 
+# Sous Windows, le device Direct3D 12, choisi au lancement (`--gpu d3d12`, ADR-0035). Les en-têtes de
+# Direct3D 12 viennent de DirectX-Headers, par nvrhi_d3d12 qui les inclut ; ceux de DXGI, du SDK.
+# dxguid : les IID de DXGI, nommés faute de `__uuidof` (d3d12_context.hpp). nvrhi_d3d12 précède
+# nvrhi, comme nvrhi_vk plus bas.
+if(WIN32)
+    target_sources(levain_gpu PRIVATE src/device_d3d12.cpp)
+    target_link_libraries(levain_gpu PRIVATE nvrhi_d3d12 dxgi dxguid)
+endif()
+
 # Le backend Vulkan de NVRHI, vk-bootstrap et les en-têtes Vulkan restent PRIVATE : ils ne sortent
 # pas du module. nvrhi_vk est listé avant nvrhi, dont il appelle le code : l'éditeur de liens ne parcourt les
 # bibliothèques statiques qu'une fois, dans l'ordre.

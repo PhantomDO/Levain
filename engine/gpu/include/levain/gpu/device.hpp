@@ -16,9 +16,10 @@ namespace levain::gpu
 
 #ifndef __EMSCRIPTEN__
 /// Ce que NVRHI ne crée pas lui-même, propre à chaque backend : instance, surface et device Vulkan
-/// (`vulkan_context.hpp`). Une classe de base, une dérivée par backend : les deux backends natifs
-/// vivent dans le même exe Windows, où un même nom ne peut avoir qu'une définition. Ni Vulkan ni
-/// Direct3D n'apparaissent dans cet en-tête.
+/// (`vulkan_context.hpp`), ou factory DXGI, device et queue Direct3D 12 (`d3d12_context.hpp`). Une
+/// classe de base, une dérivée par backend : les deux backends natifs vivent dans le même exe
+/// Windows, où un même nom ne peut avoir qu'une définition. Ni Vulkan ni Direct3D n'apparaissent
+/// dans cet en-tête.
 struct NativeDevice;
 
 /// Détruit les objets du backend, dans l'ordre inverse de leur création.
@@ -50,12 +51,14 @@ inline constexpr nvrhi::GraphicsAPI DefaultBackend = nvrhi::GraphicsAPI::VULKAN;
 
 struct DeviceOptions
 {
-    /// Couches de validation Vulkan et couche de validation NVRHI, exigées en Debug (règle n°4).
-    /// Une erreur de l'une ou de l'autre arrête le programme sur une assertion.
+    /// Couches de validation Vulkan (ou couche de debug Direct3D 12) et couche de validation NVRHI,
+    /// exigées en Debug (règle n°4). Une erreur de l'une ou de l'autre arrête le programme sur une
+    /// assertion.
     bool enableValidation = false;
     /// Vulkan, Direct3D 12 (un build Windows seulement, ADR-0035), ou WebGPU sur Dawn (ADR-0023) :
-    /// ce dernier sert à développer et vérifier le backend WebGPU sans navigateur. Il dessine hors
-    /// écran : la fenêtre reste vide, `--capture` montre l'image.
+    /// ce dernier sert à développer et vérifier le backend WebGPU sans navigateur. WebGPU, et
+    /// Direct3D 12 tant qu'il n'a pas de swapchain, dessinent hors écran : la fenêtre reste vide,
+    /// `--capture` montre l'image.
     nvrhi::GraphicsAPI api = DefaultBackend;
 };
 
@@ -83,7 +86,8 @@ struct GpuDevice
     std::unique_ptr<NativeDevice, NativeDeviceDeleter> native;
     nvrhi::DeviceHandle nvrhi;
     std::unique_ptr<Swapchain, SwapchainDeleter> swapchain;
-    /// Sans swapchain (WebGPU en natif), l'image où dessiner, à la taille de la fenêtre.
+    /// Sans swapchain (WebGPU en natif, Direct3D 12 pour l'instant), l'image où dessiner, à la
+    /// taille de la fenêtre.
     nvrhi::TextureHandle offscreen;
 };
 #else
@@ -110,9 +114,14 @@ void requestGpuDevice(const platform::Window& window, const DeviceOptions& optio
 /// device NVRHI par-dessus. Le nom du GPU et la version du pilote sont journalisés dans la
 /// catégorie `gpu`.
 ///
-/// Échoue pour un backend absent de ce build (`requireBackendBuilt`), sans GPU compatible (Vulkan
-/// 1.3, dynamicRendering, synchronization2, timeline semaphores), ou si la validation est demandée
-/// sans que ses couches soient installées.
+/// Échoue pour un backend absent de ce build (`requireBackendBuilt`), ou sans GPU compatible :
+/// - Vulkan : 1.3, dynamicRendering, synchronization2, timeline semaphores ;
+/// - Direct3D 12 : un adaptateur matériel au niveau 12_0 et au shader model 6.0 (WARP écarté).
+///
+/// Avec la validation, échoue aussi sans ses couches : sous Vulkan, les couches de validation ;
+/// sous Direct3D 12, la couche de debug (`d3d12SDKLayers.dll`, la fonctionnalité facultative
+/// « Outils graphiques » de Windows) et `ID3D12InfoQueue1` (Windows 11, Windows Server 2025), par
+/// laquelle elle rappelle le moteur.
 [[nodiscard]] core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
                                                       const DeviceOptions& options);
 #endif

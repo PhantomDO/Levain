@@ -285,7 +285,7 @@ Réponse courte : **c'est pensé pour, et le gros du travail n'est pas graphique
 2. La swapchain DXGI, l'équivalent de `swapchain_vk.cpp`.
 3. Les shaders compilés aussi en DXIL : prévu, Slang produit SPIR-V et DXIL ([ADR-0005](adr/0005-shaders-slang.md)),
    et nos shaders suivent déjà la convention de slots HLSL de NVRHI.
-4. Le choix du backend au lancement (`--api vulkan|d3d12`).
+4. Le choix du backend au lancement (`--gpu vulkan|d3d12`).
 5. **Le plus lourd, et rien de graphique** : presets et CI Windows, choix du compilateur (clang-cl d'abord,
    [ADR-0011](adr/0011-retour-au-cpp.md)), test de fumée sous WARP.
 

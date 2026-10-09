@@ -71,9 +71,7 @@ core::Result<void> requireBackendBuilt(nvrhi::GraphicsAPI api)
                                "windows-debug ou windows-release, ADR-0035) : ici, --gpu vulkan "
                                "ou webgpu");
     }
-    return core::makeError(core::ErrorCode::Unsupported,
-                           "le backend Direct3D 12 n'est pas encore écrit (#18) : --gpu vulkan ou "
-                           "webgpu");
+    return {};
 }
 
 } // namespace levain::gpu

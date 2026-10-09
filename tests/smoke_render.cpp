@@ -360,8 +360,8 @@ levain::core::Result<Image> renderScene(nvrhi::IDevice& device, std::string_view
     return image;
 }
 
-/// L'image de `scene`, rendue par Vulkan (une fenêtre, pour la surface) ou par WebGPU (sans
-/// fenêtre).
+/// L'image de `scene`, rendue par Vulkan ou Direct3D 12 (`createGpuDevice`, sur une fenêtre :
+/// Vulkan en tire sa surface) ou par WebGPU (sans fenêtre).
 levain::core::Result<Image> renderWith(std::string_view backend, std::string_view scene)
 {
     if (backend == "webgpu")
@@ -378,7 +378,10 @@ levain::core::Result<Image> renderWith(std::string_view backend, std::string_vie
     {
         return std::unexpected(window.error());
     }
-    auto gpu = levain::gpu::createGpuDevice(*window, {.enableValidation = true});
+    auto gpu = levain::gpu::createGpuDevice(
+        *window,
+        {.enableValidation = true,
+         .api = levain::gpu::graphicsApiNamed(backend).value_or(nvrhi::GraphicsAPI::VULKAN)});
     if (!gpu)
     {
         return std::unexpected(gpu.error());
@@ -447,10 +450,10 @@ int main(int argc, char** argv)
              std::string_view{arguments[1]} != "cube-instance" &&
              std::string_view{arguments[1]} != "lines" &&
              std::string_view{arguments[1]} != "shadow") ||
-            (backend != "vulkan" && backend != "webgpu"))
+            !levain::gpu::graphicsApiNamed(backend))
         {
             std::println(stderr, "usage : levain_smoke_render "
-                                 "triangle|cube|cube-instance|lines|shadow [vulkan|webgpu]");
+                                 "triangle|cube|cube-instance|lines|shadow [vulkan|d3d12|webgpu]");
             return 2;
         }
         return runSmokeTest(arguments[1], backend);
