@@ -71,8 +71,8 @@ jq -r '.[].file' build/linux-debug/compile_commands.json | grep -E "^$PWD/(edito
 Puis, avec `LEVAIN_WINSYSROOT` posée, la même analyse sur la base de `windows-debug` : tous les fichiers que
 Windows compile, pas seulement ceux qu'il compile seul, car la base Linux ne lit pas les blocs `#ifdef _WIN32` des
 fichiers communs ; c'est la passe « clang-tidy-windows » de `verify.sh`, sur tout l'arbre.
-python3 plutôt que jq, absent de la distro ; `-P 12` pour les 150 fichiers : 32 s sur la distro, pour près de 5 min
-de calcul, qu'un clang-tidy à la fois mettrait bout à bout :
+python3 plutôt que jq, absent de la distro ; `-P 12` pour les 147 fichiers : 64 s sur la distro, pour 10 min de calcul
+(`time`, temps utilisateur), qu'un clang-tidy à la fois mettrait bout à bout :
 
 ```bash
 # tous les fichiers que Windows compile, avec les options de clang-cl ; la CI ne le fait pas encore
@@ -81,9 +81,10 @@ python3 -c 'import json; print("\n".join({e["file"] for e in json.load(open("bui
   | xargs -P 12 -n 4 clang-tidy -p build/windows-debug --warnings-as-errors='*'
 ```
 
-Elle est rouge aujourd'hui, sur du code antérieur à #18 (build/GOTCHA.md, « Les options de Windows trouvent ce que
-Linux ne voit pas ») : `verify.sh`, qui n'analyse que les fichiers changés, ne la rencontre qu'en touchant l'un des
-15 fichiers en cause.
+Elle est verte depuis #360, qui a corrigé les 16 constats que les options de Windows trouvaient dans du code antérieur
+à #18 (build/GOTCHA.md, « Les options de Windows trouvent ce que Linux ne voit pas », et « Avertissements et
+clang-tidy » pour chaque parade) : aucun constat sur les 147 fichiers, code 0. Un fichier changé qui la fait rougir
+est donc la faute de la PR qui le change.
 
 Le build web demande Emscripten (emsdk dans `~/emsdk`, version figée par `EMSDK_VERSION` dans la CI) :
 

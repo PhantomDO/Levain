@@ -74,6 +74,8 @@ du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
 
 ## Les options de Windows trouvent ce que Linux ne voit pas : 16 constats antérieurs à #18 (2026-10-08)
 
+Corrigé par #360 (2026-10-08) : le piège reste, sa parade est en place. Le symptôme est celui d'avant.
+
 - **Symptôme** : clang-tidy sur tous les fichiers de la base `windows-debug` (build/SKILL.md, la commande à la main)
   échoue sur 15 fichiers sur 150, 16 constats distincts, tous dans du code de `main` que la base Linux passe : 14
   `bugprone-exception-escape` sur le constructeur de déplacement implicite d'un type qui tient une `std::map`, une
@@ -85,10 +87,15 @@ du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
   `remove_all` lève dans un en-tête, quand celui de GCC est compilé dans la bibliothèque, où clang-tidy ne le lit
   pas. Et une énumération C sans valeur négative a `int` pour type sous-jacent dans l'ABI de Microsoft, `unsigned
   int` sous Linux : `types & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT` y mêle un signé à l'opération.
-- **Parade** : à écrire, dans une PR à part, avant que la CI ne lance la passe (#346) ; jamais en coupant la
-  vérification (règle n°4). Jusque-là, `verify.sh` échoue sur « clang-tidy-windows » dès qu'une PR change l'un de ces
-  15 fichiers : ce n'est pas la PR qui est en cause. La mesure, de la distro : la commande de build/SKILL.md, 32 s,
-  code 123 ; la liste des fichiers par un `clang-tidy` par fichier et son code de sortie.
+- **Parade** (#360, trois corrections, sans couper ni un check ni un test, règle n°4) : `~TempRoot` attrape ce que
+  `remove_all` lève et fait échouer le test en nommant l'erreur (`tests/registry_test.cpp`) ; `isValidationError`
+  masque avec une constante `VkFlags`, non signée (`engine/gpu/src/device_vk.cpp`) ; et pour les 14 déplacements
+  implicites, la ligne `bugprone-exception-escape.IgnoredExceptions: bad_array_new_length` de `.clang-tidy`, choisie
+  par Donnovan au sondage (2026-10-08). Le détail de chacune, section « Avertissements et clang-tidy ». La mesure
+  d'après, de la distro : la commande de build/SKILL.md rend le code 0 et aucun constat (`grep -E '(warning|error): '`
+  sur sa sortie) pour les 147 fichiers de `windows-debug`, en 64 s.
+  Et `verify.sh` ne rougit plus pour les fichiers corrigés : `BASE=origin/main tools/verify.sh`, qui lit les deux
+  `.cpp` que #360 change (`device_vk.cpp`, `registry_test.cpp`), rend « clang-tidy-windows : OK (2 fichiers) » et le code 0.
 
 ## `verify.sh` disait « clang-tidy OK » sans avoir lu les fichiers de Windows (2026-10-08)
 
