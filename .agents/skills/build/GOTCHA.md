@@ -94,8 +94,10 @@ Corrigé par #360 (2026-10-08) : le piège reste, sa parade est en place. Le sym
   par Donnovan au sondage (2026-10-08). Le détail de chacune, section « Avertissements et clang-tidy ». La mesure
   d'après, de la distro : la commande de build/SKILL.md rend le code 0 et aucun constat (`grep -E '(warning|error): '`
   sur sa sortie) pour les 147 fichiers de `windows-debug`, en 64 s.
-  Et `verify.sh` ne rougit plus pour les fichiers corrigés : `BASE=origin/main tools/verify.sh`, qui lit les deux
-  `.cpp` que #360 change (`device_vk.cpp`, `registry_test.cpp`), rend « clang-tidy-windows : OK (2 fichiers) » et le code 0.
+  Et `verify.sh` ne rougit plus pour les fichiers corrigés : `BASE=58c5123 tools/verify.sh` (58c5123 est le dernier
+  commit de la branche qui précède #360 dans la pile ; on cite le commit, car `tools/merge-stack.sh` supprime la
+  branche après sa fusion et que les merge commits gardent le commit) lit les deux `.cpp` que #360 change
+  (`device_vk.cpp`, `registry_test.cpp`) et rend « clang-tidy-windows : OK (2 fichiers) » et le code 0.
 
 ## `verify.sh` disait « clang-tidy OK » sans avoir lu les fichiers de Windows (2026-10-08)
 
@@ -110,15 +112,19 @@ Corrigé par #360 (2026-10-08) : le piège reste, sa parade est en place. Le sym
   première version ne prenait que les premiers ; corrigé à la relecture). Un `.cpp` changé qu'aucun build ne compile
   fait échouer sa propre étape, « clang-tidy-orphelins » (OK quand il n'y en a aucun), sauf ceux du seul build web
   (leurs options sont celles d'Emscripten), annoncés « clang-tidy-web : SAUTÉ ».
-  Contre-tests, sur la branche Direct3D 12 (`BASE=m1.4/d3d12-fixes PRESETS=linux-debug NO_WEB=1`, la première
-  version) : un `Bad_Function` glissé dans `device_d3d12.cpp`, l'ancien script dit « clang-tidy : OK (7 fichiers) », le
-  nouveau « clang-tidy-windows : FAIL » (`readability-identifier-naming`) ; un `orphan.cpp` non suivi, « FAIL (changés,
-  compilés par aucun build : engine/gpu/src/orphan.cpp) » (sous le nom de clang-tidy-windows, après un « OK (aucun
-  fichier changé) » du même nom : deux lignes pour une étape, qu'on pouvait lire comme verte ; l'étape à part, vue
-  rouge puis verte, vaut depuis) ; un commentaire dans `device_web.cpp`, « clang-tidy-web : SAUTÉ (1 fichiers…) ». Puis (`BASE=m1.4/d3d12-device`, mêmes options) : une variable `Wants_D3d12` glissée dans le
-  bloc `#ifdef _WIN32` de `device.cpp`, la première version dit « clang-tidy : OK (1 fichiers) » et
-  « clang-tidy-windows : OK (aucun fichier changé) », code 0 ; la version corrigée « clang-tidy-windows : FAIL »
-  (« invalid case style for variable 'Wants_D3d12' »), code 1.
+  Contre-tests du 2026-10-08, sur la branche Direct3D 12 telle qu'elle était avant son restack, donc sur des commits
+  jamais publiés, gardés seulement en local (base d67b00a, script 64256fe puis 5437b8f ; les noms de branche d'alors
+  pointent ailleurs aujourd'hui, et rien ne promet que ces SHA restent) : `BASE` posé sur cette branche,
+  `PRESETS=linux-debug NO_WEB=1`, la première version du
+  script : un `Bad_Function` glissé dans `device_d3d12.cpp`, l'ancien script dit « clang-tidy : OK (7 fichiers) », le
+  nouveau « clang-tidy-windows : FAIL » (`readability-identifier-naming`) ; un `orphan.cpp` non suivi,
+  « FAIL (changés, compilés par aucun build : engine/gpu/src/orphan.cpp) » (sous le nom de clang-tidy-windows, après un
+  « OK (aucun fichier changé) » du même nom : deux lignes pour une étape, qu'on pouvait lire comme verte ; l'étape à
+  part, vue rouge puis verte, vaut depuis) ; un commentaire dans `device_web.cpp`,
+  « clang-tidy-web : SAUTÉ (1 fichiers…) ». Puis, sur la même branche d'alors, mêmes options, avec un `BASE` plus haut :
+  une variable `Wants_D3d12` glissée dans le bloc `#ifdef _WIN32` de `device.cpp`, la première version dit
+  « clang-tidy : OK (1 fichiers) » et « clang-tidy-windows : OK (aucun fichier changé) », code 0 ; la version corrigée
+  « clang-tidy-windows : FAIL » (« invalid case style for variable 'Wants_D3d12' »), code 1.
 
 ## La CI Windows : lavapipe pour Windows, ctest sur des chemins Linux (2026-10-08)
 
