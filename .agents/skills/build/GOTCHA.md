@@ -3,6 +3,62 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un programme de Release qui plante n'ouvre aucune fenêtre de WER, même fenêtré, sur le portable (2026-10-09)
+
+Mesure ponctuelle derrière la décision de la Release (ADR-0035, `docs/QA.md`). Windows Error Reporting (WER)
+« affiche une interface » à un processus interactif (Microsoft, *Using WER*), et le probe de `crt.report.*` lance ses
+enfants sans fenêtre (`CREATE_NO_WINDOW`) : un programme fenêtré, le sandbox, pouvait ouvrir celle de WER, et il aurait
+fallu un mode « sans surveillance » (`-unattended` chez Unreal, `-silent-crashes` chez Unity).
+
+- **Le montage** : un programme de test à part (`probe.cpp`, clang-cl `/O2 /DNDEBUG /MD`) crée une fenêtre, la montre
+  1 s (il relève `visible=1 foreground=1`), puis plante : écriture en 0 (`windowed-null-write`) ou `abort()`
+  (`windowed-abort`). Un pilote PowerShell (`harness.ps1`) le lance, par `Start-Process` ou par l'interop de la
+  distro comme ctest (`attach`), et note toutes les 100 ms les processus nés (`WerFault`, `vsjitdebugger`, `DW20`) et
+  chaque fenêtre visible nouvelle, puis le code entier et la durée de vie. Il ne tue que par PID.
+- **Le résultat** (2026-10-09, de 10 h 19 à 10 h 23, heure locale ; `build.sh`, puis `run.sh <scénario> [attach]`) :
+  dans les neuf lancements, aucune fenêtre de WER ni du débogueur, la fenêtre du programme mise à part. Les durées de
+  vie comptent la seconde où la fenêtre reste affichée, sauf pour `console-null-write`.
+
+| Scénario | Lancé par | Code de sortie | Vie | Ce qui est né |
+|---|---|---|---|---|
+| `windowed-null-write` | `Start-Process` | 0xC0000005 | 4,18 s | `WerFault.exe -u -p <pid>`, un clone du programme |
+| `windowed-null-write` | la distro | 0xC0000005 (5 vu de la distro) | 4,22 s | idem, et un conhost |
+| `windowed-abort` | `Start-Process` | 0xC0000409 | 3,73 s | idem |
+| `windowed-abort` | la distro | 0xC0000409 (9) | 4,52 s | idem, et un conhost |
+| `windowed-null-write-noui` | `Start-Process` | 0xC0000005 | 4,13 s | idem ; `WerSetFlags(NO_UI)` relu 0x20 |
+| `windowed-abort-noui` | `Start-Process` | 0xC0000409 | 4,39 s | idem |
+| `console-null-write`, sans fenêtre | `Start-Process` | 0xC0000005 | 3,59 s | idem |
+| `windowed-null-write-nogpfault` | `Start-Process` | 0xC0000005 | 1,02 s | rien : `SEM_NOGPFAULTERRORBOX` |
+| `windowed-only`, sans plantage | `Start-Process` | 0 | 1,04 s | rien |
+
+- **`WerSetFlags(WER_FAULT_REPORTING_NO_UI)` n'y change rien** (4,13 et 4,39 s, contre 4,18 et 3,73 s sans lui) : il
+  n'y avait aucune fenêtre à couper. `vsjitdebugger.exe` n'est jamais apparu, et `AeDebug\Debugger` du portable le
+  déclare sans valeur `Auto` (Microsoft dit qu'une boîte de confirmation s'affiche alors ; qu'une valeur absente
+  vaille 0 n'est pas vérifié). Chaque plantage écrit l'événement 1000 (`Application Error`), puis le 1001
+  (`Windows Error Reporting`, APPCRASH) :
+  `wevtutil.exe qe Application /c:6 /rd:true /f:text /q:"*[System[Provider[@Name='Application Error' or
+  @Name='Windows Error Reporting']]]"`. Le `ProcessId` du 1000 est une donnée nommée (`Data[@Name='ProcessId']`), en
+  hexadécimal minuscule avec `0x` (`0x81d4`, `0xec0`), pas du texte localisé : le portable est en français.
+- **Le réglage du portable** (`reg.exe query`, lecture seule) : `Windows Error Reporting` sans `DontShowUI` ni
+  `Disabled`, aucune clé `Policies`, `Consent\DefaultConsent` à 4 (WER envoie ses rapports), une clé `LocalDumps` (des
+  sous-clés pour NVIDIA et JetBrains, aucune valeur globale : les valeurs par défaut valent, un minidump dans
+  `%LOCALAPPDATA%\CrashDumps`, dix par exécutable). **Le runner n'est pas mesuré, il est lu** : l'image
+  `windows-2025-vs2026` pose `DontShowUI=1`, `ForceQueue=1`, `DefaultConsent=1` et `AeDebug\Debugger="-"` (le
+  débogueur JIT retiré), `Configure-Diagnostics.ps1:8-21` à `e7c7cb8f` ([R1] de `docs/QA.md`).
+- **Ce que chaque plantage laisse sur le portable**, avec ou sans fenêtre : un minidump dans
+  `%LOCALAPPDATA%\CrashDumps` (`levain_crtwin_probe.exe.<pid>.dmp`, de 299 à 493 Ko, sept pour cette mesure :
+  `ls -l "$LOCALAPPDATA/CrashDumps"`) et un dossier dans `C:\ProgramData\Microsoft\Windows\WER\ReportArchive`
+  (`AppCrash_levain_crtwin_pr_…`, 34 dossiers dont le nom contient `levain` à la lecture :
+  `ls /mnt/c/ProgramData/Microsoft/Windows/WER/ReportArchive | grep -ci levain`). Lus seulement : Levain ne les efface
+  pas, WER les range à sa façon.
+- **Pas versionné, et pourquoi** : `probe.cpp` (124 lignes), `harness.ps1` (132), `build.sh`, `run.sh`, `ev.sh` et les
+  journaux sont dans le scratchpad de la session (`…/scratchpad/crt-window/`). Ils mesurent le réglage de Windows sur
+  un portable, pas du code de Levain, et il faudrait les maintenir contre une machine qui change (une mise à jour, le
+  registre) pour une mesure que personne ne refait à chaque PR. Les commandes ci-dessus, les valeurs lues et les neuf
+  lignes du tableau suffisent à la refaire. **Ce que le probe de `crt.report.*` ne garde pas** : un programme fenêtré
+  qui plante, puisque ses enfants n'ont pas de fenêtre. Sur une machine où WER en ouvrirait une, c'est le sandbox qui le
+  montrerait, à qui le regarde.
+
 ## Le sandbox sous Windows en CI : le bash de Git, Sponza hors de l'artefact (2026-10-09)
 
 Les étapes du sandbox, de l'éditeur et du cuiseur dans `windows-debug` et `windows-release` (#346), par
