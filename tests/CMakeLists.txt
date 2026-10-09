@@ -338,29 +338,39 @@ levain_add_host_test(deps.imgui-visibility
 add_executable(levain_gpu_alone gpu_alone.cpp)
 target_link_libraries(levain_gpu_alone PRIVATE levain::gpu)
 
-# En Debug, plus de fenêtre de la CRT ni d'une exception quand un programme échoue sous Windows
-# (engine/core/src/crt_report.cpp, ADR-0035). Le probe ne lie que core et n'appelle rien : chaque scénario doit
-# s'arrêter vite, avec son code exact et son message sur stderr, ce que seul le routage de core, tiré par l'éditeur de
-# liens, lui donne (le piège des bibliothèques statiques). En Release, le routage pose ses gestionnaires (filtre,
-# SIGABRT, paramètre invalide) et SEM_FAILCRITICALERRORS, puis rend la main à WER : `error-mode` y vérifie que
-# SEM_NOGPFAULTERRORBOX et le mode stderr de la CRT ne sont pas posés, et rien d'autre n'y est encore contrôlé. Les
-# autres systèmes n'ont pas ces fenêtres : rien à y contrôler, ce n'est pas un test sauté en silence. Un scénario
-# absent de la table du probe pour ce build est une erreur (usage, code 64).
-# `debugger.*` : le probe, débogueur de l'enfant, exige que le routage lui rende la main par un point d'arrêt.
+# Windows : un programme qui échoue écrit sa ligne sur stderr, puis s'arrête (Debug) ou rend la main à Windows Error
+# Reporting (Release), sans fenêtre de la CRT ni d'une exception (engine/core/src/crt_report.cpp, ADR-0035). Le probe ne
+# lie que core et n'appelle rien : chaque scénario doit finir vite, avec son code exact et son message sur stderr, ce que
+# seul le routage de core, tiré par l'éditeur de liens, lui donne (le piège des bibliothèques statiques). En Release, il
+# vérifie aussi que WER a reçu l'échec, par son événement dans le journal Application (wevtapi) : un filtre qui se
+# terminerait lui-même avec le même code ne se verrait pas autrement. Les autres systèmes n'ont pas ces fenêtres : rien
+# à y contrôler, ce n'est pas un test sauté en silence. Un scénario absent de la table du probe pour ce build est une
+# erreur (usage, code 64). `debugger.*` : le probe, débogueur de l'enfant, exige que le routage lui rende la main par un
+# point d'arrêt.
 if(WIN32)
     add_executable(levain_crt_report_probe crt_report_probe.cpp)
-    target_link_libraries(levain_crt_report_probe PRIVATE levain::core)
-    set(crtReportTests error-mode)
+    target_link_libraries(levain_crt_report_probe PRIVATE levain::core wevtapi)
+    set(crtReportTests error-mode abort uncaught-throw raise-sigabrt invalid-parameter pure-call null-write breakpoint
+        fastfail)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        list(APPEND crtReportTests stl-subscript crt-assert c-assert abort uncaught-throw raise-sigabrt null-write
-             breakpoint fastfail debugger.crt-assert debugger.abort)
+        list(APPEND crtReportTests stl-subscript crt-assert c-assert debugger.crt-assert debugger.abort)
+    else()
+        list(APPEND crtReportTests abort-without-reportfault)
     endif()
     foreach(test IN LISTS crtReportTests)
         # debugger.<scénario> : `--debugger <scénario>`.
         string(REGEX REPLACE "^debugger[.](.*)$" "--debugger;\\1" arguments "${test}")
         add_test(NAME crt.report.${test} COMMAND levain_crt_report_probe ${arguments})
-        # Le probe juge à 10 s ; ce délai-ci n'est que le filet d'un probe lui-même bloqué.
-        set_tests_properties(crt.report.${test} PROPERTIES TIMEOUT 30)
+        # Le probe juge un enfant à 10 s, ou à 120 s quand l'événement de WER dit que l'échec est chez lui : 120 s au
+        # plus, plus 5 s pour tuer l'enfant. L'attente de l'événement (10 s) ne suit qu'un enfant fini avant 10 s : elle
+        # ne s'ajoute pas au plafond. 150 s laisse une marge, le filet d'un probe lui-même bloqué.
+        set_tests_properties(crt.report.${test} PROPERTIES TIMEOUT 150)
+        # Un par un en Release : quand les plantages se chevauchent, WER perd des rapports sans un mot (le processus
+        # finit en 100 à 400 ms, sans événement), ce que la garde du probe voit comme un échec. Mesuré à -j6 avec les 8
+        # plantages en parallèle : 2 ou 3 sur 8 perdus à chaque passage, 0 sur 3 passages un par un (build/GOTCHA.md).
+        if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+            set_tests_properties(crt.report.${test} PROPERTIES RESOURCE_LOCK crt-report-wer)
+        endif()
     endforeach()
 endif()
 
