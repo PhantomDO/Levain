@@ -708,6 +708,18 @@ Corrigé par la PR de #354 (2026-10-08) : le piège reste, sa parade est en plac
 - **Symptôme 3** : une modification du modèle de page n'apparaît pas. **Cause** : `--shell-file` est une option
   de lien, pas une dépendance ; ninja ne relie pas. **Parade** : `LINK_DEPENDS` sur la cible.
 
+## Emscripten efface le statut de la page une milliseconde après le départ de main (2026-10-09)
+
+- **Symptôme** : `?args=--gpu d3d12` s'arrêtait (la console disait « dans le navigateur, le seul backend est
+  WebGPU »), mais la page restait vide : le message que `showCritical` (`sandbox/web/shell.html`) avait écrit dans
+  `#status` avait disparu. Les erreurs critiques d'avant arrivaient après la demande d'adaptateur, et restaient.
+- **Cause** : `run()` d'Emscripten arme `setTimeout(() => Module.setStatus(""), 1)` juste avant `callMain`. Un
+  message écrit pendant `main` (le refus de `requestGpuDevice` répond avant son retour) tombe avant ce timer, qui
+  l'efface. Vu avec Emscripten 6.0.10 : « Running... » → « » → le refus → « ».
+- **Parade** : `showCritical` pose un verrou (`stopped`) que `setStatus` et `onRuntimeInitialized` respectent.
+  `tools/web-smoke.sh` relit le statut 3 s plus tard : au premier passage, il verrait le message pendant la
+  milliseconde où il existe.
+
 ## Dawn natif tolère ce que le navigateur refuse (2026-09-27)
 
 - **Symptôme** : le cube passe en natif sur Dawn (0 pixel d'écart), mais dans Firefox la page reste noire, avec

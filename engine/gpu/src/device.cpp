@@ -45,6 +45,10 @@ core::Result<GpuDevice> createOffscreenWebGpuDevice(bool enableValidation)
 core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
                                         const DeviceOptions& options)
 {
+    if (auto built = requireBackendBuilt(options.api); !built)
+    {
+        return std::unexpected{std::move(built.error())};
+    }
     if (options.api == nvrhi::GraphicsAPI::WEBGPU)
     {
         return createOffscreenWebGpuDevice(options.enableValidation);

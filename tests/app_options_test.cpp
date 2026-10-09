@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "levain/app/app.hpp"
+#include "levain/gpu/device.hpp"
 
 // Les options communes de la ligne de commande (ADR-0029) : le contrat que le sandbox et *Rando*
 // partagent, et ce que lit la CI.
@@ -30,6 +31,29 @@ TEST_CASE("les options à valeurs fixées refusent toute autre valeur")
     CHECK(levain::app::parseCommonOption(settings, "--tonemap", "filmic") == OptionUse::Invalid);
     CHECK(levain::app::parseCommonOption(settings, "--sun", "1,2") == OptionUse::Invalid);
     CHECK(levain::app::parseCommonOption(settings, "--sun", "0,1,0") == OptionUse::Taken);
+}
+
+TEST_CASE("--gpu lit les trois backends, et seul un build Windows construit Direct3D 12")
+{
+    using levain::app::OptionUse;
+    levain::app::AppSettings settings;
+    CHECK(levain::app::parseCommonOption(settings, "--gpu", "d3d12") == OptionUse::Taken);
+    CHECK(settings.api == nvrhi::GraphicsAPI::D3D12);
+    CHECK(levain::app::parseCommonOption(settings, "--gpu", "vulkan") == OptionUse::Taken);
+    CHECK(settings.api == nvrhi::GraphicsAPI::VULKAN);
+    CHECK(levain::app::parseCommonOption(settings, "--gpu", "dx12") == OptionUse::Invalid);
+    CHECK(levain::app::parseCommonOption(settings, "--gpu", "D3D12") == OptionUse::Invalid);
+
+    CHECK(levain::gpu::requireBackendBuilt(nvrhi::GraphicsAPI::VULKAN).has_value());
+    CHECK(levain::gpu::requireBackendBuilt(nvrhi::GraphicsAPI::WEBGPU).has_value());
+    CHECK_FALSE(levain::gpu::requireBackendBuilt(nvrhi::GraphicsAPI::D3D11).has_value());
+    // Le refus dit pourquoi : c'est ce qu'affiche le programme lancé avec --gpu d3d12.
+    const auto d3d12 = levain::gpu::requireBackendBuilt(nvrhi::GraphicsAPI::D3D12);
+#ifdef _WIN32
+    CHECK((!d3d12 && d3d12.error().message.contains("pas encore écrit")));
+#else
+    CHECK((!d3d12 && d3d12.error().message.contains("n'existe que dans un build Windows")));
+#endif
 }
 
 TEST_CASE("les nombres doivent être positifs et sans rien d'autre dans le texte")

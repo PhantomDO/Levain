@@ -2,6 +2,8 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
+#include <string_view>
 
 #include <nvrhi/nvrhi.h>
 
@@ -36,16 +38,36 @@ struct SwapchainDeleter
 };
 #endif
 
+/// Le backend quand rien ne le choisit (`--gpu` absent) : Vulkan en natif, WebGPU dans le
+/// navigateur, qui n'a que lui (ADR-0023). Un défaut que la cible refuserait ferait échouer tout
+/// lancement sans option : le test `backends_test.cpp` vérifie que `requireBackendBuilt` l'accepte,
+/// sur chaque cible.
+#ifdef __EMSCRIPTEN__
+inline constexpr nvrhi::GraphicsAPI DefaultBackend = nvrhi::GraphicsAPI::WEBGPU;
+#else
+inline constexpr nvrhi::GraphicsAPI DefaultBackend = nvrhi::GraphicsAPI::VULKAN;
+#endif
+
 struct DeviceOptions
 {
     /// Couches de validation Vulkan et couche de validation NVRHI, exigées en Debug (règle n°4).
     /// Une erreur de l'une ou de l'autre arrête le programme sur une assertion.
     bool enableValidation = false;
-    /// Vulkan, ou WebGPU sur Dawn (ADR-0023) : ce dernier sert à développer et vérifier le backend
-    /// WebGPU sans navigateur. Il dessine hors écran : la fenêtre reste vide, `--capture` montre
-    /// l'image.
-    nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
+    /// Vulkan, Direct3D 12 (un build Windows seulement, ADR-0035), ou WebGPU sur Dawn (ADR-0023) :
+    /// ce dernier sert à développer et vérifier le backend WebGPU sans navigateur. Il dessine hors
+    /// écran : la fenêtre reste vide, `--capture` montre l'image.
+    nvrhi::GraphicsAPI api = DefaultBackend;
 };
+
+/// Le backend que nomme la ligne de commande (`--gpu`, les tests GPU) : « vulkan », « d3d12 » ou
+/// « webgpu ». Vide pour un autre nom. « d3d12 » se lit partout : c'est `requireBackendBuilt` qui
+/// le refuse hors de Windows, avec un message qui le dit.
+[[nodiscard]] std::optional<nvrhi::GraphicsAPI> graphicsApiNamed(std::string_view name);
+
+/// Refuse un backend que ce build ne contient pas : Direct3D 12 hors de Windows, tout sauf WebGPU
+/// dans le navigateur. Un refus de l'option n'afficherait que l'usage du programme, sans dire
+/// pourquoi « d3d12 » n'est pas pris.
+[[nodiscard]] core::Result<void> requireBackendBuilt(nvrhi::GraphicsAPI api);
 
 #ifndef __EMSCRIPTEN__
 /// Le GPU vu par le moteur : un `nvrhi::IDevice`, les objets du backend qui le portent, et la
@@ -77,7 +99,9 @@ struct GpuDevice
 using GpuDeviceCallback = std::function<void(core::Result<GpuDevice>)>;
 
 /// Le device, par callback : dans le navigateur, il arrive une fois la main rendue (ADR-0023,
-/// point 2), toujours sur WebGPU ; en natif, avant le retour, comme `createGpuDevice`.
+/// point 2), sur WebGPU ; en natif, avant le retour, comme `createGpuDevice`. Un backend que la
+/// cible n'a pas (`requireBackendBuilt`) n'arrive pas : le callback reçoit le refus avant le
+/// retour, et le navigateur ne lance pas WebGPU à la place sans rien dire.
 void requestGpuDevice(const platform::Window& window, const DeviceOptions& options,
                       const GpuDeviceCallback& onDevice);
 
@@ -86,8 +110,9 @@ void requestGpuDevice(const platform::Window& window, const DeviceOptions& optio
 /// device NVRHI par-dessus. Le nom du GPU et la version du pilote sont journalisés dans la
 /// catégorie `gpu`.
 ///
-/// Échoue sans GPU compatible (Vulkan 1.3, dynamicRendering, synchronization2, timeline
-/// semaphores), ou si la validation est demandée sans que ses couches soient installées.
+/// Échoue pour un backend absent de ce build (`requireBackendBuilt`), sans GPU compatible (Vulkan
+/// 1.3, dynamicRendering, synchronization2, timeline semaphores), ou si la validation est demandée
+/// sans que ses couches soient installées.
 [[nodiscard]] core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
                                                       const DeviceOptions& options);
 #endif

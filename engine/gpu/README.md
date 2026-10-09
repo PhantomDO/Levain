@@ -32,7 +32,7 @@ Il reproduit les images de Vulkan (test de fumée à 0 pixel près, renard et Sp
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/gpu/device.hpp`](include/levain/gpu/device.hpp) | `createGpuDevice`, `GpuDevice`, `DeviceOptions`, `swapchainFormat`, `beginFrame`, `presentFrame` |
+| [`include/levain/gpu/device.hpp`](include/levain/gpu/device.hpp) | `createGpuDevice`, `GpuDevice`, `DeviceOptions`, `swapchainFormat`, `beginFrame`, `presentFrame` ; `graphicsApiNamed` (`--gpu vulkan\|d3d12\|webgpu`), `DefaultBackend` (Vulkan en natif, WebGPU dans le navigateur) et `requireBackendBuilt`, qui refuse en le disant Direct3D 12 hors de Windows et tout sauf WebGPU dans le navigateur, où `requestGpuDevice` l'appelle aussi |
 | [`src/device.cpp`](src/device.cpp), [`src/native_device.hpp`](src/native_device.hpp) | Le choix du backend au lancement, la frame hors écran de WebGPU, la cadence des frames (`limitFramesInFlight`) ; les interfaces `NativeDevice` et `Swapchain` que chaque backend implémente |
 | [`include/levain/gpu/webgpu.hpp`](include/levain/gpu/webgpu.hpp) | `requestWebGpuDevice` (asynchrone dans le navigateur), `createWebGpuDevice` (natif), le canvas HTML (web) |
 | [`src/webgpu/`](src/webgpu/) | Le backend : `device.cpp` (ressources), `bindings.cpp`, `pipelines.cpp`, `commandlist.cpp`, `canvas.cpp` |

@@ -124,8 +124,9 @@ struct AppSettings
     /// `--time S` : le temps de la scène, figé. Deux captures au même temps se comparent pixel par
     /// pixel.
     std::optional<double> frozenSeconds;
-    std::optional<std::filesystem::path> capturePath;    ///< `--capture f.png` : la dernière image.
-    nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN; ///< `--gpu vulkan|webgpu`.
+    std::optional<std::filesystem::path> capturePath; ///< `--capture f.png` : la dernière image.
+    /// `--gpu vulkan|d3d12|webgpu` ; sans l'option, celui de la cible (`gpu::DefaultBackend`).
+    nvrhi::GraphicsAPI api = gpu::DefaultBackend;
     /// `--sky f.hdr|none` : le ciel qui éclaire la scène ; sans, `defaultSky` s'il existe.
     std::optional<std::filesystem::path> sky;
     std::optional<std::filesystem::path> defaultSky;
@@ -162,7 +163,8 @@ enum class OptionUse : std::uint8_t
 
 /// L'usage des options communes, pour le message d'erreur d'un programme.
 inline constexpr std::string_view CommonOptionsUsage =
-    "[--seconds N] [--steps N] [--time secondes] [--capture fichier.png] [--gpu vulkan|webgpu] "
+    "[--seconds N] [--steps N] [--time secondes] [--capture fichier.png] "
+    "[--gpu vulkan|d3d12|webgpu] "
     "[--sky fichier.hdr|none] [--sun x,y,z] [--exposure N] [--tonemap clip|aces|agx|neutral] "
     "[--anisotropy N] [--ui on|off]";
 

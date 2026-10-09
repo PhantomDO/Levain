@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -31,6 +32,7 @@
 #include "levain/core/frame_time.hpp"
 #include "levain/core/log.hpp"
 #include "levain/core/profile.hpp"
+#include "levain/gpu/device.hpp"
 #include "levain/platform/input.hpp"
 #include "levain/render/culling.hpp"
 #include "levain/render/mesh_pass.hpp"
@@ -1149,11 +1151,14 @@ OptionUse parseCommonOption(AppSettings& settings, std::string_view name, std::s
     }
     if (name == "--gpu")
     {
-        if (value != "vulkan" && value != "webgpu")
+        // « d3d12 » se lit même hors de Windows : la création du device le refuse en disant
+        // pourquoi (gpu::requireBackendBuilt), là où Invalid n'afficherait que l'usage.
+        const std::optional<nvrhi::GraphicsAPI> api = gpu::graphicsApiNamed(value);
+        if (!api)
         {
             return OptionUse::Invalid;
         }
-        settings.api = value == "webgpu" ? nvrhi::GraphicsAPI::WEBGPU : nvrhi::GraphicsAPI::VULKAN;
+        settings.api = *api;
         return OptionUse::Taken;
     }
     if (name == "--tonemap")
@@ -1238,7 +1243,8 @@ int runApp(const AppSettings& settings, const StartFunction& start)
     web.settings = settings;
     web.start = start;
     web.window.emplace(std::move(*window));
-    gpu::requestGpuDevice(*web.window, {.enableValidation = EnableValidation}, startWebApp);
+    gpu::requestGpuDevice(*web.window, {.enableValidation = EnableValidation, .api = settings.api},
+                          startWebApp);
     return 0;
 #else
     // Déclaré après window, gpu sera détruit avant elle : la surface Vulkan doit disparaître
