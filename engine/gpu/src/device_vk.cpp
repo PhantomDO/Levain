@@ -1,6 +1,7 @@
 #include <array>
 #include <cstdint>
 #include <format>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -25,7 +26,6 @@
 #include "levain/core/environment.hpp"
 #include "levain/core/log.hpp"
 #include "levain/gpu/device.hpp"
-#include "levain/gpu/webgpu.hpp"
 
 // NVRHI est compilé en bibliothèque statique : c'est à l'application de définir le dispatcher
 // dynamique de Vulkan-Hpp, une seule fois dans tout le programme, puis de l'initialiser. Seule la
@@ -35,22 +35,21 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 namespace levain::gpu
 {
 
-void VulkanContextDeleter::operator()(VulkanContext* context) const noexcept
+VulkanContext::~VulkanContext()
 {
     // Une création qui échoue en route laisse des étapes vides : on ne détruit que ce qui existe.
-    if (context->device.device != VK_NULL_HANDLE)
+    if (device.device != VK_NULL_HANDLE)
     {
-        vkb::destroy_device(context->device);
+        vkb::destroy_device(device);
     }
-    if (context->surface != VK_NULL_HANDLE)
+    if (surface != VK_NULL_HANDLE)
     {
-        vkb::destroy_surface(context->instance, context->surface);
+        vkb::destroy_surface(instance, surface);
     }
-    if (context->instance.instance != VK_NULL_HANDLE)
+    if (instance.instance != VK_NULL_HANDLE)
     {
-        vkb::destroy_instance(context->instance);
+        vkb::destroy_instance(instance);
     }
-    delete context;
 }
 
 namespace
@@ -164,24 +163,9 @@ void addLayerPathBesideExecutable()
 
 } // namespace
 
-core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
-                                        const DeviceOptions& options)
+core::Result<GpuDevice> createVulkanDevice(const platform::Window& window, bool enableValidation)
 {
-    if (options.api == nvrhi::GraphicsAPI::WEBGPU)
-    {
-        auto device = createWebGpuDevice({.enableValidation = options.enableValidation});
-        if (!device)
-        {
-            return std::unexpected{std::move(device.error())};
-        }
-        core::log("gpu", core::LogLevel::Info, "WebGPU en natif : rendu hors écran (--capture)");
-        return GpuDevice{.vulkan = nullptr,
-                         .nvrhi = std::move(*device),
-                         .swapchain = nullptr,
-                         .offscreen = nullptr};
-    }
-
-    std::unique_ptr<VulkanContext, VulkanContextDeleter> vulkan{new VulkanContext{}};
+    std::unique_ptr<VulkanContext> vulkan = std::make_unique<VulkanContext>();
 
     // SDL sait quelles extensions de surface réclame son pilote vidéo : Wayland, X11, ou
     // VK_EXT_headless_surface pour le pilote offscreen de la CI.
@@ -197,7 +181,7 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
     vkb::InstanceBuilder instanceBuilder;
     instanceBuilder.set_app_name("Levain").require_api_version(1, 3, 0).enable_extensions(
         surfaceExtensionCount, surfaceExtensions);
-    if (options.enableValidation)
+    if (enableValidation)
     {
         // enable et non request : sans les couches, l'instance échoue au lieu de se passer de la
         // validation sans rien dire (règle n°7).
@@ -344,7 +328,7 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
     // La couche de validation de NVRHI enveloppe le device : elle vérifie l'usage de NVRHI
     // lui-même, là où les couches Vulkan vérifient ce que NVRHI envoie au pilote.
     nvrhi::DeviceHandle nvrhiDevice = vulkanDevice;
-    if (options.enableValidation)
+    if (enableValidation)
     {
         nvrhiDevice = nvrhi::validation::createValidationLayer(vulkanDevice);
     }
@@ -355,16 +339,10 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
         return std::unexpected(std::move(swapchain.error()));
     }
 
-    return GpuDevice{.vulkan = std::move(vulkan),
+    return GpuDevice{.native = std::unique_ptr<NativeDevice, NativeDeviceDeleter>{vulkan.release()},
                      .nvrhi = std::move(nvrhiDevice),
                      .swapchain = std::move(*swapchain),
                      .offscreen = nullptr};
-}
-
-void requestGpuDevice(const platform::Window& window, const DeviceOptions& options,
-                      const GpuDeviceCallback& onDevice)
-{
-    onDevice(createGpuDevice(window, options));
 }
 
 } // namespace levain::gpu

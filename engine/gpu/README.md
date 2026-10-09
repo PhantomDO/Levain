@@ -16,10 +16,12 @@ Il reproduit les images de Vulkan (test de fumée à 0 pixel près, renard et Sp
 
 ## Invariants
 
-1. **Ni Vulkan ni vk-bootstrap dans l'API.** `device.hpp` n'expose que NVRHI et `platform::Window` ;
-   `VulkanContext` n'y est que déclaré. vk-bootstrap, les en-têtes Vulkan et SDL sont liés en `PRIVATE`.
+1. **Aucune API native dans l'API du module.** `device.hpp` n'expose que NVRHI et `platform::Window` ;
+   `NativeDevice` et `Swapchain` n'y sont que déclarés. Chaque backend natif en dérive dans ses fichiers
+   (`VulkanContext`, `VulkanSwapchain`) : les backends vivent ensemble dans l'exe Windows, où un même nom ne
+   peut avoir qu'une définition. vk-bootstrap, les en-têtes Vulkan et SDL sont liés en `PRIVATE`.
 2. **L'ordre de destruction est écrit dans l'ordre des déclarations.** Dans `GpuDevice` : `swapchain`, dont les
-   images sont des textures NVRHI, puis `nvrhi`, puis `vulkan`. Dans le sandbox, le `GpuDevice` est déclaré après
+   images sont des textures NVRHI, puis `nvrhi`, puis `native`. Dans le sandbox, le `GpuDevice` est déclaré après
    la fenêtre, pour que la surface disparaisse avant la fenêtre SDL qui la porte.
 3. **En Debug, toute erreur de validation arrête le programme** sur une assertion, qu'elle vienne des couches
    Vulkan ou de NVRHI (règle n°4). Les messages du *loader* Vulkan, qui signale par exemple une couche tierce
@@ -31,6 +33,7 @@ Il reproduit les images de Vulkan (test de fumée à 0 pixel près, renard et Sp
 | Fichier | Contenu |
 |---|---|
 | [`include/levain/gpu/device.hpp`](include/levain/gpu/device.hpp) | `createGpuDevice`, `GpuDevice`, `DeviceOptions`, `swapchainFormat`, `beginFrame`, `presentFrame` |
+| [`src/device.cpp`](src/device.cpp), [`src/native_device.hpp`](src/native_device.hpp) | Le choix du backend au lancement, la frame hors écran de WebGPU, la cadence des frames (`limitFramesInFlight`) ; les interfaces `NativeDevice` et `Swapchain` que chaque backend implémente |
 | [`include/levain/gpu/webgpu.hpp`](include/levain/gpu/webgpu.hpp) | `requestWebGpuDevice` (asynchrone dans le navigateur), `createWebGpuDevice` (natif), le canvas HTML (web) |
 | [`src/webgpu/`](src/webgpu/) | Le backend : `device.cpp` (ressources), `bindings.cpp`, `pipelines.cpp`, `commandlist.cpp`, `canvas.cpp` |
 

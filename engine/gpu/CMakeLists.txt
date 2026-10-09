@@ -27,11 +27,11 @@ if(EMSCRIPTEN)
     return()
 endif()
 
-# En natif : le device Vulkan et sa swapchain.
+# En natif : le choix du backend au lancement (device.cpp), le device Vulkan et sa swapchain.
 find_package(VulkanHeaders CONFIG REQUIRED)
 find_package(vk-bootstrap CONFIG REQUIRED)
 
-target_sources(levain_gpu PRIVATE src/device_vk.cpp src/swapchain_vk.cpp)
+target_sources(levain_gpu PRIVATE src/device.cpp src/device_vk.cpp src/swapchain_vk.cpp)
 
 # Sous Windows, les couches de validation sont celles du port vcpkg, copiées à côté de chaque exécutable qui lie
 # ce module ; device_vk.cpp désigne ce dossier au chargeur (ADR-0035, décision 6).
