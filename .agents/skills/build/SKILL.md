@@ -46,12 +46,16 @@ Direct3D 12 (#18) se lance à la main sur la 4070, ctest ne le déclarant pas en
 `levain_sandbox.exe --gpu d3d12`, `levain_smoke_render.exe <scène> d3d12`, `levain_light_clusters.exe d3d12`,
 `levain_environment.exe d3d12`, `levain_ui_gpu.exe d3d12`.
 
-En Debug, un exe Windows n'ouvre ni la fenêtre de la CRT ni celle d'une exception quand il échoue (assertion, STL,
-`abort()`, plantage) : le message va sur stderr et le programme s'arrête, code non nul (`engine/core/README.md`) ;
-un nouvel exécutable l'a sans rien faire s'il lie `levain::core`. `ctest -R crt.report` le contrôle, code de sortie
-exact compris, de la distro comme sur le runner Windows de la CI, dont `ctest -LE host` le lance avec le reste :
-chaque scénario en Debug, `error-mode` seul en Release. La Release est inchangée (décision à prendre), et
-`SDL_assert` ouvre encore sa propre fenêtre.
+Un exe Windows n'ouvre ni la fenêtre de la CRT ni celle d'une exception quand il échoue (assertion, STL, `abort()`,
+paramètre invalide, plantage) : le message va sur stderr, puis le programme s'arrête en Debug (code non nul), ou, en
+Release, Windows Error Reporting (WER) reçoit l'échec et le code de sortie reste celui de Windows (0xC0000409 après un
+`abort()`, ADR-0035, `engine/core/README.md`) ; un nouvel exécutable l'a sans rien faire s'il lie `levain::core`.
+`ctest -R crt.report` le contrôle, code de sortie exact compris, de la distro comme sur le runner Windows de la CI, dont
+`ctest -LE host` le lance avec le reste : quatorze scénarios en Debug, dix en Release, où le probe lit aussi l'événement
+que WER écrit pour chaque plantage, un test à la fois (`RESOURCE_LOCK` : WER perd des rapports quand ils se chevauchent,
+25 à 33 s au repos). Chaque plantage de Release dépose un rapport chez WER sur le portable (8 par passage, un minidump
+dans `%LOCALAPPDATA%\CrashDumps` : `build/GOTCHA.md`) : ne pas le lancer en boucle. `SDL_assert` ouvre encore sa propre
+fenêtre.
 
 Le premier `cmake --preset` est long : vcpkg compile les dépendances depuis les sources. Les suivants sont
 instantanés (cache `~/.cache/vcpkg`). Pour clangd : `ln -sf build/linux-debug/compile_commands.json .`

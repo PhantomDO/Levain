@@ -130,11 +130,97 @@ du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
 
 ## Un échec sous Windows ouvre une fenêtre, et le message n'arrive pas au journal (2026-10-08)
 
-Corrigé en Debug par `engine/core/src/crt_report.cpp` (`engine/core/README.md`, « Les rapports de la CRT ») ; la
-Release est à décider, et le piège reste pour qui s'en passerait.
+Corrigé par `engine/core/src/crt_report.cpp` (`engine/core/README.md`, « Les échecs sous Windows ») : en Debug, la ligne
+sur stderr puis l'arrêt ; en Release (décidé le 2026-10-09, ADR-0035), la même ligne puis Windows Error Reporting (WER).
+Le piège reste pour qui s'en passerait.
 
 - **Symptôme** : `levain_sandbox.exe` lancé de la distro ouvre « Debug Assertion Failed! » (« vector subscript out of
   range »), `abort()` et un plantage ouvrent leur fenêtre : la CI ou l'agent attend le délai de ctest.
+- **La Release, vue rouge puis verte** (2026-10-09, de 11 h 14 à 11 h 40, `ctest --test-dir build/windows-release -R
+  '^crt[.]report[.]' -j6 --timeout 60 -V` limité aux scénarios touchés, la copie de `crt_report.cpp` ou du probe remise
+  par `git checkout` ensuite, puis les mêmes scénarios verts ; 10 sur 10 à la fin, trois passages de suite) :
+
+| Faute injectée (Release sauf mention) | Rouge | Message |
+|---|---|---|
+| le gestionnaire de SIGABRT rend la main | `raise-sigabrt` (`abort` reste vert : son `abort()` finit lui-même en `__fastfail`) | « code 0x0 au lieu de 0xc0000409 : l'échec n'a pas arrêté le programme » |
+| il finit toujours par `stopProcess(3)` | `abort`, `raise-sigabrt`, `uncaught-throw`, `pure-call` | « code 0x3 au lieu de 0xc0000409 » |
+| il ignore `_CALL_REPORTFAULT` (`if (true)`) | `abort-without-reportfault` | « code 0xc0000409 au lieu de 0x3 » |
+| le filtre se termine lui-même (`TerminateProcess`, même code, même ligne) | `null-write`, `breakpoint` ; le doctest `failureEndingFor` **reste vert** | « WER n'a pas reçu l'échec : aucun événement 1000 pour le processus 0x… dans les 10000 ms » (10,2 s) |
+| le gestionnaire de SIGABRT termine par `stopProcess(0xC0000409)` au lieu de `__fastfail` | `abort`, `raise-sigabrt` | idem : le code et la ligne étaient justes |
+| le gestionnaire de paramètre invalide idem | `invalid-parameter` | idem |
+| `failureEndingFor` inversée | le doctest (2 assertions sur 2) et `null-write` | idem pour `null-write` |
+| le filtre précédent n'est jamais appelé | `uncaught-throw` | « code 0xe06d7363 au lieu de 0xc0000409 » : `std::terminate` ne tourne pas |
+| Debug : la branche C++ du filtre retirée | `uncaught-throw` | « code 0xe06d7363 au lieu de 0x3 » |
+| le filtre n'est plus posé | `null-write`, `breakpoint` | « stderr ne contient pas « 0xc0000005 » » ; WER, lui, reçoit l'échec |
+| le gestionnaire de paramètre invalide n'est plus posé | `invalid-parameter` | « stderr ne contient pas « paramètre invalide » » |
+| `SEM_NOGPFAULTERRORBOX` posé | `error-mode`, `null-write`, `breakpoint`, `abort`, `fastfail` | « WER n'a pas reçu l'échec » : WER n'est plus appelé, le témoin `fastfail` non plus |
+| les deux `/INCLUDE:LevainCrtReportRouted` retirés | 9 sur 10, sauf `fastfail` | « stderr ne contient pas… », `error-mode` lit « SEM_FAILCRITICALERRORS » absent |
+| Debug : pas de gestionnaire de SIGABRT | `raise-sigabrt` | « stderr ne contient pas… » (code 3 inchangé) |
+| `signal()` forcé en échec | `error-mode` | « routage de SIGABRT impossible : signal a échoué », code 3 avant `main` |
+| Debug : le crochet rend la main à la CRT | `abort`, `invalid-parameter`, `pure-call`, `uncaught-throw` | « stderr ne contient pas « rapport de la CRT… » » |
+| le probe cherche le PID + 1 | `null-write` | « WER n'a pas reçu l'échec » (14,4 s) |
+
+- **Deux fautes que le plan croyait attraper et qui ne le sont pas.** (1) Un filtre Release qui se termine lui-même avec
+  le code de l'exception laisse le probe et le doctest verts : seul l'événement de WER (`crt.report.*`, lignes 4 à 7 du
+  tableau) le voit. (2) Sans l'ancre, `uncaught-throw` restait vert, son gestionnaire de `std::terminate` écrivant le
+  texte attendu avant `abort()` : il attend désormais ce texte, puis la ligne de core. Et la branche C++ du filtre ne
+  sert en Release qu'à ne pas écrire une ligne trompeuse : retirée, `uncaught-throw` reste vert (le filtre précédent est
+  appelé à la fin, `std::terminate` tourne), avec « exception non gérée 0xe06d7363 » en plus.
+- **L'événement 1000 de WER**, mesuré sur 32 plantages (trois passages un par un, plus celui de l'ancre remise) : le
+  champ `ProcessId` s'écrit en hexadécimal minuscule avec `0x` (`0x81d4`), `ProcessCreationTime` aussi
+  (`0x1dd57c76a0bab75`, un FILETIME) ; l'événement est dans le journal 0 à 16 ms après la fin de l'enfant (valeurs 0, 15
+  et 16 ms). Le probe attend jusqu'à 10 s : plus de 600 fois la mesure, et un échec qui coûte ces 10 s. Un plantage de
+  Release prend de 2,9 à 4,7 s au repos, WER compris (2 875 à 4 532 ms à la première mesure, 4 671 ms au dernier passage
+  au repos ; 3 à 4,5 s en Debug dans la mesure ponctuelle, plus haut), et jusqu'à 34 s (bullet suivant).
+- **WER garde l'enfant plus de 10 s, jusqu'à 34 s : le probe l'accusait d'une fenêtre** (2026-10-09). Symptôme : `ctest
+  -LE host -j8` pendant un autre build, rouge sur quelques passages (relecture : 10,03 à 10,07 s), « toujours là après
+  10 0xx ms : une fenêtre … l'attend sans doute », sans fenêtre. Cause : WER écrit l'événement 1000 au début (0,12 à
+  1,07 s après la création de l'enfant, 358 événements), puis garde le processus en vie le temps de son minidump. Mesuré
+  (13 h 49 à 14 h 30, 11 passages Release de `ctest --test-dir build/windows-release -LE host -j8 --timeout 120 -V`, 88
+  plantages, le probe à 120 s dans une copie pour les huit premiers), durée d'un plantage, min / médiane / max en ms :
+  au repos (16) 2 859 / 3 117 / 3 687 ; builds Linux et web en boucle (24) 2 859 / 3 297 / 4 421 ; 40 boucles sur les 32
+  processeurs (8) 2 469 / 2 883 / 3 125 ; 1, 3 et 6 copies en boucle de `build/windows-release`, 6 Go (40) 3 094 / 5 437
+  / 15 515 : le disque allonge la queue (supposé, pas vérifié), le processeur non. **Deux plantages ont duré le double,
+  sans charge de notre part : 31 016 ms** (`uncaught-throw`, au premier passage Release des correctifs de la quatrième
+  relecture, après la passe Debug et deux builds presque vides de 2 et 5 étapes ; `pure-call` 12 219 et `abort` 11 890
+  ms dans le même passage, 3 390 à 3 641 ms au suivant) **et 33 906 ms** (`null-write`, lancé juste après le build du
+  probe). Leurs événements étaient là 0,18 et 0,17 s après la création de l'enfant, 30,8 et 33,7 s avant sa fin : cause
+  à trouver. Une durée fixe est donc une devinette (45 s ne valait que 1,33 fois le maximum) : l'événement décide. Un
+  enfant encore en vie à 10 s (`giveUpOnChild`) est rouge sur-le-champ sans événement 1000 pour lui (`werEventExists`,
+  PID et date de création lus au départ), « toujours là après 10 0xx ms… » : une fenêtre ou un blocage ne coûte que 10
+  s. Avec l'événement, le probe attend jusqu'à 120 s (`WerHandlingCapMilliseconds`), puis rouge, « WER traite encore
+  l'échec après N ms : une fenêtre de WER ou du débogueur l'attend sans doute ». `TIMEOUT 150` : ce plafond, 5 s pour
+  tuer l'enfant et une marge (l'attente de l'événement, 10 s, ne suit qu'un enfant fini avant 10 s). Vu rouge puis vert
+  (Release, copie du probe remise par `git checkout`, détail dans le message du commit du probe) : `hang` (attendre sans
+  fin) rouge à 10 203 ms avec le vrai journal ; la requête forcée à vrai, `slow-null-write` (dormir 15 s avant d'écrire
+  en 0) vert, forcée à faux rouge à 10 093 ms ; forcée à vrai, `hang` et plafond à 20 s : « WER traite encore l'échec
+  après 20047 ms » ; un vrai plantage avec la décision à 1,5 s : vert à 33 906 ms, rouge avec un PID lu à 0 ; `>=` de
+  `giveUpOnChild` changé en `>` : le build casse. Le vrai code : 10 sur 10 au repos, 347 sur 347 pendant un build web à
+  froid (3 453 à 4 797 ms par plantage).
+- **WER perd des rapports quand les plantages se chevauchent**, sans un mot. À `-j6`, les 8 plantages de Release en
+  parallèle : 5 événements vus sur 8 (`abort` et `breakpoint` sans événement, finis en 234 et 94 ms ; `uncaught-throw`
+  fini en 312 ms), puis 6 sur 8 (141 et 359 ms), puis 6 sur 8 (157 et 219 ms), `fastfail` compris, le témoin que Levain
+  ne touche pas. À `-j2` et `-j4`, 4 plantages : 4 sur 4. Un par un (`RESOURCE_LOCK crt-report-wer`, les dix tests de
+  Release en 25,2 à 25,8 s, 31,6 s une fois), trois passages : 8 sur 8, et 32 sur 32 avec le passage de l'ancre. La
+  cause n'est pas trouvée (une limite de WER ? le service ? la machine chargée ?) : le verrou la contourne sans
+  l'expliquer. Sans lui, deux ou trois tests sur huit rougissent pour rien.
+- **Ce que laisse chaque passage sur le portable** : `Application Error` 1000 pour `levain_crt_report_probe.exe`, 127
+  avant et après un passage Debug (+0), 135 après un passage Release (+8 : `abort`, `uncaught-throw`, `raise-sigabrt`,
+  `invalid-parameter`, `pure-call`, `null-write`, `breakpoint`, `fastfail`), `wevtutil.exe qe Application /f:xml
+  /q:"*[System[Provider[@Name='Application Error'] and EventID=1000]] and
+  *[EventData[Data[@Name='AppName']='levain_crt_report_probe.exe']]"` ; `abort-without-reportfault` n'en dépose pas. WER
+  garde dix minidumps par exécutable dans `%LOCALAPPDATA%\CrashDumps` (10 fichiers de `levain_crt_report_probe.exe` à la
+  fin). Les rapports partent selon le consentement de la machine (4 sur le portable). Sur le runner, l'image pose
+  `DontShowUI=1` et retire le débogueur JIT (entrée du 2026-10-09 plus haut) : **la garde de l'événement n'y a pas
+  encore tourné**, et si WER y est désactivé ou le journal Application illisible, `crt.report.*` y rougit au premier
+  passage de la CI, en le disant (« aucun événement 1000 », ou « le journal Application est illisible »).
+- **Petits pièges de cette PR.** `fputs` sur stderr écrit « \r\n » (mode texte de la CRT) alors que core écrit son « \n
+  » par `WriteFile` : le texte attendu de `uncaught-throw` porte « \r\n ». Les drapeaux de `EvtQuery` (`winevt.h`) sont
+  des enums signés : leur OU échoue à `bugprone-signed-bitwise`, parade des constantes en `DWORD`. Un appel virtuel pur
+  sans `volatile` passe tout de même par `_purecall` avec clang-cl 23 en Release (mesuré, `pure-call` vert) : le plan
+  craignait un `ud2`, le `volatile` reste par précaution. En Debug, `fastfail` finit en 250 à 297 ms avec
+  `SEM_NOGPFAULTERRORBOX` : WER n'est pas appelé (aucun événement de plus), là où la mesure d'avant routage lui donnait
+  2,8 s.
 - **Vu rouge sur le code livré**, les deux `/INCLUDE:LevainCrtReportRouted` retirés (2026-10-09, 03:32:20,
   `ctest --test-dir build/windows-debug -R '^crt[.]report[.]' -j6 --timeout 60 -V`) : 10 rouges sur 12.
   `stl-subscript`, `crt-assert`, `c-assert`, `abort`, `uncaught-throw`, `debugger.crt-assert` et `debugger.abort`
@@ -179,7 +265,10 @@ Release est à décider, et le piège reste pour qui s'en passerait.
   délai n'est pas inversé et ne tue pas la fenêtre de l'enfant (cinq tests `sh -c` dans un CMakeLists de la session).
   Le probe (`tests/crt_report_probe.cpp`) se pilote lui-même.
 - **Release** : une fonction que seul le code `#ifdef _DEBUG` appelle échoue en `-Wunused-function` (vu sur
-  `windows-release`) : tout le mécanisme y est, hors des fonctions pures.
+  `windows-release`) : tout le mécanisme y est, hors des fonctions pures. Depuis le 2026-10-09 la Release a ses
+  gestionnaires (filtre, SIGABRT, paramètre invalide) ; seuls le crochet de la CRT de Debug et `routeDebugCrtReports`
+  restent sous `#ifdef _DEBUG`. Une faute injectée qui laisse un gestionnaire sans appel échoue de même
+  (`-Wunused-function`, `-Wunused-but-set-global`, `-Wunused-parameter`) : le garder par un `static_cast<void>`.
 - **Un test qui ouvre une fenêtre sur le bureau de Donnovan** : le borner (`timeout`), puis `tasklist.exe | grep -i
   levain` et `taskkill.exe /F /PID <pid>`. Le probe tue lui-même son enfant au bout de 10 s.
 - **`OutputDebugStringA(vue.data())` échoue à clang-tidy** (`bugprone-suspicious-stringview-data-usage`) : une
