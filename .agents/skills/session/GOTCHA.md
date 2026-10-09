@@ -2,6 +2,44 @@
 
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut.
 
+## `gh project item-edit --number 1.1` est refusé : un décimal s'écrit en littéral dans la mutation (2026-10-09)
+
+- **Symptôme** : `gh project item-edit --project-id … --id … --field-id … --number 1.1`, pour le « Passé (h) » de #18,
+  répond « Column value must be a valid value for number column » (`gh` 2.46.0). La parade qui vient d'abord,
+  `gh api graphql -F v=1.1` avec une variable, envoie le nombre comme une chaîne, et GitHub la refuse de même.
+- **Cause** (**supposée**) : `--number` est un `float32` (`gh project item-edit --help`) et `gh api -F` ne convertit
+  que `true`, `false`, `null` et les entiers (`gh api --help`) : le décimal arrive sous une forme que la colonne
+  numérique ne prend pas. Non élucidé côté GitHub.
+- **Parade** : écrire la valeur en littéral dans la mutation, sans variable, puis relire la colonne
+  (`gh project item-list 1 --owner @me --format json --limit 200`, champ `passé (h)`) :
+
+  ```bash
+  gh api graphql -f query='
+    mutation {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: "<PROJECT_ID>", itemId: "<ITEM_ID>", fieldId: "<FIELD_ID>", value: {number: 1.1}
+      }) { projectV2Item { id } }
+    }'
+  ```
+
+## Une entrée écrite avant les réponses de Donnovan garde ses « à demander » (2026-10-09)
+
+- **Symptôme** : la relecture a trouvé, dans l'entrée du jour, « Temps Donnovan : à demander », une règle « à voter »,
+  une décision « à poser », des « reste à faire » faits, et des sommes qui ne sortaient plus de la commande citée
+  (4,55 h au lieu de 4,70 h).
+- **Cause** : l'entrée s'écrit avant les réponses, et chaque amendement change des faits sans relire le reste.
+- **Parade** : à chaque amendement, chercher ces marques dans l'entrée du jour (vu rouge sur l'ancienne version de
+  l'entrée, 5 lignes, vert sur la nouvelle) et relancer la commande de chaque somme citée :
+
+  ```bash
+  awk '/^## 2026-10-09/{f=1} /^## 2026-10-08/{f=0} f' docs/JOURNAL.md \
+    | grep -nE "à demander|à voter|À poser|à poser|reste à faire|à remplir|à décider|à rédiger"
+  ```
+
+- **La recherche ne voit pas un fait qui a bougé** (2026-10-09, l'après-midi) : #366 à #370, dites ouvertes, étaient
+  fusionnées, et « Prochaine étape » les fusionnait encore. Parade : relire l'état des PR juste avant de pousser
+  (`gh pr list --state all --json number,state,mergedAt`) et chaque nombre de PR de l'entrée.
+
 ## Le board demande le droit `project`, et `gh auth refresh` un terminal (2026-10-08)
 
 - **Symptôme** : `gh project item-list` répond « missing required scopes [read:project] » dans la distro WSL ;

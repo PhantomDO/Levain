@@ -2,19 +2,48 @@
 
 Chaque entrée : symptôme, cause, parade, date. La plus récente en haut.
 
-## `merge-stack.sh` arrêté par GitHub, deux fois dans la journée (2026-10-08)
+## `/tmp` est un tmpfs de 24 Go, de la mémoire : un clone d'essai y a fait échouer l'édition de liens (2026-10-09)
+
+- **Symptôme** : un clone d'essai du sommet de la pile, construit sous le scratchpad de la session
+  (`/tmp/claude-1000/…`), s'arrête sur « ld.bfd: final link failed: No space left on device » ; `/tmp` reste à 98 %
+  pendant environ cinq minutes (2026-10-09, vers 07 h 05 à 07 h 10), le temps de tuer le build et de supprimer le
+  clone : tout autre processus qui écrivait dans `/tmp` pouvait y rencontrer ENOSPC.
+- **Cause** : `/tmp` n'est pas sur le disque de la distro, c'est un tmpfs (`df -h /tmp` : « tmpfs 24G »), donc de la
+  mémoire. Le scratchpad y gardait déjà de vieux builds et des téléchargements de xwin ; le clone a fait le reste :
+  `df -h /tmp` lisait 24 Go de taille, 23 Go utilisés, 609 Mo libres, 98 %. Le clone supprimé et les vieux builds
+  purgés, il lisait 21 %. Le disque de la distro avait 712 Go libres (`df -h ~`).
+- **Parade** : les clones d'essai et les builds sur le disque de la distro (`git worktree add
+  ~/Projects/Levain-<sujet>`, pr-autonome/SKILL.md § 2), jamais dans le scratchpad, qui ne reçoit que de petits
+  journaux et des scripts ; purger les vieux builds du scratchpad ; `df -h /tmp` avant un build.
+
+## Un `&` après `cd … && …` met la liste entière en arrière-plan, `cd` compris (2026-10-08)
+
+- **Symptôme** : les commandes qui suivaient un `cd <worktree> && … &` se sont exécutées dans le dossier
+  `/mnt/c/…/Projects/Levain` et ont écrit dans son `shaders/mesh.slang`, que la session ne devait pas toucher (la copie
+  Windows, aux fins de ligne CRLF, d'où Claude Code a été lancé : session/GOTCHA.md, « La session distante montre le
+  dossier où Claude Code a été lancé »). Le fichier a été restauré octet pour octet.
+- **Cause** : en bash, `cd d && cmd &` envoie la liste entière, `cd` compris, dans un sous-shell en arrière-plan ; le
+  shell courant n'a pas bougé, et la commande suivante part du dossier d'où la session a été lancée.
+- **Parade** : des chemins absolus, ou `git -C <worktree>` ; un script plutôt qu'une liste ; pour le fond, l'outil de
+  tâches de fond (qui réveille la session à la fin, pr-autonome/SKILL.md § 6), jamais un `&`. Un dossier qu'aucune
+  commande ne doit toucher se vérifie ensuite par `git -C <dossier> status --short`.
+
+## `merge-stack.sh` arrêté par GitHub, deux fois dans la journée (2026-10-08, 2026-10-09)
 
 - **Symptômes** : « #348 : checks pas verts (error connecting to api.github.com) » alors que la CI tournait ;
   puis, une pile plus loin, « #351 : base non changée » après la fusion de #350.
 - **Causes** : une coupure réseau, que `gh pr checks` rend comme une sortie en erreur ; et `gh pr edit --base`, qui
   échoue avec le `gh` 2.46 d'Ubuntu 26.04 (celui de la distro WSL) sur une erreur GraphQL (« Projects (classic) is
-  being deprecated ») : cette version interroge encore les anciens Projects, que GitHub a retirés de son API ; le
-  `gh` récent de la machine de référence n'a pas le problème. Le script s'arrêtait proprement les deux fois, la
-  branche gardée.
+  being deprecated ») : cette version interroge encore les anciens Projects, que GitHub a retirés de son API ; le `gh`
+  récent de la machine de référence n'a pas le problème. `gh pr edit --body-file` échoue de la même façon, avec la même
+  erreur GraphQL (`projectCards`) : changer le texte d'une PR est aussi bloqué que changer sa base. Le script
+  s'arrêtait proprement les deux fois, la branche gardée.
 - **Parade** : le script attend 10 min au plus quand GitHub est injoignable, et change la base par l'API REST
   (`gh api -X PATCH repos/{owner}/{repo}/pulls/N -f base=main`). Contre-testé avec un faux `gh` dans le `PATH`.
   Pour rattraper une pile arrêtée : changer la base par l'API REST, supprimer la branche gardée
   (`git push origin --delete <branche>`), puis relancer le script sur la suite.
+  Pour le texte d'une PR, la même voie : `gh api -X PATCH repos/PhantomDO/Levain/pulls/N -F body=@fichier.md` (le `-F`
+  majuscule lit le fichier ; `-f` enverrait la chaîne « @fichier.md » comme corps).
 
 ## Les mesures d'un ADR viennent d'une commande, même pressé (2026-10-08)
 

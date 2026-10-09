@@ -41,8 +41,11 @@ Le board est le GitHub Project n°1, « Levain — Roadmap », avec les champs *
 ```bash
 gh project field-list 1 --owner @me --format json             # IDs des champs et des options
 gh project item-list 1 --owner @me --format json --limit 200  # IDs des items
-gh project item-edit --project-id <PROJECT_ID> --id <ITEM_ID> --field-id <FIELD_ID> --number 0.5
 gh project item-edit --project-id <PROJECT_ID> --id <ITEM_ID> --field-id <FIELD_ID> --single-select-option-id <OPTION_ID>
+# Un nombre de la colonne Estimé ou Passé : `--number 0.5` est refusé par gh 2.46 (GOTCHA.md), la valeur s'écrit en
+# littéral dans la mutation
+gh api graphql -f query='mutation { updateProjectV2ItemFieldValue(input: { projectId: "<PROJECT_ID>",
+  itemId: "<ITEM_ID>", fieldId: "<FIELD_ID>", value: {number: 0.5} }) { projectV2Item { id } } }'
 ```
 
 Une issue fermée par une PR (`Closes #N`) passe seule en Done.

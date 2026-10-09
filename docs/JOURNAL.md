@@ -31,11 +31,364 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-09 — M1.4 — La pile Windows : programmes en CI, clang-tidy, CRT en Debug puis en Release, Direct3D 12
+
+- **Temps Donnovan : 2,75 h** (estimé 1,25 h : #344, #345 et #346 à 0,25 h, #18 à 0,5 h). Sa réponse du 2026-10-09,
+  à 09 h 14 (« 4. … j'ai fait des aller-retour depuis hier mais je dirais au moins 4h »), est lue comme **4 h en
+  tout** pour M1.4 depuis le 2026-10-08, dont les 1,25 h de l'entrée précédente : 4 − 1,25 = 2,75
+  (`awk 'BEGIN { print 4 - 1.25 }'`). Réparti au prorata des estimations, avec son accord (« Tu as mon accord pour
+  écrire sur le board ») : +0,55 h pour #344, #345 et #346, 1,1 h pour #18. Le board en est le reflet, « Passé (h) »
+  #344 1,8 h, #345 0,55 h, #346 0,55 h, #18 1,1 h, #18 passée en In Progress
+  (`gh project item-list 1 --owner @me --format json --limit 300`).
+- Sessions Claude Code : 1, la même que la veille, dans la distro WSL ; des workflows y ont tourné (les relectures
+  adverses, la mise en pile).
+- Fait, en mode autonome, depuis l'entrée précédente :
+  - **fusionnées** (`tools/merge-stack.sh`, le 2026-10-08, `git log origin/main` et `gh pr view N`) : **#355** les tests
+    sous Windows, rien de coupé (le label `host`, les symboles lus dans le PDB, Dawn Null refusé) ; **#356** les
+    vecteurs de demi-angle GGX sans `sqrt(1 − cos²)` (#347) ; **#357** les tests `dxil.*` s'enregistrent,
+    `enable_testing()` avant les sous-dossiers (#354) ; **#358** le rechargement des shaders d'un exe Windows par
+    `wsl.exe`. #345, #347 et #354 sont fermées (`gh issue view N`) ;
+  - **les fusions du matin** (heure locale, UTC + 2) : Donnovan a répondu par sondage à 09 h 14 ; son « 1. Oui tu peux »
+    couvre les écritures sur GitHub (prêtes, fusion, checks requis, push, l'issue du `SDL_assert`). La session a marqué
+    prêtes **#362** et **#359**, les deux seules PR poussées de la nuit, en brouillon (07:15:07Z et 07:15:08Z), et les a
+    fusionnées par `tools/merge-stack.sh 362 359` (07:15:38Z et 07:15:53Z, `gh api
+    repos/PhantomDO/Levain/issues/N/timeline`), depuis le compte PhantomDO. `origin/main` est alors 5a15a5e, et la pile
+    repose sur 7ee5a25, que le merge commit garde (`git merge-base --is-ancestor 7ee5a25 5a15a5e`, `git diff 7ee5a25
+    5a15a5e` vide) ;
+  - **la protection de `main` et son premier passage Windows** : `main` exige `linux-debug`, `linux-release`,
+    `linux-asan`, `windows-build`, `windows-debug` et `windows-release`, avec `strict: false` (règle n°1)
+    (`gh api repos/PhantomDO/Levain/branches/main/protection/required_status_checks`). Le run 37898030243, le premier
+    avec les jobs Windows, est vert, à froid (ni le cache du winsysroot ni celui de vcpkg trouvés) : `windows-build`
+    1 h 52 min 3 s, `windows-debug` 330/330 en 50,27 s, `windows-release` 330/330 en 27,88 s, le run en entier
+    2 h 13 min 40 s (`gh run view 37898030243 --json jobs,createdAt,updatedAt`, puis `--log` pour les caches et les
+    tests) ;
+  - **la suite de la pile, poussée puis fusionnée** (`gh pr view N --json createdAt,mergedAt`) : à 11 h 30, les PR des
+    programmes, **#364** et **#365**, ouvertes, empilées et prêtes ; vertes au premier passage, l'étape « Bureau du
+    runner » comprise, que personne n'avait répétée (`Set-DisplayResolution` met le bureau à 1920 × 1080, vu dans le
+    journal du run 37911781940) ; fusionnées à 11 h 57 (09:57:38Z et 09:57:53Z), et #346 s'est fermée avec elles.
+    **#366** à **#370**, de `m1.4/tidy-windows` à `m1.4/d3d12-neutral`, ouvertes à 11 h 58, ont été fusionnées de
+    12 h 30 à 12 h 31 (10:30:23Z, 10:30:39Z, 10:30:53Z, 10:31:07Z et 10:31:49Z) ; le run 37918167073 de `main`, sur
+    0fe5fa0 (le merge commit de #370), est vert (`gh run list --branch main`) : neuf PR fusionnées en tout. À 13 h 38
+    (11:38:10Z à 11:38:41Z) se sont ouvertes **#371** à **#375**, les cinq du Direct3D 12, de `m1.4/d3d12-gpu-option` à
+    `m1.4/d3d12-resize`, vertes à la lecture (`gh pr view N --json statusCheckRollup`) ; à 13 h 39, l'issue **#376**
+    (l'indication « Ce navigateur n'a pas WebGPU » de `shell.html`, effacée par Emscripten avant d'être lue : un défaut
+    d'avant la pile, trouvé en relisant #371). L'issue **#363** (la fenêtre de `SDL_assert`, `area:platform`) est
+    ouverte depuis 09 h 25 ;
+  - **la pile** : 18 branches linéaires, sans merge commit, au-dessus de l'`origin/main` de la nuit (4dade9e), 53
+    commits (`git rev-list --count 4dade9e..m1.4/crt-release`, et `--merges` : 0), dont les deux premières seules
+    avaient été poussées de la nuit (« Écarts »). Neuf sont fusionnées, cinq ouvertes (#371 à #375) et quatre locales
+    (la CRT en Release), comme cette entrée. Dans l'ordre, de bas en haut :
+    - **`m1.4/ci-windows-prep`** (#362) `tools/winsysroot.sh`, le winsysroot de xwin au tampon nommé d'après son
+      contenu, et les cas doctest découverts par ctest au moment des tests ; **`m1.4/ci-windows`** (#359) la CI Windows
+      de l'ADR-0035 : un job Linux qui compile, deux jobs sur un runner Windows qui testent sur lavapipe, la clé du
+      cache vcpkg portant l'empreinte de clang-cl, un passage de `main` jamais annulé ;
+    - **`m1.4/ci-programs-script`** le déplacement pur des étapes Linux (sandbox, éditeur, cuiseur) dans
+      `tools/ci-programs.sh`, à lire avec `git diff --color-moved` ; **`m1.4/ci-windows-programs`** (ferme #346) ces
+      étapes sur le runner Windows, avec les mêmes contrôles (le terrain joue 8 images au lieu de 3 s, la vallée a un
+      filet de 450 s, la physique exige une capture de 1920 × 1080) ;
+    - **`m1.4/tidy-windows`** (ferme #360) clang-tidy aux options de Windows passe de 16 constats à 0 : deux défauts
+      corrigés et une ligne de `.clang-tidy` pour les 14 autres ; **`m1.4/verify-tidy-windows`** `tools/verify.sh`
+      l'analyse aussi, et échoue sur un `.cpp` changé qu'aucun build ne compile ;
+    - **`m1.4/crt-report`**, **`m1.4/crt-report-probe`** : en Debug, un échec d'exe Windows (assertion, STL, `abort()`,
+      plantage) écrit sur stderr et s'arrête sans fenêtre, puis ses contre-tests (un enfant qui échoue de douze façons,
+      code de sortie exact) ;
+    - **le backend Direct3D 12** (#18, ADR-0035), six branches : **`m1.4/d3d12-neutral`** l'API du module `gpu` neutre
+      (`NativeDevice`, `Swapchain`) ; **`m1.4/d3d12-gpu-option`** `--gpu d3d12` se lit partout et son refus dit
+      pourquoi ; **`m1.4/d3d12-fixes`** les valeurs d'effacement annoncées à la création et le correctif de NVRHI pour
+      l'état des vertex buffers, que la couche de debug a trouvés ; **`m1.4/d3d12-device`** le device (couche de debug
+      exigée, une erreur est une assertion) ; **`m1.4/d3d12-swapchain`** la swapchain DXGI, sa couche de debug relue
+      après chaque présentation ; **`m1.4/d3d12-resize`** le pilote de redimensionnement d'un exe lancé de la distro ;
+    - **la CRT en Release**, quatre branches : **`m1.4/crt-release-adr`** la décision (l'ADR-0035, la comparaison avec
+      les autres moteurs dans QA.md, la mesure d'une fenêtre de WER dans build/GOTCHA.md, les lectures) ;
+      **`m1.4/crt-release-code`** `levain_core`, qui écrit en Release aussi la ligne sur stderr pour un plantage, un
+      `abort()` et un paramètre invalide, puis rend la main à Windows Error Reporting (WER) ;
+      **`m1.4/crt-release-probe`** le probe, qui juge neuf échecs de Release un par un et demande au journal
+      d'événements si WER a reçu chacun ; **`m1.4/crt-release`** les textes : l'entrée de build/GOTCHA.md,
+      build/SKILL.md et le README de `core` ;
+    - **`m1.4/journal-pile-windows`** : cette entrée, la règle n°2 (AGENTS.md) et les pièges de la nuit
+      (pr-autonome/GOTCHA.md) et du matin (session/GOTCHA.md) ; son premier nom, `m1.4/journal-windows`, était la tête
+      de #353.
+  - **la mise en forme de la pile** : trois découpes pour tenir la règle n°2 (le déplacement des étapes, l'API neutre et
+    `--gpu`, la swapchain et son pilote), puis la CRT en Release en quatre (203, 319, 320 et 133 lignes à lire) :
+    `m1.4/crt-release`, à 452 lignes (320 + 132, puis 320 + 133 après les corrections de la relecture), a été coupée à
+    la frontière de ses deux commits pour la règle n°2, le probe dans `m1.4/crt-release-probe`, les textes restant dans
+    `m1.4/crt-release` (sixième relecture ; les tips d'avant sont sous `refs/backup/final6/<branche>`) ; chaque arbre
+    rebasé égal à celui d'avant (`git diff <ancien tip> <tip>`), aux textes de GOTCHA.md amendés près, sauf
+    `m1.4/d3d12-swapchain`, qui a perdu par construction les fichiers du pilote, désormais dans `m1.4/d3d12-resize` ;
+    les tips d'avant sous `refs/backup/restack-final/` ;
+  - **la seconde relecture**, de la matinée, a fait amender deux commits (le texte des contre-tests de build/GOTCHA.md,
+    à `m1.4/verify-tidy-windows`, et le refus de `--gpu` dans le navigateur, à `m1.4/d3d12-gpu-option`) ; la pile
+    au-dessus, rebasée (`git rebase --update-refs`, deux conflits de contexte dans `device.hpp` résolus à la main), ne
+    diffère de ses sauvegardes `refs/backup/final2/<branche>` que par ces amendements (`git diff --shortstat
+    refs/backup/final2/d3d12-resize refs/backup/final3/d3d12-resize` : 8 fichiers, 137 insertions, 9 suppressions) ;
+  - **la troisième relecture** a trouvé un défaut bloquant, corrigé à `m1.4/d3d12-gpu-option` (f68dd3e → 4f2a68b) : dans
+    le navigateur, le refus de `--gpu` n'arrivait pas sur la page (« Écarts »). La pile au-dessus est rebasée sans
+    conflit, ses tips d'avant sont sous `refs/backup/final3/<branche>`, et `git range-diff cd4eb9c
+    refs/backup/final3/d3d12-resize 9bb1a3d` ne marque `!` que ce commit, les six autres sont `=` (`git diff --shortstat
+    refs/backup/final3/d3d12-resize 9bb1a3d` : 6 fichiers, 100 insertions, 19 suppressions) ;
+  - **la quatrième relecture**, de l'après-midi, a trouvé deux défauts et six détails : le probe de la CRT en Release
+    laissait 10 s à un enfant que WER garde le temps de son minidump, et accusait une fenêtre absente quand le disque
+    travaillait (« Mesures ») ; cette entrée disait ouvertes des PR fusionnées. Les trois branches de la CRT sont
+    réécrites (le probe, QA.md, ADR-0035, deux commentaires), les citations de Donnovan rétablies mot pour mot, cette
+    entrée amendée ; le dernier détail est l'issue #376. `git range-diff 9bb1a3d..refs/backup/final4/crt-release
+    9bb1a3d..refs/backup/final5/crt-release` marque `!` quatre des six commits ; les tips d'avant sont sous
+    `refs/backup/final4/<branche>` ;
+  - **la cinquième relecture**, celle de ces correctifs, a trouvé deux défauts bloquants (dont un de citation) et cinq
+    détails : les 45 s du probe n'étaient que 1,45 fois le plus long plantage vu (31 016 ms), non les « trois fois » des
+    textes ; une citation de Donnovan à l'orthographe corrigée ; #371 à 0,3 h pour 0,4 h ; trois formulations ; une
+    phrase du texte de la PR du code de la CRT ; la ligne « Pile » des textes locaux ; les 412 lignes de cette PR. Le
+    probe juge désormais par l'événement de WER (« Mesures »). Les trois branches de la CRT et cette entrée sont
+    rebasées sur le tip de #375 (c07994e) : `git range-diff 9bb1a3d..refs/backup/final5/crt-release
+    c07994e..m1.4/crt-release` marque `!` le probe et le GOTCHA, les quatre autres sont `=` ; les tips d'avant sont sous
+    `refs/backup/final5/<branche>`.
+- Mesures (la distro WSL du portable de Donnovan, `LEVAIN_WINSYSROOT=$HOME/winsysroot`, indicatives pour le rendu, SPECS
+  § 10) ; les `BASE=m1.4/…` sont les branches de la pile, que `merge-stack.sh` supprimera, les commits restent :
+  - **la taille de chaque branche**, de la précédente à elle, et ce qu'il en reste à lire une fois les lignes déplacées
+    retirées (les lignes qui restent vertes ou rouges dans la seconde commande) :
+
+    ```bash
+    git diff --numstat <base> <tête>
+    git diff --color=always --color-moved=zebra --color-moved-ws=allow-indentation-change <base> <tête> \
+      | grep -aEc $'^\x1b\\[3[12]m'
+    ```
+
+  | Branche | Tip | Issue | PR | Commits | Lignes changées | À lire |
+  |---|---|---|---|---:|---:|---:|
+  | `m1.4/ci-windows-prep` | bf85089 | #346 | #362 | 5 | 198 + 31 − | 229 |
+  | `m1.4/ci-windows` | 7ee5a25 | #346 | #359 | 6 | 397 + 10 − | 407 |
+  | `m1.4/ci-programs-script` | 754be47 | #346 | #364 | 1 | 320 + 252 − | 196 (376 déplacées) |
+  | `m1.4/ci-windows-programs` | 58c5123 | #346 | #365 | 10 | 286 + 15 − | 301 |
+  | `m1.4/tidy-windows` | f6116ba | #360 | #366 | 6 | 81 + 2 − | 83 |
+  | `m1.4/verify-tidy-windows` | 9c5919c | #360 | #367 | 5 | 160 + 39 − | 193 (6 déplacées) |
+  | `m1.4/crt-report` | d44e613 | — | #368 | 2 | 398 + 3 − | 401 |
+  | `m1.4/crt-report-probe` | 3845228 | — | #369 | 3 | 401 + 2 − | 403 |
+  | `m1.4/d3d12-neutral` | cd4eb9c | #18 | #370 | 1 | 320 + 182 − | 313 (189 déplacées) |
+  | `m1.4/d3d12-gpu-option` | 4f2a68b | #18 | #371 | 1 | 372 + 36 − | 393 (15 déplacées) |
+  | `m1.4/d3d12-fixes` | 8e0e324 | #18 | #372 | 1 | 90 + 29 − | 105 (14 déplacées) |
+  | `m1.4/d3d12-device` | 7a4b97b | #18 | #373 | 2 | 696 + 45 − | 738 (3 déplacées) |
+  | `m1.4/d3d12-swapchain` | 51d8af1 | #18 | #374 | 2 | 611 + 64 − | 675 |
+  | `m1.4/d3d12-resize` | c07994e | #18 | #375 | 2 | 156 + 9 − | 165 |
+  | `m1.4/crt-release-adr` | 81c89a1 | — | (#377) | 2 | 201 + 2 − | 203 |
+  | `m1.4/crt-release-code` | b8370ed | — | (#378) | 2 | 277 + 90 − | 319 (48 déplacées) |
+  | `m1.4/crt-release-probe` | 95a65f3 | — | (#379) | 1 | 276 + 44 − | 320 |
+  | `m1.4/crt-release` | 2d607ad | — | (#380) | 1 | 119 + 14 − | 133 |
+
+  Les tips sont ceux d'après la sixième relecture : #375 a un second commit (c07994e) et les quatre branches de la CRT
+    en Release reposent dessus, les deux dernières réécrites. Les neuf premières PR sont fusionnées, les cinq suivantes
+    ouvertes ; les numéros entre parenthèses sont ceux qu'on attend (le prochain numéro libre est #377, #381 sera cette
+    entrée) et se vérifient à l'ouverture. Sur `m1.4/d3d12-gpu-option`, 393 lignes à lire (15 déplacées), contre 289
+    avant la correction de la page du navigateur (« Écarts »), sous les 400 de la règle n°2, de peu.
+
+  - **#362 et #359**, la CI Windows : le winsysroot de xwin est celui du portable, 5 597 fichiers identiques et 0
+    différent (`tools/winsysroot.sh build/ct/winsysroot-xwin`, puis la boucle `cmp` de la PR), en 17 s
+    (`time tools/winsysroot.sh <dossier>`) ; 373 tests découverts depuis la distro
+    (`ctest --test-dir build/windows-debug -N | tail -1`) ; sur le runner, les 330 tests hors `host` : Debug 330/330 en
+    48,7 s, Release 330/330 en 22,0 s (run 37862908860, étape « Tests ») ; `windows-build` à froid 1 h 28 min 44 s, à
+    chaud 12 min 31 s (runs 37853947275 et 37866995438) ;
+  - **les programmes sous Windows** (`m1.4/ci-windows-programs`) : par le script, sous Linux, `linux-debug` 9/9,
+    `linux-asan` 4/4, `linux-release` 6/6
+    (`SDL_VIDEO_DRIVER=offscreen VK_DRIVER_FILES=…/lvp_icd.json tools/ci-programs.sh <lancement> build/<preset>`) ;
+    répétés sous Windows par le bash de Git lancé de la distro, la RTX 4070 et lavapipe pour Windows, aucun
+    `levain*.exe` restant après chaque lancement (`tasklist.exe | grep -i levain`) ; limités aux 4 processeurs du
+    runner, les étapes de `windows-debug` prennent 13 à 16 min (`cmd.exe /c start "" /b /wait /affinity F`), dont la
+    vallée 236,7 s et 449,1 s à deux lancements de la même commande, ce qui a fixé le filet à 450 s ; le terrain en
+    `--steps 8` : 8 images et 5 mesures du minuteur à chaque lancement (7,5 à 9,8 s sous Linux, 13,1 s en 3 s avant),
+    `--steps 3` rougit ; les artefacts passent de 86,5 à 124,8 Mo (Debug) et de 47,2 à 65,7 Mo (Release) (l'étape
+    « Préparer les artefacts » de `ci.yml`, rejouée) ; `BASE=m1.4/ci-windows tools/verify.sh` tout OK ;
+  - **#360, clang-tidy aux options de Windows** : 0 constat sur les 147 fichiers de `windows-debug`, code 0, 94 s ; la
+    ligne retirée, les 14 reviennent, code 123 (`xargs -P 12 -n 4 clang-tidy -p build/windows-debug
+    --warnings-as-errors='*' < fichiers.txt`, avec et sans `IgnoredExceptions`) ; `levain_tests.exe` lancé de la distro,
+    304 cas sur 304, 11 152 assertions, 13 s ; `tools/verify.sh` 223 s ;
+  - **`verify.sh` et Windows** : tout OK en 211 s, `BASE=m1.4/tidy-windows tools/verify.sh` ; 0 constat sur les 147
+    fichiers, 67,5 s pour 10 min 50 s de CPU (la commande de build/SKILL.md, `time`) ; cinq contre-tests rouges puis
+    verts, du `.cpp` fautif propre à Windows à `NO_WINDOWS=1` qui se dit (build/GOTCHA.md) ;
+  - **la CRT** : `BASE=m1.4/verify-tidy-windows tools/verify.sh` tout OK en 195 s, les tests Windows de la branche
+    332/332 en 16,1 s (`ctest --test-dir build/windows-debug -LE host -j8 --timeout 120`) ; la sonde : 12 scénarios sur
+    12 verts en Debug, 0,51 s en tout, 1 sur 1 en Release (`error-mode`), 344/344 en Debug et 333/333 en Release pour
+    tous les tests de la cible (`ctest … -R '^crt[.]report[.]'`, puis `-LE host`) ; vue rouge, les deux
+    `/INCLUDE:LevainCrtReportRouted` retirés : 10 rouges sur 12 (2026-10-09, 03:32:20,
+    `ctest --test-dir build/windows-debug -R '^crt[.]report[.]' -j6 --timeout 60 -V`), et 5 rouges avec un retour
+    anticipé dans le crochet (3 pour `_CRT_ASSERT`, 2 pour `_CRT_ERROR`), ce que « code non nul » laissait passer ;
+  - **l'API neutre et `--gpu`** : 374 tests sur 374 dans chaque preset Linux, 187 sur 187 pour le web
+    (`tools/verify.sh`, 340 s à la PR d'origine, d'un seul bloc) ; chaque moitié de la découpe, vérifiée seule, tout
+    OK : l'API, 373 sur 373 dans les trois presets, 187 sur 187 pour le web, 3 fichiers pour clang-tidy
+    (`BASE=m1.4/crt-report-probe tools/verify.sh` sur `m1.4/d3d12-neutral`, avant la seconde relecture), puis `--gpu`,
+    après elle, 377 sur 377 dans les trois presets, 190 sur 190 pour le web, 5 fichiers pour clang-tidy, autant aux
+    options de Windows (`BASE=m1.4/d3d12-neutral tools/verify.sh` sur `m1.4/d3d12-gpu-option`, 4f2a68b, code 0) ; le
+    refus de `--gpu d3d12` hors Windows dit « Direct3D 12 n'existe que dans un build Windows… » au lieu de l'usage, et
+    le test le vérifie (`levain_tests --test-case='--gpu lit les trois backends*'`) ; dans le navigateur, `--gpu vulkan`
+    ou `d3d12` s'arrête sur « dans le navigateur, le seul backend est WebGPU », et la page le garde (« Écarts ») ;
+  - **Direct3D 12 sur la RTX 4070** (pilote 32.0.16.1742, 165 Hz, sur secteur ; au sommet de la pile d'avant ses trois
+    derniers rebases, dont l'arbre ne diffère que par des textes de GOTCHA.md et le refus de `--gpu` du navigateur) :
+    « NVIDIA GeForce RTX 4070 Laptop GPU, Direct3D 12, shader model 6.8 », device créé en 306,8 ms ; le sandbox en
+    Debug, 10 s, couches de debug actives : 812, 982 et 965 images en trois lancements, 0,656 à 0,657 ms de GPU, 0
+    message `d3d12`, `dxgi` ou `nvrhi`, code 0
+    (`timeout 120 build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 10`) ; le même en Vulkan : 713,
+    997 et 629 images, 0,659 à 0,661 ms, aucune erreur de validation ; redimensionné, réduit, restauré :
+    « resize-sandbox : OK (4 redimensionnements, masquée puis visible, sans message des couches) »
+    (`tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`) ; les 5
+    tests de fumée (`levain_smoke_render.exe <scène> d3d12`, scènes `triangle`, `cube`, `cube-instance`, `lines`,
+    `shadow`) à « 0 pixels sur 4096 différents de la référence », et les 3 autres tests GPU verts
+    (`levain_light_clusters.exe d3d12`, `levain_environment.exe d3d12`, `levain_ui_gpu.exe d3d12`) ; 345/345 pour les
+    tests de la cible (`ctest --test-dir build/windows-debug -LE host -j8 --timeout 120`) ; clang-tidy aux options de
+    Windows, 154 fichiers, 0 constat, 60 s ;
+  - **la Release reconstruite au sommet** (a95ef6c, sous `refs/backup/final2/d3d12-resize` : la pile d'avant la seconde
+    relecture) : `cmake --build --preset windows-release` 188 étapes sur 188,
+    `ctest --test-dir build/windows-release -LE host -j8 --timeout 120` 334/334 en Release et 345/345 en Debug. Après
+    la seconde relecture (70c8178) : `BASE=m1.4/d3d12-swapchain tools/verify.sh` tout OK, code 0 (377 sur 377 dans les
+    trois presets Linux, 190 sur 190 pour le web, `windows-debug` compilé) ; la Release, 63 étapes (reconstruction
+    incrémentale), 337/337, et 348/348 en Debug (les trois cas de `tests/backends_test.cpp`), aucun `levain*.exe`
+    restant (`tasklist.exe | grep -i levain`) ;
+  - **Vulkan contre Direct3D 12**, Release, 165 Hz : 1 449 et 1 452 images en 10 s contre 1 617 et 1 599, au même temps
+    GPU, la cause à trouver (PresentMon) ; les captures du sandbox diffèrent de 129 444 pixels sur 2 073 600 (6,24 %) à
+    plus de ± 2, au plus 67, sur les lignes 392 à 1 067 (le sol), 107 pixels au plus 5 avec `--anisotropy 1`
+    (`node tools/compare-captures.mjs vk.png d3d12.png 2`) ;
+  - **contre-tests de Direct3D 12**, vus rouges au sommet de la pile : une queue de commandes `BUNDLE` créée avant
+    l'inscription du rappel, « D3D12_MESSAGE_ID 909 », l'assertion, code 3 sans fenêtre ; un depth buffer annoncé à 0,5
+    au lieu de `render::FarthestDepth` : 380 avertissements 821 en 5 s ; une swapchain d'une seule image :
+    « DXGI_INFO_QUEUE_MESSAGE_ID 100 », l'assertion, code 3 ; les autres, sur le code d'avant le rebase, sont dans
+    build/GOTCHA.md ;
+  - **la CRT en Release** (`LEVAIN_WINSYSROOT=$HOME/winsysroot`) : `BASE=<la branche d'en dessous> tools/verify.sh` tout
+    OK, code 0, sur chacun des trois tips d'avant la sixième relecture (81c89a1, b8370ed, 5893af3) : 377 sur 377 dans
+    les trois presets Linux, 190 sur 190 pour le web, clang-tidy aux options de Windows sur aucun, 3 et 1 fichiers ; la
+    sixième relecture n'a changé aucun `.cpp` ni `.h` (`git diff --stat refs/backup/final6/crt-release
+    m1.4/journal-pile-windows -- '*.cpp' '*.h'` vide) ; sous Windows, depuis la distro, au code de 5893af3, qui est
+    celui de la pile à trois lignes de commentaire près de `tests/CMakeLists.txt` (`git diff --stat
+    refs/backup/final6/crt-release m1.4/journal-pile-windows -- engine tests tools sandbox editor`) : `ctest --test-dir
+    build/windows-debug -R '^crt[.]report[.]' -j6 --timeout 60 -V` 14 sur 14 en 0,58 s, puis `-LE host -j8 --timeout
+    120` 351 sur 351 en Debug (8,72 s) ; en Release, `crt.report.*` au repos 10 sur 10 (8 plantages de 3 453 à 4 671
+    ms), puis `-LE host -j8 --timeout 180` pendant un build web à froid 347 sur 347 en 39,11 s (3 453 à 4 797 ms),
+    contre 337 en 7,73 s à `m1.4/d3d12-resize` : les tests de la CRT de Release vont un par un. **17 fautes injectées,
+    vues rouges puis vertes** (le tableau de build/GOTCHA.md), dont le garde-fou demandé : un filtre qui termine
+    lui-même le processus, avec le même code et la même ligne, laisse le code de sortie et stderr justes, et le doctest
+    de `failureEndingFor` vert ; seul l'événement 1000 du journal Application le voit, et `null-write` et `breakpoint`
+    rougissent après 10,2 s (« WER n'a pas reçu l'échec »). **Un enfant que WER traite n'a plus de limite fixe** : à 10
+    s, le probe demande au journal si WER a l'événement 1000 de l'enfant encore en vie ; sans lui, rouge sur-le-champ («
+    toujours là après 10 0xx ms… »), avec lui il attend jusqu'à 120 s, puis rouge (« WER traite encore l'échec après N
+    ms »). Vu rouge puis vert dans une copie du probe : un enfant qui attend sans fin, rouge à 10 203 ms ; la requête
+    forcée à vrai, un enfant qui dort 15 s avant d'écrire en 0 vert (18 375 ms), forcée à faux rouge à 10 093 ms (avec
+    le vrai journal, rouge à 10 172 ms : il n'a pas encore échoué à 10 s) ; forcée à vrai, l'enfant sans fin et le
+    plafond à 20 s, rouge à 20 047 ms ; un vrai plantage avec la décision à 1,5 s, vert à 33 906 ms, rouge à 1 625 ms
+    quand le PID lu au départ vaut 0 ; le `>=` de `giveUpOnChild` changé en `>`, le build casse sur deux
+    `static_assert`. Durée d'un plantage en ms, min / médiane / max, sur 88 plantages de 11 passes de `ctest --test-dir
+    build/windows-release -LE host -j8 --timeout 120 -V` : au repos (16) 2 859 / 3 117 / 3 687 ; builds Linux et web en
+    boucle (24) 2 859 / 3 297 / 4 421 ; sous 40 boucles de calcul sur les 32 processeurs (8) 2 469 / 2 883 / 3 125 ;
+    sous des copies en boucle de `build/windows-release`, 6 Go (40) 3 094 / 5 437 / 15 515 : le processeur n'y change
+    rien, le disque si (cause supposée, non cherchée). Hors de ces passes, deux plantages ont duré plus du double : 31
+    016 ms (`uncaught-throw`, au premier passage Release des correctifs de la quatrième relecture, après la passe Debug
+    et deux builds presque vides de 2 et 5 étapes ; `pure-call` 12 219 et `abort` 11 890 dans le même passage, 74,21 s
+    en tout, puis 3 390 à 3 641 ms et 31,74 s au suivant) et 33 906 ms (`null-write`, lancé juste après le build du
+    probe) ; leurs événements 1000 étaient là 0,18 et 0,17 s après la création de l'enfant, 30,8 et 33,7 s avant sa fin
+    : cause à trouver. WER écrit son événement 0,12 à 1,07 s après la naissance de l'enfant (358 événements, hors deux
+    enfants qui dormaient), puis le garde le temps de son minidump ; il perd des rapports quand les plantages se
+    chevauchent (5, 6 et 6 événements sur 8 à `-j6`, 8 sur 8 un par un), cause inconnue ; chaque passage de Release
+    laisse 8 événements 1000 et des minidumps sur le portable, un passage de Debug aucun (127 → 135 événements,
+    `wevtutil.exe qe Application /f:xml …`, build/GOTCHA.md).
+- Décisions de Donnovan, par sondage le 2026-10-08, appliquées dans la pile : la ligne
+  `IgnoredExceptions: bad_array_new_length` de `.clang-tidy` (`m1.4/tidy-windows`) ; `windows-build`, `windows-debug` et
+  `windows-release` requis ensemble dès la fusion de #359 (posés ce matin). Le 2026-10-09 à 09 h 14, quatre réponses,
+  citées telles qu'il les a écrites, fautes comprises :
+  - « 1. Oui tu peux » : les écritures sur GitHub, décrites dans « Fait » ;
+  - « 2. Comment font les autres moteurs du marchés ? Base toi sur eux pour prendre ta décision. » : **la Release de la
+    CRT**. En Release, la même ligne sur stderr pour un plantage, un `abort()` et un paramètre invalide, puis la main à
+    Windows Error Reporting (WER), comme un programme sans Levain ; le code de sortie reste celui de Windows (sauf un
+    `raise(SIGABRT)` direct, où `_exit(3)` devient 0xC0000409 avec un rapport de WER) ; le Debug garde sa fin : ni
+    fenêtre ni WER, code 3 ou, pour un plantage, celui de l'exception. Unity, Godot et O3DE laissent WER voir le
+    plantage du build joueur,
+    Unreal semble le contourner (il a de quoi le remplacer), Microsoft demande aux jeux de laisser WER rapporter.
+    La fenêtre de WER ne s'ouvre pas sur le portable, même pour un programme fenêtré au premier plan qui plante : neuf
+    lancements, aucune fenêtre de WER ni du débogueur, de 3,59 à 4,52 s pour les sept plantages, avec et sans
+    `WerSetFlags(NO_UI)` (mesure ponctuelle du 2026-10-09, build/GOTCHA.md, non versionnée : elle décrit le Windows du
+    portable, pas Levain), ni, d'après l'image, sur le runner (lu, non mesuré). Donnovan a autorisé cette mesure sur son
+    portable (« Tant que tu ne touche pas à Claude et mon projet Unreal pro tu peux oui ») ; le pilote ne tue que par
+    PID. Le choix, ses raisons et ce qu'il coûte : [ADR-0035](adr/0035-windows-compile-depuis-linux.md) (la puce sur
+    `levain_core`), et la comparaison des quatre moteurs avec ses sources :
+    [QA.md](QA.md#que-fait-un-moteur-quand-le-jeu-plante-sous-windows-en-release--2026-10-09-m14) ;
+  - « 3. Si on veut que DX12 soit bien implémenter je suppose que c'est nécessaire. » : **la règle n°2** admet qu'une PR
+    de code Direct3D 12 qui forme un bloc dépasse, aux mêmes conditions que pour Vulkan (AGENTS.md, dans ce commit) :
+    le device (738 lignes à lire) et la swapchain (675) l'invoquent ;
+  - « 4. … j'ai fait des aller-retour depuis hier mais je dirais au moins 4h. » : le temps, en tête de cette entrée.
+- Écarts et problèmes :
+  - **peu de chose a été poussé de la nuit, rien n'a été fusionné avant le matin** : #362 ouverte à 00 h 23, #359
+    repoussée à 00 h 30 et à 02 h 52 (heure locale, `gh pr view 362 --json createdAt`,
+    `gh api repos/PhantomDO/Levain/issues/359/timeline`), et `bf85089`, commit de 02 h 43 (`git log -1 --format=%cI
+    bf85089`), sur #362, avant que le classifieur de permissions refuse `gh pr ready` à 03 h 15 ; les deux sont restées
+    des brouillons jusqu'à la réponse de Donnovan, à 09 h 14, et les douze autres branches étaient locales ;
+  - **la relecture du Direct3D 12 : 2,50 h estimées** pour les six branches, contre 0,5 h estimée pour #18 ; la pile
+    entière, 6,40 h pour les 18 PR de code (6,60 h avec le texte de cette entrée), pour 1 à 2 h par semaine. La somme
+    est celle des lignes « Relecture Donnovan estimée » des textes de PR (les 14 PR ouvertes ou fusionnées dans leur
+    corps poussé, `gh pr view N --json body --jq .body` ; les quatre de la CRT dans le scratchpad) : `grep -hE '^[-*
+    ]*Relecture Donnovan estimée : [0-9]' <textes> | sed -E 's/.*: ([0-9]+),([0-9]+) h.*/\1.\2/' | awk '{ s += $1 } END
+    { print s }'`. Celle de `--gpu` (#371) est passée de 0,3 h, qui datait de ses 289 lignes à lire, à 0,4 h pour les
+    393 d'aujourd'hui (0,1 h pour 100 lignes) ; celles de la CRT en Release (0,4 h, 0,6 h, 0,4 h et 0,2 h) restent des
+    suppositions ;
+  - **M1.4 dépasse son estimation** : 4 h passées pour 1,5 h au milestone (ROADMAP), ratio 2,67
+    (`awk 'BEGIN { print 4 / 1.5 }'`), provisoire : #18 et #19 ne sont pas finies, et Donnovan relira la pile après
+    coup (mode autonome, AGENTS.md), ce que les 6,40 h estimées ci-dessus ajouteront si elles se font ; le ratio se
+    pose à la clôture de M1.4, avec lui ;
+  - **la CRT en Release : quatre limites**. La garde de l'événement de WER n'a pas encore tourné sur le runner (aucune
+    des quatre branches n'est poussée) : si WER y est désactivé ou le journal Application illisible, `crt.report.*` y
+    rougit au premier passage de la CI, en le disant. Le probe ne garde pas un programme fenêtré qui plante : ses
+    enfants n'ont pas de fenêtre, et la mesure fenêtrée n'a été faite qu'une fois, non versionnée. Le verrou
+    `crt-report-wer` contourne la perte de rapports de WER sans l'expliquer. Les 120 s laissés à un enfant dont WER a
+    l'événement valent 3,5 fois le plus long plantage vu (33,9 s, cause à trouver), et le runner n'a rien mesuré : à
+    relever s'il les dépasse ;
+  - **`merge-stack.sh` s'est arrêté une fois**, après la fusion de #369 : l'appel REST qui passait la base de #370 à
+    `main` a répondu « unexpected end of JSON input », et le script a conclu « base non changée », alors que GitHub
+    avait appliqué le changement (`BaseRefChangedEvent` à 10:31:10Z, `gh api graphql`). La session a supprimé la branche
+    à la main, vérifié #370 ouverte sur `main`, lancé `tools/merge-stack.sh 370` (fusionnée à 10:31:49Z). Le correctif
+    du script (relire la base après un PATCH en échec) et son entrée de pr-autonome/GOTCHA.md viennent dans la PR qui
+    suit cette pile (règle n°1) ;
+  - **la relecture de la nuit** (un agent, rien de bloquant) : l'« environ 400 » de la PR des programmes calculé en
+    `--color-moved=plain` (405) et non en `zebra` (494), les 477 lignes de `d3d12-neutral` (465 en `zebra`), le pilote
+    de redimensionnement dans la swapchain, des mesures qui nommaient des branches que `merge-stack.sh` supprime, des
+    textes de PR périmés : tout est corrigé ou découpé ;
+  - **`--gpu` dans le navigateur** : `?args=--gpu d3d12` lançait WebGPU sans un mot, car `requestGpuDevice` n'appelait
+    jamais `requireBackendBuilt` (seconde relecture) ; il l'appelle, `runApp` lui passe le backend choisi, et
+    `gpu::DefaultBackend` garde le lancement sans option ; `tests/backends_test.cpp` entre dans la suite web (187 tests,
+    190 après) et rougit sans le correctif. Mais le refus n'arrivait pas sur la page : `showCritical`
+    (`sandbox/web/shell.html`) écrivait la ligne dans `#status`, puis le `setTimeout` qu'Emscripten arme avant
+    `callMain` appelait `setStatus('')` une milliseconde plus tard (sonde sous Node, le vrai `shell.html`, Emscripten
+    6.0.10 : « Running... », « », le refus, « »). Le correctif : un verrou que `setStatus` et `onRuntimeInitialized`
+    respectent ; `tools/web-smoke.sh --sans-gpu` ouvre `?args=--gpu%20vulkan` puis `--gpu%20d3d12`, lit `#status`
+    jusqu'à voir le texte, attend 3 s, le relit, et échoue s'il a disparu ou n'est jamais venu. Le job web n'avait aucun
+    Firefox (`git grep -il firefox origin/main -- .github/workflows tools/ci-programs.sh` vide) : l'étape « Refus de
+    --gpu dans Firefox » est le premier, celui du runner `ubuntu-26.04` (le job web n'est pas un check requis). Vu rouge
+    puis vert dans un vrai Firefox 157.0.1 (`tools/web-smoke.sh --sans-gpu build/web`) : avec le correctif, le refus
+    affiché après 3 s pour `vulkan` et `d3d12`, code 0 ; avec le `shell.html` de f68dd3e, statut vide malgré la console,
+    code 1 ; sans `.api = settings.api` dans `runApp`, que les 190 tests laissent verts, statut vide et le sandbox
+    démarre sur WebGPU, code 1 ; la ligne remise, code 0 ; `tools/web-smoke.sh` en entier, avec GPU, code 0 ; le
+    contrôle lui-même, sur trois pages servies à la place du sandbox : statut qui reste, code 0, effacé après 1,5 s ou
+    jamais venu, code 1 ;
+  - **le job web de #374 a rougi une fois**, à cette étape : « ÉCHEC : Firefox n'a pas ouvert BiDi », 10,2 s après la
+    ligne de `firefox --version` (run 37924988192, tentative 1 sur 51d8af1 ; la 2 est verte). Le Firefox du runner est
+    un snap au départ lent et variable, et l'attente de 10 s était faite pour le portable (build/GOTCHA.md, « Firefox
+    ouvre BiDi en plus de 10 s »). Le correctif est le second commit de #375 (c07994e) : une minute d'attente et le
+    temps pris écrit, contre-testé avec un faux `firefox` (douze secondes de retard, rouge puis vert à 12 302 ms ;
+    jamais ouvert, rouge au bout de 60 s). Dans le job web de #375 sur c07994e (run 37938746992), BiDi s'est ouvert en 8
+    995 ms, de peu sous les 10 s qui ont manqué à #374. Il est dans #375 et non dans #371, où l'étape a été ajoutée,
+    pour garder #371 sous les 400 lignes (420 sinon) et la CI de #371 à #374 ; #375 a désormais 2 commits, 165 lignes à
+    lire ;
+  - **quatre pièges** : dans pr-autonome/GOTCHA.md, ceux de la nuit : `gh` 2.46 échoue aussi pour `--body-file`, `/tmp`
+    est un tmpfs de 24 Go où un clone d'essai a rempli la mémoire (98 % pendant environ cinq minutes), et un `&` après
+    `cd … && …` a mis la liste entière en arrière-plan, écrit dans le `shaders/mesh.slang` du dossier `/mnt/c`, restauré
+    octet pour octet ; dans session/GOTCHA.md, celui du matin : `gh project item-edit --number 1.1` est refusé (« Column
+    value must be a valid value for number column », `gh` 2.46.0), la valeur s'écrit en littéral dans la mutation
+    (`value: {number: 1.1}`) ;
+- Prochaine étape : ouvrir le reste de la pile, empilé sur #375 : `m1.4/crt-release-adr`, `-code`, `-probe`,
+  `m1.4/crt-release`, puis celle-ci (#377 à #381 attendus, après #376 ; les numéros se vérifient à l'ouverture), et lire
+  le premier passage de la CI de `m1.4/crt-release-probe` (#379), où la garde de l'événement de WER tourne pour la
+  première fois sur le runner ; puis fusionner #371 à #381 par `tools/merge-stack.sh`. La PR qui suit la pile (règle
+  n°1) apporte le correctif de ce script (« Écarts ») et son entrée de pr-autonome/GOTCHA.md. Les `ports/**` du Direct3D
+  12 changent les clés du cache vcpkg : surveiller `gh api repos/PhantomDO/Levain/actions/cache/usage`, 11,77 Go en 24
+  entrées à 16 h 38 (11,15 Go en 23 entrées à 14 h 50). Puis #19 (le test de fumée sous WARP), la clôture de M7.2 avec
+  Donnovan, et celle de M1.4 avec lui, après #18 et #19 : son temps, le ratio.
+
 ## 2026-10-08 — M1.4 — Windows revient : l'ADR-0035, la chaîne clang-cl, le moteur sur la RTX 4070
 
 - **Temps Donnovan : 1,25 h** depuis l'entrée précédente (sa réponse), provisoire, mis sur #344 au board : les deux
   sondages de l'ADR, la mémoire de WSL, la session distante, le droit `project` de `gh`. À compléter en fin de
-  journée.
+  journée : réconcilié dans l'entrée du 2026-10-09 (4 h en tout pour M1.4 depuis le 2026-10-08, dont ces 1,25 h).
 - Sessions Claude Code : 1, dans la distro WSL du portable de Donnovan ; la session de la machine de référence a
   passé la main (règle n°1, sur les deux PC).
 - Fait, en mode autonome, une PR ou une pile à la fois :
