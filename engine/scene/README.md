@@ -108,7 +108,10 @@ liaisons structurées (`detail/field_ladder.inc`) est écrite par `tools/generat
 
 Un champ est un nombre, un booléen, une enum, un `flecs::entity`, une feuille glm décrite à la main dans
 `SceneModule`, ou un agrégat imbriqué, décrit à son tour. Le reste est refusé à la compilation (`static_assert`), ou
-à l'import : le journal nomme la struct et le champ, puis le programme s'arrête, en Release aussi.
+à l'import : le journal nomme la struct et le champ, puis le programme s'arrête, en Release aussi. Chaque
+`static_assert` de `reflection.hpp`, et celui de flecs pour un pointeur, a son test,
+`scene.reflection-refuses-compile.*` (`tests/reflection_compile_refusals.cpp`), sauf le format de `__PRETTY_FUNCTION__` (MSVC seulement), une classe de
+base, un tableau C et une faute de frappe de `range` : pas de `static_assert` à nous, l'erreur est celle de clang.
 
 Une enum n'a que les constantes que flecs lit : de 0 à 126, et les puissances de deux
 (`flecs/addons/cpp/utils/enum.hpp`). Une constante négative ou au-delà de 126 est écartée sans un mot, et l'import

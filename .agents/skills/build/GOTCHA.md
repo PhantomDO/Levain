@@ -3,6 +3,21 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un test de refus à la compilation : clang-tidy compile ses cibles, et le message nu s'y trouve partout (2026-10-09)
+
+- **Symptôme** : `scene.reflection-refuses-compile.*` (`tests/reflection_compile_refusals.cpp`, une cible `EXCLUDE_FROM_ALL`
+  par cas). Une cible qui échoue exprès, dans `compile_commands.json`, fait échouer clang-tidy (rendu 1 sur une base de
+  travail avec `-DLEVAIN_REFUSAL_POINTER_FIELD`) ; sans la cible `control`, le fichier n'est dans aucune base, et
+  `verify.sh` le dirait « clang-tidy-orphelins » (lu dans le script, non lancé : c'est l'étape de correction).
+  Et un `PASS_REGULAR_EXPRESSION` sur le message nu passe quand le `static_assert` n'est plus évalué : clang répète la
+  ligne de source sous toute erreur de cette ligne (une faute de frappe dans la condition : 1 ligne du message, 0 ligne
+  « static assertion failed »).
+- **Parade** : `EXPORT_COMPILE_COMMANDS OFF` sur les cibles des cas, et une cible `levain_reflection_compile_control`
+  du même fichier sans cas, bâtie avec le reste : la base garde une entrée, que clang-tidy lit. Le motif est ancré,
+  `static assertion failed[^\n]*<texte>` (`\n` est un vrai saut de ligne dans une chaîne CMake, `.` en franchit).
+  Un seul `RESOURCE_LOCK` : deux `cmake --build` de l'arbre (`ctest -j`) corrompraient le journal de Ninja.
+  Contre-tests : chaque `static_assert` mis en commentaire, chaque struct rendue valide, rouge exactement son test.
+
 ## `texture-hot-reload.sh` : « la texture invalide n'a pas été signalée », alors qu'elle l'était deux fois (2026-10-09)
 
 - **Symptôme** : run 37953850764, job 113931465002 (#378), « échecs signalés : 2 (1 attendu) », puis « ÉCHEC : la

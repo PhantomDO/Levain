@@ -248,6 +248,43 @@ foreach(refusal output IN ZIP_LISTS reflectionRefusals reflectionRefusalOutputs)
         PASS_REGULAR_EXPRESSION "${output}" FAIL_REGULAR_EXPRESSION "aucun refus")
 endforeach()
 
+# Les refus de la réflexion à la compilation (ADR-0034), un cas par cible : reflection_compile_refusals.cpp compilé
+# avec le seul LEVAIN_REFUSAL_<CAS>, que CTest construit (EXCLUDE_FROM_ALL : un build ordinaire n'y touche pas)
+# et dont la sortie doit porter le `static_assert`. Une ligne ancrée sur le diagnostic, pas le message nu : clang
+# répète la ligne de source sous l'erreur, et le message d'une autre erreur de cette ligne passerait. Le code de
+# sortie n'est pas lu (PASS_REGULAR_EXPRESSION) : une struct devenue valide compile en silence, et le motif manque.
+# Des tests de l'hôte (cmake --build), aussi sur l'arbre clang-cl de Windows, mais pas dans le build web, qui
+# s'arrête avant (return() plus haut). RESOURCE_LOCK : deux builds de l'arbre à la fois (ctest -j) corrompraient
+# le journal de Ninja.
+# Hors de compile_commands.json, sinon clang-tidy (tools/verify.sh, ci.yml) compilerait chaque cas et échouerait
+# sur son erreur : la cible `control` bâtie avec le reste, sans cas, garde le fichier dans la base et dans l'analyse.
+add_library(levain_reflection_compile_control OBJECT reflection_compile_refusals.cpp)
+target_link_libraries(levain_reflection_compile_control PRIVATE levain::scene)
+set(reflectionCompileRefusals too-many-fields std-array not-aggregate reference-member range-on-bool
+    authored-not-trivially-copyable authored-not-copy-assignable pointer-field)
+set(reflectionCompileMessages
+    "réflexion : plus de 32 champs, couper le composant"
+    "réflexion : un std::array se décrit à la main"
+    "réflexion : pas un agrégat"
+    "réflexion : aucun champ lu dans une struct qui en a"
+    "réflexion : une borne sur un nombre seulement"
+    "réflexion : une donnée d'auteur se copie octet par octet"
+    "réflexion : une donnée d'auteur s'écrit par set, ni membre const ni référence"
+    "pointer types are not allowed for components") # celui de flecs (component.hpp)
+foreach(refusal message IN ZIP_LISTS reflectionCompileRefusals reflectionCompileMessages)
+    string(TOUPPER "${refusal}" define)
+    string(REPLACE "-" "_" define "${define}")
+    set(target levain_reflection_refused_${define})
+    add_library(${target} OBJECT EXCLUDE_FROM_ALL reflection_compile_refusals.cpp)
+    target_compile_definitions(${target} PRIVATE LEVAIN_REFUSAL_${define})
+    target_link_libraries(${target} PRIVATE levain::scene)
+    set_target_properties(${target} PROPERTIES EXPORT_COMPILE_COMMANDS OFF)
+    levain_add_host_test(scene.reflection-refuses-compile.${refusal}
+        ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target ${target} --config $<CONFIG>)
+    set_tests_properties(scene.reflection-refuses-compile.${refusal} PROPERTIES
+        RESOURCE_LOCK nested-build PASS_REGULAR_EXPRESSION "static assertion failed[^\n]*${message}")
+endforeach()
+
 # L'échelle de liaisons de la réflexion est écrite par un script : le fichier versionné doit rester
 # sa sortie, sinon le test échoue (règle n°7).
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
