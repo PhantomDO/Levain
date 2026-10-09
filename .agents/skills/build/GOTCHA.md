@@ -3,20 +3,27 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
-## Un test de refus à la compilation : clang-tidy compile ses cibles, et le message nu s'y trouve partout (2026-10-09)
+## Un `PASS_REGULAR_EXPRESSION` sur le message d'un `static_assert` passe quand il n'est plus évalué (2026-10-09)
 
-- **Symptôme** : `scene.reflection-refuses-compile.*` (`tests/reflection_compile_refusals.cpp`, une cible `EXCLUDE_FROM_ALL`
-  par cas). Une cible qui échoue exprès, dans `compile_commands.json`, fait échouer clang-tidy (rendu 1 sur une base de
-  travail avec `-DLEVAIN_REFUSAL_POINTER_FIELD`) ; sans la cible `control`, le fichier n'est dans aucune base, et
-  `verify.sh` le dirait « clang-tidy-orphelins » (lu dans le script, non lancé : c'est l'étape de correction).
-  Et un `PASS_REGULAR_EXPRESSION` sur le message nu passe quand le `static_assert` n'est plus évalué : clang répète la
-  ligne de source sous toute erreur de cette ligne (une faute de frappe dans la condition : 1 ligne du message, 0 ligne
-  « static assertion failed »).
-- **Parade** : `EXPORT_COMPILE_COMMANDS OFF` sur les cibles des cas, et une cible `levain_reflection_compile_control`
-  du même fichier sans cas, bâtie avec le reste : la base garde une entrée, que clang-tidy lit. Le motif est ancré,
-  `static assertion failed[^\n]*<texte>` (`\n` est un vrai saut de ligne dans une chaîne CMake, `.` en franchit).
-  Un seul `RESOURCE_LOCK` : deux `cmake --build` de l'arbre (`ctest -j`) corrompraient le journal de Ninja.
-  Contre-tests : chaque `static_assert` mis en commentaire, chaque struct rendue valide, rouge exactement son test.
+- **Symptôme** : `scene.reflection-refuses-compile.*` (`tests/reflection_compile_refusals.cpp`). Avec la condition du
+  `static_assert` cassée par un nom inconnu, le test reste vert : le message nu apparaît sur 1 ligne de la sortie, et
+  « static assertion failed » sur 0.
+- **Cause** : clang répète la ligne de source sous toute erreur de cette ligne, message du `static_assert` compris. Le
+  motif lit alors la copie, pas le refus.
+- **Parade** : un motif ancré, `static assertion failed[^\n]*<texte>`. Dans une chaîne CMake, `\n` est un vrai saut de
+  ligne, et `.` en franchit : sans `[^\n]`, l'ancre et le texte pourraient venir de deux lignes.
+
+## Un test de refus à la compilation : clang-tidy compile les cas, et `ctest -j` les lance ensemble (2026-10-09)
+
+- **Symptôme** : une cible de cas (`EXCLUDE_FROM_ALL`, échoue exprès) dans `compile_commands.json` fait échouer
+  clang-tidy : code 1 sur le `static_assert`, vu avec une entrée `-DLEVAIN_REFUSAL_POINTER_FIELD`. Sans aucune entrée
+  du fichier dans la base, `verify.sh` échoue à l'étape `clang-tidy-orphelins`.
+- **Cause** : clang-tidy compile chaque entrée avec ses options, et ne sait pas qu'un cas doit échouer. Quant à ctest,
+  il lance les tests en parallèle ; deux `cmake --build` du même arbre à la fois pourraient corrompre le journal de
+  Ninja.
+- **Parade** : `EXPORT_COMPILE_COMMANDS OFF` sur les cibles des cas, plus une cible
+  `levain_reflection_compile_control` du même fichier sans cas, bâtie avec le reste : la base garde une entrée, que
+  clang-tidy lit. Un `RESOURCE_LOCK` commun aux tests de refus à la compilation les sérialise.
 
 ## `texture-hot-reload.sh` : « la texture invalide n'a pas été signalée », alors qu'elle l'était deux fois (2026-10-09)
 

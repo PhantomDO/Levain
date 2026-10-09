@@ -37,10 +37,10 @@ ctest --test-dir build/linux-debug --output-on-failure
 Windows (`windows-debug`, `windows-release`), depuis la distro WSL : `LEVAIN_WINSYSROOT` posée, puis
 `ctest --test-dir build/windows-debug -j 4 --timeout 120 --output-on-failure`. Les contrôles qui lancent un outil de
 l'hôte (`cmake -P`, Python, la lecture des symboles dans le PDB par `llvm-pdbutil`, `cmake.plugins.*`, `dxc` pour
-les `dxil.*`) portent le label `host` (`levain_add_host_test` dans `tests/CMakeLists.txt`, `levain_add_shader` pour
-les `dxil.*`) : `ctest -L host` les lance seuls, `ctest -LE host` lance les programmes de la cible, ce que fait le
-runner Windows de la CI. Le winsysroot de la machine de référence : `tools/winsysroot.sh` (xwin, celui de la CI),
-dans un dossier nommé d'après son tampon (docs/SETUP.md).
+les `dxil.*`, `cmake --build` pour les refus à la compilation) portent le label `host` (`levain_add_host_test` dans
+`tests/CMakeLists.txt`, `levain_add_shader` pour les `dxil.*`) : `ctest -L host` les lance seuls, `ctest -LE host` lance
+les programmes de la cible, ce que fait le runner Windows de la CI. Le winsysroot de la machine de référence :
+`tools/winsysroot.sh` (xwin, celui de la CI), dans un dossier nommé d'après son tampon (docs/SETUP.md).
 
 Direct3D 12 (#18) se lance à la main sur la 4070, ctest ne le déclarant pas encore (WARP, #19) :
 `levain_sandbox.exe --gpu d3d12`, `levain_smoke_render.exe <scène> d3d12`, `levain_light_clusters.exe d3d12`,

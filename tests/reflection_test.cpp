@@ -115,11 +115,16 @@ TEST_CASE("les champs d'un agrégat se lisent dans la struct : nombre, noms, dé
 {
     using levain::scene::detail::FieldCount;
     using levain::scene::detail::fieldName;
+    using levain::scene::detail::isIdentifier;
     using levain::scene::detail::offsetInProbe;
     using levain::scene::detail::tieFields;
 
     static_assert(FieldCount<Probe> == 4); // l'agrégat imbriqué compte pour un champ
     static_assert(FieldCount<Capsule> == 2);
+    // Le garde-fou de fieldName : un nom mal découpé (« _M_elems[2] » de libstdc++) n'est pas un
+    // identifiant.
+    static_assert(isIdentifier("speed") && isIdentifier("_m_value2"));
+    static_assert(!isIdentifier("") && !isIdentifier("2fast") && !isIdentifier("_M_elems[2]"));
     CHECK(fieldName<Probe, 0>() == "flag");
     CHECK(fieldName<Probe, 1>() == "position");
     CHECK(fieldName<Probe, 2>() == "shape");

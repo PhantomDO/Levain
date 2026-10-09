@@ -201,6 +201,7 @@ endif()
 # qui lance un programme de la cible, même compilé ici, n'a pas ce label. Passer par cette fonction plutôt que par
 # add_test : un test de l'hôte sans label serait lancé, et rouge, sur le runner Windows. Les dxil.* de
 # levain_add_shader (cmake/LevainShaders.cmake) y sont aussi : dxc est un outil de l'hôte.
+# Les refus à la compilation y sont aussi : leur commande est `cmake --build`, le compilateur de l'hôte.
 function(levain_add_host_test name)
     add_test(NAME ${name} COMMAND ${ARGN})
     set_tests_properties(${name} PROPERTIES LABELS host)
@@ -260,21 +261,31 @@ endforeach()
 # sur son erreur : la cible `control` bâtie avec le reste, sans cas, garde le fichier dans la base et dans l'analyse.
 add_library(levain_reflection_compile_control OBJECT reflection_compile_refusals.cpp)
 target_link_libraries(levain_reflection_compile_control PRIVATE levain::scene)
-set(reflectionCompileRefusals too-many-fields std-array not-aggregate reference-member range-on-bool
-    authored-not-trivially-copyable authored-not-copy-assignable pointer-field)
+set(reflectionCompileRefusals too-many-fields std-array field-name-format not-aggregate reference-member
+    range-on-bool range-on-enum authored-not-trivially-copyable authored-not-copy-assignable pointer-field)
 set(reflectionCompileMessages
     "réflexion : plus de 32 champs, couper le composant"
     "réflexion : un std::array se décrit à la main"
+    "réflexion : format de __PRETTY_FUNCTION__ inconnu"
     "réflexion : pas un agrégat"
     "réflexion : aucun champ lu dans une struct qui en a"
+    "réflexion : une borne sur un nombre seulement"
     "réflexion : une borne sur un nombre seulement"
     "réflexion : une donnée d'auteur se copie octet par octet"
     "réflexion : une donnée d'auteur s'écrit par set, ni membre const ni référence"
     "pointer types are not allowed for components") # celui de flecs (component.hpp)
+# ZIP_LISTS comble la liste la plus courte de chaînes vides : un cas sans message donnerait un motif qui passe sur
+# n'importe quel static_assert (règle n°7).
+list(LENGTH reflectionCompileRefusals refusalCount)
+list(LENGTH reflectionCompileMessages messageCount)
+if(NOT refusalCount EQUAL messageCount)
+    message(FATAL_ERROR "reflectionCompileRefusals (${refusalCount}) et reflectionCompileMessages (${messageCount}) "
+                        "doivent avoir la même longueur : un message par cas")
+endif()
 foreach(refusal message IN ZIP_LISTS reflectionCompileRefusals reflectionCompileMessages)
-    string(TOUPPER "${refusal}" define)
-    string(REPLACE "-" "_" define "${define}")
-    set(target levain_reflection_refused_${define})
+    string(REPLACE "-" "_" name "${refusal}")
+    string(TOUPPER "${name}" define)
+    set(target levain_reflection_refused_${name})
     add_library(${target} OBJECT EXCLUDE_FROM_ALL reflection_compile_refusals.cpp)
     target_compile_definitions(${target} PRIVATE LEVAIN_REFUSAL_${define})
     target_link_libraries(${target} PRIVATE levain::scene)
