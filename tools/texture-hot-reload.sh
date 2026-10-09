@@ -28,7 +28,17 @@ trap 'cp "$backup"/* "$(dirname "$texture")/"; rm -rf "$backup" "$texture.tmp"' 
 "$sandbox" --seconds 8 --model "$model" --capture "$capture" >"$log" 2>&1 &
 pid=$!
 
-sleep 4
+# Le camion chargé et la boucle partie, et non un délai fixe depuis le lancement : 4 s ne suffisaient pas au
+# sandbox Windows lancé de la distro WSL (le scan des assets y prend 3 s sur le partage), qui lisait alors les octets
+# invalides à son premier chargement et s'arrêtait. Une minute au plus, puis un échec qui le dit (règle n°7).
+for _ in $(seq 600); do
+    grep -q "clic droit pour regarder" "$log" || ! kill -0 "$pid" 2>/dev/null || { sleep 0.1; continue; }
+    break
+done
+grep -q "clic droit pour regarder" "$log" \
+    || { cat "$log"; echo "ÉCHEC : la boucle du sandbox n'a pas démarré"; kill "$pid" 2>/dev/null || true; exit 1; }
+
+sleep 1
 echo "→ octets invalides"
 printf 'ceci n est pas un JPEG' >"$texture"
 
