@@ -3,6 +3,75 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Le sandbox sous Windows en CI : le bash de Git, Sponza hors de l'artefact (2026-10-09)
+
+Les étapes du sandbox, de l'éditeur et du cuiseur dans `windows-debug` et `windows-release` (#346), par
+`tools/ci-programs.sh`, le script des jobs Linux. Répétées sur le portable : le bash de Git lancé de la distro comme
+sur le runner (`"/mnt/c/Program Files/Git/bin/bash.exe" --noprofile --norc -e -o pipefail -c …`), depuis la racine
+du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
+
+- **Le `bash` d'Actions sous Windows est celui de Git**, dont `bin/bash.exe` met `/usr/bin` en tête du PATH :
+  `timeout` est celui de coreutils, pas `C:\Windows\System32\timeout.exe`. Il arrête un exe Windows : code 143 au bout
+  de 20 s, sans processus restant (`tasklist.exe`). Il lance aussi `build/…/levain_sandbox` sans `.exe` ; le bash de
+  la distro, non (code 127) : le script cherche l'exe avec son extension (`executableIn`).
+- **spdlog finit ses lignes par « \r\n » sous Windows.** Le grep de Git les lit comme des fins de ligne, le grep GNU
+  de la distro non : sans `tr -d '\r'` (`logTo`), le contrôle de l'éditeur, ancré par `$`, échoue lancé de la distro
+  (« la sélection n'est pas celle de --select ») et passe dans le bash de Git.
+- **Sponza ne va pas dans un artefact** : celui d'un dépôt public se télécharge depuis n'importe quel compte GitHub,
+  et sa licence interdit la redistribution (`tools/assets.lock`). Le runner Windows reprend le cache d'assets des
+  jobs Linux (`enableCrossOsArchive`), puis `tools/fetch-assets.sh` vérifie tout et télécharge ce qui manque ; il
+  tourne dans le bash de Git (curl, sha256sum : téléchargement et seconde passe sans rien à faire, répétés).
+- **`texture-hot-reload.sh` attendait 4 s fixes** avant d'écrire les octets invalides. Lancé de la distro, le scan
+  des assets prend 3 s sur le partage `\\wsl.localhost` : le sandbox lisait les octets invalides à son premier
+  chargement (« CesiumMilkTruck.jpg : unknown image type », critique, code 1), sur lavapipe comme sur la 4070. Le
+  script attend maintenant la ligne « clic droit pour regarder » (le camion chargé, la boucle qui part), une minute au
+  plus : rechargé 167 à 305 ms après l'écriture.
+- **Lancé de la distro, le bash de Git** a pour dossier courant `//wsl.localhost/levain-dev/…` : `mkdir -p` d'un
+  chemin absolu de ce partage échoue (« Read-only file system », il remonte jusqu'à `//wsl.localhost`), un chemin
+  relatif passe ; `TMPDIR` dans le scratchpad, sans quoi `mktemp` et `<<<` écrivent dans le `%TEMP%` de Donnovan.
+- **lavapipe pour Windows est 1,6 à 5 fois plus lent que celui de la distro**, sur la même machine (Debug, 32
+  processeurs : le terrain 3 à 6 images en 3,3 s contre 16, le personnage 81,5 s contre 51,3 pour 200 pas). Limité à
+  4 processeurs comme le runner (`cmd.exe /c start "" /b /wait /affinity F` devant le bash de Git, et
+  `LP_NUM_THREADS=4`), la vue terrain en `--seconds 3` ne faisait que 3 images : le minuteur GPU, qui en demande
+  quatre pour une mesure, n'avait rien mesuré, et « l'étape transparente n'a rien dessiné » (rouge, une seule fois
+  limité à 4 processeurs, une fois sur trois sans limite). Le runner Linux fait 7 images en 3,3 s (run 37866995438,
+  `linux-debug`, étape « Lancer le sandbox sur le terrain »). Parade : `--steps 8` au lieu de `--seconds 3`, des deux
+  côtés, comme le personnage, la vallée et l'interface (« quelle que soit la vitesse du runner ») : huit images, cinq
+  mesures du minuteur, à chaque lancement (Linux 0,8 s ; lavapipe pour Windows 5,0 à 6,3 s à 32 processeurs, 8,8 à
+  10,2 s à 4 ; 4070 0,2 s) ; `--steps 3` rougit, sur Linux comme sous Windows. Aucun contrôle du terrain ne dépend du
+  temps écoulé : « 66 corps » est un compte, et « lac : N caisses dans l'eau » n'a jamais dit autre chose que « 0 »
+  en 3 à 5 s (12 journaux relevés, dont 2 en 5 s, la 4070 à 295 images comprise), les caisses ne tombant dans l'eau
+  que dans `terrain_test.cpp`, en 600 pas.
+- **Le renard dans la vallée sur WebGPU, limité à 4 processeurs, a pris environ 249 s de processus** à la première
+  répétition (234,5 s de boucle ; 247 s entre la première et la dernière ligne du journal, le démarrage en plus), et
+  122,5 s à la seconde (112,4 s pour Vulkan, mesurés par la trace horodatée de `bash -x`), même commande : le double
+  d'écart sur le portable. Un `timeout` de 300 s ne laissait que 51 s de marge dans le premier cas, et un dépassement
+  tue le processus avec le seul code 143, sans `::error::`. Parade : 450 s pour la vallée, des deux côtés (`runHike`) ;
+  `timeout` y est un filet contre un blocage, pas un contrôle (en-tête de `tools/ci-programs.sh`).
+- **La fenêtre du sandbox est de 1920 × 1080 et redimensionnable ; Windows la réduit à la taille du bureau**, que
+  le runner a très probablement à 1024 × 768 (2026-10-09, relecture ; pas vérifié sur l'image
+  `windows-2025-vs2026` elle-même). Preuves : actions/runner-images#2935
+  (« default display resolution (1024x768) ») ; un windows-latest (Windows Server 2025) mesuré en
+  « Hyper-V Video, 1024×768, 96 dpi, session 2 » par Aiken-Project-A/renpy-capture#7. Le portable (2560 × 1600) ne
+  pouvait pas le montrer. `--pick 960,540`, le centre d'une fenêtre de 1920 × 1080, ne viserait plus le centre :
+  la sélection échouerait sous « aucune caisse », ou passerait en ne vérifiant plus ce qu'elle dit. Sans parade,
+  l'étape de la physique rougit au premier passage des deux jobs et saute tout ce qui la suit (Debug : Sponza,
+  personnage, vallée, interface, éditeur ; Release : personnage, cuisson, Sponza cuite) : pas un chiffre du
+  runner. Parade : l'étape « Bureau du runner » règle le bureau par
+  `Set-DisplayResolution -Width 1920 -Height 1080 -Force` (`shell: pwsh`, comme renpy-capture ; un mainteneur des
+  images propose la même commande dans #2935 et dit 1080p au plus), puis affiche la résolution
+  (`Win32_VideoController`). La commande est du module ServerCore de Windows PowerShell : Windows 11 ne l'a pas,
+  elle n'a donc pas été répétée sur le portable. `requireFullHdCapture` (`tools/ci-programs.sh`) reste le
+  garde-fou : elle exige « capture : physics-<gpu>.png (1920 × 1080) » avant les contrôles de la physique, et
+  échoue en nommant la cause si la résolution n'a pas pris (alors une décision : le pixel visé, ou le bureau).
+  Contre-test du garde-fou : un sandbox qui rejoue le journal réel avec une capture de 1280 × 720, ou sans ligne
+  de capture, rougit, dans le bash de la distro et dans celui de Git. Contre-test de la parade : le premier
+  passage de la CI, qui doit afficher « 1920 × 1080 » à l'étape et dans les deux captures.
+- **L'artefact n'emporte que les exe de `sandbox/`** : le `.dll` et le `.json` des couches de validation à côté du
+  sandbox (6,9 Mo compressés, par artefact) ne servent qu'au PC (`addLayerPathBesideExecutable`) ; le runner, élevé,
+  passe par le registre, qui désigne ceux de `tests/`.
+- **Le `start` des 4 processeurs ne rend pas le code de l'enfant** : lire les `::error::` du journal.
+
 ## La CI Windows : lavapipe pour Windows, ctest sur des chemins Linux (2026-10-08)
 
 Les jobs `windows-*` de `ci.yml` (#346). Répété en local avant la CI : le ctest de Windows lancé de la distro par

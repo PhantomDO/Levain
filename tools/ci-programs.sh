@@ -97,10 +97,16 @@ runFox() {
 
 # Le terrain (M5.6), premier plugin moteur, le lac et l'herbe (M5.7) : leurs passes s'inscrivent dans
 # le renderer (ADR-0025) et doivent dessiner, sur Vulkan comme sur WebGPU, validation active.
+#
+# `--steps 8`, pas `--seconds 3` : exactement 8 images, quelle que soit la vitesse du runner, comme le personnage,
+# la vallée et l'interface. En 3 s, lavapipe pour Windows en faisait 3 à 6 (7 sur le runner Linux), et le minuteur
+# GPU, qui rend sa première mesure à la quatrième image, n'avait parfois rien mesuré : « l'étape transparente n'a
+# rien dessiné » alors qu'elle dessinait. Huit images donnent cinq mesures (mesuré sous lavapipe), de quoi tenir
+# avec des images lentes ; trois images ne donnent aucune mesure, et le contrôle rougit (contre-test de la PR).
 runTerrain() {
     for gpu in vulkan webgpu; do
         timeout --foreground --preserve-status -k 10 120 \
-            "$sandbox" --gpu $gpu --seconds 3 \
+            "$sandbox" --gpu $gpu --steps 8 \
             --view terrain | logTo terrain-$gpu.log
         # La sélection (M6.2) s'inscrit avec la physique, avant le terrain.
         grep -q "étapes du rendu : ombres : modèles, démo, terrain ; opaques : modèles, démo, sélection, terrain" terrain-$gpu.log \
@@ -122,13 +128,28 @@ runTerrain() {
         grep -Eq "herbe, par image : [0-9.]+ parcelles et [1-9][0-9]* brins" terrain-$gpu.log \
             || { echo "::error::aucun brin d'herbe dessiné ($gpu)"; exit 1; }
         # La physique de la vallée (M6.2) : le terrain, le lac et ses 64 caisses. Qu'elles
-        # atteignent l'eau, 2 images par seconde ne le permettent pas ici : terrain_test.cpp le
-        # vérifie sans GPU.
+        # atteignent l'eau, 8 pas ne le permettent pas (ni 3 s sous lavapipe, ni 3 s sur un GPU :
+        # « 0 caisses dans l'eau » à chaque lancement) : terrain_test.cpp le vérifie sans GPU, en
+        # 600 pas. Ici, le lac doit exister comme volume de la physique, et la ligne le dit.
         grep -q "physique : 66 corps" terrain-$gpu.log \
             || { echo "::error::la vallée n'a pas ses 66 corps ($gpu)"; exit 1; }
         grep -Eq "lac : [0-9]+ caisses dans l'eau" terrain-$gpu.log \
             || { echo "::error::le lac n'est pas un volume de la physique ($gpu)"; exit 1; }
     done
+}
+
+# Le pixel de `--pick 960,540` est le centre d'une fenêtre de 1920 × 1080, celle que le sandbox demande. Windows
+# réduit une fenêtre redimensionnable à la taille du bureau (celui d'un runner est très probablement de 1024 × 768,
+# que l'étape « Bureau du runner » de `ci.yml` règle en 1920 × 1080 : elle ne juge rien, c'est ce contrôle qui
+# juge) : le pixel visé cesserait d'être le centre, et la sélection échouerait sous un message trompeur (« aucune
+# caisse »), ou passerait sans plus vérifier ce que le commentaire de `runPhysics` dit (règle n°7). La taille se
+# lit sur la capture, relue de la swapchain : le contrôle échoue en nommant la cause, avant ceux qui en dépendent.
+requireFullHdCapture() { # $1 = journal, $2 = capture, $3 = backend
+    grep -q "capture : $2 (1920 × 1080)" "$1" || {
+        echo "::error::la capture $2 ne fait pas 1920 × 1080 (bureau plus petit que la fenêtre ?) : --pick 960,540" \
+            "ne vise plus le centre ($3) ; journal : $(grep -o "capture : .*" "$1" || echo "aucune ligne de capture")"
+        exit 1
+    }
 }
 
 # Les 1 000 caisses de M6.1 (ADR-0026), et leur sélection par raycast (M6.2, ADR-0027) : Jolt
@@ -144,6 +165,7 @@ runPhysics() {
         timeout --foreground --preserve-status -k 10 120 \
             "$sandbox" --gpu $gpu --seconds 3 \
             --view physics --pick 960,540 --capture physics-$gpu.png | logTo physics-$gpu.log
+        requireFullHdCapture physics-$gpu.log physics-$gpu.png $gpu
         line=$(grep -o "physique : [0-9]* corps ; la caisse la plus haute à y = [-0-9.]* m" physics-$gpu.log) \
             || { echo "::error::le sandbox n'a pas rendu compte de la physique ($gpu)"; exit 1; }
         echo "$line" | grep -q "physique : 1001 corps" \
@@ -200,10 +222,14 @@ runCharacter() {
 # être publiée. Sur Vulkan et sur WebGPU, le backend du navigateur, avec le terrain, l'herbe et
 # l'eau dessinés. Parti de (204, 280) sur le fond de la vallée, il doit avoir marché vers le lac,
 # au sol, sans dévier : mesuré (206,91 ; −0,05 ; 280,02) sur les deux backends. 120 pas
-# seulement : sous lavapipe, 200 pas prenaient 88 s par backend sur un CPU rapide.
+# seulement : sous lavapipe, 200 pas prenaient 88 s par backend sur un CPU rapide. Le `timeout` de 450 s est un filet
+# contre un blocage, pas un contrôle (voir l'en-tête) : lavapipe pour Windows, sur le portable limité à 4
+# processeurs comme le runner (le runner n'a pas encore lancé la vallée), a mis environ 249 s pour WebGPU à la
+# première répétition (le démarrage compris) et 122,5 s à la seconde, même commande. 300 s ne laissaient que 51 s
+# de marge, et un dépassement tue le processus sans autre message que le code 143.
 runHike() {
     for gpu in vulkan webgpu; do
-        timeout --foreground --preserve-status -k 10 300 \
+        timeout --foreground --preserve-status -k 10 450 \
             "$sandbox" --gpu $gpu --view hike --walk 1,0 \
             --steps 120 | logTo hike-$gpu.log
         grep -q "opaques : modèles, démo, sélection, terrain, herbe ; transparents : eau" hike-$gpu.log \

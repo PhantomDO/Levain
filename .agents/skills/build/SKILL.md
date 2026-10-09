@@ -48,7 +48,11 @@ instantanés (cache `~/.cache/vcpkg`). Pour clangd : `ln -sf build/linux-debug/c
 Les contrôles de la CI sur les sources et les tests, d'un coup, avant chaque push : `tools/verify.sh` (format,
 trois presets, `windows-debug` compilé sans être lancé, clang-tidy des fichiers changés, web ; code de sortie non
 nul dès qu'une étape échoue). Sans `LEVAIN_WINSYSROOT`, l'étape Windows échoue en nommant la variable ;
-`NO_WINDOWS=1` la saute. Il ne lance pas le sandbox comme la CI (Fox, Sponza, terrain, hot-reload). Le détail, étape par étape :
+`NO_WINDOWS=1` la saute. Il ne lance pas le sandbox comme la CI (Fox, Sponza, terrain, hot-reload) : chaque lancement
+du sandbox ou de l'éditeur et ses contrôles, c'est `SDL_VIDEO_DRIVER=offscreen tools/ci-programs.sh <lancement>
+build/<preset>` (la liste en tête du script ; sous `linux-asan`, avec
+`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so` devant, comme la CI). Le hot-reload des textures est
+`tools/texture-hot-reload.sh`, la cuisson `levain_cook assets-cache`, hors du script. Le détail, étape par étape :
 
 Format et analyse statique, comme la CI :
 
@@ -198,8 +202,14 @@ leurs voisins, les shaders, les fichiers de ctest, `tests/data` et `data`, rien 
 Linux compilés dans les tests se résolvent ; lavapipe de mesa-dist-win et le chargeur Vulkan de LunarG (versions et
 SHA-256 dans `ci.yml`), lavapipe et les couches inscrits au registre (le runner est administrateur) ; la CRT du
 runner vérifiée ; puis `ctest -LE host`, la découverte des cas de doctest faite
-là, leur nombre comparé à `levain_tests.exe --count`, les autres tests à la liste de `windows-build`. Le sandbox et
-l'éditeur sous Windows : PR suivante, décision 4 de l'ADR-0035.
+là, leur nombre comparé à `levain_tests.exe --count`, les autres tests à la liste de `windows-build`. Puis le
+sandbox, son éditeur et le cuiseur, comme dans le job Linux de la même configuration (Debug pour Debug, Release pour
+Release) : les mêmes étapes, dans le bash de Git sous Windows, avec le pilote `windows` de SDL ; le sandbox et l'éditeur
+par `tools/ci-programs.sh`, que les deux côtés lancent, le hot-reload par `tools/texture-hot-reload.sh`, la cuisson par
+`levain_cook`. Une étape « Bureau du runner » le règle en 1920 × 1080 (il est très probablement de 1024 × 768 :
+`Set-DisplayResolution`) et affiche la résolution, et la physique échoue si la capture n'est pas de 1920 × 1080 (le
+pixel de `--pick`). Les assets de test n'y passent pas par l'artefact (la licence de
+Sponza) : le cache des jobs Linux, lu par `enableCrossOsArchive`, sinon `tools/fetch-assets.sh`.
 
 `windows-build`, `windows-debug` et `windows-release` sont requis tous les trois ensemble dès la fusion de #359
 (sondage de Donnovan du 2026-10-08) : l'agent de la session les pose juste après. Après elle, puis après chaque
