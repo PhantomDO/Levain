@@ -12,6 +12,123 @@ Réponse courte, puis détails. Références : fichier:ligne, ADR, source extern
 
 ---
 
+### Que fait un moteur quand le jeu plante sous Windows, en Release ? (2026-10-09, M1.4)
+
+**Aucun ne laisse un plantage muet là où un développeur regarde, et trois sur quatre laissent Windows Error
+Reporting (WER) voir le plantage du build joueur.** WER voit les plantages d'Unity, que son gestionnaire a rapportés ;
+Godot et O3DE n'écrivent rien en release et lui passent la main, O3DE l'appelle même exprès ; seul Unreal semble le
+contourner : il termine lui-même le processus (code 3) et a de quoi le remplacer, minidump et CrashReportClient.
+Microsoft le demande aux jeux : « If a fault such as an Access Violation appears in a game, it must allow Windows Error
+Reporting to report the crash » [M5]. Couper les fenêtres est partout un mode d'automatisation (`-unattended`,
+`-silent-crashes`, `sys_no_crash_dialog`) ou l'affaire du lanceur de tests (doctest chez Godot, AzTestRunner chez
+O3DE), pas le comportement par défaut du joueur.
+
+Sans mention, une case est documentée ; « (sup.) » marque ce qui est supposé. Build joueur : Shipping, player
+non-development, `template_release`, Release.
+
+| | Unreal 5 | Unity | Godot 4 | O3DE |
+|---|---|---|---|---|
+| Plantage | gardes SEH et filtre de processus ; journal, `Saved/Crashes` ; sortie forcée, code 3, vue dans des builds packagés de développement [U1, U4] ; en Shipping, même chemin (sup.) | gestionnaire hors processus : minidump et `error.log` [Y1, Y2], dans `%TMP%\…\Crashes` [Y3] | rien d'installé, aucune ligne [G1, G3] | `ReportFault` vers WER, `sys_WER=1` par défaut ; rien d'écrit [O1, O2] |
+| abort, appel virtuel pur, paramètre invalide | `abort` [U8] et appel virtuel pur [U11] interceptés en Shipping ; paramètre invalide intercepté au cook [U9], en Shipping (sup.) | `ForceCrash` a `Abort` et `PureVirtualFunction` [Y7] ; leur capture (sup.) | défauts de la CRT, qui finissent chez WER [M2, C1, C2, C5] | appel virtuel pur et paramètre invalide → `CryFatalError`, puis WER [O4] ; `abort` : défaut de la CRT |
+| Asserts | `check` retiré ; `Fatal` reste [U7] | `Assert` compilé en Development Build seulement [Y8] | `DEV_ASSERT` retiré ; `CRASH_COND` reste [G4] | `AZ_Assert` retiré ; `CryFatalError` reste [O4] |
+| Fenêtre | la sienne, « The X Game has crashed and will close » [U12], sauf `-unattended` [U5] | la sienne, sauf `-silent-crashes` [Y4] | celle de WER, selon la machine | la sienne pour `CryFatalError` (boîte modale « Open 3D Engine Error »), sauf `sys_no_crash_dialog` [O6] ; celle de WER pour un plantage, selon la machine |
+| WER | contourné (sup., de U1 et U6) | voit le plantage [Y5] (après Unity : sup.) ; la doc d'Unity passe par ses LocalDumps [Y6] | voit tout [G2] | appelé exprès [O2] |
+| Désactiver | `SetCrashHandlingType(Disabled)`, pour un autre gestionnaire [U6] | rien, hors supprimer l'exe [Y2] | `--disable-crash-handler` [G6] | `sys_WER` ; `sys_no_crash_dialog`, qui coupe aussi WER [O1, O3] |
+| En développement | même chemin | même chemin (sup.) | la pile sur stderr, **puis WER** [G2] | `error.log` et dump, **puis `ReportFault`** [O3] |
+
+**Décidé pour Levain** (Donnovan : « Comment font les autres moteurs du marchés ? Base toi sur eux pour prendre ta
+décision. ») : en Release, la ligne sur stderr, puis la main à WER, pour un plantage, un `abort()` et un paramètre
+invalide (`engine/core/src/crt_report.cpp`). Le Debug garde sa fin : ni fenêtre ni WER, code 3 ou, pour un plantage,
+celui de l'exception (0xC0000005 pour une écriture en 0), comme les lanceurs de tests de Godot [G5] et d'O3DE [O5] ;
+seul `raise(SIGABRT)` y gagne une ligne. Les raisons :
+
+- **Levain n'a pas de quoi remplacer WER.** Unreal le contourne parce qu'il a son minidump et son CrashReportClient.
+  Microsoft : « application should not handle fatal exceptions » [M1] ; un gestionnaire de jeu « must pass any error
+  on to the ReportFault or WerReportSubmit functions » [M5, M6]. Les rapports de WER arrivent aussi au développeur,
+  pour un exe signé (Windows Desktop Application Program [M7]).
+- **La CI et Donnovan lancent des programmes Release.** Sans ligne, un plantage n'y laisse que son code, que ctest
+  tronque à 8 bits depuis la distro (0xC0000005 y devient 5).
+- **La fenêtre de WER ne s'est ouverte nulle part où l'on lance Levain.** Aucune sur le runner (`DontShowUI=1`,
+  débogueur JIT retiré [R1]). Aucune sur le portable : ni pour un programme sans fenêtre, ni pour un programme fenêtré
+  au premier plan qui plante (mesuré le 2026-10-09, `build/GOTCHA.md`), alors que WER en montre une à un processus
+  interactif [M1] et que le portable déclare le débogueur JIT de Visual Studio sans `Auto` [M8]. Un mode « sans
+  surveillance » n'aurait rien à couper.
+- **`abort()` et le paramètre invalide finissent en `__fastfail`** en Release, qu'aucun filtre ne voit [M3, C1, C2] :
+  un gestionnaire écrit la ligne, puis fait le même `__fastfail` que la CRT, donc WER reçoit le même rapport.
+  `std::terminate` et l'appel virtuel pur passent par `abort()` [C4, C5].
+- **Pas d'interrupteur pour le joueur** : le gestionnaire ne fait qu'ajouter une ligne, et un futur gestionnaire de
+  plantage posé dans `main` prend sa place (le dernier posé gagne).
+- **Ce que ça coûte.** Debug et Release finissent différemment : code 3 sans WER, contre le code de Windows avec WER.
+  Sur le portable, chaque plantage en Release laisse un minidump dans `%LOCALAPPDATA%\CrashDumps` et un dossier dans
+  `ReportArchive`, et WER envoie son rapport selon le consentement de la machine. Un joueur ne voit pas la ligne : un
+  exe GUI n'a pas de stderr.
+
+Écarté : (a) rien ne change, le modèle de Godot et d'O3DE ; (c) le Debug aussi en Release, le modèle d'Unreal sans ce
+qu'il met à la place de WER. Reporté au premier jeu distribué : le rapport de plantage propre à Levain (minidump et
+journal, comme `Saved/Crashes` ou le dossier `Crashes` d'Unity), et la signature des exécutables qu'exige le rapport
+de WER côté développeur [M6, M7].
+
+Sources. Unreal (code non lu : il faut se connecter au GitHub d'Epic) :
+[U1] https://forums.unrealengine.com/t/procedural-vegetation-nanite-foliage-meshes-crash-packaged-project/2730886
+(build packagé de développement) ;
+[U2] https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Core/ECrashExitCodes ;
+[U3] https://dev.epicgames.com/documentation/unreal-engine/crash-reporting-in-unreal-engine ;
+[U4] https://forums.unrealengine.com/t/navigation-doesnt-work-in-shipping-game/2670725 (son journal lance le
+CrashReportClient de Debug) ;
+[U5] https://forums.unrealengine.com/t/crashreportclient-not-saving-logs-when-run-from-development-editor/2668198/6
+(staff Epic) ;
+[U6] https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Core/FGenericPlatformMisc/SetCrashHandlingType ;
+[U7] https://dev.epicgames.com/documentation/unreal-engine/asserts-in-unreal-engine ;
+[U8] https://forums.unrealengine.com/t/unreal-process-has-crashed-ue-marvel-this-effects-multiple-games-using-unreal/2179975 ;
+[U9] https://forums.unrealengine.com/t/packaging-fatal-error-when-cooking/540160 ;
+[U11] https://forums.unrealengine.com/t/pure-virtual-function-being-called-while-application-was-running-gisrunning-1/2078120 ;
+[U12] https://forums.unrealengine.com/t/ue5-0-2-crash-while-changing-level-only-on-shipping/591753.
+Unity (moteur natif fermé) :
+[Y1] https://unity.com/releases/editor/whats-new/2018.1.0f1 ;
+[Y2] https://discussions.unity.com/t/what-is-the-unity-crash-handler-do-i-need-it/799609 ;
+[Y3] https://docs.unity3d.com/ScriptReference/Windows.CrashReporting-crashReportFolder.html ;
+[Y4] https://docs.unity3d.com/Manual/EditorCommandLineArguments.html ;
+[Y5] https://discussions.unity.com/t/unity-build-crashes-when-running-on-windows/929617 ;
+[Y6] https://docs.unity3d.com/Manual/WindowsDebugging-forensic.html ;
+[Y7] https://docs.unity3d.com/ScriptReference/Diagnostics.ForcedCrashCategory.html ;
+[Y8] https://docs.unity3d.com/ScriptReference/Assertions.Assert.html.
+Godot, `godotengine/godot@65e8d16951d6963cb3984c090e45f40d1ba5f704` :
+[G1] https://github.com/godotengine/godot/blob/65e8d16951d6963cb3984c090e45f40d1ba5f704/platform/windows/crash_handler_windows.h#L35-L43 ;
+[G2] https://github.com/godotengine/godot/blob/65e8d16951d6963cb3984c090e45f40d1ba5f704/platform/windows/crash_handler_windows_seh.cpp#L126-L128 et #L258-L259 ;
+[G3] https://github.com/godotengine/godot/blob/65e8d16951d6963cb3984c090e45f40d1ba5f704/platform/windows/godot_windows.cpp#L144-L152 ;
+[G4] https://github.com/godotengine/godot/blob/65e8d16951d6963cb3984c090e45f40d1ba5f704/core/error/error_macros.h#L101-L111 et #L578-L598 et #L843-L852 ;
+[G5] https://github.com/godotengine/godot/blob/65e8d16951d6963cb3984c090e45f40d1ba5f704/thirdparty/doctest/doctest.h#L4745-L4762 ;
+[G6] https://github.com/godotengine/godot/blob/65e8d16951d6963cb3984c090e45f40d1ba5f704/main/main.cpp#L630 et #L1957-L1958.
+O3DE, `o3de/o3de@5e4c5e1cc47405a6840f048837731a820e49a93f` :
+[O1] https://github.com/o3de/o3de/blob/5e4c5e1cc47405a6840f048837731a820e49a93f/Code/Legacy/CrySystem/SystemInit.cpp#L1002-L1007 et #L1317-L1324 ;
+[O2] https://github.com/o3de/o3de/blob/5e4c5e1cc47405a6840f048837731a820e49a93f/Code/Legacy/CrySystem/WindowsErrorReporting.cpp#L100-L136 ;
+[O3] https://github.com/o3de/o3de/blob/5e4c5e1cc47405a6840f048837731a820e49a93f/Code/Legacy/CrySystem/DebugCallStack.cpp#L231-L243 et #L281-L305 et #L652-L657 ;
+[O4] https://github.com/o3de/o3de/blob/5e4c5e1cc47405a6840f048837731a820e49a93f/Code/Legacy/CryCommon/platform_impl.cpp#L40-L68 et
+https://github.com/o3de/o3de/blob/5e4c5e1cc47405a6840f048837731a820e49a93f/Code/Legacy/CrySystem/IDebugCallStack.cpp#L210-L232 ;
+[O5] https://github.com/o3de/o3de/blob/5e4c5e1cc47405a6840f048837731a820e49a93f/Code/Framework/AzTest/AzTest/Platform/Windows/Platform_Windows.cpp#L128-L133 ;
+[O6] https://github.com/o3de/o3de/blob/5e4c5e1cc47405a6840f048837731a820e49a93f/Code/Legacy/CrySystem/SystemWin32.cpp#L285-L289
+(le `MessageBoxW` de `CSystem::FatalError`, où mène `CryFatalError` :
+https://github.com/o3de/o3de/blob/5e4c5e1cc47405a6840f048837731a820e49a93f/Code/Legacy/CryCommon/ISystem.h#L1048-L1066).
+Microsoft :
+[M1] https://learn.microsoft.com/windows/win32/wer/using-wer ;
+[M2] https://learn.microsoft.com/cpp/c-runtime-library/reference/abort ;
+[M3] https://learn.microsoft.com/cpp/intrinsics/fastfail ;
+[M4] https://learn.microsoft.com/windows/win32/api/errhandlingapi/nf-errhandlingapi-seterrormode ;
+[M5] https://learn.microsoft.com/windows/win32/dxtecharts/games-for-windows-technical-requirements-1-1-0006 (§4.3,
+programme hérité de Windows XP à 8) ;
+[M6] https://learn.microsoft.com/windows/win32/dxtecharts/crash-dump-analysis ;
+[M7] https://learn.microsoft.com/windows/win32/appxpkg/windows-desktop-application-program ;
+[M8] https://learn.microsoft.com/windows-hardware/drivers/debugger/enabling-postmortem-debugging (`Auto`).
+CRT (sources livrées avec le Windows SDK 10.0.26100.0 et MSVC 14.51.36231) :
+[C1] `ucrt/startup/abort.cpp:15-21, 61-89` ; [C2] `ucrt/misc/invalid_parameter.cpp:90-113, 237` ;
+[C3] `ucrt/misc/signal.cpp:481-488, 506-519` ; [C4] `ucrt/misc/terminate.cpp:38-58` ;
+[C5] `vcruntime/purevirt.cpp:18-30`, `vcruntime/utility_desktop.cpp:86-102`.
+Runner :
+[R1] https://github.com/actions/runner-images/blob/e7c7cb8f4227797c6404a4e98c2ad463c2f70f91/images/windows/scripts/build/Configure-Diagnostics.ps1#L8-L21
+(inclus par https://github.com/actions/runner-images/blob/e7c7cb8f4227797c6404a4e98c2ad463c2f70f91/images/windows/templates/build.windows-2025-vs2026.pkr.hcl#L187).
+
+---
+
 ### Peut-on afficher dans le navigateur les images/s, la machine et le pourcentage d'utilisation ? Et Tracy ? (2026-10-06, M6.3)
 
 **Les images/s et la machine, oui ; le pourcentage d'utilisation, pas tel quel.** Le moteur mesure déjà son temps

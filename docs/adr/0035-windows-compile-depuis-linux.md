@@ -167,8 +167,25 @@ le port vcpkg, pour la règle n°5.
   ouvre « Debug Assertion Failed! » pour un `_ASSERT` ou une vérification de la STL, `abort()` et un plantage ouvrent
   la leur, et une CI ou un agent attend alors un délai sans rien lire. `levain_core` route ces rapports vers stderr et
   arrête le programme (code non nul), sauf sous un débogueur ; tout exécutable qui le lie l'a, sans le demander
-  (`engine/core/README.md`). Debug seulement ; la Release est une décision à prendre (sondage). La fenêtre de
-  `SDL_assert`, que SDL ouvre elle-même, reste.
+  (`engine/core/README.md`). **En Release (décidé le 2026-10-09)**, la même ligne sur stderr pour un plantage, un
+  `abort()` (où mènent aussi `std::terminate` et un appel virtuel pur) et un paramètre invalide de la CRT, puis la main
+  à Windows Error Reporting (WER), comme un programme sans Levain : WER garde son rapport et ses dumps, le code de
+  sortie reste celui de Windows (0xC0000409 après un `abort()` ou un paramètre invalide, comme la CRT le fait déjà) ;
+  seul un `raise(SIGABRT)` direct change de fin, de `_exit(3)` sans WER à 0xC0000409 avec un rapport de WER, tant que
+  `_CALL_REPORTFAULT` est posé (le défaut de la Release ; doctest le retire pendant un cas, et le code reste 3).
+  `SEM_FAILCRITICALERRORS` y est posé, comme Microsoft le recommande à toute application ; `SEM_NOGPFAULTERRORBOX`,
+  non. Donnovan a demandé de suivre les autres moteurs : Unity, Godot et O3DE laissent WER voir le plantage du build
+  joueur ; Unreal semble le contourner (il termine lui-même le processus, code 3, vu hors Shipping), mais il a de quoi
+  le remplacer (minidump, CrashReportClient). Microsoft le demande aussi aux jeux : un gestionnaire maison laisse WER
+  rapporter le plantage. Tous ne coupent les fenêtres qu'en mode automatisé ou dans leur lanceur de tests. Pas
+  d'interrupteur pour le joueur, ni de mode « sans surveillance » : il n'y a rien à couper. La fenêtre de WER ne s'ouvre
+  ni sur le runner (`DontShowUI=1`, débogueur JIT retiré), ni sur le portable, mesuré pour un programme sans fenêtre et
+  pour un programme fenêtré au premier plan : aucune fenêtre, un processus qui vit de 3,6 à 4,5 s avant de rendre le
+  code de l'exception (`build/GOTCHA.md`). L'effet de bord, sur le portable : à chaque plantage, un minidump dans
+  `%LOCALAPPDATA%\CrashDumps` et un dossier dans `ReportArchive`, et un rapport que WER envoie selon le consentement de
+  la machine. Comparaison et sources :
+  [`docs/QA.md`](../QA.md#que-fait-un-moteur-quand-le-jeu-plante-sous-windows-en-release--2026-10-09-m14). La fenêtre
+  de `SDL_assert`, que SDL ouvre elle-même, reste, en Debug comme en Release.
 - **Chaque programme tourne en UTF-8**, par un manifeste (`activeCodePage`) : sans lui, argv arrive dans la page
   de code ANSI, et `ctest` ne trouvait pas les cas de test accentués. Les chemins passés aux fonctions C
   (`path.string()`, pour ktx et stb) n'ont les accents justes que grâce à lui. Le manifeste fixe un plancher :

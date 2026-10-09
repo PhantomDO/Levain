@@ -64,6 +64,15 @@ y apprend, le temps de lecture (approximatif) et le bon moment pour la lire. Tou
 | D13 | Juan Linietsky, [*Why isn't Godot an ECS-based game engine?*](https://godotengine.org/article/why-isnt-godot-ecs-based-game-engine/) | 20 min | La défense d'un modèle objet (nœuds, héritage, composition par enfants) par l'auteur de Godot, et où il place l'orienté données : dans les serveurs ([E3](etudes/E3-modeles-objets.md)) | Étude E3 |
 | D11 | Mike Acton, [*Data-Oriented Design and C++* (CppCon 2014)](https://www.youtube.com/watch?v=rX0ItVEVjHc) | 1 h 30 (vidéo) | La conférence fondatrice de la pensée orientée données, à l'origine de l'ECS moderne | Facultatif |
 
+## W. Windows : ce que devient un programme qui plante (ADR-0035)
+
+| # | Source | Durée | Ce qu'on y apprend | Quand |
+|---|---|---|---|---|
+| W1 | Microsoft, [*Using WER*](https://learn.microsoft.com/windows/win32/wer/using-wer) | 15 min | Ce que Windows Error Reporting fait d'une exception non gérée, quand il affiche une interface (un processus interactif), et pourquoi une application ne doit pas gérer les exceptions fatales : la raison de laisser WER avoir le dernier mot en Release ([QA](QA.md#que-fait-un-moteur-quand-le-jeu-plante-sous-windows-en-release--2026-10-09-m14)) | Avant de toucher à `crt_report.cpp` |
+| W2 | Microsoft, [*Games for Windows : Technical Requirements*](https://learn.microsoft.com/windows/win32/dxtecharts/games-for-windows-technical-requirements-1-1-0006), § 4.3 | 10 min | Ce que Microsoft demandait aux jeux : un gestionnaire maison doit transmettre l'erreur à WER, qui rapporte le plantage au développeur. Un cahier des charges ancien (Windows XP à 8), mais la seule source qui parle des jeux | Facultatif |
+| W3 | Unity, [*Windows forensic debugging*](https://docs.unity3d.com/Manual/WindowsDebugging-forensic.html) | 10 min | Comment un moteur du marché récupère le plantage d'un joueur : les `LocalDumps` de WER, un minidump par plantage dans un dossier, sans code dans le jeu | Avant de décider du rapport de plantage du jeu distribué |
+| W4 | Godot, [`crash_handler_windows_seh.cpp`](https://github.com/godotengine/godot/blob/65e8d16951d6963cb3984c090e45f40d1ba5f704/platform/windows/crash_handler_windows_seh.cpp) | 15 min | Un gestionnaire de plantage de 279 lignes qui imprime la pile puis « passe l'exception à l'OS » (lignes 126-128 et 258-259) : le modèle de Levain en Release, en plus court | Facultatif |
+
 ## Ajouter une lecture
 
 Toute bonne source trouvée en chemin s'ajoute ici, dans la bonne section, avec ce qu'on y apprend et quand la
