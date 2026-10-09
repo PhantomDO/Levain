@@ -108,17 +108,29 @@ changé : la fonction route toujours les rapports vers stderr, la Release y ajou
 - **Le joueur ne voit pas la ligne** : un exécutable GUI n'a pas de stderr. Le dump vient de WER
   (`%LOCALAPPDATA%\CrashDumps` si les `LocalDumps` de la machine sont posés). Le rapport de plantage propre à Levain
   (minidump et journal, comme `Saved/Crashes` chez Unreal) attend un jeu distribué, avec une issue et un ADR.
+- **Ce que le probe ne garde pas** : un programme fenêtré qui plante (ses enfants n'ont pas de fenêtre ; une mesure
+  ponctuelle, `build/GOTCHA.md`). Une machine où WER est désactivé, elle, fait rougir le probe (voir plus bas).
 - **Chaque plantage de Release dépose un rapport chez WER** : un minidump et un dossier de rapport sur le portable,
-  envoyé selon le consentement de la machine.
+  envoyé selon le consentement de la machine. Un passage du probe en Release en dépose 8 (`build/GOTCHA.md`).
 
 **Sous doctest**, le `FatalConditionHandler` du cas pose ses réglages et rend les nôtres à la fin : il rapporte
 lui-même un plantage ou un `abort()` (« test case CRASHED », code 1) ; un rapport de la CRT (`_ASSERT`, STL), lui, est
 arrêté par notre crochet, qui passe avant son mode de rapport (stderr, code 3).
 
-**Les contre-tests** : `ctest -R crt.report` (`tests/crt_report_probe.cpp`) fait échouer un enfant de chaque façon et
-juge son code de sortie exact et son stderr ; `debugger.*` s'attache à l'enfant et exige un point d'arrêt (Debug). En
-Release, `error-mode` vérifie que `SEM_NOGPFAULTERRORBOX` et le mode de stderr de la CRT ne sont pas posés. Le test de
-`failureEndingFor` (`tests/crt_report_test.cpp`) garde la décision de la Release.
+**Les contre-tests** : `ctest -R crt.report` (`tests/crt_report_probe.cpp`), un scénario par façon d'échouer, avec le
+code de sortie exact et le texte de stderr ; `debugger.*` s'attache à l'enfant et exige un point d'arrêt (Debug). En
+Release, deux choses de plus :
+
+- **Le test de `failureEndingFor`** (`tests/crt_report_test.cpp`) garde la décision, mais pas qu'un gestionnaire la
+  suive : un filtre qui terminerait lui-même le processus avec le même code laisse le code et stderr inchangés.
+- **L'événement de WER** garde ce point : pour chaque plantage, le probe cherche dans le journal Application l'événement
+  1000 (« Application Error ») qui nomme l'enfant (`EvtQuery`, un XPath sur les données nommées `ProcessId` et
+  `ProcessCreationTime`, pas sur le texte localisé), et échoue bruyamment s'il n'y est pas 10 s après la fin de
+  l'enfant, ou si le journal est illisible. Une machine où WER est désactivé rougit donc, au lieu de passer sans
+  contrôle. **WER perd des rapports quand les plantages se chevauchent** (5 ou 6 événements vus sur 8 à `-j6`, cause non
+  trouvée) : les tests `crt.report.*` de Release s'excluent par un `RESOURCE_LOCK`, un plantage à la fois. WER garde
+  l'enfant en vie le temps de son minidump (3 s au repos, 34 s au plus vu) : à 10 s, un enfant sans événement est une
+  fenêtre ou un blocage, rouge ; avec l'événement, le probe l'attend jusqu'à 120 s.
 
 Mesures et pièges : `build/GOTCHA.md`.
 
