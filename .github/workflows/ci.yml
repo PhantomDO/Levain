@@ -747,10 +747,11 @@ jobs:
           done
 
       # Les contrôles de l'hôte, sur les deux arbres. La découverte des cas de levain_tests y échoue et le dit : le
-      # .exe, que Linux refuse de lancer (ENOEXEC), est alors passé à /bin/sh par execvp, d'où un « Syntax error: word
-      # unexpected » sans conséquence. Son test rouge, levain_tests_NOT_DISCOVERED, n'a pas le label host : c'est le
-      # runner Windows qui fait la découverte. Puis la liste des tests hors doctest, que le runner devra trouver tous :
-      # un CTestTestfile perdu en route y ferait disparaître les siens sans bruit, ctest sautant un dossier absent.
+      # .exe, que Linux refuse de lancer (ENOEXEC), est alors passé à /bin/sh par execvp, d'où un « Syntax error »
+      # sans conséquence (« word unexpected » ou « Unterminated quoted string », selon les octets de l'exe). Son test
+      # rouge, levain_tests_NOT_DISCOVERED, n'a pas le label host : c'est le runner Windows qui fait la découverte.
+      # Puis la liste des tests hors doctest, que le runner devra trouver tous : un CTestTestfile perdu en route y
+      # ferait disparaître les siens sans bruit, ctest sautant un dossier absent.
       - name: Contrôles de l'hôte
         run: |
           set -euo pipefail

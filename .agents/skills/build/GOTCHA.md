@@ -19,8 +19,9 @@ les chemins `/home/…` s'y lisent comme sur le runner (lavapipe par `VK_DRIVER_
   (`HKLM\SOFTWARE\Khronos\Vulkan\Drivers` et `ExplicitLayers`) ; vulkaninfo doit nommer les deux avant les tests.
   Conséquence : la CI ne passe plus par `addLayerPathBesideExecutable` (`VK_ADD_LAYER_PATH`, `device_vk.cpp`) ; seul
   le PC de Donnovan le vérifie, par `ctest -LE host` lancé de la distro.
-- **Sur le runner Linux, la découverte des cas de doctest écrit « Syntax error: word unexpected »** (« levain_tests :
-  la découverte des cas a échoué : 2 …/levain_tests.exe: 1: Syntax error… ») : le noyau refuse le binaire PE
+- **Sur le runner Linux, la découverte des cas de doctest écrit « Syntax error »** (« levain_tests : la découverte des
+  cas a échoué : 2 …/levain_tests.exe: 1: Syntax error: word unexpected », ou « Unterminated quoted string » pour
+  l'exe de Release, run 37853947275) : le noyau refuse le binaire PE
   (ENOEXEC), et `execvp` le passe alors à `/bin/sh`, qui le lit comme un script. Sans conséquence : le test rouge
   `levain_tests_NOT_DISCOVERED` n'a pas le label `host`, et la découverte se fait sur le runner Windows.
 - **Un faux `.exe` lancé de la distro ouvre sur le bureau de Windows un dialogue modal** (« Application 16 bits non
