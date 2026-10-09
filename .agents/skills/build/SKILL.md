@@ -38,16 +38,17 @@ Windows (`windows-debug`, `windows-release`), depuis la distro WSL : `LEVAIN_WIN
 `ctest --test-dir build/windows-debug -j 4 --timeout 120 --output-on-failure`. Les contrôles qui lancent un outil de
 l'hôte (`cmake -P`, Python, la lecture des symboles dans le PDB par `llvm-pdbutil`, `cmake.plugins.*`, `dxc` pour
 les `dxil.*`) portent le label `host` (`levain_add_host_test` dans `tests/CMakeLists.txt`, `levain_add_shader` pour
-les `dxil.*`) : `ctest -L host` les lance seuls, `ctest -LE host` lance les programmes de la cible, ce que fera un
-runner Windows (#346).
+les `dxil.*`) : `ctest -L host` les lance seuls, `ctest -LE host` lance les programmes de la cible, ce que fait le
+runner Windows de la CI. Le winsysroot de la machine de référence : `tools/winsysroot.sh` (xwin, celui de la CI),
+dans un dossier nommé d'après son tampon (docs/SETUP.md).
 
 Le premier `cmake --preset` est long : vcpkg compile les dépendances depuis les sources. Les suivants sont
 instantanés (cache `~/.cache/vcpkg`). Pour clangd : `ln -sf build/linux-debug/compile_commands.json .`
 
 Les contrôles de la CI sur les sources et les tests, d'un coup, avant chaque push : `tools/verify.sh` (format,
 trois presets, `windows-debug` compilé sans être lancé, clang-tidy des fichiers changés, web ; code de sortie non
-nul dès qu'une étape échoue). Sans `LEVAIN_WINSYSROOT` (la machine de référence, jusqu'au winsysroot de xwin de
-#346), l'étape Windows échoue en nommant la variable ; `NO_WINDOWS=1` la saute. Il ne lance pas le sandbox comme la CI (Fox, Sponza, terrain, hot-reload). Le détail, étape par étape :
+nul dès qu'une étape échoue). Sans `LEVAIN_WINSYSROOT`, l'étape Windows échoue en nommant la variable ;
+`NO_WINDOWS=1` la saute. Il ne lance pas le sandbox comme la CI (Fox, Sponza, terrain, hot-reload). Le détail, étape par étape :
 
 Format et analyse statique, comme la CI :
 

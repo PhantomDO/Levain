@@ -3,6 +3,29 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## La découverte de doctest faite par ctest, et le winsysroot de xwin (2026-10-08)
+
+Les cas de `levain_tests` découverts par ctest sur la machine qui lance l'exe (`tests/CMakeLists.txt`), et le
+winsysroot de xwin, celui de la machine de référence et de la CI (`tools/winsysroot.sh`) (#346).
+
+- **xwin 0.10.0 ne sait pas tirer MSVC 14.51 et le SDK 10.0.26100 d'un manifeste de Visual Studio 18** : « unable to
+  find Universal CRT MSI » (le SDK y écrit `Installers\` ; le paquet à part de la CRT universelle, quand il existe, est
+  pris à sa place, et ce n'est pas celle du PC) ; le SDK 10.0.28000 échoue au téléchargement (des espaces dans les
+  adresses, xwin #188) ; le manifeste 17 s'arrête à MSVC 14.44. Parade (`tools/winsysroot.sh`) : le manifeste de 18.8.1
+  figé par SHA-256, deux corrections vérifiées, posé dans le cache de xwin. Comparé fichier par fichier au
+  `~/winsysroot` du portable (les Build Tools 18.8.1) : 5 597 fichiers identiques, aucun différent, 27 en-têtes
+  `shared/netcx` absents du portable. Commande, depuis le winsysroot de xwin : `find . -type f ! -name
+  .levain-winsysroot -print0 | while IFS= read -r -d '' f; do if [ ! -e ~/winsysroot/"$f" ]; then echo "absent
+  ${f%/*}"; elif cmp -s "$f" ~/winsysroot/"$f"; then echo identique; else echo "différent $f"; fi; done | sort | uniq -c`.
+- **xwin nomme les dossiers des versions courtes** (`MSVC/14.51`, `Include/10.0.26100`) : le script les renomme.
+- **ctest ne définit pas `CMAKE_COMMAND` en lisant ses fichiers** : la découverte de doctest ne peut pas y relancer
+  `cmake -P` sans nommer le cmake de la machine de build. Parade : le script de doctest est inclus. Mais son
+  `FATAL_ERROR` arrête alors ctest entier (code 8, aucun test lancé, `-L host` compris) : la liste est demandée avant.
+- **`execute_process` refuse sous Windows un `WORKING_DIRECTORY` sans lecteur** (`/home/…` : « no such file or
+  directory »), quand ctest et les exe le prennent sur le lecteur courant. Parade : `file(REAL_PATH)`.
+- **ctest lit ses fichiers sans politique** : sous Windows, `execute_process` décode alors la sortie dans la page de
+  code de la console, et `--list-test-cases` rend « sup├⌐rieur » ; le cas ainsi nommé n'existe pas. Parade : CMP0176.
+
 ## Un shader juste sous lavapipe, faux sur un vrai GPU : la division arrondie à 2,5 ULP (2026-10-08)
 
 - **Symptôme** : `gpu.environment.*` passe sous lavapipe, échoue sur la RTX 4070 (Vulkan comme WebGPU), sans
@@ -101,7 +124,8 @@ Branche `spike/windows`, `prototypes/windows/README.md` ; ADR-0035.
   `ENVIRONMENT` de ctest n'atteint donc pas l'exe : lancés de la distro, `gpu.*` et `smoke.*` ne reçoivent pas
   `SDL_VIDEO_DRIVER=offscreen` et tournent dans une vraie fenêtre. Avec la variable transmise, comme sur un runner
   Windows, les programmes Vulkan échouent sur la 4070 : le pilote NVIDIA n'a pas `VK_EXT_headless_surface`, que le
-  pilote offscreen de SDL demande ; le chemin WebGPU passe. À régler dans la PR de la CI (#346) (2026-10-08).
+  pilote offscreen de SDL demande ; le chemin WebGPU passe. Réglé par la CI (#346) : sous Windows, les tests
+  demandent le pilote `windows` (`testVideo`, `tests/CMakeLists.txt`) (2026-10-08).
 - **`waitEvents` revient avant l'échéance, sous Windows lancé depuis la distro** : le test échouait en `ctest -j`
   (`elapsed >= 40ms` vu à 11 ms, sans autre sortie). Cause mesurée, un `fprintf` dans `waitEvents` : sans
   `SDL_VIDEO_DRIVER` (WSLENV, ci-dessus), la fenêtre s'ouvre sur le vrai bureau, qui lui envoie

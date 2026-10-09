@@ -60,8 +60,8 @@ for preset in ${PRESETS:-linux-debug linux-release linux-asan}; do
     fi
 done
 
-# Windows, compilé depuis Linux par clang-cl (ADR-0035) : le build seulement. Lancer les binaires Windows est le
-# travail des PR suivantes (les tests par ctest, #345 ; la CI avec un runner Windows, #346). Sans winsysroot,
+# Windows, compilé depuis Linux par clang-cl (ADR-0035) : le build seulement. Les binaires Windows se lancent depuis
+# la distro WSL (ctest) ou sur le runner Windows de la CI. Sans winsysroot (tools/winsysroot.sh le télécharge),
 # l'étape ÉCHOUE en nommant la variable (règle n°7) : un contrôle qui se contenterait de ne pas s'exécuter
 # laisserait passer une branche qui casse Windows. NO_WINDOWS=1 la saute, et le dit comme NO_WEB.
 if [ -z "${NO_WINDOWS:-}" ]; then
