@@ -78,7 +78,7 @@ constexpr Scenario Scenarios[] = {
     // L'assert() du C : celui d'IM_ASSERT, de glm et des ports en Debug.
     {"c-assert", [] { assert(false); }, "Assertion failed: false"},
     // Le préfixe de core : sans le crochet, le mode FILE de la CRT écrit le même message et abort()
-    // finit tout de même par exit(3) ; seul le préfixe dit qui a arrêté le programme.
+    // finit tout de même par _exit(3) ; seul le préfixe dit qui a arrêté le programme.
     {"abort", [] { std::abort(); }, "rapport de la CRT (erreur) : abort() has been called"},
     // [except.handle]/9 : std::terminate, donc le gestionnaire de std::set_terminate.
     {"uncaught-throw",

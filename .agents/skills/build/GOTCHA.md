@@ -112,7 +112,7 @@ Release est à décider, et le piège reste pour qui s'en passerait.
   ensuite, 12 sur 12) : `onReport` rend `FALSE` dès son début pour `_CRT_ASSERT` : `stl-subscript` rouge (« code
   0xc000001d au lieu de 0x3 » ; il était vert avec « non nul »), `crt-assert` et `debugger.crt-assert` aussi. Pour
   `_CRT_ERROR` : seuls `debugger.abort` et `abort`, et ce dernier parce que le probe attend le préfixe de core
-  (« rapport de la CRT (erreur) : ») : `abort()` finit par `exit(3)` avec ou sans crochet (le `SIGABRT` par défaut,
+  (« rapport de la CRT (erreur) : ») : `abort()` finit par `_exit(3)` avec ou sans crochet (le `SIGABRT` par défaut,
   pas un `__fastfail`), et le mode FILE écrit le même message, donc ni le code ni le texte ne le distinguaient.
   `uncaught-throw`, qui finit par le même `abort()`, reste vert : il ne cherche que le texte de son gestionnaire.
 - **Une bibliothèque statique écarte le fichier que personne ne référence** : sans l'ancre, le routage disparaît du
