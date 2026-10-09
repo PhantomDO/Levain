@@ -60,8 +60,9 @@ void printErrorMode()
                  noFaultBox ? "posé" : "absent", toStderr ? "posé" : "absent");
 }
 
-// Un scénario par fenêtre connue (build/GOTCHA.md), en Debug : la Release ne change rien
-// (engine/core/README.md), et `error-mode` le vérifie.
+// Un scénario par fenêtre connue (build/GOTCHA.md), en Debug. En Release, le routage pose ses
+// gestionnaires et SEM_FAILCRITICALERRORS, pas SEM_NOGPFAULTERRORBOX (engine/core/README.md) :
+// `error-mode` ne vérifie que ces deux réglages absents, et rien d'autre n'y est encore contrôlé.
 constexpr Scenario Scenarios[] = {
 #ifdef _DEBUG
     // Le rapport qu'a vu Donnovan, depuis levain_sandbox.exe.

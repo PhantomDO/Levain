@@ -24,6 +24,15 @@ TEST_CASE(
           CrtReportAction::Stop); // un type inconnu n'est pas un avertissement
 }
 
+TEST_CASE("failureEndingFor : le Debug s'arrête lui-même, la Release rend la main à Windows Error "
+          "Reporting")
+{
+    // La décision de la Release (ADR-0035), quelle que soit la configuration de ce test. Elle ne
+    // prouve pas que le filtre la suive : l'événement de WER, que lit crt.report.*, le prouve.
+    CHECK(failureEndingFor(true) == FailureEnding::StopProcess);
+    CHECK(failureEndingFor(false) == FailureEnding::HandToWindowsErrorReporting);
+}
+
 TEST_CASE("describeCrtReport et describeException : une ligne qui finit par un retour à la ligne, "
           "sans déborder")
 {

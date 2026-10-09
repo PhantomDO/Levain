@@ -14,11 +14,12 @@ add_library(levain::core ALIAS levain_core)
 
 target_include_directories(levain_core PUBLIC include)
 
-# Windows, en Debug : plus de fenêtre de la CRT quand un programme échoue (crt_report.hpp). Le fichier ne contient rien
-# qu'un exécutable appellerait : une bibliothèque statique ne livre que les objets qu'on lui demande, donc un
-# `/INCLUDE:` force la référence à son ancre. INTERFACE : il suit `levain::core` dans l'édition de liens de tout
-# exécutable qui la lie, celui d'un jeu compris ; le CMakeLists racine le pose aussi sur les exécutables du moteur,
-# pour qu'un nouvel exécutable qui ne lierait pas core échoue au lieu d'être oublié.
+# Windows : un programme qui échoue écrit sa ligne sur stderr, sans fenêtre de la CRT, puis s'arrête (Debug) ou rend la
+# main à Windows Error Reporting (Release) (crt_report.hpp). Le fichier ne contient rien qu'un exécutable appellerait :
+# une bibliothèque statique ne livre que les objets qu'on lui demande, donc un `/INCLUDE:` force la référence à son
+# ancre. INTERFACE : il suit `levain::core` dans l'édition de liens de tout exécutable qui la lie, celui d'un jeu
+# compris ; le CMakeLists racine le pose aussi sur les exécutables du moteur, pour qu'un nouvel exécutable qui ne
+# lierait pas core échoue au lieu d'être oublié.
 if(WIN32)
     target_sources(levain_core PRIVATE src/crt_report.cpp)
     target_link_options(levain_core INTERFACE /INCLUDE:LevainCrtReportRouted)
