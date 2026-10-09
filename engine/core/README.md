@@ -49,8 +49,9 @@ En Debug, un échec sous Windows ouvrait une fenêtre modale (« Debug Assertion
 « abort() has been called », « Le programme a cessé de fonctionner » pour un plantage) : une CI ou un agent attendait
 un délai, et le message n'arrivait pas au journal. **Plus de fenêtre de la CRT ni d'une exception Windows** : le
 message va sur stderr, le programme s'arrête avec un code non nul. Sous un débogueur (`IsDebuggerPresent`), il s'y
-arrête, comme le « Retry » de l'ancienne fenêtre. Une fenêtre reste, hors de ce routage : celle de `SDL_assert`,
-que SDL ouvre elle-même, en Release aussi pour `SDL_assert_release`.
+arrête, comme le « Retry » de l'ancienne fenêtre. Un programme sans stderr (sous-système GUI lancé hors d'un outil)
+perd la ligne, le code de sortie reste ; elle part aussi au débogueur (`OutputDebugStringA`, DebugView). Une fenêtre
+reste, hors de ce routage : celle de `SDL_assert`, que SDL ouvre elle-même, en Release aussi pour `SDL_assert_release`.
 
 | Ce qui échoue | Mécanisme (`src/crt_report.cpp`) | Sortie |
 |---|---|---|
@@ -76,7 +77,9 @@ chaque `main` s'oublierait dans le prochain, et doctest génère le sien. Rien n
 
 **Release : rien ne change**, ni crochet, ni filtre, ni mode d'erreur. L'ancre y reste (l'oubli de core échoue
 toujours à l'édition de liens) et n'installe rien. Ce que doit faire la Release, celle d'un jeu livré, est une
-décision à prendre (sondage) : elle garde aujourd'hui Windows Error Reporting, ses rapports et ses dumps.
+décision à prendre (sondage) : elle garde aujourd'hui Windows Error Reporting, ses rapports et ses dumps. Si elle lui
+rend la main, `abort()` demande en plus un gestionnaire de `SIGABRT` qui écrit la ligne, puis finit par `__fastfail`
+comme `abort()` le ferait : WER le voit, et un `raise(SIGABRT)` direct ne revient pas.
 
 **Sous doctest**, le `FatalConditionHandler` du cas pose ses réglages et rend les nôtres à la fin : il rapporte
 lui-même un plantage ou un `abort()` (« test case CRASHED », code 1) ; un rapport de la CRT (`_ASSERT`, STL), lui, est

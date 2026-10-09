@@ -58,7 +58,7 @@ std::string_view finishLine(std::span<char> buffer, int written)
 #ifdef _DEBUG
 
 // WriteFile plutôt que fprintf : ni verrou de stdio ni tampon, donc utilisable depuis un plantage.
-void writeToStandardError(std::string_view line)
+void writeReportLine(std::string_view line)
 {
     const HANDLE standardError = GetStdHandle(STD_ERROR_HANDLE);
     DWORD written = 0;
@@ -66,6 +66,11 @@ void writeToStandardError(std::string_view line)
     {
         WriteFile(standardError, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
     }
+    // Aussi au débogueur (DebugView) : sans stderr, un programme GUI ne se tait pas tout à fait.
+    // Copie sur la pile avec son zéro (une vue n'en a pas) : le tas est peut-être détruit.
+    std::array<char, 1024> terminated{};
+    std::ranges::copy(line.substr(0, terminated.size() - 1), terminated.begin());
+    OutputDebugStringA(terminated.data());
 }
 
 // TerminateProcess ne laisse rien tourner après lui (ni destructeurs ni DLL), ce qu'on veut après
@@ -94,7 +99,7 @@ LONG WINAPI onUnhandledException(EXCEPTION_POINTERS* pointers)
         static_cast<void>(previousFilter(pointers));
     }
     std::array<char, 512> buffer{};
-    writeToStandardError(describeException(record.ExceptionCode, record.ExceptionAddress, buffer));
+    writeReportLine(describeException(record.ExceptionCode, record.ExceptionAddress, buffer));
     stopProcess(record.ExceptionCode);
 }
 
@@ -115,7 +120,7 @@ int __cdecl onReport(int reportType, char* message, int* returnValue)
         describeCrtReport(reportType, message != nullptr ? message : "", buffer);
     if (action == CrtReportAction::BreakIntoDebugger)
     {
-        writeToStandardError(line);
+        writeReportLine(line);
         // 1 est le « Retry » de l'ancienne fenêtre : la macro appelante (_ASSERT, _RPTF, ou le code
         // de la CRT) exécute elle-même __debugbreak, et le débogueur s'arrête sur la ligne fautive,
         // pas ici.
@@ -130,7 +135,7 @@ int __cdecl onReport(int reportType, char* message, int* returnValue)
     // des crochets (__acrt_debug_lock) ; un thread qui tiendrait un FILE en attendant de rapporter
     // bloquerait les deux, et le délai du test le montrerait au lieu d'une fenêtre.
     std::fflush(nullptr);
-    writeToStandardError(line);
+    writeReportLine(line);
     stopProcess(CrtReportExitCode);
 }
 
@@ -188,8 +193,8 @@ void routeCrtReportsToStderr() noexcept
     // (règle n°7) : on s'arrête avant `main`, en le disant.
     if (_CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, &onReport) == -1)
     {
-        writeToStandardError("routage des rapports de la CRT impossible : _CrtSetReportHook2 a "
-                             "échoué (engine/core/src/crt_report.cpp)\n");
+        writeReportLine("routage des rapports de la CRT impossible : _CrtSetReportHook2 a "
+                        "échoué (engine/core/src/crt_report.cpp)\n");
         stopProcess(CrtReportExitCode);
     }
 #endif
