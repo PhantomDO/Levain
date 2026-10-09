@@ -32,11 +32,34 @@ du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
 - **lavapipe pour Windows est 1,6 à 5 fois plus lent que celui de la distro**, sur la même machine (Debug, 32
   processeurs : le terrain 3 à 6 images en 3,3 s contre 16, le personnage 81,5 s contre 51,3 pour 200 pas). Limité à
   4 processeurs comme le runner (`cmd.exe /c start "" /b /wait /affinity F` devant le bash de Git, et
-  `LP_NUM_THREADS=4`), la vue terrain ne fait que 3 images en 3 s : le minuteur GPU, qui en demande quatre pour une
-  mesure, n'a rien mesuré, et « l'étape transparente n'a rien dessiné » (rouge, comme une fois sur trois sans limite) ;
-  le renard dans la vallée sur WebGPU tourne 234,5 s, sous les 300 s de son `timeout`. Le runner Linux fait 7 images.
-  Pas d'argument changé ni d'étape écartée sans Donnovan. Ce `start` ne rend pas le code de l'enfant : lire les
-  `::error::` du journal.
+  `LP_NUM_THREADS=4`), la vue terrain en `--seconds 3` ne faisait que 3 images : le minuteur GPU, qui en demande
+  quatre pour une mesure, n'avait rien mesuré, et « l'étape transparente n'a rien dessiné » (rouge, une seule fois
+  limité à 4 processeurs, une fois sur trois sans limite). Le runner Linux fait 7 images en 3,3 s (run 37866995438,
+  `linux-debug`, étape « Lancer le sandbox sur le terrain »). Parade : `--steps 8` au lieu de `--seconds 3`, des deux
+  côtés, comme le personnage, la vallée et l'interface (« quelle que soit la vitesse du runner ») : huit images, cinq
+  mesures du minuteur, à chaque lancement (Linux 0,8 s ; lavapipe pour Windows 5,0 à 6,3 s à 32 processeurs, 8,8 à
+  10,2 s à 4 ; 4070 0,2 s) ; `--steps 3` rougit, sur Linux comme sous Windows. Aucun contrôle du terrain ne dépend du
+  temps écoulé : « 66 corps » est un compte, et « lac : N caisses dans l'eau » n'a jamais dit autre chose que « 0 »
+  en 3 s (12 journaux relevés, la 4070 à 295 images comprise), les caisses ne tombant dans l'eau que dans
+  `terrain_test.cpp`, en 600 pas.
+- **Le renard dans la vallée sur WebGPU, limité à 4 processeurs, a pris environ 249 s de processus** à la première
+  répétition (234,5 s de boucle ; 247 s entre la première et la dernière ligne du journal, le démarrage en plus), et
+  122,5 s à la seconde (112,4 s pour Vulkan, mesurés par la trace horodatée de `bash -x`), même commande : le double
+  d'écart sur le portable. Un `timeout` de 300 s ne laissait que 51 s de marge dans le premier cas, et un dépassement
+  tue le processus avec le seul code 143, sans `::error::`. Parade : 450 s pour la vallée, des deux côtés (`runHike`) ;
+  `timeout` y est un filet contre un blocage, pas un contrôle (en-tête de `tools/ci-programs.sh`).
+- **La fenêtre du sandbox est de 1920 × 1080 et redimensionnable ; Windows la réduit à la taille du bureau**, que
+  GitHub ne documente pas pour ses runners. `--pick 960,540`, le
+  centre d'une fenêtre de 1920 × 1080, ne viserait plus le centre : la sélection échouerait sous « aucune caisse », ou
+  passerait en ne vérifiant plus ce qu'elle dit. Parade : `requireFullHdCapture` (`tools/ci-programs.sh`) exige
+  « capture : physics-<gpu>.png (1920 × 1080) » avant les contrôles de la physique, et échoue en nommant la cause ;
+  l'étape « Bureau du runner » affiche la résolution (`Win32_VideoController`), à lire au premier passage. Contre-test :
+  un sandbox qui rejoue le journal réel avec une capture de 1280 × 720, ou sans ligne de capture, rougit, dans le bash
+  de la distro et dans celui de Git.
+- **L'artefact n'emporte que les exe de `sandbox/`** : le `.dll` et le `.json` des couches de validation à côté du
+  sandbox (6,9 Mo compressés, par artefact) ne servent qu'au PC (`addLayerPathBesideExecutable`) ; le runner, élevé,
+  passe par le registre, qui désigne ceux de `tests/`.
+- **Le `start` des 4 processeurs ne rend pas le code de l'enfant** : lire les `::error::` du journal.
 
 ## La CI Windows : lavapipe pour Windows, ctest sur des chemins Linux (2026-10-08)
 

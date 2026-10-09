@@ -232,9 +232,12 @@ Visual Studio reste à essayer.
   configuration : les mêmes étapes, par le même script (`tools/ci-programs.sh`), dans le bash de Git du runner, avec
   une vraie fenêtre. Les assets de test n'entrent pas dans l'artefact, que tout compte GitHub peut télécharger : la
   licence de Sponza l'interdit ; le runner reprend le cache d'assets des jobs Linux, sinon les télécharge. Répété sur
-  le portable, sous lavapipe pour Windows et sur la 4070 : tout passe, sauf la vue terrain en Debug sous lavapipe,
-  trop lent pour mesurer son temps GPU en 3 s (une fois sur trois, et à chaque fois limité aux 4 processeurs du
-  runner, build/GOTCHA.md) : à trancher par Donnovan, sans argument changé ni étape écartée d'ici là.
+  le portable, sous lavapipe pour Windows et sur la 4070 : tout passe, sauf la vue terrain en Debug, trop lente sous
+  lavapipe pour mesurer son temps GPU en 3 s (rouge une fois sur trois, et la seule fois limité aux 4 processeurs du
+  runner, build/GOTCHA.md). Elle tourne maintenant en `--steps 8` des deux côtés, comme le personnage, la vallée et
+  l'interface : huit images, cinq mesures du minuteur, quelle que soit la vitesse du runner (aucun de ses contrôles ne
+  dépendait du temps). La vallée a un `timeout` de 450 s, et la physique exige une capture de 1920 × 1080 avant de
+  se fier au pixel de `--pick` : le bureau du runner n'est pas documenté.
 
 ### Les PR et le reste
 
