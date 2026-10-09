@@ -3,6 +3,37 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Le sandbox sous Windows en CI : le bash de Git, Sponza hors de l'artefact (2026-10-09)
+
+Les étapes du sandbox, de l'éditeur et du cuiseur dans `windows-debug` et `windows-release` (#346), par
+`tools/ci-programs.sh`, le script des jobs Linux. Répétées sur le portable : le bash de Git lancé de la distro comme
+sur le runner (`"/mnt/c/Program Files/Git/bin/bash.exe" --noprofile --norc -e -o pipefail -c …`), depuis la racine
+du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
+
+- **Le `bash` d'Actions sous Windows est celui de Git**, dont `bin/bash.exe` met `/usr/bin` en tête du PATH :
+  `timeout` est celui de coreutils, pas `C:\Windows\System32\timeout.exe`. Il arrête un exe Windows : code 143 au bout
+  de 20 s, sans processus restant (`tasklist.exe`). Il lance aussi `build/…/levain_sandbox` sans `.exe` ; le bash de
+  la distro, non (code 127) : le script cherche l'exe avec son extension (`executableIn`).
+- **spdlog finit ses lignes par « \r\n » sous Windows.** Le grep de Git les lit comme des fins de ligne, le grep GNU
+  de la distro non : sans `tr -d '\r'` (`logTo`), le contrôle de l'éditeur, ancré par `$`, échoue lancé de la distro
+  (« la sélection n'est pas celle de --select ») et passe dans le bash de Git.
+- **Sponza ne va pas dans un artefact** : celui d'un dépôt public se télécharge depuis n'importe quel compte GitHub,
+  et sa licence interdit la redistribution (`tools/assets.lock`). Le runner Windows reprend le cache d'assets des
+  jobs Linux (`enableCrossOsArchive`), puis `tools/fetch-assets.sh` vérifie tout et télécharge ce qui manque ; il
+  tourne dans le bash de Git (curl, sha256sum : téléchargement et seconde passe sans rien à faire, répétés).
+- **`texture-hot-reload.sh` attendait 4 s fixes** avant d'écrire les octets invalides. Lancé de la distro, le scan
+  des assets prend 3 s sur le partage `\\wsl.localhost` : le sandbox lisait les octets invalides à son premier
+  chargement (« CesiumMilkTruck.jpg : unknown image type », critique, code 1), sur lavapipe comme sur la 4070. Le
+  script attend maintenant la ligne « clic droit pour regarder » (le camion chargé, la boucle qui part), une minute au
+  plus : rechargé 167 à 305 ms après l'écriture.
+- **Lancé de la distro, le bash de Git** a pour dossier courant `//wsl.localhost/levain-dev/…` : `mkdir -p` d'un
+  chemin absolu de ce partage échoue (« Read-only file system », il remonte jusqu'à `//wsl.localhost`), un chemin
+  relatif passe ; `TMPDIR` dans le scratchpad, sans quoi `mktemp` et `<<<` écrivent dans le `%TEMP%` de Donnovan.
+- **La vue terrain, 3 s sous lavapipe pour Windows, en Debug, est juste** : 3, 6 puis 5 images en 3,3 s sur le
+  portable, d'où 0, 3 puis 2 mesures du minuteur GPU, qui en demande une (« l'étape transparente n'a rien dessiné »,
+  rouge la première fois). Le runner Linux en fait 7. Le runner Windows le dira ; pas d'argument changé ni d'étape
+  écartée sans Donnovan.
+
 ## La CI Windows : lavapipe pour Windows, ctest sur des chemins Linux (2026-10-08)
 
 Les jobs `windows-*` de `ci.yml` (#346). Répété en local avant la CI : le ctest de Windows lancé de la distro par

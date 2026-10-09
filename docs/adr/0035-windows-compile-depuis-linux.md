@@ -227,6 +227,13 @@ Visual Studio reste à essayer.
   #359, au-delà de 10 Go ; GitHub chasse d'abord les entrées mortes, et les caches de `main` étaient tous là. En
   régime établi, `main` garde 3,65 Go (Linux et web) plus 1,15 Go (Windows). À froid : de 1 h 28 à 1 h 52 (runs
   37853947275 et 37826674786).
+- **Mis à jour le 2026-10-09, par la PR du sandbox et de l'éditeur sous Windows (#346).** Les jobs `windows-debug` et
+  `windows-release` lancent aussi le sandbox, son éditeur et le cuiseur, comme les jobs Linux de la même
+  configuration : les mêmes étapes, par le même script (`tools/ci-programs.sh`), dans le bash de Git du runner, avec
+  une vraie fenêtre. Les assets de test n'entrent pas dans l'artefact, que tout compte GitHub peut télécharger : la
+  licence de Sponza l'interdit ; le runner reprend le cache d'assets des jobs Linux, sinon les télécharge. Répété sur
+  le portable, sous lavapipe pour Windows et sur la 4070 : tout passe, sauf une fois sur quatre la vue terrain en
+  Debug sous lavapipe, juste en 3 s (build/GOTCHA.md) ; le runner tranchera.
 
 ### Les PR et le reste
 
