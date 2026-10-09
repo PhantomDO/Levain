@@ -6,6 +6,8 @@
 #include <VkBootstrap.h>
 #include <nvrhi/vulkan.h>
 
+#include "native_device.hpp"
+
 #include "levain/gpu/device.hpp"
 
 // En-tête privé du module : partagé par device_vk.cpp et swapchain_vk.cpp, jamais installé.
@@ -13,8 +15,12 @@
 namespace levain::gpu
 {
 
-struct VulkanContext
+/// Le NativeDevice de Vulkan.
+struct VulkanContext final : NativeDevice
 {
+    /// Détruit device, surface et instance, dans cet ordre.
+    ~VulkanContext() override;
+
     vkb::Instance instance;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     vkb::Device device;

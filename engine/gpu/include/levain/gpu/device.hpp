@@ -13,21 +13,23 @@ namespace levain::gpu
 {
 
 #ifndef __EMSCRIPTEN__
-/// Ce que NVRHI ne crée pas lui-même : instance, surface et device Vulkan. Défini dans
-/// `device_vk.cpp` : ni Vulkan ni vk-bootstrap n'apparaissent dans cet en-tête.
-struct VulkanContext;
+/// Ce que NVRHI ne crée pas lui-même, propre à chaque backend : instance, surface et device Vulkan
+/// (`vulkan_context.hpp`). Une classe de base, une dérivée par backend : les deux backends natifs
+/// vivent dans le même exe Windows, où un même nom ne peut avoir qu'une définition. Ni Vulkan ni
+/// Direct3D n'apparaissent dans cet en-tête.
+struct NativeDevice;
 
-/// Détruit device, surface et instance, dans cet ordre.
-struct VulkanContextDeleter
+/// Détruit les objets du backend, dans l'ordre inverse de leur création.
+struct NativeDeviceDeleter
 {
-    void operator()(VulkanContext* context) const noexcept;
+    void operator()(NativeDevice* device) const noexcept;
 };
 
-/// La swapchain, ses images enveloppées en textures NVRHI, et la cadence des frames. Définie dans
-/// `swapchain_vk.cpp`.
+/// La swapchain, ses images enveloppées en textures NVRHI, et la cadence des frames : une
+/// interface, une implémentation par backend (`swapchain_vk.cpp`).
 struct Swapchain;
 
-/// Attend que le GPU ait fini, puis détruit images, sémaphores et swapchain.
+/// Attend que le GPU ait fini, puis détruit les images et la swapchain du backend.
 struct SwapchainDeleter
 {
     void operator()(Swapchain* swapchain) const noexcept;
@@ -46,16 +48,17 @@ struct DeviceOptions
 };
 
 #ifndef __EMSCRIPTEN__
-/// Le GPU vu par le moteur : un `nvrhi::IDevice`, les objets Vulkan qui le portent, et la
+/// Le GPU vu par le moteur : un `nvrhi::IDevice`, les objets du backend qui le portent, et la
 /// swapchain où il dessine.
 ///
 /// **L'ordre des membres est l'ordre de destruction inverse** : `swapchain`, puis `nvrhi`, puis
-/// `vulkan`. Les images de la swapchain sont des textures NVRHI, qui doivent disparaître avant le
-/// device NVRHI ; lui-même doit disparaître avant le VkDevice sur lequel il libère ses ressources.
-/// Pour la même raison, ne gardez pas de `nvrhi::DeviceHandle` plus longtemps que le `GpuDevice`.
+/// `native`. Les images de la swapchain sont des textures NVRHI, qui doivent disparaître avant le
+/// device NVRHI ; lui-même doit disparaître avant le device natif sur lequel il libère ses
+/// ressources. Pour la même raison, ne gardez pas de `nvrhi::DeviceHandle` plus longtemps que le
+/// `GpuDevice`.
 struct GpuDevice
 {
-    std::unique_ptr<VulkanContext, VulkanContextDeleter> vulkan;
+    std::unique_ptr<NativeDevice, NativeDeviceDeleter> native;
     nvrhi::DeviceHandle nvrhi;
     std::unique_ptr<Swapchain, SwapchainDeleter> swapchain;
     /// Sans swapchain (WebGPU en natif), l'image où dessiner, à la taille de la fenêtre.
@@ -79,8 +82,9 @@ void requestGpuDevice(const platform::Window& window, const DeviceOptions& optio
                       const GpuDeviceCallback& onDevice);
 
 #ifndef __EMSCRIPTEN__
-/// Crée le device Vulkan sur le GPU le plus adapté (discret de préférence), puis le device NVRHI
-/// par-dessus. Le nom du GPU et la version du pilote sont journalisés dans la catégorie `gpu`.
+/// Crée le device du backend choisi sur le GPU le plus adapté (discret de préférence), puis le
+/// device NVRHI par-dessus. Le nom du GPU et la version du pilote sont journalisés dans la
+/// catégorie `gpu`.
 ///
 /// Échoue sans GPU compatible (Vulkan 1.3, dynamicRendering, synchronization2, timeline
 /// semaphores), ou si la validation est demandée sans que ses couches soient installées.

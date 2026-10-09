@@ -23,14 +23,32 @@ namespace levain::gpu
 namespace
 {
 
-/// Au-delà, le CPU attend le GPU. Sans limite, il empilerait des frames que l'écran afficherait
-/// avec d'autant plus de retard sur l'entrée du joueur.
-constexpr std::size_t MaxFramesInFlight = 2;
+struct VulkanSwapchain;
 
-} // namespace
+nvrhi::Format formatOf(const VulkanSwapchain& swapchain);
+nvrhi::ITexture* acquireImage(VulkanSwapchain& swapchain, platform::PixelSize size);
+void presentImage(VulkanSwapchain& swapchain);
 
-struct Swapchain
+/// La Swapchain de Vulkan. Ses fonctions virtuelles ne font qu'appeler les fonctions libres de ce
+/// fichier.
+struct VulkanSwapchain final : Swapchain
 {
+    VulkanSwapchain() = default;
+    VulkanSwapchain(const VulkanSwapchain&) = delete;
+    VulkanSwapchain& operator=(const VulkanSwapchain&) = delete;
+    VulkanSwapchain(VulkanSwapchain&&) = delete;
+    VulkanSwapchain& operator=(VulkanSwapchain&&) = delete;
+    ~VulkanSwapchain() override;
+
+    nvrhi::Format format() const override { return formatOf(*this); }
+
+    nvrhi::ITexture* acquire(platform::PixelSize size) override
+    {
+        return acquireImage(*this, size);
+    }
+
+    void present() override { presentImage(*this); }
+
     vkb::Device device; ///< Copie sans propriété : de quoi reconstruire la swapchain.
     vkb::DispatchTable vk;
     VkQueue queue = VK_NULL_HANDLE;
@@ -47,34 +65,25 @@ struct Swapchain
     std::deque<nvrhi::EventQueryHandle> framesInFlight;
 };
 
-void SwapchainDeleter::operator()(Swapchain* swapchain) const noexcept
+VulkanSwapchain::~VulkanSwapchain()
 {
     // La dernière frame peut encore être en cours sur le GPU.
-    swapchain->nvrhi->waitForIdle();
-    swapchain->images.clear();
-    swapchain->framesInFlight.clear();
+    nvrhi->waitForIdle();
+    images.clear();
+    framesInFlight.clear();
 
-    for (VkSemaphore semaphore : swapchain->acquireSemaphores)
+    for (VkSemaphore semaphore : acquireSemaphores)
     {
-        swapchain->vk.destroySemaphore(semaphore, nullptr);
+        vk.destroySemaphore(semaphore, nullptr);
     }
-    for (VkSemaphore semaphore : swapchain->presentSemaphores)
+    for (VkSemaphore semaphore : presentSemaphores)
     {
-        swapchain->vk.destroySemaphore(semaphore, nullptr);
+        vk.destroySemaphore(semaphore, nullptr);
     }
-    if (swapchain->swapchain.swapchain != VK_NULL_HANDLE)
+    if (swapchain.swapchain != VK_NULL_HANDLE)
     {
-        vkb::destroy_swapchain(swapchain->swapchain);
+        vkb::destroy_swapchain(swapchain);
     }
-    delete swapchain;
-}
-
-namespace
-{
-
-bool isEmpty(platform::PixelSize size)
-{
-    return size.width <= 0 || size.height <= 0;
 }
 
 bool matchesExtent(VkExtent2D extent, platform::PixelSize size)
@@ -118,7 +127,7 @@ bool growSemaphores(std::vector<VkSemaphore>& semaphores, std::size_t count,
     return true;
 }
 
-core::Result<void> rebuildSwapchain(Swapchain& swapchain, platform::PixelSize size)
+core::Result<void> rebuildSwapchain(VulkanSwapchain& swapchain, platform::PixelSize size)
 {
     // Le GPU peut encore lire les anciennes images : on attend qu'il ait fini avant de les libérer.
     swapchain.nvrhi->waitForIdle();
@@ -190,96 +199,13 @@ core::Result<void> rebuildSwapchain(Swapchain& swapchain, platform::PixelSize si
     return {};
 }
 
-/// Marque la fin de la frame pour le GPU, et attend la plus ancienne si trop de frames sont en vol.
-void limitFramesInFlight(Swapchain& swapchain)
+nvrhi::Format formatOf(const VulkanSwapchain& swapchain)
 {
-    nvrhi::EventQueryHandle query;
-    if (swapchain.framesInFlight.size() >= MaxFramesInFlight)
-    {
-        query = swapchain.framesInFlight.front();
-        swapchain.framesInFlight.pop_front();
-        swapchain.nvrhi->waitEventQuery(query);
-        swapchain.nvrhi->resetEventQuery(query);
-    }
-    else
-    {
-        query = swapchain.nvrhi->createEventQuery();
-    }
-    swapchain.nvrhi->setEventQuery(query, nvrhi::CommandQueue::Graphics);
-    swapchain.framesInFlight.push_back(query);
+    return toNvrhiFormat(swapchain.swapchain.image_format);
 }
 
-} // namespace
-
-core::Result<std::unique_ptr<Swapchain, SwapchainDeleter>>
-createSwapchain(const VulkanContext& vulkan, nvrhi::vulkan::IDevice& nvrhi,
-                platform::PixelSize size)
+nvrhi::ITexture* acquireImage(VulkanSwapchain& swapchain, platform::PixelSize size)
 {
-    std::unique_ptr<Swapchain, SwapchainDeleter> swapchain{new Swapchain{}};
-    swapchain->device = vulkan.device;
-    swapchain->vk = vulkan.device.make_table();
-    swapchain->queue = vulkan.graphicsQueue;
-    swapchain->nvrhi = &nvrhi;
-
-    if (auto built = rebuildSwapchain(*swapchain, size); !built)
-    {
-        return std::unexpected(std::move(built.error()));
-    }
-    return swapchain;
-}
-
-namespace
-{
-
-/// Le format de l'image hors écran : celui qu'aurait une swapchain en sRGB.
-constexpr nvrhi::Format OffscreenFormat = nvrhi::Format::SRGBA8_UNORM;
-
-/// Sans swapchain, une image hors écran à la taille de la fenêtre, recréée quand elle change.
-nvrhi::ITexture* offscreenFrame(GpuDevice& gpu, platform::PixelSize size)
-{
-    const auto width = static_cast<std::uint32_t>(size.width);
-    const auto height = static_cast<std::uint32_t>(size.height);
-    if (!gpu.offscreen || gpu.offscreen->getDesc().width != width ||
-        gpu.offscreen->getDesc().height != height)
-    {
-        gpu.offscreen =
-            gpu.nvrhi->createTexture(nvrhi::TextureDesc()
-                                         .setWidth(width)
-                                         .setHeight(height)
-                                         .setFormat(OffscreenFormat)
-                                         .setIsRenderTarget(true)
-                                         .setInitialState(nvrhi::ResourceStates::RenderTarget)
-                                         .setKeepInitialState(true)
-                                         .setDebugName("image hors écran"));
-    }
-    return gpu.offscreen;
-}
-
-} // namespace
-
-nvrhi::Format swapchainFormat(const GpuDevice& gpu)
-{
-    if (!gpu.swapchain)
-    {
-        return OffscreenFormat;
-    }
-    return toNvrhiFormat(gpu.swapchain->swapchain.image_format);
-}
-
-nvrhi::ITexture* beginFrame(GpuDevice& gpu, const platform::Window& window)
-{
-    // Minimisée sous X11, la fenêtre mesure 0 × 0 : aucune swapchain ne peut avoir cette taille.
-    const platform::PixelSize size = platform::windowPixelSize(window);
-    if (isEmpty(size))
-    {
-        return nullptr;
-    }
-    if (!gpu.swapchain)
-    {
-        return offscreenFrame(gpu, size);
-    }
-    Swapchain& swapchain = *gpu.swapchain;
-
     // Sous Wayland, la swapchain n'est jamais déclarée périmée au redimensionnement : c'est à nous
     // de comparer sa taille à celle de la fenêtre.
     if (swapchain.isOutOfDate || !matchesExtent(swapchain.swapchain.extent, size))
@@ -315,19 +241,8 @@ nvrhi::ITexture* beginFrame(GpuDevice& gpu, const platform::Window& window)
     return swapchain.images[swapchain.imageIndex];
 }
 
-void presentFrame(GpuDevice& gpu)
+void presentImage(VulkanSwapchain& swapchain)
 {
-    if (!gpu.swapchain)
-    {
-        // Hors écran, aucune swapchain ne freine la boucle : le CPU empilerait des images plus vite
-        // que le GPU ne les rend, et la fermeture attendrait qu'il les ait toutes finies. Sur
-        // lavapipe, avec Sponza, c'était plus de deux minutes. Une image en vol, comme une
-        // swapchain à deux images.
-        gpu.nvrhi->waitForIdle();
-        return;
-    }
-    Swapchain& swapchain = *gpu.swapchain;
-
     // NVRHI ne signale un sémaphore qu'à la soumission suivante : une soumission vide l'envoie
     // tout de suite (Donut, DeviceManager_VK::Present).
     const VkSemaphore rendered = swapchain.presentSemaphores[swapchain.imageIndex];
@@ -352,8 +267,27 @@ void presentFrame(GpuDevice& gpu)
         core::log("gpu", core::LogLevel::Error, "vkQueuePresentKHR : {}", static_cast<int>(result));
     }
 
-    limitFramesInFlight(swapchain);
+    limitFramesInFlight(swapchain.framesInFlight, *swapchain.nvrhi);
     swapchain.nvrhi->runGarbageCollection();
+}
+
+} // namespace
+
+core::Result<std::unique_ptr<Swapchain, SwapchainDeleter>>
+createSwapchain(const VulkanContext& vulkan, nvrhi::vulkan::IDevice& nvrhi,
+                platform::PixelSize size)
+{
+    auto swapchain = std::make_unique<VulkanSwapchain>();
+    swapchain->device = vulkan.device;
+    swapchain->vk = vulkan.device.make_table();
+    swapchain->queue = vulkan.graphicsQueue;
+    swapchain->nvrhi = &nvrhi;
+
+    if (auto built = rebuildSwapchain(*swapchain, size); !built)
+    {
+        return std::unexpected(std::move(built.error()));
+    }
+    return std::unique_ptr<Swapchain, SwapchainDeleter>{swapchain.release()};
 }
 
 } // namespace levain::gpu

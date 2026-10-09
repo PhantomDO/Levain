@@ -294,6 +294,11 @@ Réponse courte : **c'est pensé pour, et le gros du travail n'est pas graphique
 de backend. Un renommage de quelques lignes, pas fait tant que Windows est hors périmètre (il y revient avec
 l'[ADR-0035](adr/0035-windows-compile-depuis-linux.md), en M1.4).
 
+> **Mise à jour du 2026-10-08** (#18) : fait, mais pas tout à fait par un renommage. Les deux backends natifs
+> vivent dans le même exe Windows, où un nom n'a qu'une définition : `NativeDevice` et `Swapchain` sont des
+> classes de base, dont chaque backend dérive (`VulkanContext`, `VulkanSwapchain`), et la frame passe par un
+> appel virtuel. C'est la forme du `FDynamicRHI` d'Unreal, réduite à la création du device et à la swapchain.
+
 **Chez les autres** (documenté, sources publiques) : Unreal a une interface `FDynamicRHI`, avec les modules
 `D3D12RHI` et `VulkanRHI` choisis au lancement (`-d3d12`, `-vulkan`) ; Godot a des `RenderingDeviceDriver`
 Vulkan, D3D12 (depuis la 4.3) et Metal. Chez nous, NVRHI joue le rôle de leur RHI : il ne reste, par backend, que
