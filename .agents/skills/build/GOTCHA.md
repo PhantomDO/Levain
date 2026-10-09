@@ -809,6 +809,19 @@ Corrigé par la PR de #354 (2026-10-08) : le piège reste, sa parade est en plac
 - **Symptôme 3** : une modification du modèle de page n'apparaît pas. **Cause** : `--shell-file` est une option
   de lien, pas une dépendance ; ninja ne relie pas. **Parade** : `LINK_DEPENDS` sur la cible.
 
+## Firefox ouvre BiDi en plus de 10 s sur le runner ubuntu-26.04 (2026-10-09)
+
+- **Symptôme** : le job web de #374 (run 37924988192) échoue à l'étape « Refus de --gpu dans Firefox » sur
+  « ÉCHEC : Firefox n'a pas ouvert BiDi », 10,2 s après `firefox --version`. Les quatre autres PR de la pile passent
+  la même étape au même moment, sans changement de code entre elles qui touche le navigateur.
+- **Cause** : le Firefox du runner est un snap (`/snap/bin`, Firefox 156.0), au démarrage lent et variable : de sa
+  première ligne à sa version, `firefox --version` prend de 0,15 à 4,9 s selon le job (journaux des jobs web de #371
+  à #375). `tools/web-smoke.sh` attendait le port BiDi 10 s, une durée faite pour le portable (0,4 s).
+- **Parade** : l'attente est d'une minute, et le script écrit le temps mis (« Firefox a ouvert BiDi en … ms »), à
+  relire dans les journaux du job avant de toucher à cette limite. Contre-tests, avec un faux `firefox` en tête du
+  `PATH` : ouvert 12 s en retard, l'ancienne attente échoue et la nouvelle passe (12 302 ms) ; jamais ouvert,
+  « ÉCHEC : Firefox n'a pas ouvert BiDi en 60 s ».
+
 ## Emscripten efface le statut de la page une milliseconde après le départ de main (2026-10-09)
 
 - **Symptôme** : `?args=--gpu d3d12` s'arrêtait (la console disait « dans le navigateur, le seul backend est
