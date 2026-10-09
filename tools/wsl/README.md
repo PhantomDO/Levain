@@ -133,6 +133,11 @@ refuse, une fois, dans le log.
 `tools/verify.sh` compile `windows-debug` (sans le lancer) et échoue sans `LEVAIN_WINSYSROOT` ; `NO_WINDOWS=1`
 saute l'étape.
 
+Pour redimensionner, réduire et restaurer la fenêtre de l'exe comme un utilisateur (le pendant de
+`tools/kwin-window-smoke.sh`) : `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu
+d3d12 --seconds 20`. Il échoue si la séquence n'a pas atteint le moteur, ou si le journal porte un message de
+Direct3D 12, de DXGI ou de NVRHI.
+
 ## Les limites
 
 - **Pas de GPU Linux sous WSL pour ce moteur** : les tests Vulkan tournent sur lavapipe, le Vulkan logiciel de

@@ -50,13 +50,17 @@ python3 -m http.server "$httpPort" --bind 127.0.0.1 --directory "$build" \
 firefox --headless --no-remote --profile "$work/profile" \
     --remote-debugging-port "$bidiPort" >"$work/firefox.log" 2>&1 & echo $! > "$work/firefox.pid"
 
-# Firefox ouvre son port BiDi après quelques secondes.
-for _ in $(seq 50); do
-    grep -q "WebDriver BiDi listening" "$work/firefox.log" && break
+# Firefox ouvre son port BiDi en quelques secondes sur le portable, mais le Firefox du runner ubuntu-26.04, un snap, a
+# déjà dépassé 10 s (build/GOTCHA.md) : on l'attend une minute, et on dit combien de temps il a mis.
+bidiWaitSeconds=60
+nowMs() { local us=${EPOCHREALTIME//[!0-9]/}; echo $((us / 1000)); }
+bidiStart=$(nowMs)
+until grep -q "WebDriver BiDi listening" "$work/firefox.log"; do
+    (( $(nowMs) - bidiStart < bidiWaitSeconds * 1000 )) || {
+        echo "ÉCHEC : Firefox n'a pas ouvert BiDi en $bidiWaitSeconds s" >&2; cat "$work/firefox.log" >&2; exit 1; }
     sleep 0.2
 done
-grep -q "WebDriver BiDi listening" "$work/firefox.log" \
-    || { echo "ÉCHEC : Firefox n'a pas ouvert BiDi" >&2; cat "$work/firefox.log" >&2; exit 1; }
+echo "Firefox a ouvert BiDi en $(( $(nowMs) - bidiStart )) ms"
 
 if [[ -n $withGpu ]]; then
     node "$root/tools/web-smoke.mjs" "http://127.0.0.1:$httpPort/tests/levain_web_cube.html" \

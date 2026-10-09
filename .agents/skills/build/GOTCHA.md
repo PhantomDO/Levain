@@ -237,7 +237,14 @@ sous Vulkan aussi : elles passent avant le backend.
   sans un message, quand le script a un `Add-Type @" … "@` ; `-EncodedCommand` (le script en UTF-16LE, en base64,
   `iconv -t utf-16le | base64 -w0`) passe. `SetWindowPos` et `ShowWindow` (réduire, restaurer) de `user32.dll`, sur
   le `MainWindowHandle` de `Get-Process levain_sandbox`, ont ainsi redimensionné le sandbox en D3D12 trois fois,
-  réduit et restauré, sans un message des couches de debug.
+  réduit et restauré, sans un message des couches de debug. Versionné (`tools/wsl/resize-sandbox.ps1`, le pilote, et
+  `resize-sandbox.sh`, qui le lance et vérifie le journal) ; la commande, de la distro, depuis la racine du dépôt :
+  `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`, qui
+  finit sur « resize-sandbox : OK (4 redimensionnements, masquée puis visible, sans message des couches ; …) ».
+  Deux autres pièges du pilote : sortie redirigée, PowerShell écrit dans la page de code de la console (les accents
+  perdus, d'où `[Console]::OutputEncoding` en UTF-8) et envoie sa barre de progression en XML sur la sortie d'erreur
+  (`$ProgressPreference`). Contre-test : `--seconds 2`, le sandbox fermé avant la séquence, et le script échoue
+  (« pilote : SetWindowPos 1600 x 900 refusé », puis « FAIL (pilote, code 1) », code 1).
 
 - **`IID_PPV_ARGS` ne compile pas** : il passe par `__uuidof`, une extension de Microsoft, et `-pedantic-errors`
   la refuse (« extension used », `-Wlanguage-extension-token`). Parade, sans couper l'avertissement (règle n°4) :
@@ -801,6 +808,19 @@ Corrigé par la PR de #354 (2026-10-08) : le piège reste, sa parade est en plac
   calque unique, qu'un `MutationObserver` ressort (`sandbox/web/shell.html`).
 - **Symptôme 3** : une modification du modèle de page n'apparaît pas. **Cause** : `--shell-file` est une option
   de lien, pas une dépendance ; ninja ne relie pas. **Parade** : `LINK_DEPENDS` sur la cible.
+
+## Firefox ouvre BiDi en plus de 10 s sur le runner ubuntu-26.04 (2026-10-09)
+
+- **Symptôme** : le job web de #374 (run 37924988192) échoue à l'étape « Refus de --gpu dans Firefox » sur
+  « ÉCHEC : Firefox n'a pas ouvert BiDi », 10,2 s après `firefox --version`. Les quatre autres PR de la pile passent
+  la même étape au même moment, sans changement de code entre elles qui touche le navigateur.
+- **Cause** : le Firefox du runner est un snap (`/snap/bin`, Firefox 156.0), au démarrage lent et variable : de sa
+  première ligne à sa version, `firefox --version` prend de 0,15 à 4,9 s selon le job (journaux des jobs web de #371
+  à #375). `tools/web-smoke.sh` attendait le port BiDi 10 s, une durée faite pour le portable (0,4 s).
+- **Parade** : l'attente est d'une minute, et le script écrit le temps mis (« Firefox a ouvert BiDi en … ms »), à
+  relire dans les journaux du job avant de toucher à cette limite. Contre-tests, avec un faux `firefox` en tête du
+  `PATH` : ouvert 12 s en retard, l'ancienne attente échoue et la nouvelle passe (12 302 ms) ; jamais ouvert,
+  « ÉCHEC : Firefox n'a pas ouvert BiDi en 60 s ».
 
 ## Emscripten efface le statut de la page une milliseconde après le départ de main (2026-10-09)
 
