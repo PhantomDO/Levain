@@ -31,6 +31,35 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-10 — M7.2 — Clôture : un composant devient éditable en une ligne, et ses refus sont testés
+
+- **Temps Donnovan : 0,75 h** (estimé 1,25 h), ratio 0,60 : 0,5 h pour l'ADR-0034 (#252, le 07/10), et 0,25 h des
+  2 h du 08/10 pour #253 (sa réponse au sondage du 10/10 : « ≈ 0,25 h »), le reste de ces 2 h hors milestone. Le
+  ratio est sous la fourchette 0,8–1,25, mais le recalibrage se juge à la clôture de la phase 7 (cloture/SKILL.md).
+- Sessions Claude Code : 1 de plus, celle de M1.4, qui a repris cette PR après la pile Windows (choix de Donnovan :
+  M1.4 avant la fin de M7.2)
+- Fait, en 19 PR (#324 à #343, sauf #333 et #338, qui n'en sont pas ; puis #384), ferme #252 et #253 :
+  - de #324 à #343 : l'entrée du 2026-10-08 ;
+  - **les refus à la compilation** (#384) : dix cas, `scene.reflection-refuses-compile.*`, une cible
+    `EXCLUDE_FROM_ALL` par cas, que CTest construit et dont le diagnostic doit porter le texte du `static_assert`.
+    Chaque `static_assert` de `reflection.hpp` a son cas, sauf `From != npos` qu'aucune struct ne déclenche sous
+    clang, plus celui de flecs pour un pointeur. Des tests de l'hôte, lancés aussi sur l'arbre clang-cl de Windows.
+- Mesures :
+  - **critère de M7.2** : un composant nouveau, déclaré d'une ligne (`describeAuthored`), s'édite dans
+    l'inspecteur sans autre code (`tests/editor_test.cpp`, le cas `Beacon`) ;
+  - les refus : 10 à l'import et 10 à la compilation, verts en Debug, Release et ASan, en 4,4 s
+    (`ctest -R reflection-refuses -j8`) ; ceux à la compilation, 10 sur 10 sur l'arbre clang-cl de `windows-debug`
+    (`ctest --test-dir build/windows-debug -L host -R reflection-refuses`) ;
+  - tests : 387 Debug, 387 Release, 387 ASan, 190 web (`tools/verify.sh`, sur dfc0cbc).
+- Décision de Donnovan, par sondage : la release `m7.2` publie les notes et les mesures, sans capture.
+- Écarts et problèmes :
+  - **contre-test** : avec la condition d'un `static_assert` cassée, son message restait dans la sortie, recopié
+    par clang sous l'erreur : le motif s'ancre sur « static assertion failed » (build/GOTCHA.md) ;
+  - deux cas ajoutés par la relecture : `range-on-enum` (la moitié `is_arithmetic` de la borne n'était pas
+    couverte) et `field-name-format` (le garde-fou `isIdentifier`, d'abord donné pour non testable).
+- Prochaine étape : le tag `m7.2`, sa release, le milestone fermé ; puis #19 (le test de fumée sous WARP) et la
+  clôture de M1.4.
+
 ## 2026-10-09 — M1.4 — La pile Windows : programmes en CI, clang-tidy, CRT en Debug puis en Release, Direct3D 12
 
 - **Temps Donnovan : 2,75 h** (estimé 1,25 h : #344, #345 et #346 à 0,25 h, #18 à 0,5 h). Sa réponse du 2026-10-09,
