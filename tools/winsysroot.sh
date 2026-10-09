@@ -28,10 +28,12 @@ vsmanUrl=https://download.visualstudio.microsoft.com/download/pr/2d2982b2-bb55-4
 vsmanSha256=530f1ebd84e4bbd51f646cbb41459f5aeaa78a5e716009d9257ea29a5dc5c94d
 
 # Le tampon nomme ce qui fait le contenu du winsysroot : xwin, le manifeste, les versions, et le code de ce script
-# (ses lignes de commentaire et ses lignes vides exclues). La CI en tire le chemin du winsysroot, qui entre dans l'ABI
-# de tous les ports Windows (ENV:LEVAIN_WINSYSROOT, dans leur vcpkg_abi_info.txt) : changer une ligne de code ici
-# les recompile tous sur le runner (1 h 40), corriger un commentaire, non. Les versions seules ne suffiraient pas :
-# un autre manifeste garde MSVC 14.51.36231 avec d'autres bibliothèques, et le chemin doit alors changer.
+# (ses lignes de commentaire entières et ses lignes vides exclues). La CI en tire le chemin du winsysroot, qui entre
+# dans l'ABI de tous les ports Windows (ENV:LEVAIN_WINSYSROOT, dans leur vcpkg_abi_info.txt) : changer une ligne de
+# code ici les recompile tous sur le runner (1 h 40). Une ligne de commentaire corrigée, non ; un commentaire en fin
+# de ligne de code, si : il fait partie de la ligne, et la corriger change le tampon. Les versions seules ne
+# suffiraient pas : un autre manifeste garde MSVC 14.51.36231 avec d'autres bibliothèques, et le chemin doit alors
+# changer.
 code=$(grep -vE '^[[:space:]]*(#|$)' "$0" | sha256sum | cut -c1-12)
 stamp="xwin $xwinVersion, manifeste $vsmanSha256, MSVC $msvc, SDK $sdk, code $code"
 if [[ $dest == --stamp ]]; then

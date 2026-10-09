@@ -47,11 +47,17 @@ cmake --preset windows-debug && cmake --build --preset windows-debug   # vcpkg c
 ```
 
 Sur un PC Windows, la distro WSL ci-dessous fait ces liens toute seule. Sur la machine de référence, le winsysroot
-vient de xwin, par le script de la CI, aux versions que fige la toolchain (environ 830 Mo) :
+vient de xwin, par le script de la CI, aux versions que fige la toolchain (environ 830 Mo). Le dossier porte
+l'empreinte du tampon du script, comme en CI : son chemin entre dans l'ABI des ports vcpkg, et un winsysroot refait
+au même chemin reprendrait de `~/.cache/vcpkg` des ports compilés contre l'ancien.
 
 ```bash
-tools/winsysroot.sh ~/winsysroot && export LEVAIN_WINSYSROOT=~/winsysroot
+d=~/winsysroot-$(tools/winsysroot.sh --stamp | sha256sum | cut -c1-16)
+tools/winsysroot.sh "$d" && export LEVAIN_WINSYSROOT=$d
 ```
+
+Le `~/winsysroot` du portable (des liens vers l'installation des Build Tools 2026, que le script n'a pas faite)
+reste tel quel.
 
 Depuis un PC Windows : une distro WSL dédiée, outillée comme la CI, avec Claude Code en ligne de commande, et
 supprimable d'une commande ([`tools/wsl/README.md`](../tools/wsl/README.md)).

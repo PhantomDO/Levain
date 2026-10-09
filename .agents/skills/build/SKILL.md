@@ -39,8 +39,8 @@ Windows (`windows-debug`, `windows-release`), depuis la distro WSL : `LEVAIN_WIN
 l'hôte (`cmake -P`, Python, la lecture des symboles dans le PDB par `llvm-pdbutil`, `cmake.plugins.*`, `dxc` pour
 les `dxil.*`) portent le label `host` (`levain_add_host_test` dans `tests/CMakeLists.txt`, `levain_add_shader` pour
 les `dxil.*`) : `ctest -L host` les lance seuls, `ctest -LE host` lance les programmes de la cible, ce que fait le
-runner Windows de la CI. Le winsysroot de la machine de référence : `tools/winsysroot.sh ~/winsysroot` (xwin, celui
-de la CI).
+runner Windows de la CI. Le winsysroot de la machine de référence : `tools/winsysroot.sh` (xwin, celui de la CI),
+dans un dossier nommé d'après son tampon (docs/SETUP.md).
 
 Le premier `cmake --preset` est long : vcpkg compile les dépendances depuis les sources. Les suivants sont
 instantanés (cache `~/.cache/vcpkg`). Pour clangd : `ln -sf build/linux-debug/compile_commands.json .`
