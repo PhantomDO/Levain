@@ -206,8 +206,9 @@ là, leur nombre comparé à `levain_tests.exe --count`, les autres tests à la 
 sandbox, son éditeur et le cuiseur, comme dans le job Linux de la même configuration (Debug pour Debug, Release pour
 Release) : les mêmes étapes, dans le bash de Git sous Windows, avec le pilote `windows` de SDL ; le sandbox et l'éditeur
 par `tools/ci-programs.sh`, que les deux côtés lancent, le hot-reload par `tools/texture-hot-reload.sh`, la cuisson par
-`levain_cook`. Une étape « Bureau du runner » affiche la résolution du bureau, et la physique échoue si la capture
-n'est pas de 1920 × 1080 (le pixel de `--pick`). Les assets de test n'y passent pas par l'artefact (la licence de
+`levain_cook`. Une étape « Bureau du runner » le règle en 1920 × 1080 (il est très probablement de 1024 × 768 :
+`Set-DisplayResolution`) et affiche la résolution, et la physique échoue si la capture n'est pas de 1920 × 1080 (le
+pixel de `--pick`). Les assets de test n'y passent pas par l'artefact (la licence de
 Sponza) : le cache des jobs Linux, lu par `enableCrossOsArchive`, sinon `tools/fetch-assets.sh`.
 
 `windows-build`, `windows-debug` et `windows-release` sont requis tous les trois ensemble dès la fusion de #359

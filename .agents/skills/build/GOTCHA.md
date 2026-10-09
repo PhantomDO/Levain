@@ -40,8 +40,8 @@ du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
   mesures du minuteur, à chaque lancement (Linux 0,8 s ; lavapipe pour Windows 5,0 à 6,3 s à 32 processeurs, 8,8 à
   10,2 s à 4 ; 4070 0,2 s) ; `--steps 3` rougit, sur Linux comme sous Windows. Aucun contrôle du terrain ne dépend du
   temps écoulé : « 66 corps » est un compte, et « lac : N caisses dans l'eau » n'a jamais dit autre chose que « 0 »
-  en 3 s (12 journaux relevés, la 4070 à 295 images comprise), les caisses ne tombant dans l'eau que dans
-  `terrain_test.cpp`, en 600 pas.
+  en 3 à 5 s (12 journaux relevés, dont 2 en 5 s, la 4070 à 295 images comprise), les caisses ne tombant dans l'eau
+  que dans `terrain_test.cpp`, en 600 pas.
 - **Le renard dans la vallée sur WebGPU, limité à 4 processeurs, a pris environ 249 s de processus** à la première
   répétition (234,5 s de boucle ; 247 s entre la première et la dernière ligne du journal, le démarrage en plus), et
   122,5 s à la seconde (112,4 s pour Vulkan, mesurés par la trace horodatée de `bash -x`), même commande : le double
@@ -49,13 +49,24 @@ du worktree, lavapipe par `VK_DRIVER_FILES` (WSLENV).
   tue le processus avec le seul code 143, sans `::error::`. Parade : 450 s pour la vallée, des deux côtés (`runHike`) ;
   `timeout` y est un filet contre un blocage, pas un contrôle (en-tête de `tools/ci-programs.sh`).
 - **La fenêtre du sandbox est de 1920 × 1080 et redimensionnable ; Windows la réduit à la taille du bureau**, que
-  GitHub ne documente pas pour ses runners. `--pick 960,540`, le
-  centre d'une fenêtre de 1920 × 1080, ne viserait plus le centre : la sélection échouerait sous « aucune caisse », ou
-  passerait en ne vérifiant plus ce qu'elle dit. Parade : `requireFullHdCapture` (`tools/ci-programs.sh`) exige
-  « capture : physics-<gpu>.png (1920 × 1080) » avant les contrôles de la physique, et échoue en nommant la cause ;
-  l'étape « Bureau du runner » affiche la résolution (`Win32_VideoController`), à lire au premier passage. Contre-test :
-  un sandbox qui rejoue le journal réel avec une capture de 1280 × 720, ou sans ligne de capture, rougit, dans le bash
-  de la distro et dans celui de Git.
+  le runner a très probablement à 1024 × 768 (2026-10-09, relecture ; pas vérifié sur l'image
+  `windows-2025-vs2026` elle-même). Preuves : actions/runner-images#2935
+  (« default display resolution (1024x768) ») ; un windows-latest (Windows Server 2025) mesuré en
+  « Hyper-V Video, 1024×768, 96 dpi, session 2 » par Aiken-Project-A/renpy-capture#7. Le portable (2560 × 1600) ne
+  pouvait pas le montrer. `--pick 960,540`, le centre d'une fenêtre de 1920 × 1080, ne viserait plus le centre :
+  la sélection échouerait sous « aucune caisse », ou passerait en ne vérifiant plus ce qu'elle dit. Sans parade,
+  l'étape de la physique rougit au premier passage des deux jobs et saute tout ce qui la suit (Debug : Sponza,
+  personnage, vallée, interface, éditeur ; Release : personnage, cuisson, Sponza cuite) : pas un chiffre du
+  runner. Parade : l'étape « Bureau du runner » règle le bureau par
+  `Set-DisplayResolution -Width 1920 -Height 1080 -Force` (`shell: pwsh`, comme renpy-capture ; un mainteneur des
+  images propose la même commande dans #2935 et dit 1080p au plus), puis affiche la résolution
+  (`Win32_VideoController`). La commande est du module ServerCore de Windows PowerShell : Windows 11 ne l'a pas,
+  elle n'a donc pas été répétée sur le portable. `requireFullHdCapture` (`tools/ci-programs.sh`) reste le
+  garde-fou : elle exige « capture : physics-<gpu>.png (1920 × 1080) » avant les contrôles de la physique, et
+  échoue en nommant la cause si la résolution n'a pas pris (alors une décision : le pixel visé, ou le bureau).
+  Contre-test du garde-fou : un sandbox qui rejoue le journal réel avec une capture de 1280 × 720, ou sans ligne
+  de capture, rougit, dans le bash de la distro et dans celui de Git. Contre-test de la parade : le premier
+  passage de la CI, qui doit afficher « 1920 × 1080 » à l'étape et dans les deux captures.
 - **L'artefact n'emporte que les exe de `sandbox/`** : le `.dll` et le `.json` des couches de validation à côté du
   sandbox (6,9 Mo compressés, par artefact) ne servent qu'au PC (`addLayerPathBesideExecutable`) ; le runner, élevé,
   passe par le registre, qui désigne ceux de `tests/`.

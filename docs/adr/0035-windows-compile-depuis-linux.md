@@ -229,15 +229,27 @@ Visual Studio reste à essayer.
   37853947275 et 37826674786).
 - **Mis à jour le 2026-10-09, par la PR du sandbox et de l'éditeur sous Windows (#346).** Les jobs `windows-debug` et
   `windows-release` lancent aussi le sandbox, son éditeur et le cuiseur, comme les jobs Linux de la même
-  configuration : les mêmes étapes, par le même script (`tools/ci-programs.sh`), dans le bash de Git du runner, avec
-  une vraie fenêtre. Les assets de test n'entrent pas dans l'artefact, que tout compte GitHub peut télécharger : la
+  configuration : les mêmes étapes, dans le bash de Git du runner, avec une vraie fenêtre ; le sandbox et l'éditeur
+  par le même script (`tools/ci-programs.sh`), le hot-reload par `tools/texture-hot-reload.sh`, la cuisson par
+  `levain_cook`. Les assets de test n'entrent pas dans l'artefact, que tout compte GitHub peut télécharger : la
   licence de Sponza l'interdit ; le runner reprend le cache d'assets des jobs Linux, sinon les télécharge. Répété sur
   le portable, sous lavapipe pour Windows et sur la 4070 : tout passe, sauf la vue terrain en Debug, trop lente sous
   lavapipe pour mesurer son temps GPU en 3 s (rouge une fois sur trois, et la seule fois limité aux 4 processeurs du
   runner, build/GOTCHA.md). Elle tourne maintenant en `--steps 8` des deux côtés, comme le personnage, la vallée et
   l'interface : huit images, cinq mesures du minuteur, quelle que soit la vitesse du runner (aucun de ses contrôles ne
   dépendait du temps). La vallée a un `timeout` de 450 s, et la physique exige une capture de 1920 × 1080 avant de
-  se fier au pixel de `--pick` : le bureau du runner n'est pas documenté.
+  se fier au pixel de `--pick`. Le bureau du runner n'est pas décrit par GitHub, mais deux traces publiques le
+  donnent à 1024 × 768 : actions/runner-images#2935 (« default display resolution (1024x768) »), et un
+  windows-latest (Windows Server 2025) mesuré en « Hyper-V Video, 1024×768, 96 dpi » par
+  Aiken-Project-A/renpy-capture#7 ; `windows-2025-vs2026` est de la même famille, mais cette image-là n'a pas été
+  vérifiée, et le portable (2560 × 1600) ne pouvait pas le montrer. Issue prévue sans correction : la physique
+  rougit au premier passage des deux jobs et saute tout ce qui la suit, sans un chiffre du runner. Parade
+  (relecture) : l'étape « Bureau du runner » règle d'abord le bureau,
+  `Set-DisplayResolution -Width 1920 -Height 1080 -Force` en `pwsh` (la commande qu'un mainteneur des images donne
+  dans #2935, avec 1080p pour plafond), puis l'affiche ; `requireFullHdCapture` reste le garde-fou, bruyant si la
+  résolution n'a pas pris (règle n°7). La commande vient du module ServerCore de Windows PowerShell et Windows 11
+  ne l'a pas : elle n'a pas été répétée sur le portable, et le premier passage de la CI est son contre-test
+  (« 1920 × 1080 » à l'étape et dans les deux captures).
 
 ### Les PR et le reste
 
