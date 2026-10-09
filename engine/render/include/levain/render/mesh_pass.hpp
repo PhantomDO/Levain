@@ -17,6 +17,12 @@ namespace levain::render
 /// Le format du depth buffer : 32 bits flottants, disponible partout.
 inline constexpr nvrhi::Format DepthFormat = nvrhi::Format::D32;
 
+/// La profondeur la plus lointaine (de 0 à 1, `camera.hpp`), que tout ce qu'on dessine vient
+/// remplacer : l'effacement de chaque depth buffer, et la valeur annoncée à sa création. Une seule
+/// constante pour les deux : Direct3D 12 avertit à chaque effacement qui diffère de la valeur
+/// annoncée (D3D12_MESSAGE_ID 821).
+inline constexpr float FarthestDepth = 1.0f;
+
 /// Les facteurs d'un matériau metallic-roughness, avec les défauts de glTF. Doit correspondre à
 /// `MaterialConstants` dans `shaders/mesh.slang`.
 struct MaterialConstants

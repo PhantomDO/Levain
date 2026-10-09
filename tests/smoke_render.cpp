@@ -304,7 +304,10 @@ levain::core::Result<void> drawScene(nvrhi::IDevice& device, nvrhi::ICommandList
 /// lire.
 levain::core::Result<Image> renderScene(nvrhi::IDevice& device, std::string_view scene)
 {
+    // Le noir de l'effacement, annoncé à la création pour Direct3D 12 (tonemap.cpp, l'image HDR).
+    const nvrhi::Color black{0.0f, 0.0f, 0.0f, 1.0f};
     nvrhi::TextureDesc targetDesc;
+    targetDesc.setClearValue(black);
     targetDesc.width = ImageSize;
     targetDesc.height = ImageSize;
     targetDesc.format = nvrhi::Format::RGBA8_UNORM;
@@ -325,11 +328,11 @@ levain::core::Result<Image> renderScene(nvrhi::IDevice& device, std::string_view
 
     const nvrhi::CommandListHandle commandList = device.createCommandList();
     commandList->open();
-    commandList->clearTextureFloat(target, nvrhi::AllSubresources,
-                                   nvrhi::Color{0.0f, 0.0f, 0.0f, 1.0f});
+    commandList->clearTextureFloat(target, nvrhi::AllSubresources, black);
     if (depth)
     {
-        commandList->clearDepthStencilTexture(depth, nvrhi::AllSubresources, true, 1.0f, false, 0);
+        commandList->clearDepthStencilTexture(depth, nvrhi::AllSubresources, true,
+                                              levain::render::FarthestDepth, false, 0);
     }
     if (auto drawn = drawScene(device, *commandList, scene, *framebuffer); !drawn)
     {

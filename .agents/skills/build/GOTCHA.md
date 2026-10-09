@@ -184,6 +184,23 @@ Corrigé par #360 (2026-10-08) : le piège reste, sa parade est en place. Le sym
   « clang-tidy : OK (1 fichiers) » et « clang-tidy-windows : OK (aucun fichier changé) », code 0 ; la version corrigée
   « clang-tidy-windows : FAIL » (« invalid case style for variable 'Wants_D3d12' »), code 1.
 
+## Direct3D 12 sur la 4070 : les pièges du backend (2026-10-08)
+
+#18, essayé de la distro sur la RTX 4070 en Debug. Les deux corrections du rendu ci-dessous, trouvées par la couche
+de debug de Direct3D 12, sont justes sous Vulkan aussi : elles passent avant le backend.
+
+- **Le NVRHI du port ne remettait un vertex buffer en état `VertexBuffer` que si le dessin avait un index
+  buffer** (`d3d12-graphics.cpp`, `state.indexBuffer.buffer &&`) : les lignes de debug, écrites par `writeBuffer`
+  puis dessinées sans index, restaient en `COPY_DEST`, une erreur de la couche de debug (D3D12_MESSAGE_ID 538,
+  `levain_smoke_render.exe lines d3d12`). Vulkan ne le voit pas : `writeBuffer` y coupe la render pass, et l'état
+  est repris en entier. Parade : le correctif de NVRHI, 7a04ce9b8a (2026-03-25), repris dans `ports/nvrhi`
+  jusqu'à ce que le port le passe.
+- **Une image effacée sans valeur d'effacement donnée à sa création, ou avec une autre** : un avertissement de la
+  couche de debug à chaque effacement (D3D12_MESSAGE_ID 820 et 821), trois par image. Parade : `setClearValue`
+  sur la profondeur et l'atlas des ombres (`render::FarthestDepth`, la constante de leur effacement), sur l'image
+  HDR (recréée quand le fond change) et sur la cible du test de fumée ; Donut, lui, filtre ces messages, ce que la
+  règle n°4 interdit.
+
 ## La CI Windows : lavapipe pour Windows, ctest sur des chemins Linux (2026-10-08)
 
 Les jobs `windows-*` de `ci.yml` (#346). Répété en local avant la CI : le ctest de Windows lancé de la distro par

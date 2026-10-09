@@ -57,10 +57,12 @@ struct HdrTarget
 [[nodiscard]] core::Result<TonemapPass> createTonemapPass(nvrhi::IDevice& device,
                                                           const nvrhi::FramebufferInfo& output);
 
-/// L'image HDR à cette taille : recréée seulement quand elle change.
+/// L'image HDR à cette taille, effacée de `clearColor` : recréée seulement quand l'une ou l'autre
+/// change (la couleur est annoncée à sa création, pour Direct3D 12).
 [[nodiscard]] nvrhi::ITexture* ensureHdrTarget(nvrhi::IDevice& device, const TonemapPass& pass,
                                                HdrTarget& target, std::uint32_t width,
-                                               std::uint32_t height);
+                                               std::uint32_t height,
+                                               const nvrhi::Color& clearColor);
 
 /// Enregistre la passe : l'image HDR de `target`, exposée, dessinée dans `output`.
 void tonemap(nvrhi::ICommandList& commandList, const TonemapPass& pass, const HdrTarget& target,

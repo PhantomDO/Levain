@@ -164,8 +164,8 @@ void frame()
     commandList.open();
     commandList.clearTextureFloat(target, nvrhi::AllSubresources,
                                   nvrhi::Color{0.0f, 0.0f, 0.0f, 1.0f});
-    commandList.clearDepthStencilTexture(scene->depth, nvrhi::AllSubresources, true, 1.0f, false,
-                                         0);
+    commandList.clearDepthStencilTexture(scene->depth, nvrhi::AllSubresources, true,
+                                         levain::render::FarthestDepth, false, 0);
     // Le même éclairage que le test de fumée (tests/smoke_render.cpp) : la même référence.
     const levain::render::Camera camera;
     const levain::render::FrameLighting lighting{

@@ -180,14 +180,18 @@ core::Result<ShadowPass> createShadowPass(nvrhi::IDevice& device, std::uint32_t 
                                              .setMaxVersions(MaxMeshDrawsPerCommandList)
                                              .setDebugName("constantes des ombres"));
     // Dessiné par la passe, lu par l'éclairage : NVRHI place la transition (suivi des états).
-    pass.atlas = device.createTexture(nvrhi::TextureDesc()
-                                          .setWidth(2 * resolution)
-                                          .setHeight(2 * resolution)
-                                          .setFormat(ShadowFormat)
-                                          .setIsRenderTarget(true)
-                                          .setInitialState(nvrhi::ResourceStates::ShaderResource)
-                                          .setKeepInitialState(true)
-                                          .setDebugName("atlas des ombres"));
+    // L'effacement à FarthestDepth est annoncé à la création, pour Direct3D 12 (mesh_pass.cpp, la
+    // profondeur).
+    pass.atlas =
+        device.createTexture(nvrhi::TextureDesc()
+                                 .setWidth(2 * resolution)
+                                 .setHeight(2 * resolution)
+                                 .setFormat(ShadowFormat)
+                                 .setIsRenderTarget(true)
+                                 .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                 .setKeepInitialState(true)
+                                 .setClearValue(nvrhi::Color{FarthestDepth, 0.0f, 0.0f, 0.0f})
+                                 .setDebugName("atlas des ombres"));
     pass.framebuffer =
         device.createFramebuffer(nvrhi::FramebufferDesc().setDepthAttachment(pass.atlas));
     pass.sampler =
@@ -232,7 +236,8 @@ glm::uvec2 atlasCellOf(std::uint32_t cascade)
 
 void clearShadows(nvrhi::ICommandList& commandList, const ShadowPass& pass)
 {
-    commandList.clearDepthStencilTexture(pass.atlas, nvrhi::AllSubresources, true, 1.0f, false, 0);
+    commandList.clearDepthStencilTexture(pass.atlas, nvrhi::AllSubresources, true, FarthestDepth,
+                                         false, 0);
 }
 
 void drawShadowCaster(nvrhi::ICommandList& commandList, const ShadowPass& pass,

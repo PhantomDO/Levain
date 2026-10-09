@@ -214,6 +214,10 @@ nvrhi::ITexture* ensureDepthTexture(nvrhi::IDevice& device, nvrhi::TextureHandle
     desc.isRenderTarget = true;
     desc.initialState = nvrhi::ResourceStates::DepthWrite;
     desc.keepInitialState = true;
+    // La valeur de l'effacement (renderer.cpp), annoncée à la création : Direct3D 12 efface alors
+    // plus vite, et sa couche de debug ne le rappelle plus à chaque image (D3D12_MESSAGE_ID 821).
+    // NVRHI lit la profondeur dans `r`, le stencil (inutilisé) dans `g`.
+    desc.setClearValue(nvrhi::Color{FarthestDepth, 0.0f, 0.0f, 0.0f});
     desc.debugName = "depth buffer";
     depth = device.createTexture(desc);
     return depth;
