@@ -43,9 +43,8 @@ runner Windows de la CI. Le winsysroot de la machine de référence : `tools/win
 dans un dossier nommé d'après son tampon (docs/SETUP.md).
 
 Direct3D 12 (#18) se lance à la main sur la 4070, ctest ne le déclarant pas encore (WARP, #19) :
-`levain_sandbox.exe --gpu d3d12` (hors écran jusqu'à la swapchain DXGI, la fenêtre vide : `--capture` montre
-l'image), `levain_smoke_render.exe <scène> d3d12`, `levain_light_clusters.exe d3d12`, `levain_environment.exe d3d12`,
-`levain_ui_gpu.exe d3d12`.
+`levain_sandbox.exe --gpu d3d12`, `levain_smoke_render.exe <scène> d3d12`, `levain_light_clusters.exe d3d12`,
+`levain_environment.exe d3d12`, `levain_ui_gpu.exe d3d12`.
 
 En Debug, un exe Windows n'ouvre ni la fenêtre de la CRT ni celle d'une exception quand il échoue (assertion, STL,
 `abort()`, plantage) : le message va sur stderr et le programme s'arrête, code non nul (`engine/core/README.md`) ;

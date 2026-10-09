@@ -47,8 +47,9 @@
  *    distribution.
  */
 
-// Le device Direct3D 12 : la couche de debug, la factory DXGI, l'adaptateur, le device et sa queue,
-// puis le device NVRHI par-dessus (ADR-0035, M1.4). Windows seulement.
+// Le device Direct3D 12 : les couches de debug de Direct3D 12 et de DXGI, la factory DXGI,
+// l'adaptateur, le device et sa queue, puis le device NVRHI par-dessus et la swapchain (ADR-0035,
+// M1.4). Windows seulement.
 
 #include <cstddef>
 #include <cstdint>
@@ -58,6 +59,8 @@
 #include <string_view>
 #include <utility>
 
+#include <SDL3/SDL_properties.h>
+#include <SDL3/SDL_video.h>
 #include <nvrhi/d3d12.h>
 #include <nvrhi/validation.h>
 
@@ -113,8 +116,8 @@ core::LogLevel toLogLevel(D3D12_MESSAGE_SEVERITY severity)
            severity == D3D12_MESSAGE_SEVERITY_CORRUPTION;
 }
 
-/// Le chemin des messages de la couche de debug : nos logs, dans la catégorie `layer`, et une
-/// assertion sur une erreur ou une corruption.
+/// Le chemin commun des messages des deux couches de debug, Direct3D 12 et DXGI : nos logs, dans la
+/// catégorie `layer`, et une assertion sur une erreur ou une corruption.
 void reportDebugMessage(std::string_view layer, D3D12_MESSAGE_SEVERITY severity,
                         std::string_view text)
 {
@@ -131,6 +134,24 @@ void onD3d12Message(D3D12_MESSAGE_CATEGORY /*category*/, D3D12_MESSAGE_SEVERITY 
 {
     reportDebugMessage("d3d12", severity,
                        std::format("{} (D3D12_MESSAGE_ID {})", description, static_cast<int>(id)));
+}
+
+/// Les sévérités de DXGI, rangées comme celles de Direct3D 12, pour le même chemin.
+D3D12_MESSAGE_SEVERITY d3d12SeverityOf(DXGI_INFO_QUEUE_MESSAGE_SEVERITY severity)
+{
+    switch (severity)
+    {
+    case DXGI_INFO_QUEUE_MESSAGE_SEVERITY_CORRUPTION:
+        return D3D12_MESSAGE_SEVERITY_CORRUPTION;
+    case DXGI_INFO_QUEUE_MESSAGE_SEVERITY_ERROR:
+        return D3D12_MESSAGE_SEVERITY_ERROR;
+    case DXGI_INFO_QUEUE_MESSAGE_SEVERITY_WARNING:
+        return D3D12_MESSAGE_SEVERITY_WARNING;
+    case DXGI_INFO_QUEUE_MESSAGE_SEVERITY_INFO:
+        return D3D12_MESSAGE_SEVERITY_INFO;
+    default:
+        return D3D12_MESSAGE_SEVERITY_MESSAGE;
+    }
 }
 
 /// Un message gardé par une file de debug, qui le rend en deux appels de `get(message, &size)` :
@@ -230,6 +251,26 @@ core::Result<void> routeDebugMessages(D3d12Context& d3d12)
     return {};
 }
 
+/// La file de la couche de debug DXGI, dont la factory créée avec DXGI_CREATE_FACTORY_DEBUG remplit
+/// les messages : un mauvais usage de la swapchain (un redimensionnement refusé, une présentation
+/// fautive) n'est pas une erreur de Direct3D 12, et sa couche ne le voit pas. Exigée comme elle
+/// (règle n°7) : sans elle, ces erreurs n'iraient qu'au débogueur.
+core::Result<void> openDxgiDebugQueue(D3d12Context& d3d12)
+{
+    if (const HRESULT result =
+            DXGIGetDebugInterface1(0, iidOf(d3d12.dxgiInfoQueue), outPointer(d3d12.dxgiInfoQueue));
+        FAILED(result))
+    {
+        return core::makeError(
+            core::ErrorCode::Unsupported,
+            std::format("couche de debug DXGI absente, exigée en Debug (HRESULT 0x{:08X}) : "
+                        "dxgidebug.dll vient de la fonctionnalité facultative de Windows "
+                        "« Outils graphiques », comme la couche de Direct3D 12",
+                        static_cast<std::uint32_t>(result)));
+    }
+    return {};
+}
+
 /// Le nom de l'adaptateur, que DXGI donne en UTF-16, en UTF-8 pour nos logs.
 std::string utf8Of(const wchar_t* text)
 {
@@ -322,7 +363,30 @@ std::string describeAdapter(IDXGIAdapter1& adapter, D3D_SHADER_MODEL shaderModel
 
 } // namespace
 
-core::Result<GpuDevice> createD3d12Device(bool enableValidation)
+void drainDxgiMessages(IDXGIInfoQueue& queue)
+{
+    // DXGI_DEBUG_DXGI : les messages de DXGI seul ; ceux de Direct3D 12 passent par son rappel.
+    const UINT64 count = queue.GetNumStoredMessagesAllowedByRetrievalFilters(DXGI_DEBUG_DXGI);
+    for (UINT64 index = 0; index < count; ++index)
+    {
+        const auto storage = readStoredMessage<DXGI_INFO_QUEUE_MESSAGE>(
+            [&](DXGI_INFO_QUEUE_MESSAGE* message, SIZE_T* size)
+            { return queue.GetMessage(DXGI_DEBUG_DXGI, index, message, size); });
+        if (!storage)
+        {
+            reportDebugMessage("dxgi", D3D12_MESSAGE_SEVERITY_ERROR,
+                               "message gardé illisible (IDXGIInfoQueue::GetMessage)");
+            continue;
+        }
+        const auto& message = *reinterpret_cast<const DXGI_INFO_QUEUE_MESSAGE*>(storage.get());
+        reportDebugMessage(
+            "dxgi", d3d12SeverityOf(message.Severity),
+            std::format("{} (DXGI_INFO_QUEUE_MESSAGE_ID {})", message.pDescription, message.ID));
+    }
+    queue.ClearStoredMessages(DXGI_DEBUG_DXGI);
+}
+
+core::Result<GpuDevice> createD3d12Device(const platform::Window& window, bool enableValidation)
 {
     auto d3d12 = std::make_unique<D3d12Context>();
     if (enableValidation)
@@ -331,10 +395,17 @@ core::Result<GpuDevice> createD3d12Device(bool enableValidation)
         {
             return std::unexpected{std::move(enabled.error())};
         }
+        if (auto opened = openDxgiDebugQueue(*d3d12); !opened)
+        {
+            return std::unexpected{std::move(opened.error())};
+        }
     }
 
+    // DXGI_CREATE_FACTORY_DEBUG : la couche de debug DXGI, pour la factory et ce qu'elle crée
+    // (la swapchain), qui écrit dans la file ouverte plus haut.
+    const UINT factoryFlags = enableValidation ? DXGI_CREATE_FACTORY_DEBUG : 0;
     if (const HRESULT result =
-            CreateDXGIFactory2(0, iidOf(d3d12->factory), outPointer(d3d12->factory));
+            CreateDXGIFactory2(factoryFlags, iidOf(d3d12->factory), outPointer(d3d12->factory));
         FAILED(result))
     {
         return failedCall("CreateDXGIFactory2", result);
@@ -368,7 +439,7 @@ core::Result<GpuDevice> createD3d12Device(bool enableValidation)
                                "le GPU n'a pas le shader model 6.0 des shaders DXIL");
     }
 
-    // Une seule queue, comme sous Vulkan.
+    // Une seule queue, comme sous Vulkan : elle dessine, et la swapchain présente dessus.
     D3D12_COMMAND_QUEUE_DESC queueDesc{};
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     if (const HRESULT result = d3d12->device->CreateCommandQueue(&queueDesc, iidOf(d3d12->queue),
@@ -397,14 +468,23 @@ core::Result<GpuDevice> createD3d12Device(bool enableValidation)
         nvrhiDevice = nvrhi::validation::createValidationLayer(d3d12Device);
     }
 
-    // Pas encore de swapchain DXGI : comme WebGPU en natif, le moteur dessine dans l'image hors
-    // écran que GpuDevice tient (device.cpp, beginFrame), la fenêtre reste vide, et --capture
-    // montre l'image.
-    core::log("gpu", core::LogLevel::Info,
-              "Direct3D 12 sans swapchain : rendu hors écran (--capture)");
+    // SDL_video.h, SDL_PROP_WINDOW_WIN32_HWND_POINTER : la fenêtre Win32 où DXGI présente.
+    auto* hwnd = static_cast<HWND>(SDL_GetPointerProperty(
+        SDL_GetWindowProperties(window.handle.get()), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    if (hwnd == nullptr)
+    {
+        return core::makeError(core::ErrorCode::Unsupported, "la fenêtre SDL n'a pas de HWND");
+    }
+    auto swapchain =
+        createD3d12Swapchain(*d3d12, d3d12Device, hwnd, platform::windowPixelSize(window));
+    if (!swapchain)
+    {
+        return std::unexpected{std::move(swapchain.error())};
+    }
+
     return GpuDevice{.native = std::unique_ptr<NativeDevice, NativeDeviceDeleter>{d3d12.release()},
                      .nvrhi = std::move(nvrhiDevice),
-                     .swapchain = nullptr,
+                     .swapchain = std::move(*swapchain),
                      .offscreen = nullptr};
 }
 
