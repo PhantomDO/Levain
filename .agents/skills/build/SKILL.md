@@ -46,13 +46,18 @@ Le premier `cmake --preset` est long : vcpkg compile les dépendances depuis les
 instantanés (cache `~/.cache/vcpkg`). Pour clangd : `ln -sf build/linux-debug/compile_commands.json .`
 
 Les contrôles de la CI sur les sources et les tests, d'un coup, avant chaque push : `tools/verify.sh` (format,
-trois presets, `windows-debug` compilé sans être lancé, clang-tidy des fichiers changés, web ; code de sortie non
-nul dès qu'une étape échoue). Sans `LEVAIN_WINSYSROOT`, l'étape Windows échoue en nommant la variable ;
-`NO_WINDOWS=1` la saute. Il ne lance pas le sandbox comme la CI (Fox, Sponza, terrain, hot-reload) : chaque lancement
-du sandbox ou de l'éditeur et ses contrôles, c'est `SDL_VIDEO_DRIVER=offscreen tools/ci-programs.sh <lancement>
-build/<preset>` (la liste en tête du script ; sous `linux-asan`, avec
-`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so` devant, comme la CI). Le hot-reload des textures est
-`tools/texture-hot-reload.sh`, la cuisson `levain_cook assets-cache`, hors du script. Le détail, étape par étape :
+trois presets, `windows-debug` compilé sans être lancé, web, puis clang-tidy des fichiers changés ; code de sortie
+non nul dès qu'une étape échoue). clang-tidy lit la base de `linux-debug`, puis celle de `windows-debug` pour tous
+les fichiers changés que Windows compile (« clang-tidy-windows ») : ceux qu'il compile seul, et les communs, dont la
+base Linux ne lit pas les blocs `#ifdef _WIN32` ; un `.cpp` changé qu'aucun build ne compile échoue, sauf ceux du
+seul build web, qui ne s'analysent pas sans les options d'Emscripten. Sans `LEVAIN_WINSYSROOT` (le winsysroot de la
+machine de référence se fait par `tools/winsysroot.sh`), l'étape Windows échoue en nommant la variable ;
+`NO_WINDOWS=1` la saute, avec l'analyse aux options de Windows. Il ne lance pas le sandbox comme la CI (Fox, Sponza,
+terrain, hot-reload) : chaque lancement du sandbox ou de l'éditeur et ses contrôles, c'est
+`SDL_VIDEO_DRIVER=offscreen tools/ci-programs.sh <lancement> build/<preset>` (la liste en tête du script ; sous
+`linux-asan`, avec `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so` devant, comme la CI). Le hot-reload des
+textures est `tools/texture-hot-reload.sh`, la cuisson `levain_cook assets-cache`, hors du script. Le détail, étape
+par étape :
 
 Format et analyse statique, comme la CI :
 
@@ -62,6 +67,24 @@ find editor engine plugins sandbox tests tools -name '*.cpp' -o -name '*.hpp' | 
 jq -r '.[].file' build/linux-debug/compile_commands.json | grep -E "^$PWD/(editor|engine|plugins|sandbox|tests|tools)/" \
   | sort -u | xargs clang-tidy -p build/linux-debug --warnings-as-errors='*'
 ```
+
+Puis, avec `LEVAIN_WINSYSROOT` posée, la même analyse sur la base de `windows-debug` : tous les fichiers que
+Windows compile, pas seulement ceux qu'il compile seul, car la base Linux ne lit pas les blocs `#ifdef _WIN32` des
+fichiers communs ; c'est la passe « clang-tidy-windows » de `verify.sh`, sur tout l'arbre.
+python3 plutôt que jq, absent de la distro ; `-P 12` pour les 147 fichiers : 64 s sur la distro, pour 10 min de calcul
+(`time`, temps utilisateur), qu'un clang-tidy à la fois mettrait bout à bout :
+
+```bash
+# tous les fichiers que Windows compile, avec les options de clang-cl ; la CI ne le fait pas encore
+python3 -c 'import json; print("\n".join({e["file"] for e in json.load(open("build/windows-debug/compile_commands.json"))}))' \
+  | grep -E "^$PWD/(editor|engine|plugins|sandbox|tests|tools)/" | sort -u \
+  | xargs -P 12 -n 4 clang-tidy -p build/windows-debug --warnings-as-errors='*'
+```
+
+Elle est verte depuis #360, qui a corrigé les 16 constats que les options de Windows trouvaient dans du code antérieur
+à #18 (build/GOTCHA.md, « Les options de Windows trouvent ce que Linux ne voit pas », et « Avertissements et
+clang-tidy » pour chaque parade) : aucun constat sur les 147 fichiers, code 0. Un fichier changé qui la fait rougir
+est donc la faute de la PR qui le change.
 
 Le build web demande Emscripten (emsdk dans `~/emsdk`, version figée par `EMSDK_VERSION` dans la CI) :
 
