@@ -943,6 +943,16 @@ jobs:
           test -s build/web/sandbox/levain_sandbox.wasm \
             || { echo "::error::le sandbox web n'a pas été construit"; exit 1; }
 
+      # Le refus de --gpu dans un vrai navigateur (#18) : `?args=--gpu vulkan` ou `--gpu d3d12` doit s'afficher dans le
+      # statut de la page et y rester (GOTCHA du skill build). Le Firefox du runner, headless : le premier navigateur
+      # de cette CI. Sans GPU (--sans-gpu : le cube et le sandbox demandent WebGPU). Elle échoue si Firefox manque.
+      - name: Refus de --gpu dans Firefox
+        run: |
+          set -euo pipefail
+          source emsdk/emsdk_env.sh
+          firefox --version
+          tools/web-smoke.sh --sans-gpu build/web
+
       # Le sandbox publié sur GitHub Pages (ADR-0023), depuis main seulement : la page et ses trois
       # fichiers, rien d'autre du build.
       - name: Préparer la page

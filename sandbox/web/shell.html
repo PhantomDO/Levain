@@ -41,9 +41,13 @@ const custom = new URLSearchParams(location.search).get("args");
 const args = custom ?? "--view hike";
 document.getElementById("hint").hidden = custom !== null;
 // Une erreur critique du moteur s'affiche sur la page : sans cela, un navigateur sans adaptateur
-// WebGPU montrerait un fond uni sans un mot (règle n°7).
+// WebGPU montrerait un fond uni sans un mot (règle n°7). Une fois affichée, elle reste : le refus de
+// `--gpu d3d12` arrive pendant main, et Emscripten efface le statut juste après (un setTimeout armé
+// avant main) ; sans ce verrou, la page finissait vide (tools/web-smoke.sh le vérifie).
+let stopped = false;
 const showCritical = (text) => {
   if (text.includes("[critical]")) {
+    stopped = true;
     status.textContent = "Levain s'est arrêté : " + text.replace(/^(\[[^\]]*\] ){3}/, "");
   }
 };
@@ -52,8 +56,8 @@ var Module = {
   arguments: args.split(" ").filter(Boolean),
   print: (text) => { console.log(text); showCritical(text); },
   printErr: (text) => { console.error(text); showCritical(text); },
-  setStatus: (text) => { status.textContent = text; },
-  onRuntimeInitialized: () => { status.textContent = ""; },
+  setStatus: (text) => { if (!stopped) status.textContent = text; },
+  onRuntimeInitialized: () => { if (!stopped) status.textContent = ""; },
   // Le calque est un plus : s'il manque, le moteur démarre quand même (tools/web-smoke.mjs le
   // remarque, lui).
   onFrameReport: typeof levainStatsOverlay === "function"

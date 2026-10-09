@@ -7,6 +7,7 @@ set(cpuTests
     animation_test.cpp
     asset_ref_test.cpp
     assert_test.cpp
+    backends_test.cpp
     character_ecs_test.cpp
     character_test.cpp
     collision_mesh_test.cpp
@@ -55,9 +56,10 @@ if(WIN32)
     list(APPEND nativeTests crt_report_test.cpp)
 endif()
 if(EMSCRIPTEN)
+    # levain::gpu : backends_test.cpp, le choix du backend et son refus dans le navigateur (sans GPU sous Node).
     add_executable(levain_tests doctest_main.cpp ${cpuTests})
     target_link_libraries(levain_tests PRIVATE
-        levain::animation levain::assets levain::core levain::physics levain::scene plugin::character
+        levain::animation levain::assets levain::core levain::gpu levain::physics levain::scene plugin::character
         doctest::doctest)
     # NODERAWFS : Node lit le disque de la machine, où sont tests/data et les dossiers
     # temporaires des tests. La pile par défaut (64 Kio) est trop courte pour doctest et flecs.

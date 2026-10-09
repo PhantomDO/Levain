@@ -109,7 +109,9 @@ ceux de la machine.
 Le backend WebGPU dans un vrai navigateur : `tools/web-smoke.sh` sert `build/web`, ouvre les pages dans un
 Firefox headless au profil jetable (WebGPU activé, le profil de Donnovan n'est pas touché), compare le cube à
 `tests/data/cube.ppm`, rendue par Vulkan, et vérifie que le sandbox tourne. Il faut un GPU : pas en CI pour
-l'instant. Les captures restent dans `build/web/web-smoke.png` et `build/web/web-sandbox.png`.
+l'instant, sauf pour le refus de `--gpu vulkan` et `d3d12` (le navigateur n'a que WebGPU), que la page doit
+afficher et garder : `tools/web-smoke.sh --sans-gpu`, l'étape « Refus de --gpu dans Firefox » du job web. Les
+captures restent dans `build/web/web-smoke.png`, `web-sandbox.png` et `web-refus-*.png`.
 
 Le sandbox web (`build/web/sandbox/levain_sandbox.html`) précharge `data/`, les shaders WGSL, le renard, le
 camion et les textures du terrain (jamais Sponza, licence) : `tools/fetch-assets.sh` d'abord. Ses arguments

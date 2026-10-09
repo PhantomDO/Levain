@@ -2,8 +2,10 @@ find_package(Dawn CONFIG REQUIRED)
 find_package(nvrhi CONFIG REQUIRED)
 
 # Le backend WebGPU de NVRHI (src/webgpu/, ADR-0023) se compile partout : dans le navigateur, et en
-# natif sur Dawn pour le développer et le tester.
-add_library(levain_gpu STATIC src/nvrhi_messages.cpp src/webgpu/bindings.cpp src/webgpu/conversions.cpp
+# natif sur Dawn pour le développer et le tester. backends.cpp aussi (les noms des backends, et ceux
+# que ce build contient) : `--gpu` se lit pareil sur toutes les cibles.
+add_library(levain_gpu STATIC src/backends.cpp src/nvrhi_messages.cpp
+                              src/webgpu/bindings.cpp src/webgpu/conversions.cpp
                               src/webgpu/commandlist.cpp src/webgpu/create.cpp
                               src/webgpu/device.cpp src/webgpu/pipelines.cpp)
 add_library(levain::gpu ALIAS levain_gpu)

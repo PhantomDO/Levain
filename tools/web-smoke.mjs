@@ -1,19 +1,28 @@
 // Ouvre une page dans un Firefox lancé par tools/web-smoke.sh, attend que son titre annonce une
 // image rendue, et la capture par WebDriver BiDi. Avec une référence, compare ses premiers pixels à
 // la référence rendue par Vulkan ; avec « - », la page doit seulement tourner (le sandbox, dont le
-// titre donne les images/s). Avec « ui », les panneaux de l'interface doivent dessiner. Code de
+// titre donne les images/s). Avec « ui », les panneaux de l'interface doivent dessiner. Avec « status <texte> »,
+// le statut de la page (#status) doit afficher le texte et le garder : le refus de --gpu. Code de
 // sortie non nul au moindre écart.
-//   node tools/web-smoke.mjs <url> <référence.ppm | -> <capture.png> [port] [ui]
+//   node tools/web-smoke.mjs <url> <référence.ppm | -> <capture.png> [port] [ui | status <texte>]
 import { readFileSync, writeFileSync } from "node:fs";
 import { decodePng } from "./png.mjs";
 
-const [url, referencePath, capturePath, port = "9222", expect = ""] = process.argv.slice(2);
-if (expect !== "" && expect !== "ui") {
-  console.error(`ÉCHEC : attente inconnue « ${expect} » (ui ou rien)`);
+const [url, referencePath, capturePath, port = "9222", expect = "", statusText = ""] = process.argv.slice(2);
+if (expect !== "" && expect !== "ui" && expect !== "status") {
+  console.error(`ÉCHEC : attente inconnue « ${expect} » (ui, status <texte> ou rien)`);
+  process.exit(1);
+}
+// Une attente de statut sans texte accepterait n'importe quel statut, même vide (règle n°7).
+if ((expect === "status") !== (statusText !== "")) {
+  console.error("ÉCHEC : « status » demande le texte attendu, et lui seul l'accepte");
   process.exit(1);
 }
 const Tolerance = 2; // comme tests/smoke_render.cpp
 const TimeoutMs = 30000;
+// Emscripten efface son statut 1 ms après le départ de main : un texte vu ne prouve rien avant ce délai.
+const SettleMs = 3000;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // --- WebDriver BiDi, le protocole d'automatisation intégré à Firefox ---
 const socket = new WebSocket(`ws://127.0.0.1:${port}/session`);
@@ -45,6 +54,33 @@ await send("session.new", { capabilities: {} });
 const { context } = await send("browsingContext.create", { type: "tab" });
 await send("session.subscribe", { events: ["log.entryAdded"], contexts: [context] });
 await send("browsingContext.navigate", { context, url, wait: "complete" });
+
+// Le statut de la page : le texte du calque #status, que le moteur remplit en cas d'erreur critique.
+const pageStatus = async () => (await send("script.evaluate", {
+  expression: "document.getElementById('status')?.textContent ?? ''",
+  target: { context }, awaitPromise: false })).result.value;
+
+if (expect === "status") {
+  let text = "";
+  for (const start = Date.now(); Date.now() - start < TimeoutMs && !text.includes(statusText); ) {
+    text = await pageStatus();
+    if (!text.includes(statusText)) await sleep(250);
+  }
+  const seen = text.includes(statusText);
+  await sleep(SettleMs); // relu après le délai : affiché une milliseconde puis effacé, c'est la page vide
+  const kept = await pageStatus();
+  const shot = await send("browsingContext.captureScreenshot", { context });
+  await send("session.end");
+  socket.close();
+  writeFileSync(capturePath, Buffer.from(shot.data, "base64"));
+  console.log(`statut après ${SettleMs / 1000} s : « ${kept} »`);
+  if (!seen || !kept.includes(statusText)) {
+    console.error(`ÉCHEC : « ${statusText} » ${seen ? "a été effacé" : "n'a jamais été affiché"} ` +
+      `(statut : « ${kept} »)`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
 
 let title = "";
 for (const start = Date.now(); Date.now() - start < TimeoutMs; ) {
