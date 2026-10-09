@@ -108,12 +108,14 @@ Corrigé par #360 (2026-10-08) : le piège reste, sa parade est en place. Le sym
 - **Parade** : une seconde passe, « clang-tidy-windows », sur la base de `windows-debug`, pour **tous** les fichiers
   changés qu'elle compile : ceux que la base Linux n'a pas, et les communs, pour leurs blocs `#ifdef _WIN32` (la
   première version ne prenait que les premiers ; corrigé à la relecture). Un `.cpp` changé qu'aucun build ne compile
-  échoue, sauf ceux du seul build web (leurs options sont celles d'Emscripten), annoncés « clang-tidy-web : SAUTÉ ».
+  fait échouer sa propre étape, « clang-tidy-orphelins » (OK quand il n'y en a aucun), sauf ceux du seul build web
+  (leurs options sont celles d'Emscripten), annoncés « clang-tidy-web : SAUTÉ ».
   Contre-tests, sur la branche Direct3D 12 (`BASE=m1.4/d3d12-fixes PRESETS=linux-debug NO_WEB=1`, la première
   version) : un `Bad_Function` glissé dans `device_d3d12.cpp`, l'ancien script dit « clang-tidy : OK (7 fichiers) », le
   nouveau « clang-tidy-windows : FAIL » (`readability-identifier-naming`) ; un `orphan.cpp` non suivi, « FAIL (changés,
-  compilés par aucun build : engine/gpu/src/orphan.cpp) » ; un commentaire dans `device_web.cpp`, « clang-tidy-web :
-  SAUTÉ (1 fichiers…) ». Puis (`BASE=m1.4/d3d12-device`, mêmes options) : une variable `Wants_D3d12` glissée dans le
+  compilés par aucun build : engine/gpu/src/orphan.cpp) » (sous le nom de clang-tidy-windows, après un « OK (aucun
+  fichier changé) » du même nom : deux lignes pour une étape, qu'on pouvait lire comme verte ; l'étape à part, vue
+  rouge puis verte, vaut depuis) ; un commentaire dans `device_web.cpp`, « clang-tidy-web : SAUTÉ (1 fichiers…) ». Puis (`BASE=m1.4/d3d12-device`, mêmes options) : une variable `Wants_D3d12` glissée dans le
   bloc `#ifdef _WIN32` de `device.cpp`, la première version dit « clang-tidy : OK (1 fichiers) » et
   « clang-tidy-windows : OK (aucun fichier changé) », code 0 ; la version corrigée « clang-tidy-windows : FAIL »
   (« invalid case style for variable 'Wants_D3d12' »), code 1.

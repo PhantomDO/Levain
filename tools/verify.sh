@@ -103,10 +103,11 @@ fi
 # NO_WINDOWS, tous ceux que le build Windows compile, sur sa base (build/windows-debug) : ceux qu'il compile seul
 # que la base Linux ne connaît pas, et les fichiers communs, dont elle ne lit pas les blocs `#ifdef _WIN32`
 # (device_vk.cpp…) ; sans cette passe, l'étape dirait OK sans les avoir lus (règle n°7). Un .cpp changé
-# qu'aucune des deux ne compile échoue, sauf ceux du build web seul (device_web.cpp…) : ils ne s'analysent pas sans
-# les options d'Emscripten (build/GOTCHA.md), et le build web, juste au-dessus, les compile en -Werror. D'où l'étape
-# après le build web, dont elle lit la base. Une base inconnue ou un build absent échouent : sans eux, la liste serait
-# vide, et l'étape dirait « aucun fichier changé » sans avoir rien analysé.
+# qu'aucune des deux ne compile fait échouer l'étape clang-tidy-orphelins, sauf ceux du build web seul
+# (device_web.cpp…) : ils ne s'analysent pas sans les options d'Emscripten (build/GOTCHA.md), et le build web, juste
+# au-dessus, les compile en -Werror. D'où l'étape après le build web, dont elle lit la base. Une base inconnue ou un
+# build absent échouent : sans eux, la liste serait vide, et l'étape dirait « aucun fichier changé » sans avoir rien
+# analysé.
 base=${BASE:-origin/main}
 compiledBy() { # $1 = preset : les fichiers que ce build compile, triés, dans $logs/tidy-compiled-$1.txt
     python3 -c 'import json, sys; print("\n".join(sorted({e["file"] for e in json.load(open(sys.argv[1]))})))' \
@@ -155,8 +156,14 @@ else
             [ -z "${NO_WEB:-}" ] || webCheck="NO_WEB : pas même compilés"
             echo "clang-tidy-web : SAUTÉ ($(wc -l < "$logs/tidy-web-only.txt") fichiers du seul build web, $webCheck)"
         fi
+        # Une étape à elle : sous le nom de clang-tidy-windows, un « OK (aucun fichier changé) » (rien de ce que
+        # Windows compile n'a changé) et un FAIL (un .cpp que personne ne compile) se suivaient pour la même étape, et
+        # qui ne lisait que la première ligne croyait la passe verte.
         if [ -s "$logs/tidy-unknown.txt" ]; then
-            step clang-tidy-windows FAIL "changés, compilés par aucun build : $(paste -sd ' ' "$logs/tidy-unknown.txt")"
+            step clang-tidy-orphelins FAIL \
+                "changés, compilés par aucun build : $(paste -sd ' ' "$logs/tidy-unknown.txt")"
+        else
+            step clang-tidy-orphelins OK "aucun .cpp changé que personne ne compile"
         fi
     fi
 fi
