@@ -384,7 +384,7 @@ pourquoi c'est presque toujours une bibliothèque.
 | Milestone | Heures D. | Sessions | Échéance |
 |---|---:|---:|---|
 | M7.1 ImGui et panneaux de debug | 1,0 (réel, 1,1 estimées) | 1 | fini le 07/10/2026 |
-| M7.2 Réflexion et inspecteur | 1,25 | 1 | 14/03/2027 |
+| M7.2 Réflexion et inspecteur | 0,75 (réel, 1,25 estimées) | 1 | fini le 10/10/2026 |
 | M7.3 Sérialisation et undo/redo | 1,25 | 2 | 21/03/2027 |
 | M7.4 Gizmos et picking | 1,75 | 2 | 28/03/2027 |
 | M7.5 Play/Stop dans l'éditeur | 1,0 | 1 | 04/04/2027 |

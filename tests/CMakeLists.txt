@@ -201,6 +201,7 @@ endif()
 # qui lance un programme de la cible, même compilé ici, n'a pas ce label. Passer par cette fonction plutôt que par
 # add_test : un test de l'hôte sans label serait lancé, et rouge, sur le runner Windows. Les dxil.* de
 # levain_add_shader (cmake/LevainShaders.cmake) y sont aussi : dxc est un outil de l'hôte.
+# Les refus à la compilation y sont aussi : leur commande est `cmake --build`, le compilateur de l'hôte.
 function(levain_add_host_test name)
     add_test(NAME ${name} COMMAND ${ARGN})
     set_tests_properties(${name} PROPERTIES LABELS host)
@@ -246,6 +247,53 @@ foreach(refusal output IN ZIP_LISTS reflectionRefusals reflectionRefusalOutputs)
              COMMAND levain_reflection_refusals ${refusal})
     set_tests_properties(scene.reflection-refuses.${refusal} PROPERTIES
         PASS_REGULAR_EXPRESSION "${output}" FAIL_REGULAR_EXPRESSION "aucun refus")
+endforeach()
+
+# Les refus de la réflexion à la compilation (ADR-0034), un cas par cible : reflection_compile_refusals.cpp compilé
+# avec le seul LEVAIN_REFUSAL_<CAS>, que CTest construit (EXCLUDE_FROM_ALL : un build ordinaire n'y touche pas)
+# et dont la sortie doit porter le `static_assert`. Une ligne ancrée sur le diagnostic, pas le message nu : clang
+# répète la ligne de source sous l'erreur, et le message d'une autre erreur de cette ligne passerait. Le code de
+# sortie n'est pas lu (PASS_REGULAR_EXPRESSION) : une struct devenue valide compile en silence, et le motif manque.
+# Des tests de l'hôte (cmake --build), aussi sur l'arbre clang-cl de Windows, mais pas dans le build web, qui
+# s'arrête avant (return() plus haut). RESOURCE_LOCK : deux builds de l'arbre à la fois (ctest -j) pourraient
+# corrompre le journal de Ninja.
+# Hors de compile_commands.json, sinon clang-tidy (tools/verify.sh, ci.yml) compilerait chaque cas et échouerait
+# sur son erreur : la cible `control` bâtie avec le reste, sans cas, garde le fichier dans la base et dans l'analyse.
+add_library(levain_reflection_compile_control OBJECT reflection_compile_refusals.cpp)
+target_link_libraries(levain_reflection_compile_control PRIVATE levain::scene)
+set(reflectionCompileRefusals too-many-fields std-array field-name-format not-aggregate reference-member
+    range-on-bool range-on-enum authored-not-trivially-copyable authored-not-copy-assignable pointer-field)
+set(reflectionCompileMessages
+    "réflexion : plus de 32 champs, couper le composant"
+    "réflexion : un std::array se décrit à la main"
+    "réflexion : format de __PRETTY_FUNCTION__ inconnu"
+    "réflexion : pas un agrégat"
+    "réflexion : aucun champ lu dans une struct qui en a"
+    "réflexion : une borne sur un nombre seulement"
+    "réflexion : une borne sur un nombre seulement"
+    "réflexion : une donnée d'auteur se copie octet par octet"
+    "réflexion : une donnée d'auteur s'écrit par set, ni membre const ni référence"
+    "pointer types are not allowed for components") # celui de flecs (component.hpp)
+# ZIP_LISTS comble la liste la plus courte de chaînes vides : un cas sans message donnerait un motif qui passe sur
+# n'importe quel static_assert (règle n°7).
+list(LENGTH reflectionCompileRefusals refusalCount)
+list(LENGTH reflectionCompileMessages messageCount)
+if(NOT refusalCount EQUAL messageCount)
+    message(FATAL_ERROR "reflectionCompileRefusals (${refusalCount}) et reflectionCompileMessages (${messageCount}) "
+                        "doivent avoir la même longueur : un message par cas")
+endif()
+foreach(refusal message IN ZIP_LISTS reflectionCompileRefusals reflectionCompileMessages)
+    string(REPLACE "-" "_" name "${refusal}")
+    string(TOUPPER "${name}" define)
+    set(target levain_reflection_refused_${name})
+    add_library(${target} OBJECT EXCLUDE_FROM_ALL reflection_compile_refusals.cpp)
+    target_compile_definitions(${target} PRIVATE LEVAIN_REFUSAL_${define})
+    target_link_libraries(${target} PRIVATE levain::scene)
+    set_target_properties(${target} PROPERTIES EXPORT_COMPILE_COMMANDS OFF)
+    levain_add_host_test(scene.reflection-refuses-compile.${refusal}
+        ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target ${target} --config $<CONFIG>)
+    set_tests_properties(scene.reflection-refuses-compile.${refusal} PROPERTIES
+        RESOURCE_LOCK nested-build PASS_REGULAR_EXPRESSION "static assertion failed[^\n]*${message}")
 endforeach()
 
 # L'échelle de liaisons de la réflexion est écrite par un script : le fichier versionné doit rester
