@@ -3,6 +3,21 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## `texture-hot-reload.sh` : « la texture invalide n'a pas été signalée », alors qu'elle l'était deux fois (2026-10-09)
+
+- **Symptôme** : run 37953850764, job 113931465002 (#378), « échecs signalés : 2 (1 attendu) », puis « ÉCHEC : la
+  texture invalide n'a pas été signalée ». Le message disait le contraire du compte qui le précédait ; il ne donnait
+  pas ce compte, et il fallait le lire dans le journal pour comprendre qu'il y en avait un de trop.
+- **Cause** : `printf … >"$texture"` tronque le fichier, puis écrit : deux changements, que le sandbox voit l'un après
+  l'autre quand le runner est chargé (un fichier vide, puis les octets invalides) et dont chacun échoue au décodage
+  (« unknown image type ; l'ancienne texture reste »). Le damier, plus bas dans le script, était déjà copié à côté puis
+  renommé pour cette raison ; les octets invalides ne l'étaient pas.
+- **Parade** : tout fichier que le sandbox surveille s'écrit à côté (`"$texture.tmp"`) puis se renomme. Le message de
+  l'échec donne maintenant le compte (« 2 échecs signalés pour la texture invalide, 1 attendu »), pour 0 comme pour 2.
+- **Contre-test** (2026-10-09, `linux-release`, `SDL_VIDEO_DRIVER=offscreen`) : avec l'ancienne écriture coupée exprès
+  (`: >"$texture"; sleep 0.3; printf … >>"$texture"`), le script est rouge, « échecs signalés : 2 (1 attendu) » ;
+  avec la correction, il est vert (un échec, rechargée 101 ms après l'écriture).
+
 ## Un programme de Release qui plante n'ouvre aucune fenêtre de WER, même fenêtré, sur le portable (2026-10-09)
 
 Mesure ponctuelle derrière la décision de la Release (ADR-0035, `docs/QA.md`). Windows Error Reporting (WER)

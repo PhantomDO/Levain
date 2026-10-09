@@ -40,7 +40,11 @@ grep -q "clic droit pour regarder" "$log" \
 
 sleep 1
 echo "→ octets invalides"
-printf 'ceci n est pas un JPEG' >"$texture"
+# Écrits à côté puis renommés, comme le damier plus bas : `>"$texture"` tronque puis écrit, deux changements que le
+# sandbox voit l'un après l'autre sur un runner chargé (un fichier vide, puis le contenu). Il signale alors deux
+# échecs au lieu d'un (CI, #378).
+printf 'ceci n est pas un JPEG' >"$texture.tmp"
+mv "$texture.tmp" "$texture"
 
 sleep 1.5
 echo "→ damier"
@@ -64,8 +68,8 @@ echo "capture : $capture"
 
 # Contrôles bruyants (règle n°7) : chacun échoue avec son message.
 [ "$status" -eq 0 ] || { echo "ÉCHEC : le sandbox s'est arrêté en erreur"; exit 1; }
-[ "$reloads" -eq 1 ] || { echo "ÉCHEC : 1 rechargement attendu"; exit 1; }
-[ "$failures" -eq 1 ] || { echo "ÉCHEC : la texture invalide n'a pas été signalée"; exit 1; }
+[ "$reloads" -eq 1 ] || { echo "ÉCHEC : $reloads rechargements, 1 attendu"; exit 1; }
+[ "$failures" -eq 1 ] || { echo "ÉCHEC : $failures échecs signalés pour la texture invalide, 1 attendu (0 : non signalée ; 2 : écriture vue en deux temps)"; exit 1; }
 [ -n "$delay" ] && [ "$delay" -lt 2000 ] || { echo "ÉCHEC : rechargée trop tard"; exit 1; }
 grep -Eq "boucle arrêtée après [78]\.[0-9] s" "$log" \
     || { echo "ÉCHEC : la boucle ne tourne pas jusqu'au bout"; exit 1; }
