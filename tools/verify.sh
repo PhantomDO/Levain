@@ -6,7 +6,7 @@
 # Dans la distrobox dev-ubuntu, depuis la racine du dépôt (ou d'un worktree) :
 #
 #   tools/verify.sh                  # BASE=origin/main : les fichiers changés depuis main, pour clang-tidy
-#   BASE=<branche> tools/verify.sh   # une PR empilée : relire contre la précédente
+#   BASE=<branche> tools/verify.sh   # un morceau : relire contre la branche de sa fonctionnalité
 #   NO_WEB=1 tools/verify.sh         # sans le build web (il n'y a ni physique ni app dans le navigateur)
 #   NO_WINDOWS=1 tools/verify.sh     # sans le build Windows (pas de winsysroot : LEVAIN_WINSYSROOT, docs/SETUP.md),
 #                                    # ni l'analyse avec ses options

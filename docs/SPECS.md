@@ -193,7 +193,8 @@ pipeline flecs dédié ; rendu à fréquence libre avec interpolation. Détails 
 - **Style** : clang-format et clang-tidy versionnés dans le dépôt et vérifiés en CI.
 - **Commits** : [Conventional Commits](https://www.conventionalcommits.org/fr/) (`feat(render): …`, `fix(gpu): …`,
   `docs(adr): …`).
-- **Branches** : `main` protégée ; une branche par issue (`m1.2/device-vulkan`) ; fusion par PR avec CI verte.
+- **Branches** : `main` protégée ; une branche par fonctionnalité (`m1.2/device-vulkan`), ses morceaux en PR vers elle
+  sans CI, puis une PR vers `main` avec CI verte (AGENTS.md, règle n°1).
 - **Licence** : MIT (fichier `LICENSE`), compatible avec le code adapté de Donut, qui garde son propre
   en-tête MIT.
 - **Versions** : un tag par milestone terminé (`m1.3`), avec une GitHub Release qui contient les binaires de la
@@ -249,9 +250,10 @@ Deux points relevés par `vulkaninfo --summary`, à traiter en M1.2 :
 
 La machine de référence est sous Linux. Le code Windows est vérifié à trois niveaux :
 
-1. **CI (à chaque PR)** : le build Windows, Debug et Release, compilé sur un runner Linux par clang-cl, puis
-   lancé sur un runner Windows : tests unitaires, tests GPU en Vulkan sur lavapipe, et test de fumée D3D12 sous
-   WARP (rendu logiciel) dès que le backend existe ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
+1. **CI (à la PR vers `main`, une fois par fonctionnalité)** : le build Windows, Debug et Release, compilé sur un runner
+   Linux par clang-cl, puis lancé sur un runner Windows : tests unitaires, tests GPU en Vulkan sur lavapipe, et test de
+   fumée D3D12 sous WARP (rendu logiciel) dès que le backend existe
+   ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
 2. **Proton sur la machine de référence (à chaque milestone de rendu)** : le binaire Windows produit par la CI est
    lancé sous Proton. Direct3D 12 y est traduit en Vulkan par vkd3d-proton : ça vérifie notre code Windows et le
    backend D3D12 de NVRHI sur le vrai GPU, mais pas un pilote D3D12 natif, et la couche de debug D3D12 de

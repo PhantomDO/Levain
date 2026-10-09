@@ -228,6 +228,12 @@ puis déclarer `http://127.0.0.1:47380/mcp` auprès de l'agent.
 
 ## CI
 
+**Quand elle tourne** (AGENTS.md, règle n°1, décision du 2026-10-09) : pour une PR vers `main` et pour chaque push sur
+`main`, et à la main par `gh workflow run ci.yml --ref <branche>` ; jamais pour une PR vers une autre branche. Les
+caches de plus de 100 Mo (les trois de vcpkg, les assets cuits, Emscripten) ne sont enregistrés que par le push sur
+`main` (#382) : une PR ou un passage à la main les restaure, et recompile ce qui a changé sans rien laisser derrière
+lui.
+
 `.github/workflows/ci.yml` : une matrice `linux-debug`, `linux-release`, `linux-asan`, chacun compilé, testé et
 lancé 3 s ; format et clang-tidy sur `linux-debug`. Les trois sont des checks requis pour fusionner sur `main`.
 `linux-release` compile aussi le build profilé (`-DLEVAIN_PROFILING=ON`, sandbox et tests), sans le lancer (#298).
@@ -253,4 +259,5 @@ Sponza) : le cache des jobs Linux, lu par `enableCrossOsArchive`, sinon `tools/f
 
 `windows-build`, `windows-debug` et `windows-release` sont requis tous les trois ensemble dès la fusion de #359
 (sondage de Donnovan du 2026-10-08) : l'agent de la session les pose juste après. Après elle, puis après chaque
-llvm-23 republié, le premier passage de `main` est à froid, comme les PR ouvertes (seul `main` donne son cache).
+llvm-23 republié, le premier passage de `main` est à froid, comme la PR ouverte ou le passage à la main (seul `main`
+enregistre son cache).
