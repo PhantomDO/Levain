@@ -2,19 +2,24 @@
 
 #include <algorithm>
 #include <array>
+#include <csignal>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <initializer_list>
 #include <utility>
 
 #include <crtdbg.h>
+#include <intrin.h>
 #include <windows.h>
 
 #include "levain/core/assert.hpp"
 
-// En Debug seulement : la Release reste à décider. Quel mécanisme répond à quelle fenêtre, et
-// pourquoi aucun gestionnaire de SIGABRT : engine/core/README.md. Sous un débogueur, le filtre
-// n'est jamais appelé (le débogueur reçoit l'exception) et le crochet répond « Retry ».
+// Debug : la ligne sur stderr, puis le programme s'arrête lui-même. Release : la même ligne, puis
+// Windows Error Reporting (WER) reçoit l'échec, comme pour un programme sans Levain (ADR-0035,
+// docs/QA.md) ; `failureEndingFor` en décide. Quel mécanisme répond à quelle fenêtre, et ce que
+// chaque configuration en fait : engine/core/README.md. Sous un débogueur, le filtre n'est jamais
+// appelé (le débogueur reçoit l'exception) et le crochet répond « Retry ».
 
 namespace levain::core
 {
@@ -24,6 +29,26 @@ namespace
 
 // Le code que lève un `throw` du C++ sous Windows (« msc » en ASCII, après 0xE0).
 constexpr unsigned long CppExceptionCode = 0xE06D7363;
+
+// Seule lecture de la configuration : la décision passe par `failureEndingFor`, que le test garde.
+#ifdef _DEBUG
+constexpr bool IsDebugBuild = true;
+#else
+constexpr bool IsDebugBuild = false;
+#endif
+
+// Le filtre rend la main à `UnhandledExceptionFilter`, qui appelle WER : le « Pass the exception to
+// the OS » de Godot (platform/windows/crash_handler_windows_seh.cpp). Un nom, parce que la valeur
+// ne dit pas qu'elle mène à WER.
+constexpr LONG PassToWindowsErrorReporting = EXCEPTION_CONTINUE_SEARCH;
+
+// Les lignes des gestionnaires de la CRT : des littéraux, rien à allouer dans un plantage.
+constexpr std::string_view AbortSignalLine =
+    "abort() ou SIGABRT : arrêt du programme (std::terminate et un appel virtuel pur y mènent "
+    "aussi)\n";
+constexpr std::string_view InvalidParameterLine =
+    "paramètre invalide passé à une fonction de la CRT : arrêt du programme (celle de Release ne "
+    "dit pas laquelle)\n";
 
 // Des littéraux : rien à allouer dans un plantage.
 const char* exceptionName(unsigned long code)
@@ -55,8 +80,6 @@ std::string_view finishLine(std::span<char> buffer, int written)
     return {buffer.data(), end};
 }
 
-#ifdef _DEBUG
-
 // WriteFile plutôt que fprintf : ni verrou de stdio ni tampon, donc utilisable depuis un plantage.
 void writeReportLine(std::string_view line)
 {
@@ -81,27 +104,90 @@ void writeReportLine(std::string_view line)
     std::_Exit(static_cast<int>(exitCode));
 }
 
+// Ce que fait abort() de la CRT une fois son gestionnaire de SIGABRT passé (ucrt/startup/abort.cpp)
+// : un __fastfail, que WER reçoit (0xC0000409), si _CALL_REPORTFAULT est posé, sinon _exit(3). Le
+// drapeau est posé par défaut en Release, absent en Debug, et doctest le retire pendant un cas : le
+// gestionnaire le lit au lieu de le supposer. `(0, 0)` lit sans rien changer.
+[[noreturn]] void endLikeAbort()
+{
+    if ((_set_abort_behavior(0, 0) & _CALL_REPORTFAULT) != 0)
+    {
+        __fastfail(FAST_FAIL_FATAL_APP_EXIT);
+    }
+    stopProcess(CrtReportExitCode);
+}
+
 // Le filtre que posait la vcruntime avant le nôtre (.CRT$XCAA, exe_common.inl) : pour une exception
-// C++, il appelle std::terminate ([except.handle]/9), donc le gestionnaire de std::set_terminate.
-// Le remplacer sans le garder casserait le C++ standard.
+// C++, il appelle std::terminate ([except.handle]/9), donc le gestionnaire de std::set_terminate ;
+// pour le reste, il rend EXCEPTION_CONTINUE_SEARCH. Le remplacer sans le garder casserait le C++
+// standard, et une DLL qui en aurait posé un avant nous perdrait la main.
 LPTOP_LEVEL_EXCEPTION_FILTER previousFilter = nullptr;
 
-// Sans ce filtre, un plantage ouvre la fenêtre de Windows Error Reporting. Il écrit la ligne, puis
-// termine avec le code de l'exception, comme Windows avec SEM_NOGPFAULTERRORBOX, mais sans en
-// dépendre : un pilote ou une DLL qui remettrait l'error mode à zéro rouvrirait la fenêtre.
+LONG chainToPreviousFilter(EXCEPTION_POINTERS* pointers)
+{
+    return previousFilter != nullptr ? previousFilter(pointers) : PassToWindowsErrorReporting;
+}
+
+// Sans ce filtre, un plantage ouvre la fenêtre de Windows Error Reporting en Debug, et ne dit rien
+// sur stderr en Release. Il écrit la ligne, puis : en Debug, termine avec le code de l'exception,
+// comme Windows avec SEM_NOGPFAULTERRORBOX mais sans en dépendre (un pilote ou une DLL qui
+// remettrait l'error mode à zéro rouvrirait la fenêtre) ; en Release, rend la main à WER, qui garde
+// son rapport et ses dumps, et le code de l'exception reste celui de Windows.
 LONG WINAPI onUnhandledException(EXCEPTION_POINTERS* pointers)
 {
     const EXCEPTION_RECORD& record = *pointers->ExceptionRecord;
-    if (record.ExceptionCode == CppExceptionCode && previousFilter != nullptr)
+    const FailureEnding ending = failureEndingFor(IsDebugBuild);
+    if (record.ExceptionCode == CppExceptionCode)
     {
-        // std::terminate, puis abort(), dont le rapport passe par le crochet (code 3). Le filtre ne
-        // rend la main que pour une exception qui n'est pas celle de ce runtime : on finit ici.
-        static_cast<void>(previousFilter(pointers));
+        // std::terminate, puis abort(), dont le gestionnaire de SIGABRT finit : le filtre ne rend
+        // la main que pour une exception qui n'est pas celle de ce runtime. La ligne de l'exception
+        // serait fausse ici, c'est un abort().
+        const LONG verdict = chainToPreviousFilter(pointers);
+        if (ending == FailureEnding::HandToWindowsErrorReporting)
+        {
+            return verdict;
+        }
     }
     std::array<char, 512> buffer{};
     writeReportLine(describeException(record.ExceptionCode, record.ExceptionAddress, buffer));
-    stopProcess(record.ExceptionCode);
+    if (ending == FailureEnding::StopProcess)
+    {
+        stopProcess(record.ExceptionCode);
+    }
+    return chainToPreviousFilter(pointers);
 }
+
+// abort() lève SIGABRT, et std::terminate et un appel virtuel pur passent par abort(). En Release,
+// la CRT finit alors par __fastfail, qu'aucun filtre ne voit : sans ce gestionnaire, aucune ligne.
+// Il ne rend jamais la main : un `raise(SIGABRT)` direct continuerait sinon. Il ne sert qu'une
+// fois, la CRT le remettant à SIG_DFL avant de l'appeler (ucrt/misc/signal.cpp) : un second abort()
+// simultané, d'un autre thread, finit sans ligne.
+void onAbortSignal(int /*signal*/)
+{
+    writeReportLine(AbortSignalLine);
+    if (failureEndingFor(IsDebugBuild) == FailureEnding::StopProcess)
+    {
+        stopProcess(CrtReportExitCode);
+    }
+    endLikeAbort();
+}
+
+// Une CRT de Release donne des arguments nuls ici ; celle de Debug a déjà arrêté le programme par
+// son crochet (l'assertion précède). Sans gestionnaire, la CRT de Release fait
+// __fastfail(FAST_FAIL_INVALID_ARG), sans regarder _CALL_REPORTFAULT (_invoke_watson,
+// ucrt/misc/invalid_parameter.cpp) : le même, après la ligne.
+void onInvalidParameter(const wchar_t* /*expression*/, const wchar_t* /*function*/,
+                        const wchar_t* /*file*/, unsigned int /*line*/, std::uintptr_t /*reserved*/)
+{
+    writeReportLine(InvalidParameterLine);
+    if (failureEndingFor(IsDebugBuild) == FailureEnding::StopProcess)
+    {
+        stopProcess(CrtReportExitCode);
+    }
+    __fastfail(FAST_FAIL_INVALID_ARG);
+}
+
+#ifdef _DEBUG
 
 // La CRT appelle les crochets étroits d'abord, même pour un rapport large (`_ASSERT`) : mesuré, le
 // crochet large n'a rien à faire. Le message n'est en UTF-8 (cmake/windows/utf8.manifest) que pour
@@ -139,7 +225,52 @@ int __cdecl onReport(int reportType, char* message, int* returnValue)
     stopProcess(CrtReportExitCode);
 }
 
+// Les rapports de la CRT de Debug n'existent pas en Release : `_CrtSetReportHook2` n'y fait rien.
+void routeDebugCrtReports()
+{
+    // La fenêtre de Windows Error Reporting : le Debug ne la veut pas (la Release laisse WER
+    // faire).
+    SetErrorMode(GetErrorMode() | SEM_NOGPFAULTERRORBOX);
+    // Le message d'un assert() du C et de la CRT (R6xxx) va sur stderr, même pour un programme sans
+    // console, où il ouvrirait une boîte (ucrt/startup/assert.cpp).
+    _set_error_mode(_OUT_TO_STDERR);
+    // Si quelqu'un retirait le crochet, aucune fenêtre ne reviendrait : le mode FILE vers stderr
+    // remplace celle des erreurs et des assertions. Les avertissements restent dans le débogueur.
+    for (const int type : {_CRT_ERROR, _CRT_ASSERT})
+    {
+        _CrtSetReportMode(type, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+        _CrtSetReportFile(type, _CRTDBG_FILE_STDERR);
+    }
+    // -1 : EINVAL ou ENOMEM. Sans crochet, un rapport n'arrêterait plus le programme, en silence
+    // (règle n°7) : on s'arrête avant `main`, en le disant.
+    if (_CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, &onReport) == -1)
+    {
+        writeReportLine("routage des rapports de la CRT impossible : _CrtSetReportHook2 a "
+                        "échoué (engine/core/src/crt_report.cpp)\n");
+        stopProcess(CrtReportExitCode);
+    }
+}
+
 #endif // _DEBUG
+
+// Les deux configurations : la ligne de chaque échec, puis la fin que `failureEndingFor` donne.
+void routeFailuresToStderr()
+{
+    // Microsoft : « all applications call SetErrorMode(SEM_FAILCRITICALERRORS) at startup »
+    // (SetErrorMode), pour qu'une erreur matérielle (« disque absent ») ne bloque pas le programme
+    // sur une fenêtre. SEM_NOGPFAULTERRORBOX, lui, couperait WER : le Debug seul le pose.
+    SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS);
+    previousFilter = SetUnhandledExceptionFilter(&onUnhandledException);
+    // SIG_ERR : arrêt avant `main`, en le disant. Sans gestionnaire, abort() finirait sans ligne,
+    // en silence (règle n°7).
+    if (std::signal(SIGABRT, &onAbortSignal) == SIG_ERR)
+    {
+        writeReportLine(
+            "routage de SIGABRT impossible : signal a échoué (engine/core/src/crt_report.cpp)\n");
+        stopProcess(CrtReportExitCode);
+    }
+    _set_invalid_parameter_handler(&onInvalidParameter);
+}
 
 } // namespace
 
@@ -150,6 +281,11 @@ CrtReportAction crtReportActionFor(int reportType, bool debuggerPresent)
         return CrtReportAction::Continue;
     }
     return debuggerPresent ? CrtReportAction::BreakIntoDebugger : CrtReportAction::Stop;
+}
+
+FailureEnding failureEndingFor(bool debugBuild)
+{
+    return debugBuild ? FailureEnding::StopProcess : FailureEnding::HandToWindowsErrorReporting;
 }
 
 std::string_view describeCrtReport(int reportType, std::string_view message, std::span<char> buffer)
@@ -170,33 +306,14 @@ std::string_view describeException(unsigned long code, const void* address, std:
 
 void routeCrtReportsToStderr() noexcept
 {
-#ifdef _DEBUG
     static bool routed = false;
     if (std::exchange(routed, true))
     {
         return;
     }
-    // Les fenêtres d'erreur critique et de Windows Error Reporting.
-    SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
-    // Le message d'un assert() du C et de la CRT (R6xxx) va sur stderr, même pour un programme sans
-    // console, où il ouvrirait une boîte (ucrt/startup/assert.cpp).
-    _set_error_mode(_OUT_TO_STDERR);
-    previousFilter = SetUnhandledExceptionFilter(&onUnhandledException);
-    // Si quelqu'un retirait le crochet, aucune fenêtre ne reviendrait : le mode FILE vers stderr
-    // remplace celle des erreurs et des assertions. Les avertissements restent dans le débogueur.
-    for (const int type : {_CRT_ERROR, _CRT_ASSERT})
-    {
-        _CrtSetReportMode(type, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
-        _CrtSetReportFile(type, _CRTDBG_FILE_STDERR);
-    }
-    // -1 : EINVAL ou ENOMEM. Sans crochet, un rapport n'arrêterait plus le programme, en silence
-    // (règle n°7) : on s'arrête avant `main`, en le disant.
-    if (_CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, &onReport) == -1)
-    {
-        writeReportLine("routage des rapports de la CRT impossible : _CrtSetReportHook2 a "
-                        "échoué (engine/core/src/crt_report.cpp)\n");
-        stopProcess(CrtReportExitCode);
-    }
+    routeFailuresToStderr();
+#ifdef _DEBUG
+    routeDebugCrtReports();
 #endif
 }
 
@@ -206,6 +323,7 @@ void routeCrtReportsToStderr() noexcept
 // besoin : rien ne référence celui-ci, qui serait écarté avec le routage, sans un mot. `/INCLUDE:`
 // (CMakeLists racine et engine/core/CMakeLists.txt) force la référence à ce symbole dans tout
 // exécutable, donc l'initialisation dynamique, avant `main`. init_seg(lib) : avant celles des
-// autres fichiers, pour qu'une assertion d'un global soit déjà routée. En Release, elle reste.
+// autres fichiers, pour qu'une assertion d'un global soit déjà routée. Elle reste en Release, où
+// elle installe la ligne et la main rendue à WER.
 #pragma init_seg(lib)
 extern "C" const bool LevainCrtReportRouted = (levain::core::routeCrtReportsToStderr(), true);

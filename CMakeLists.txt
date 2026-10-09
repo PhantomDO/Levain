@@ -65,7 +65,8 @@ if(WIN32)
     add_link_options(/MANIFEST:EMBED "/MANIFESTINPUT:${PROJECT_SOURCE_DIR}/cmake/windows/utf8.manifest")
     # Le routage des rapports de la CRT (engine/core/src/crt_report.cpp) : chaque exécutable du moteur référence son
     # ancre, que core définit. Un exécutable qui ne lie pas core s'arrête à l'édition de liens sur « undefined
-    # symbol: LevainCrtReportRouted » : l'oubli ne passe pas. En Release, l'ancre n'installe rien.
+    # symbol: LevainCrtReportRouted » : l'oubli ne passe pas. L'ancre installe la ligne de chaque échec, en Debug comme
+    # en Release.
     add_link_options(/INCLUDE:LevainCrtReportRouted)
     # En Debug, CMake ajoute /INCREMENTAL (le défaut de MSVC), et lie alors en deux passes pour y mettre le
     # manifeste : son /MANIFEST /MANIFESTFILE, passé après le nôtre, annule /MANIFEST:EMBED, et lld-link s'arrête

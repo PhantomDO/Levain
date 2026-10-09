@@ -41,11 +41,28 @@ enum class CrtReportAction : std::uint8_t
 [[nodiscard]] std::string_view describeException(unsigned long code, const void* address,
                                                  std::span<char> buffer);
 
-/// En Debug, plus de fenêtre de la CRT ni d'une exception Windows quand le programme échoue : les
-/// rapports de la CRT et les plantages vont sur stderr et arrêtent le programme, sauf sous un
-/// débogueur, qui reprend la main. En Release, ne fait rien : la Release reste à décider
-/// (engine/core/README.md). Personne n'a à l'appeler : l'ancre de crt_report.cpp le fait avant
-/// `main`, dans tout exécutable qui lie `levain::core`. Idempotente.
+/// Ce que devient un échec une fois sa ligne écrite sur stderr (ADR-0035).
+enum class FailureEnding : std::uint8_t
+{
+    StopProcess,                 ///< Le Debug : le programme s'arrête lui-même, sans WER.
+    HandToWindowsErrorReporting, ///< La Release : WER reçoit l'échec, son rapport et ses dumps.
+};
+
+/// La décision de la Release, en fonction pure pour qu'un test la garde. Debug : le programme
+/// s'arrête, avec le code 3 ou celui de l'exception. Release : la main revient à Windows Error
+/// Reporting (WER), et le code de sortie reste celui de Windows. Les gestionnaires de
+/// `crt_report.cpp` la lisent au lieu de regarder `_DEBUG` eux-mêmes. Le test ne voit pas qu'un
+/// gestionnaire la suive : `crt.report.*` le contrôle en Release, par l'événement que WER écrit
+/// (engine/core/README.md).
+[[nodiscard]] FailureEnding failureEndingFor(bool debugBuild);
+
+/// Plus de fenêtre de la CRT ni d'une exception Windows quand le programme échoue : le message va
+/// sur stderr, puis la fin dépend de la configuration (`failureEndingFor`). En Debug, les rapports
+/// de la CRT, les plantages, `abort()` et un paramètre invalide arrêtent le programme, sauf sous un
+/// débogueur, qui reprend la main. En Release, un plantage, `abort()` (où mènent aussi
+/// `std::terminate` et un appel virtuel pur) et un paramètre invalide écrivent leur ligne, puis WER
+/// reçoit l'échec. Personne n'a à l'appeler : l'ancre de crt_report.cpp le fait avant `main`, dans
+/// tout exécutable qui lie `levain::core`. Idempotente.
 void routeCrtReportsToStderr() noexcept;
 
 } // namespace levain::core

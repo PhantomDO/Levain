@@ -31,7 +31,7 @@ de modification (le hot-reload des shaders, M2.3).
 | [`include/levain/core/frame_time.hpp`](include/levain/core/frame_time.hpp) | `recordFrame` — moyenne, minimum et **maximum** par période : c'est le maximum qui montre une saccade |
 | [`include/levain/core/file.hpp`](include/levain/core/file.hpp) | `readFile` — un fichier entier en mémoire, ou un `Result` en échec ; `pathForC` — un chemin pour une bibliothèque C en `char*` (ktx, stb) ; `FileWatch`, `watchDirectory`, `takeChangedFiles` — les fichiers d'un dossier créés ou modifiés depuis la dernière fois |
 | [`include/levain/core/environment.hpp`](include/levain/core/environment.hpp) | `environmentVariable` — une variable d'environnement, ou `std::nullopt`, sans l'API que la CRT de Microsoft déconseille |
-| [`include/levain/core/crt_report.hpp`](include/levain/core/crt_report.hpp) | Windows seulement : `routeCrtReportsToStderr` (en Debug, plus de fenêtre de la CRT ni d'une exception, voir plus bas) et ses fonctions pures, `crtReportActionFor`, `describeCrtReport`, `describeException` |
+| [`include/levain/core/crt_report.hpp`](include/levain/core/crt_report.hpp) | Windows seulement : `routeCrtReportsToStderr` (plus de fenêtre de la CRT ni d'une exception : la ligne sur stderr, puis l'arrêt en Debug ou Windows Error Reporting en Release, voir plus bas) et ses fonctions pures, `failureEndingFor`, `crtReportActionFor`, `describeCrtReport`, `describeException` |
 | [`include/levain/core/profile.hpp`](include/levain/core/profile.hpp) | `LEVAIN_PROFILE_SCOPE`, `LEVAIN_PROFILE_SCOPE_TEXT` (un nom connu à l'exécution), `LEVAIN_PROFILE_PLOT` (une courbe), `LEVAIN_PROFILE_FRAME` — compilées hors du binaire par défaut (`ctest -R build.no-tracy`) |
 | [`include/levain/core/version.hpp`](include/levain/core/version.hpp) | `version()` et `toolchain()` — la bannière de démarrage |
 
@@ -43,51 +43,84 @@ assertion ([ADR-0034](../../docs/adr/0034-reflexion-des-composants.md)).
 Les en-têtes publics vivent sous `include/levain/core/`, l'implémentation sous `src/`. On inclut donc
 `"levain/core/version.hpp"`, jamais un chemin relatif.
 
-## Les rapports de la CRT (Windows, Debug)
+## Les échecs sous Windows : une ligne sur stderr, puis l'arrêt ou WER
 
-En Debug, un échec sous Windows ouvrait une fenêtre modale (« Debug Assertion Failed! » pour `_ASSERT` et la STL,
-« abort() has been called », « Le programme a cessé de fonctionner » pour un plantage) : une CI ou un agent attendait
-un délai, et le message n'arrivait pas au journal. **Plus de fenêtre de la CRT ni d'une exception Windows** : le
-message va sur stderr, le programme s'arrête avec un code non nul. Sous un débogueur (`IsDebuggerPresent`), il s'y
-arrête, comme le « Retry » de l'ancienne fenêtre. Un programme sans stderr (sous-système GUI lancé hors d'un outil)
-perd la ligne, le code de sortie reste ; elle part aussi au débogueur (`OutputDebugStringA`, DebugView). Une fenêtre
-reste, hors de ce routage : celle de `SDL_assert`, que SDL ouvre elle-même, en Release aussi pour `SDL_assert_release`.
+Un échec ouvrait une fenêtre modale (« Debug Assertion Failed! » pour `_ASSERT` et la STL, « abort() has been called »,
+« Le programme a cessé de fonctionner » pour un plantage) : une CI ou un agent attendait un délai, et le message
+n'arrivait pas au journal. **Plus de fenêtre de la CRT ni d'une exception Windows** : le message va sur stderr, et il
+est aussi envoyé au débogueur (`OutputDebugStringA`, DebugView), car un programme sans stderr (sous-système GUI lancé
+hors d'un outil) perd la ligne. Ce qui suit la ligne dépend de la configuration, et `failureEndingFor` le décide
+(ADR-0035, [comparaison avec les autres moteurs][qa-release]) :
 
-| Ce qui échoue | Mécanisme (`src/crt_report.cpp`) | Sortie |
-|---|---|---|
-| `_ASSERT`, la STL, `abort()`, un paramètre invalide | crochet `_CrtSetReportHook2` | « rapport de la CRT (…) », code **3** |
-| une exception C++ que personne n'attrape | le filtre de la vcruntime, gardé par le nôtre : `std::terminate` | le gestionnaire de `std::set_terminate`, sinon `abort()` : code 3 |
-| un plantage : écriture en 0, `ud2` de la STL sous clang-cl, `int3` de `LEVAIN_ASSERT` | `SetUnhandledExceptionFilter` | « exception non gérée 0x… », code de l'exception |
-| `assert()` du C dans un programme sans console | `_set_error_mode(_OUT_TO_STDERR)` | « Assertion failed: … », puis `abort()` : code 3 |
-| Windows Error Reporting | `SetErrorMode(SEM_FAILCRITICALERRORS \| SEM_NOGPFAULTERRORBOX)` | pour un `__fastfail`, que rien n'intercepte : **non vérifié**, ni la fenêtre de WER ni le débogueur JIT |
+- **Debug** : le programme s'arrête lui-même, avec le code 3 ou celui de l'exception, sans WER. Sous un débogueur
+  (`IsDebuggerPresent`), il s'y arrête, comme le « Retry » de l'ancienne fenêtre.
+- **Release** : Windows Error Reporting (WER) reçoit l'échec, comme pour un programme sans Levain : son rapport et ses
+  dumps restent, et le code de sortie est celui de Windows. Une fenêtre de WER ne s'est ouverte nulle part où l'on lance
+  Levain (le runner pose `DontShowUI=1` ; sur le portable, mesuré, `build/GOTCHA.md`), donc rien n'est à couper.
 
-**Un crochet, pas le seul mode FILE vers stderr** : en mode FILE, `_CrtDbgReport` imprime puis rend la main, et
+| Ce qui échoue | Mécanisme (`src/crt_report.cpp`) | Debug | Release |
+|---|---|---|---|
+| `_ASSERT`, la STL | crochet `_CrtSetReportHook2` | « rapport de la CRT (…) », code **3** | n'existe pas : la CRT de Release n'a pas ces rapports |
+| `abort()` | Debug : le même crochet ; Release : le gestionnaire de `SIGABRT` | « rapport de la CRT (erreur) », code **3** | « abort() ou SIGABRT », puis `__fastfail` : **0xC0000409**, WER |
+| `raise(SIGABRT)` direct | le gestionnaire de `SIGABRT` | « abort() ou SIGABRT », code **3** | idem `abort()` |
+| `std::terminate`, un appel virtuel pur | passent par `abort()` | idem `abort()` | idem `abort()` |
+| un paramètre invalide de la CRT | Debug : le crochet (l'assertion précède) ; Release : `_set_invalid_parameter_handler` | « rapport de la CRT (assertion) », code **3** | « paramètre invalide… », puis `__fastfail` : **0xC0000409**, WER |
+| une exception C++ que personne n'attrape | le filtre de la vcruntime, gardé par le nôtre : `std::terminate` | le gestionnaire de `std::set_terminate`, sinon `abort()` : code 3 | idem, puis la ligne de `abort()` : 0xC0000409 |
+| un plantage : écriture en 0, `ud2` de la STL sous clang-cl, `int3` de `LEVAIN_ASSERT` | `SetUnhandledExceptionFilter` | « exception non gérée 0x… », `TerminateProcess` : code de l'exception | la même ligne, puis `EXCEPTION_CONTINUE_SEARCH` : WER, code de l'exception |
+| `assert()` du C dans un programme sans console | `_set_error_mode(_OUT_TO_STDERR)` | « Assertion failed: … », puis `abort()` : code 3 | retiré par `NDEBUG` |
+| un `__fastfail` direct (dépassement de `/GS`) | rien : **par conception**, aucun filtre ne le voit | muet ; 0xC0000409 | muet ; 0xC0000409, WER |
+| le mode d'erreur | `SetErrorMode` | `SEM_FAILCRITICALERRORS` et `SEM_NOGPFAULTERRORBOX` | `SEM_FAILCRITICALERRORS` seulement, comme Microsoft le recommande à toute application |
+
+**Un crochet, pas le seul mode FILE vers stderr** (Debug) : en mode FILE, `_CrtDbgReport` imprime puis rend la main, et
 `_ASSERT` continue. Le crochet passe avant le mode, il est le seul à pouvoir arrêter. Il reçoit le message avec le
 « fichier(ligne) » de la macro (l'en-tête de la STL pour `vector`, pas la ligne qui a mal indexé : c'est le
 débogueur qui la donne) ; un `_ASSERT(x)` sans message rapporte `(null)`. La STL fait suivre son rapport d'un `ud2`
-sous clang-cl (`__msvc_doom_core.hpp`), un `__fastfail` sous cl.exe que ce dépôt n'emploie pas. Pas de gestionnaire
-de `SIGABRT` : `abort()` fait son rapport avant de lever le signal, et `raise(SIGABRT)` finit par `_exit(3)`.
+sous clang-cl (`__msvc_doom_core.hpp`), un `__fastfail` sous cl.exe que ce dépôt n'emploie pas.
+
+**Pourquoi un gestionnaire de `SIGABRT` en Release** : `abort()` y finit par `__fastfail`, que nul filtre ne voit, donc
+sans lui, aucune ligne. Il écrit la ligne, puis fait ce que fait la CRT après son gestionnaire
+(`ucrt/startup/abort.cpp`) : un `__fastfail` si `_CALL_REPORTFAULT` est posé, sinon `_exit(3)` (doctest retire le
+drapeau pendant ses cas : le gestionnaire le lit au lieu de le supposer). Il ne rend jamais la main, sinon un
+`raise(SIGABRT)` direct continuerait. **Il ne sert qu'une fois** : la CRT le remet à `SIG_DFL` avant de l'appeler
+(`ucrt/misc/signal.cpp`), donc un second `abort()` d'un autre thread finit sans ligne. Un `raise(SIGABRT)` direct finit
+ainsi comme `abort()` (0xC0000409), là où la CRT sans gestionnaire ferait `_exit(3)`, muet : SIGABRT veut dire
+`abort()` partout dans ce moteur. Le gestionnaire du paramètre invalide fait de même avec
+`__fastfail(FAST_FAIL_INVALID_ARG)`, ce que fait `_invoke_watson` ; une CRT de Release lui passe des arguments nuls, la
+ligne ne dit donc pas quelle fonction a refusé.
 
 **Pourquoi aucun exécutable ne peut l'oublier.** Le routage tient dans une variable globale,
 `LevainCrtReportRouted`, dont l'initialisation dynamique l'installe avant `main`. Une bibliothèque statique écarte le
 fichier objet que personne ne référence : `/INCLUDE:LevainCrtReportRouted` force la référence, en `INTERFACE` sur
 `levain_core` (tout exécutable qui le lie, celui d'un jeu compris) et sur chaque exécutable du moteur (un exécutable
 qui ne lierait pas core échoue à l'édition de liens, `undefined symbol: LevainCrtReportRouted`). Un appel au début de
-chaque `main` s'oublierait dans le prochain, et doctest génère le sien. Rien n'est compilé hors de Windows.
+chaque `main` s'oublierait dans le prochain, et doctest génère le sien. L'ancre reste en Release, où elle installe la
+ligne et la main rendue à WER. Rien n'est compilé hors de Windows. Le nom `routeCrtReportsToStderr` et l'ancre n'ont pas
+changé : la fonction route toujours les rapports vers stderr, la Release y ajoute sa fin.
 
-**Release : rien ne change**, ni crochet, ni filtre, ni mode d'erreur. L'ancre y reste (l'oubli de core échoue
-toujours à l'édition de liens) et n'installe rien. Ce que doit faire la Release, celle d'un jeu livré, est une
-décision à prendre (sondage) : elle garde aujourd'hui Windows Error Reporting, ses rapports et ses dumps. Si elle lui
-rend la main, `abort()` demande en plus un gestionnaire de `SIGABRT` qui écrit la ligne, puis finit par `__fastfail`
-comme `abort()` le ferait : WER le voit, et un `raise(SIGABRT)` direct ne revient pas.
+**Les limites, dites.**
+
+- Un `__fastfail` direct ne laisse aucune ligne, ni en Debug ni en Release.
+- **Le dernier gestionnaire posé gagne.** Une bibliothèque qui, après `main`, pose `SetUnhandledExceptionFilter`,
+  `signal(SIGABRT)` ou un gestionnaire de paramètres invalides retire la ligne sans le dire ; rien ne le détecte
+  aujourd'hui. doctest repose les nôtres à la fin de chaque cas.
+- **La CRT de chaque DLL** : le triplet lie la CRT en DLL, donc les gestionnaires valent pour tout le processus. Une DLL
+  liée en `/MT` aurait son propre `abort()`, non couvert.
+- **Le joueur ne voit pas la ligne** : un exécutable GUI n'a pas de stderr. Le dump vient de WER
+  (`%LOCALAPPDATA%\CrashDumps` si les `LocalDumps` de la machine sont posés). Le rapport de plantage propre à Levain
+  (minidump et journal, comme `Saved/Crashes` chez Unreal) attend un jeu distribué, avec une issue et un ADR.
+- **Chaque plantage de Release dépose un rapport chez WER** : un minidump et un dossier de rapport sur le portable,
+  envoyé selon le consentement de la machine.
 
 **Sous doctest**, le `FatalConditionHandler` du cas pose ses réglages et rend les nôtres à la fin : il rapporte
 lui-même un plantage ou un `abort()` (« test case CRASHED », code 1) ; un rapport de la CRT (`_ASSERT`, STL), lui, est
 arrêté par notre crochet, qui passe avant son mode de rapport (stderr, code 3).
 
-Contre-tests : `ctest -R crt.report` (`tests/crt_report_probe.cpp`), un scénario par fenêtre ; `debugger.*` s'attache
-à l'enfant et exige un point d'arrêt ; en Release, `error-mode` vérifie que rien n'est posé. Mesures et pièges :
-`build/GOTCHA.md`.
+**Les contre-tests** : `ctest -R crt.report` (`tests/crt_report_probe.cpp`) fait échouer un enfant de chaque façon et
+juge son code de sortie exact et son stderr ; `debugger.*` s'attache à l'enfant et exige un point d'arrêt (Debug). En
+Release, `error-mode` vérifie que `SEM_NOGPFAULTERRORBOX` et le mode de stderr de la CRT ne sont pas posés. Le test de
+`failureEndingFor` (`tests/crt_report_test.cpp`) garde la décision de la Release.
+
+Mesures et pièges : `build/GOTCHA.md`.
 
 ## Équivalents ailleurs
 
@@ -101,7 +134,12 @@ La différence qui compte : chez Unreal et Godot, `Core` porte aussi la réflexi
 nous, flecs s'en charge, donc `core` reste plus petit — logs, mémoire, temps, fichiers, environnement, et rien
 d'autre.
 
-Les fenêtres d'échec : Unreal les supprime par `-unattended` (**documenté** : la ligne de commande d'Unreal) et
-remplace celle de Windows par son `CrashReportClient`. Unity a `-batchmode` (aucune fenêtre ; **documenté** : le
-manuel) et `UnityCrashHandler64.exe`. Godot a un gestionnaire de plantage par plateforme dans `platform/` (**à
-vérifier** : non relu pour cette PR).
+Les fenêtres d'échec, comparées en détail dans [`docs/QA.md`][qa-release] : Unreal les supprime par `-unattended`
+(**documenté** : la ligne de commande d'Unreal) et remplace WER par son `CrashReportClient` et son minidump (le
+contournement lui-même est **supposé**). Unity a `-silent-crashes` pour son player (**documenté** : le manuel ;
+`-batchmode` ne coupe que les fenêtres de l'éditeur) et son `UnityCrashHandler64.exe`, hors du processus. Godot
+(**documenté** : `platform/windows/crash_handler_windows_seh.cpp`) imprime la pile sur stderr dans ses builds de
+développement puis « passe l'exception à l'OS », donc à WER, et n'installe rien dans `template_release` : c'est le
+modèle de la Release de Levain, avec une ligne en plus. O3DE appelle `ReportFault` exprès.
+
+[qa-release]: ../../docs/QA.md#que-fait-un-moteur-quand-le-jeu-plante-sous-windows-en-release--2026-10-09-m14
