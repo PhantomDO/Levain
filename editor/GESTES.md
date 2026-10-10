@@ -29,6 +29,9 @@ qu'un tableau à lire.
 - **Le scénario** est le nom du test qui prouvera le geste de bout en bout, par le banc d'essai de l'App (ADR-0036,
   morceau 2 : des événements rejoués, en QWERTY et en AZERTY pour une touche à position). Il est provisoire tant que le
   geste est « à faire » : la PR qui écrit le scénario peut le renommer, ici aussi.
+  Le banc sait écrire des touches et des boutons ; la position de la souris (morceaux 5 et 8), le mouvement et la
+  molette (11), le texte (12) et la fermeture (13) viennent avec le morceau qui en a besoin
+  ([platform/README](../engine/platform/README.md)).
 - **L'état** prend l'un de trois mots, et la commande refuse tout autre :
   - `à faire` : aucun test ne prouve le geste ;
   - `couvert` : le scénario existe sous ce nom et passe ; la PR qui l'ajoute change l'état ;
