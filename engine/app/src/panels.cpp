@@ -11,20 +11,11 @@
 
 #include "levain/app/app.hpp"
 #include "levain/render/renderer.hpp"
+#include "levain/ui/tr.hpp"
 
 namespace levain::app
 {
 
-namespace
-{
-
-constexpr const char* ImageWindow = "Image";
-constexpr const char* PassesWindow = "Passes";
-constexpr const char* SceneWindow = "Scène";
-
-/// La disposition de départ, recréée à chaque lancement (pas d'`imgui.ini`) : Image et Passes à
-/// gauche, l'une sur l'autre ; Scène à droite, sur un nœud encore vide, celui de l'inspecteur ; le
-/// centre libre, la scène s'y voit. Rend les nœuds où l'éditeur ancre ses fenêtres.
 DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
 {
     ImGui::DockBuilderRemoveNode(dockspace);
@@ -41,6 +32,8 @@ DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
     ImGuiID rightBottom = 0;
     const ImGuiID rightTop =
         ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.4f, nullptr, &rightBottom);
+    // Par la clé : ImGui hache ce qui suit « ### », donc « Image » est l'identifiant de «
+    // Picture###Image ».
     ImGui::DockBuilderDockWindow(ImageWindow, leftTop);
     ImGui::DockBuilderDockWindow(PassesWindow, leftBottom);
     ImGui::DockBuilderDockWindow(SceneWindow, rightTop);
@@ -48,31 +41,34 @@ DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
     return {.left = leftTop, .inspector = rightBottom};
 }
 
+namespace
+{
+
 /// Les dernières images, dans l'ordre : l'historique est un anneau, `next` en est le plus ancien.
-void plotHistory(const char* label, const std::array<float, HistoryLength>& values,
+void plotHistory(const char* french, const std::array<float, HistoryLength>& values,
                  std::size_t next)
 {
     const float highest = *std::ranges::max_element(values);
-    ImGui::PlotLines(label, values.data(), static_cast<int>(values.size()), static_cast<int>(next),
-                     nullptr, 0.0f, std::max(highest * 1.2f, 1.0f),
+    ImGui::PlotLines(ui::labelOf(french).c_str(), values.data(), static_cast<int>(values.size()),
+                     static_cast<int>(next), nullptr, 0.0f, std::max(highest * 1.2f, 1.0f),
                      ImVec2(0.0f, 60.0f * ImGui::GetStyle().FontScaleDpi));
 }
 
 void drawImageWindow(const App& app)
 {
-    if (ImGui::Begin(ImageWindow))
+    if (ImGui::Begin(ui::labelOf(ImageWindow).c_str()))
     {
         const ImGuiIO& io = ImGui::GetIO();
-        ImGui::Text("%.0f images/s, %.2f ms", static_cast<double>(io.Framerate),
-                    1000.0 / static_cast<double>(std::max(io.Framerate, 1.0f)));
+        ui::textf("{:.0f} images/s, {:.2f} ms", io.Framerate,
+                  1000.0 / static_cast<double>(std::max(io.Framerate, 1.0f)));
         // Sous WebGPU, notre backend ne relit pas les minuteurs : « non mesuré », jamais 0.
         if (app.totalGpu.samples > 0)
         {
-            ImGui::Text("GPU : %.3f ms en moyenne", render::averageOf(app.totalGpu));
+            ui::textf("GPU : {:.3f} ms en moyenne", render::averageOf(app.totalGpu));
         }
         else
         {
-            ImGui::TextDisabled("GPU : non mesuré");
+            ImGui::TextDisabled("%s", ui::tr("GPU : non mesuré"));
         }
         plotHistory("image (ms)", app.ui.history.frameMs, app.ui.history.next);
         if (app.totalGpu.samples > 0)
@@ -85,26 +81,26 @@ void drawImageWindow(const App& app)
 
 void drawPassesWindow(const App& app)
 {
-    if (ImGui::Begin(PassesWindow))
+    if (ImGui::Begin(ui::labelOf(PassesWindow).c_str()))
     {
         if (ImGui::BeginTable("passes", 2, ImGuiTableFlags_RowBg))
         {
-            ImGui::TableSetupColumn("passe");
-            ImGui::TableSetupColumn("GPU (ms)");
+            ImGui::TableSetupColumn(ui::tr("passe"));
+            ImGui::TableSetupColumn(ui::tr("GPU (ms)"));
             ImGui::TableHeadersRow();
             const auto row = [](const char* name, const render::GpuTimeAverage& time)
             {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(name);
+                ImGui::TextUnformatted(ui::tr(name));
                 ImGui::TableNextColumn();
                 if (time.samples > 0)
                 {
-                    ImGui::Text("%.3f", render::averageOf(time));
+                    ui::textf("{:.3f}", render::averageOf(time));
                 }
                 else
                 {
-                    ImGui::TextDisabled("non mesuré");
+                    ImGui::TextDisabled("%s", ui::tr("non mesuré"));
                 }
             };
             for (std::size_t pass = 0; pass < render::RendererPassNames.size(); ++pass)
@@ -115,24 +111,24 @@ void drawPassesWindow(const App& app)
             ImGui::EndTable();
         }
         const UiCost& cost = app.ui.cost;
-        ImGui::Text("interface, CPU : %.3f ms en moyenne, %.3f au pire",
-                    cost.cpuSamples > 0 ? cost.cpuTotalMs / cost.cpuSamples : 0.0, cost.cpuMaxMs);
+        ui::textf("interface, CPU : {:.3f} ms en moyenne, {:.3f} au pire",
+                  cost.cpuSamples > 0 ? cost.cpuTotalMs / cost.cpuSamples : 0.0, cost.cpuMaxMs);
     }
     ImGui::End();
 }
 
 void drawSceneWindow(App& app)
 {
-    if (ImGui::Begin(SceneWindow))
+    if (ImGui::Begin(ui::labelOf(SceneWindow).c_str()))
     {
         const auto perFrame = [&app](std::uint64_t count)
         { return static_cast<double>(count) / std::max(app.frameCount, 1); };
-        ImGui::Text("entités placées (Transform) : %d", app.world.count<scene::Transform>());
-        ImGui::Text("modèles chargés : %zu", app.models.size());
-        ImGui::Text("modèles, par image : %.1f dessinés, %.1f écartés",
-                    perFrame(app.modelsCamera.drawn), perFrame(app.modelsCamera.culled));
-        ImGui::Text("triangles des modèles, par image : %.0f",
-                    perFrame(app.modelsCamera.triangles));
+        ui::textf("entités placées (Transform) : {}", app.world.count<scene::Transform>());
+        ui::textf("modèles chargés : {}", app.models.size());
+        ui::textf("modèles, par image : {:.1f} dessinés, {:.1f} écartés",
+                  perFrame(app.modelsCamera.drawn), perFrame(app.modelsCamera.culled));
+        ui::textf("triangles des modèles, par image : {:.0f}",
+                  perFrame(app.modelsCamera.triangles));
     }
     ImGui::End();
 }

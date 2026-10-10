@@ -22,6 +22,7 @@
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/scene/reflection.hpp"
+#include "levain/ui/tr.hpp"
 
 namespace levain::editor
 {
@@ -582,12 +583,12 @@ void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t se
     LEVAIN_ASSERT(world.is_deferred(), "drawInspector : le monde doit être différé (defer_begin)");
     inspector.fieldsDrawn = 0;
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(InspectorWindow))
+    if (ImGui::Begin(ui::labelOf(InspectorWindow).c_str()))
     {
         const flecs::entity entity = selectedIfAlive(world, selected);
         if (!entity)
         {
-            ImGui::TextDisabled("aucune entité choisie");
+            ImGui::TextDisabled("%s", ui::tr("aucune entité choisie"));
         }
         else
         {

@@ -19,6 +19,7 @@ set(cpuTests
     file_test.cpp
     frame_time_test.cpp
     gltf_test.cpp
+    i18n_test.cpp
     image_test.cpp
     log_test.cpp
     physics_test.cpp
@@ -45,6 +46,7 @@ set(nativeTests
     stages_test.cpp
     terrain_test.cpp
     tangent_test.cpp
+    ui_i18n_test.cpp
     process_test.cpp
     shader_reload_test.cpp
     texture_test.cpp
@@ -88,6 +90,8 @@ else()
         plugin::terrain plugin::water doctest::doctest)
     # La scène du lac de la démo (sandbox/src/lake_shore.hpp), que terrain_test.cpp simule sans GPU.
     target_include_directories(levain_tests PRIVATE ${PROJECT_SOURCE_DIR}/sandbox/src)
+    # Les panneaux du moteur, internes à app (panels.hpp) : ui_i18n_test.cpp en construit la disposition.
+    target_include_directories(levain_tests PRIVATE ${PROJECT_SOURCE_DIR}/engine/app/src)
     # Le WGSL produit par le build, que webgpu_test.cpp fait compiler au backend WebGPU.
     target_compile_definitions(levain_tests PRIVATE LEVAIN_SHADER_DIR="${LEVAIN_SHADER_DIR}")
     add_dependencies(levain_tests levain_shaders)
