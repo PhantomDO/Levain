@@ -247,6 +247,52 @@ TEST_CASE("planSteps découpe le temps des images en pas entiers")
     }
 }
 
+TEST_CASE("à l'arrêt, une image ne joue aucun pas, montre l'état simulé et garde l'accumulateur")
+{
+    flecs::world world;
+    world.import<levain::scene::SceneModule>();
+    const flecs::entity moving =
+        world.entity().set(Transform{}).set(Velocity{.linear = {6.0f, 0.0f, 0.0f}});
+    FixedStep step;
+    // Un reste de 0,4 pas dans l'accumulateur : c'est ce que l'arrêt ne doit ni vider ni remplir.
+    levain::scene::advanceWorld(world, step, 0.4f * step.stepSeconds);
+    const FixedStep before = step;
+    const float positionBefore = moving.get<Transform>().position.x;
+
+    int stepsPlayed = 0;
+    for (int frame = 0; frame < 300; ++frame)
+    {
+        stepsPlayed += levain::scene::advanceWorld(world, step, 1.0f / 60.0f, true);
+    }
+
+    CHECK(stepsPlayed == 0);
+    CHECK(step.accumulator ==
+          before.accumulator); // au bit près : le temps des images n'y entre pas
+    CHECK(step.stepSeconds == before.stepSeconds);
+    CHECK(step.maxStepsPerFrame == before.maxStepsPerFrame);
+    CHECK(moving.get<Transform>().position.x == positionBefore);
+    // L'image montre l'état simulé, non l'entre-deux de l'accumulateur (0,4).
+    CHECK(world.get<levain::scene::RenderAlpha>().value == 1.0f);
+    CHECK(worldPosition(moving.get<WorldTransform>()).x == doctest::Approx(positionBefore));
+
+    // Le retour au jeu : la première image ne rejoue pas une rafale, au plus un pas.
+    CHECK(levain::scene::advanceWorld(world, step, 1.0f / 60.0f) <= 1);
+    CHECK(moving.get<Transform>().position.x ==
+          doctest::Approx(positionBefore + 6.0f * step.stepSeconds));
+}
+
+TEST_CASE("à l'arrêt, la passe de rendu tourne encore")
+{
+    flecs::world world;
+    world.import<levain::scene::SceneModule>();
+    FixedStep step;
+    const flecs::entity decor = world.entity().set(Transform{.position = {2.0f, 0.0f, 0.0f}});
+
+    levain::scene::advanceWorld(world, step, 1.0f / 60.0f, true);
+
+    CHECK(worldPosition(decor.get<WorldTransform>()).x == doctest::Approx(2.0f));
+}
+
 /// La position d'une entité après `ticks` pas de simulation, en avançant le monde par images de
 /// `frameSeconds`. C'est le critère de M3.3 : le résultat ne doit pas dépendre de la cadence.
 namespace
@@ -318,6 +364,37 @@ TEST_CASE("une entité qui naît ou qu'on téléporte ne traîne pas son ancienn
     moving.set(Transform{.position = {-40.0f, 0.0f, 0.0f}}); // téléportation
     levain::scene::advanceWorld(world, step, 0.0f);
     CHECK(worldPosition(moving.get<WorldTransform>()).x == doctest::Approx(-40.0f));
+}
+
+TEST_CASE("composeWorldTransforms recompose les matrices monde, sans pas ni autre système")
+{
+    flecs::world world;
+    world.import<levain::scene::SceneModule>();
+    FixedStep step;
+    const flecs::entity moving =
+        world.entity().set(Transform{}).set(Velocity{.linear = {6.0f, 0.0f, 0.0f}});
+    const flecs::entity parent = world.entity().set(Transform{.position = {1.0f, 0.0f, 0.0f}});
+    const flecs::entity child =
+        world.entity(flecs::Parent{parent}, nullptr).set(Transform{.position = {0.0f, 2.0f, 0.0f}});
+    levain::scene::advanceWorld(world, step, 1.5f / 60.0f); // un pas, et alpha = 0,5
+    const float movingBefore = worldPosition(moving.get<WorldTransform>()).x;
+    const float alphaBefore = world.get<levain::scene::RenderAlpha>().value;
+    REQUIRE(worldPosition(child.get<WorldTransform>()).x == doctest::Approx(1.0f));
+
+    // L'éditeur écrit un Transform : sans recomposition, la matrice monde reste celle d'avant.
+    parent.set(Transform{.position = {7.0f, 0.0f, 0.0f}});
+    CHECK(worldPosition(child.get<WorldTransform>()).x == doctest::Approx(1.0f));
+
+    levain::scene::composeWorldTransforms(world);
+
+    // Le parent d'abord, puis l'enfant : l'ordre de la passe de rendu.
+    CHECK(worldPosition(parent.get<WorldTransform>()).x == doctest::Approx(7.0f));
+    CHECK(worldPosition(child.get<WorldTransform>()).x == doctest::Approx(7.0f));
+    CHECK(worldPosition(child.get<WorldTransform>()).y == doctest::Approx(2.0f));
+    // Ni pas, ni autre alpha : l'entre-deux de ce qui bouge est celui de l'image.
+    CHECK(world.get<levain::scene::RenderAlpha>().value == alphaBefore);
+    CHECK(worldPosition(moving.get<WorldTransform>()).x == doctest::Approx(movingBefore));
+    CHECK(moving.get<Transform>().position.x == doctest::Approx(6.0f / 60.0f));
 }
 
 TEST_CASE("nlerpShortestPath prend le chemin court entre deux rotations opposées")

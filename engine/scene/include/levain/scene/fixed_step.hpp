@@ -36,4 +36,20 @@ inline StepPlan planSteps(FixedStep& step, float frameSeconds)
     return {.steps = steps, .alpha = step.accumulator / step.stepSeconds};
 }
 
+/// Le plan d'une image dont la simulation est arrêtée (ADR-0036, décision 1) : aucun pas, et un
+/// `alpha` de 1, pour que l'image montre le `Transform` tel qu'il est, non un mélange de l'ancien
+/// et du nouveau que l'éditeur vient d'écrire.
+[[nodiscard]] constexpr StepPlan pausedPlan()
+{
+    return {.steps = 0, .alpha = 1.0f};
+}
+
+/// Le plan de l'image : celui de l'accumulateur, ou `pausedPlan` quand la simulation est arrêtée.
+/// À l'arrêt, **l'accumulateur ne reçoit pas `frameSeconds`** : il le rangerait pour rien, et le
+/// retour au jeu jouerait d'un coup les pas que l'arrêt a empêchés.
+inline StepPlan planFrame(FixedStep& step, float frameSeconds, bool simulationPaused)
+{
+    return simulationPaused ? pausedPlan() : planSteps(step, frameSeconds);
+}
+
 } // namespace levain::scene
