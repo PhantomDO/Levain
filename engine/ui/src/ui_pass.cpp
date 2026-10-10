@@ -504,10 +504,21 @@ UiDrawStats recordUi(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, U
                 continue;
             }
             const auto texture = pass.textures.find(command.GetTexID());
-            LEVAIN_ASSERT(texture != pass.textures.end(), "commande d'UI sur une texture inconnue");
+            if (texture == pass.textures.end())
+            {
+                // Une image libérée (`releaseUiTexture`) que le programme dessine encore, ou un
+                // identifiant venu de nulle part. En Debug, l'assertion arrête ; en Release, la
+                // commande saute, bruyamment (règle n°7), et ne touche à aucun binding set.
+                LEVAIN_ASSERT(false, "commande d'UI sur une texture inconnue");
+                core::log("ui", core::LogLevel::Error,
+                          "commande d'UI sur la texture {}, inconnue ou libérée : sautée",
+                          command.GetTexID());
+                ++stats.unknownTextures;
+                continue;
+            }
             const std::optional<nvrhi::Rect> scissor =
                 clampScissorToTarget(command.ClipRect, info.width, info.height);
-            if (!scissor || texture == pass.textures.end())
+            if (!scissor)
             {
                 ++stats.clipped;
                 continue;

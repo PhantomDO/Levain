@@ -7,7 +7,12 @@
 // Puis des textures que l'UI ne possède pas (`registerUiTexture`, ADR-0036 morceau 6), montrées par
 // `ImGui::Image` : un gris moyen (0,5 linéaire, 188 en sRGB) relu à ±2 près, qui ne doit pas être
 // converti deux fois, la table des identifiants, et une image libérée encore en vol.
-//   levain_ui_gpu [vulkan|webgpu]
+//   levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu] [released-id|released-twice]
+// `released-id` et `released-twice` relancent le programme pour un enfant qui commet la faute
+// (dessiner un identifiant libéré, le libérer deux fois) : en Debug, l'assertion arrête l'enfant,
+// et son message est lu ; en Release, l'enfant saute ou refuse, le dit au journal, et sort en 0. Un
+// signal n'est pas un code de sortie que ctest sache lire avec PASS_REGULAR_EXPRESSION : c'est ce
+// parent qui juge.
 
 #include <algorithm>
 #include <array>
@@ -32,6 +37,7 @@
 #include "levain/core/error.hpp"
 #include "levain/gpu/device.hpp"
 #include "levain/gpu/webgpu.hpp"
+#include "levain/platform/process.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/readback.hpp"
 #include "levain/ui/context.hpp"
@@ -168,6 +174,7 @@ enum class Release : std::uint8_t
 {
     Never,          ///< À la fin, avec la passe (`destroyUiTextures`).
     AfterRecording, ///< Après `recordUi`, avant la soumission : la Vue lâche l'ancienne image.
+    BeforeDrawing,  ///< Avant `ImGui::Image` : l'identifiant est périmé quand on le dessine.
 };
 
 constexpr int ImageSize = 32;
@@ -233,6 +240,10 @@ std::optional<ImagesDrawn> drawImages(nvrhi::IDevice& device, nvrhi::Format targ
             return std::nullopt;
         }
         ids.push_back(*id);
+        if (release == Release::BeforeDrawing)
+        {
+            levain::ui::releaseUiTexture(*pass, *id);
+        }
     }
 
     const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
@@ -518,8 +529,8 @@ int checkIdTable(nvrhi::IDevice& device)
         refusedAtRegistration("une texture que le shader ne lit pas", unreadable);
     }
 #if !LEVAIN_ASSERTIONS_ENABLED
-    // En Debug, libérer deux fois s'arrête sur l'assertion : seule la Release rend la main, et
-    // dit l'erreur au journal sans toucher à la table.
+    // En Debug, libérer deux fois s'arrête sur l'assertion (`released-twice` le juge, ainsi que
+    // l'erreur au journal en Release) : seule la Release rend la main, sans toucher à la table.
     levain::ui::releaseUiTexture(*pass, *idFirst);
     levain::ui::releaseUiTexture(*pass, 12345);
     expect(pass->textures.size() == 2, "libérer deux fois, ou l'inconnu, ne change rien");
@@ -547,13 +558,148 @@ int checkIdTable(nvrhi::IDevice& device)
     return failures;
 }
 
-int check(nvrhi::IDevice& device)
+/// L'enfant de `released-id` : dessiner un identifiant libéré. En Debug, l'assertion arrête le
+/// programme avant le retour de `drawImages` ; en Release, la commande est sautée, comptée, et rien
+/// n'est dessiné à sa place.
+int drawReleasedId(nvrhi::IDevice& device)
 {
+    const GreyImage image{nvrhi::Format::SRGBA8_UNORM, 0.5f};
+    const auto drawn = drawImages(device, nvrhi::Format::SRGBA8_UNORM, std::span{&image, 1},
+                                  Release::BeforeDrawing);
+    if (!drawn || drawn->stats.unknownTextures != 1 || drawn->stats.draws != 0 ||
+        drawn->levels.front() != 0)
+    {
+        std::println(stderr, "identifiant libéré : la commande devait être sautée et comptée");
+        return 1;
+    }
+    return 0;
+}
+
+/// L'enfant de `released-twice` : libérer deux fois la même texture, puis un identifiant qui n'a
+/// jamais existé. En Debug, l'assertion arrête l'enfant à la deuxième libération ; en Release, les
+/// deux appels disent l'erreur au journal et laissent la table vide.
+int releaseTwice(nvrhi::IDevice& device)
+{
+    const nvrhi::TextureHandle target = createTarget(device, nvrhi::Format::SRGBA8_UNORM);
+    const nvrhi::FramebufferHandle framebuffer =
+        device.createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(target));
+    auto pass = levain::ui::createUiPass(device, framebuffer->getFramebufferInfo());
+    if (!pass)
+    {
+        std::println(stderr, "{}", pass.error().message);
+        return 1;
+    }
+    const nvrhi::TextureHandle texture = tinyTexture(device);
+    const auto id = levain::ui::registerUiTexture(device, *pass, texture);
+    if (!id)
+    {
+        std::println(stderr, "{}", id.error().message);
+        return 1;
+    }
+    levain::ui::releaseUiTexture(*pass, *id); // la première est juste
+    levain::ui::releaseUiTexture(*pass, *id);
+    levain::ui::releaseUiTexture(*pass, 12345);
+    if (!pass->textures.empty())
+    {
+        std::println(stderr, "libérer deux fois, ou l'inconnu, a changé la table");
+        return 1;
+    }
+    return 0;
+}
+
+/// Combien de fois `needle` figure dans `text`.
+std::size_t countOccurrences(std::string_view text, std::string_view needle)
+{
+    std::size_t count = 0;
+    for (std::size_t at = text.find(needle); at != std::string_view::npos;
+         at = text.find(needle, at + needle.size()))
+    {
+        ++count;
+    }
+    return count;
+}
+
+/// Un enfant qui commet une faute du programme, et ce que le parent attend de lui.
+struct ChildCheck
+{
+    std::string_view name;             ///< Dans le message d'un échec.
+    std::string_view childMode;        ///< L'argument qui relance ce programme pour l'enfant.
+    std::string_view assertionMessage; ///< Debug : le message de l'assertion qui l'arrête.
+    std::string_view loggedError;      ///< Release : la ligne d'erreur du journal...
+    std::size_t loggedTimes;           ///< ... et combien de fois (une par faute).
+};
+
+/// Le parent des modes `released-id` et `released-twice` : relance ce programme pour l'enfant, et
+/// juge ce qu'il a fait. Debug : l'enfant s'arrête (code non nul) sur l'assertion, dont le message
+/// est dans sa sortie. Release : il sort en 0 après avoir dit chaque erreur au journal, jamais en
+/// silence (règle n°7).
+int checkChild(const std::string& program, const std::string& backend, const ChildCheck& check)
+{
+    const std::array<std::string, 3> command{program, backend, std::string{check.childMode}};
+    const auto child = levain::platform::runProcess(command);
+    if (!child)
+    {
+        std::println(stderr, "{}", child.error().message);
+        return 1;
+    }
+    constexpr bool Asserting = LEVAIN_ASSERTIONS_ENABLED != 0;
+    const std::string expected = Asserting ? "message  : " + std::string{check.assertionMessage}
+                                           : std::string{check.loggedError};
+    const bool exitAsExpected = Asserting ? child->exitCode != 0 : child->exitCode == 0;
+    // Debug : l'assertion arrête à la première faute, le message y est (au moins) une fois. Release
+    // : une ligne d'erreur par faute, ni plus ni moins.
+    const std::size_t found = countOccurrences(child->output, expected);
+    const bool messageAsExpected = Asserting ? found >= 1 : found == check.loggedTimes;
+    if (!exitAsExpected || !messageAsExpected)
+    {
+        std::println(stderr, "{} : code {} ({}), « {} » lu {} fois ({}) :\n{}", check.name,
+                     child->exitCode, Asserting ? "non nul attendu" : "0 attendu", expected, found,
+                     Asserting ? "au moins une attendue"
+                               : std::to_string(check.loggedTimes) + " attendues",
+                     child->output);
+        return 1;
+    }
+    std::println("{} : {}", check.name,
+                 Asserting ? "l'assertion a arrêté l'enfant" : "erreur au journal, sans arrêt");
+    return 0;
+}
+
+constexpr ChildCheck ReleasedId{.name = "identifiant libéré",
+                                .childMode = "released-id-child",
+                                .assertionMessage = "commande d'UI sur une texture inconnue",
+                                .loggedError = "inconnue ou libérée : sautée",
+                                .loggedTimes = 1};
+constexpr ChildCheck ReleasedTwice{.name = "libération double",
+                                   .childMode = "released-twice-child",
+                                   .assertionMessage =
+                                       "libération d'une texture d'UI qui n'est pas enregistrée",
+                                   .loggedError = "elle n'est pas enregistrée",
+                                   .loggedTimes = 2};
+
+/// Ce que le programme vérifie : tout (par défaut), ou une faute du programme, dans l'enfant
+/// seulement.
+enum class Mode : std::uint8_t
+{
+    All,
+    ReleasedIdChild,
+    ReleasedTwiceChild,
+};
+
+int check(nvrhi::IDevice& device, Mode mode)
+{
+    if (mode == Mode::ReleasedIdChild)
+    {
+        return drawReleasedId(device);
+    }
+    if (mode == Mode::ReleasedTwiceChild)
+    {
+        return releaseTwice(device);
+    }
     return compareTargets(device) + checkGreyAcrossFormats(device) +
            checkSeveralAndInFlight(device) + checkIdTable(device);
 }
 
-int run(const levain::tests::TestBackend& backend)
+int run(const levain::tests::TestBackend& backend, Mode mode)
 {
     if (backend.api == nvrhi::GraphicsAPI::WEBGPU)
     {
@@ -563,7 +709,7 @@ int run(const levain::tests::TestBackend& backend)
             std::println(stderr, "{}", device.error().message);
             return 1;
         }
-        return check(**device) == 0 ? 0 : 1;
+        return check(**device, mode) == 0 ? 0 : 1;
     }
     auto window =
         levain::platform::createWindow("Levain - UI", 64, 64, levain::gpu::surfaceFor(backend.api));
@@ -578,7 +724,7 @@ int run(const levain::tests::TestBackend& backend)
         std::println(stderr, "{}", gpu.error().message);
         return 1;
     }
-    return check(*gpu->nvrhi) == 0 ? 0 : 1;
+    return check(*gpu->nvrhi, mode) == 0 ? 0 : 1;
 }
 
 } // namespace
@@ -588,14 +734,28 @@ int main(int argc, char** argv)
     try
     {
         const std::span arguments{argv, static_cast<std::size_t>(argc)};
-        const auto backend =
-            levain::tests::testBackendNamed(arguments.size() == 2 ? arguments[1] : "vulkan");
-        if (arguments.size() > 2 || !backend)
+        const std::string_view backendName = arguments.size() >= 2 ? arguments[1] : "vulkan";
+        const std::string_view extra = arguments.size() == 3 ? arguments[2] : "";
+        const auto backend = levain::tests::testBackendNamed(backendName);
+        const bool isParent = extra == "released-id" || extra == "released-twice";
+        const bool isChild = extra == "released-id-child" || extra == "released-twice-child";
+        if (arguments.size() > 3 || !backend || (arguments.size() == 3 && !isParent && !isChild))
         {
-            std::println(stderr, "usage : levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu]");
+            std::println(stderr, "usage : levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu] "
+                                 "[released-id|released-twice]");
             return 2;
         }
-        return run(*backend);
+        if (isParent)
+        {
+            return checkChild(arguments[0], std::string{backendName},
+                              extra == "released-id" ? ReleasedId : ReleasedTwice);
+        }
+        if (isChild)
+        {
+            return run(*backend, extra == "released-id-child" ? Mode::ReleasedIdChild
+                                                              : Mode::ReleasedTwiceChild);
+        }
+        return run(*backend, Mode::All);
     }
     catch (const std::exception& e)
     {
