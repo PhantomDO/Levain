@@ -620,6 +620,15 @@ void applyMouseCapture(App& app)
     }
 }
 
+/// Les deux horloges d'une image : celle de la scène, que lisent l'eau, l'herbe, les matériaux et
+/// le point d'accroche `record`, et celle des squelettes, qui s'arrête avec la simulation
+/// (`advanceAnimationClock`).
+struct FrameClocks
+{
+    double scene = 0.0;
+    double skeletons = 0.0;
+};
+
 /// L'UI de l'image, dans la command list, sur l'image finale : ses textures, ses sommets, ses
 /// dessins, et son minuteur GPU quand elle dessine quelque chose. Son temps CPU s'ajoute aux
 /// tranches de l'image, que `runFrame` compte.
@@ -656,7 +665,8 @@ void recordUiFrame(App& app, nvrhi::ICommandList& commandList, nvrhi::ITexture& 
 /// `displayWait`, s'il est donné, reçoit le temps passé dans `beginFrame` et `presentFrame` :
 /// l'attente de l'écran ou du GPU, qui n'est pas du travail du moteur (#294). La recréation de la
 /// swapchain et le ramasse-miettes de NVRHI, courts, y sont comptés aussi.
-std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList, double seconds,
+std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList,
+                                  const FrameClocks& clocks,
                                   nvrhi::StagingTextureHandle* capture = nullptr,
                                   double* displayWait = nullptr)
 {
@@ -679,10 +689,11 @@ std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList, do
         gpuMs = render::beginGpuTimer(*app.gpu.nvrhi, commandList, app.frameTimer);
         // Les poses des modèles skinnés, avant les dessins qui lisent leurs sommets déformés.
         animateModels(*app.gpu.nvrhi, commandList, app.models, app.skinning, app.skinningState,
-                      app.hooks.motionOf ? app.hooks.motionOf : MotionOf{restingMotion}, seconds);
+                      app.hooks.motionOf ? app.hooks.motionOf : MotionOf{restingMotion},
+                      clocks.skeletons);
         if (app.hooks.record)
         {
-            app.hooks.record(app, commandList, seconds);
+            app.hooks.record(app, commandList, clocks.scene);
         }
         render::renderFrame(*app.gpu.nvrhi, commandList, app.renderer,
                             {.camera = app.camera,
@@ -691,7 +702,7 @@ std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList, do
                              .lights = app.lights,
                              .tonemap = app.settings.tonemap,
                              .background = app.background,
-                             .seconds = seconds},
+                             .seconds = clocks.scene},
                             *backBuffer);
         // Après le tonemapping, sur l'image finale, et avant la copie d'une capture (ADR-0032).
         if (app.ui.frameReady)
@@ -721,7 +732,7 @@ std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList, do
 #ifndef __EMSCRIPTEN__
 /// Rend une dernière image et l'écrit en PNG. Un échec est bruyant (règle n°7) : une capture
 /// demandée et absente ferait croire à une image qui n'existe pas.
-bool captureFrame(App& app, nvrhi::ICommandList& commandList, double seconds,
+bool captureFrame(App& app, nvrhi::ICommandList& commandList, const FrameClocks& clocks,
                   const std::filesystem::path& path)
 {
     nvrhi::StagingTextureHandle staging;
@@ -730,7 +741,7 @@ bool captureFrame(App& app, nvrhi::ICommandList& commandList, double seconds,
     endUiFrame(app);
     // std::addressof et non « & » : le RefCountPtr de NVRHI surcharge l'opérateur & (il rend
     // l'adresse du pointeur brut, comme les ComPtr de COM).
-    static_cast<void>(renderFrame(app, commandList, seconds, std::addressof(staging)));
+    static_cast<void>(renderFrame(app, commandList, clocks, std::addressof(staging)));
     if (!staging)
     {
         core::log("app", core::LogLevel::Error,
@@ -799,6 +810,18 @@ double sceneSecondsOf(const Loop& loop)
     return loop.app.settings.frozenSeconds.value_or(secondsBetween(loop.loopStart, Clock::now()));
 }
 
+/// Les horloges de cette image. Appelée une fois par image rendue : l'horloge des squelettes
+/// compte le temps de la scène que cette image passe à l'arrêt. `simulationPaused` est la valeur
+/// que `advanceWorld` a lue pour cette image, non celle d'après `ui` : un Lecture / Arrêt cliqué
+/// dans `ui` vaut à partir de l'image suivante pour la simulation comme pour les squelettes.
+FrameClocks advanceClocks(Loop& loop, bool simulationPaused)
+{
+    const double scene = sceneSecondsOf(loop);
+    return {.scene = scene,
+            .skeletons =
+                advanceAnimationClock(loop.app.skinningState.clock, scene, simulationPaused)};
+}
+
 /// Le script d'input mène la boucle quand aucune autre fin n'est donnée : sans `--seconds` ni
 /// `--steps`, elle s'arrête après sa dernière image. Avec l'une d'elles, la première échéance
 /// gagne.
@@ -846,6 +869,7 @@ bool runFrame(Loop& loop)
 
     const Clock::time_point frameStart = Clock::now();
     double displayWait = 0.0;
+    bool simulationPaused = false; // lu une fois, par le bloc « monde », pour toute l'image
     {
         LEVAIN_PROFILE_SCOPE_NAMED("événements");
 
@@ -889,10 +913,11 @@ bool runFrame(Loop& loop)
         // de rendu qui interpole et compose les matrices monde (ADR-0016). La durée passée est
         // celle de l'image précédente : celle-ci n'est pas encore finie.
         LEVAIN_PROFILE_SCOPE_NAMED("monde");
+        simulationPaused = app.simulationPaused;
         scene::advanceWorld(app.world, app.fixedStep,
                             settings.steps ? app.fixedStep.stepSeconds
                                            : static_cast<float>(loop.lastFrameSeconds),
-                            app.simulationPaused);
+                            simulationPaused);
         auto camera = renderCameraOf(app.cameras);
         if (!camera)
         {
@@ -914,7 +939,8 @@ bool runFrame(Loop& loop)
     {
         LEVAIN_PROFILE_SCOPE_NAMED("rendu");
         if (const auto gpuMs =
-                renderFrame(app, *loop.commandList, sceneSecondsOf(loop), nullptr, &displayWait))
+                renderFrame(app, *loop.commandList, advanceClocks(loop, simulationPaused), nullptr,
+                            &displayWait))
         {
             frameGpuMs = static_cast<float>(*gpuMs);
             loop.periodGpu.totalMs += *gpuMs;
@@ -1049,7 +1075,8 @@ bool finishLoop(Loop& loop)
     return true;
 #else
     return !app.settings.capturePath ||
-           captureFrame(app, *loop.commandList, sceneSecondsOf(loop), *app.settings.capturePath);
+           captureFrame(app, *loop.commandList, advanceClocks(loop, app.simulationPaused),
+                        *app.settings.capturePath);
 #endif
 }
 
