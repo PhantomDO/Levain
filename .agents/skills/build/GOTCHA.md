@@ -3,6 +3,17 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un drapeau que la boucle remet à faux : le test qui l'assigne ne voit pas la boucle l'oublier (2026-10-10)
+
+M7.7, morceau 4 (`gpu.app-loop.*`, `App::recomposeAfterUi`).
+
+- **Symptôme** : le contre-test « le drapeau n'est jamais remis à faux » (`std::exchange(app.recomposeAfterUi, false)`
+  remplacé par une simple lecture) laissait `gpu.app-loop.vulkan` vert. **Cause** : le point d'accroche du test
+  écrivait `app.recomposeAfterUi = asks(frame)`, donc remettait lui-même le drapeau à faux aux images qui ne
+  demandent rien : la boucle pouvait l'oublier sans que rien ne rougisse. **Parade** : un test qui vérifie la remise
+  à faux par la boucle ne fait que **poser** le drapeau (`if (asks(frame)) app.recomposeAfterUi = true`), jamais
+  l'assigner. Rouge avec la lecture seule (« recomposeAfterUi est remis à faux à chaque image »), vert avec l'échange.
+
 ## Un modèle de `tests/data` ne se charge pas depuis son dossier : le scan y écrit des `.meta` (2026-10-10)
 
 M7.7, morceau 4 (`gpu.app-loop.*`).

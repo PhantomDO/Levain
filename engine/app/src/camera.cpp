@@ -40,6 +40,19 @@ render::Camera cameraFrom(const CameraLens& lens, const glm::mat4& world)
 }
 
 core::Result<render::Camera>
+renderCameraOr(const std::optional<render::Camera>& imposed,
+               const flecs::query<const CameraLens, const scene::WorldTransform>& cameras)
+{
+    if (!imposed)
+    {
+        return renderCameraOf(cameras);
+    }
+    render::Camera camera = *imposed;
+    camera.farPlane = farBeyondNear(camera.nearPlane, camera.farPlane);
+    return camera;
+}
+
+core::Result<render::Camera>
 renderCameraOf(const flecs::query<const CameraLens, const scene::WorldTransform>& cameras)
 {
     std::optional<render::Camera> found;

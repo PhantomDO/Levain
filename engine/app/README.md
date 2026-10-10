@@ -44,16 +44,22 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    avant le device.
 5. **`App` ne bouge pas en mémoire** : il est sur le tas, créé une fois. Les fonctions d'étape et les systèmes
    du programme peuvent le garder par référence.
-6. **Une seule caméra** : zéro ou plusieurs entités avec un `CameraLens` font échouer le démarrage, puis
-   l'image où cela arrive, en les nommant (règle n°7).
+6. **Une seule caméra, sauf caméra imposée** : zéro ou plusieurs entités avec un `CameraLens` font échouer le
+   démarrage, puis l'image où cela arrive, en les nommant (règle n°7). `App::cameraOverride` (la caméra de l'éditeur,
+   qui n'est pas une entité, ADR-0036) les dispense : posée, `renderCameraOf` n'est pas consulté, `startApp`
+   compris ; sans elle, rien ne change.
 7. **Un modèle skinné ne se charge qu'une fois** : l'animation est rangée par asset, et `loadModel` refuse un
    modèle skinné déjà chargé. Un modèle statique s'instancie de nouveau, sur les mêmes données GPU. Un nom
    d'entité déjà pris est refusé : la racine écraserait l'entité qui le porte.
 8. **La souris se capture par `App`** : le programme pose `mouseCaptureWanted`, la boucle appelle
    `setMouseCaptured`, et le programme lit `mouseCaptured`. Les panneaux ouverts, elle n'est pas capturée.
-9. **L'ordre d'une image** (ADR-0032) : les événements, ImGui (`NewFrame`), ce que l'UI garde pour elle
-   (`gameInputOf`), l'input du jeu, `frame`, la souris, les pas, les fenêtres (`ui`), `ImGui::Render`, puis le
-   rendu, l'UI après le tonemapping.
+9. **L'ordre d'une image** (ADR-0032, ADR-0036) : les événements, ImGui (`NewFrame`), ce que l'UI garde pour elle
+   (`gameInputOf`), l'input du jeu, `frame`, la souris, les pas, les fenêtres (`ui`), `ImGui::Render`, **si `ui` l'a
+   demandé (`recomposeAfterUi`) la recomposition des matrices monde puis la relecture de la caméra**, puis le rendu,
+   l'UI après le tonemapping. La caméra est aussi relue après `ui`, sans recomposition, tant qu'elle est imposée
+   (`cameraOverride` : l'éditeur la bouge dans `ui`) ou qu'elle l'était avant `ui` (qui l'a rendue aux entités). Le
+   drapeau est remis à faux à chaque image : le sandbox et *Rando* ne le posent pas et
+   ne paient rien.
 10. **Un appelant dont l'envoi échoue après `open()`** appelle `submitAbandonedUpload` avant de rendre l'erreur
    (voir « Pièges connus »).
 11. **`CameraLens` est décrit pour l'éditeur** (ADR-0034, `describeAppComponents`, par `prepareAppWorld`, que
@@ -78,8 +84,8 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    elle** : `animateModels` et `motionOf` reçoivent le temps de la scène moins le temps passé à l'arrêt
    (`advanceAnimationClock`), qui repart d'où il s'était arrêté ; `--time` le fige comme avant, à T même si le
    programme démarre à l'arrêt. L'eau, l'herbe, les
-   matériaux et `record` gardent le temps de la scène. `tests/app_loop_gpu.cpp` joue l'arrêt et l'horloge dans la
-   vraie boucle.
+   matériaux et `record` gardent le temps de la scène. `tests/app_loop_gpu.cpp` joue l'arrêt, l'horloge, la
+   recomposition et la caméra imposée dans la vraie boucle.
 
 ## Pièges connus
 
@@ -118,8 +124,8 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
-| [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf` : la caméra du rendu |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `recomposeAfterUi`, `cameraOverride` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
+| [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf`, `renderCameraOr` (la caméra imposée d'abord) : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
 | [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `AnimationClock`, `advanceAnimationClock`, `SkinningState`, `createSkinningState`, `animateModels` |
@@ -140,5 +146,5 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 | **Unity** | `PlayerLoop` ; `MeshRenderer`, `SkinnedMeshRenderer` | La boucle du *Player*, que les scripts modifient (**documenté**, ADR-0029) ; un modèle se dessine par son renderer, skinné ou non. |
 | **Godot** | `MainLoop`, `SceneTree` ; `MeshInstance3D`, `Skeleton3D` | La boucle par défaut d'un projet (**documenté**, ADR-0029) ; un modèle est un nœud, son squelette un autre. |
 | **La caméra** | `CameraComponent` actif (Unreal), `Camera.main` (Unity), `Camera3D.current` (Godot) | Une caméra parmi d'autres est celle du rendu ; ici, il n'y en a qu'une, et deux sont une erreur. |
-| **L'arrêt** | `SetGamePaused` (Unreal), `Time.timeScale = 0` (Unity), `SceneTree.paused` (Godot) | Arrêter la simulation sans arrêter le rendu (**documenté**) ; ici un drapeau d'`App`, et les squelettes suivent la simulation, l'eau non. |
+| **L'arrêt** | `SetGamePaused` (Unreal), `Time.timeScale = 0` (Unity), `SceneTree.paused` (Godot) | Arrêter la simulation sans arrêter le rendu (**documenté**) ; ici un drapeau d'`App`, et les squelettes suivent la simulation, l'eau non. La caméra de l'éditeur, hors de la scène, est celle de la vue de niveau chez Unreal (**supposé**). |
 | **L'input** | `Input.GetKeyDown` (Unity), `Input.is_action_just_pressed` (Godot) | Un appui ne vaut que pour l'image : Unity dit de le lire dans `Update`, pas dans `FixedUpdate` (**documenté**, `Input.GetKeyDown`). `PlayerInput` le garde jusqu'au pas suivant. |

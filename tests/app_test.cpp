@@ -58,6 +58,46 @@ TEST_CASE("le rendu exige une seule caméra, et nomme celles qu'il trouve en tro
     CHECK(two.error().message.find("autre") != std::string::npos);
 }
 
+TEST_CASE("une caméra imposée se passe des entités, et sans elle le refus reste")
+{
+    flecs::world world;
+    const auto cameras =
+        world.query<const levain::app::CameraLens, const levain::scene::WorldTransform>();
+    const levain::render::Camera imposed{.position = {1.0f, 2.0f, 3.0f},
+                                         .target = {0.0f, 0.0f, 0.0f},
+                                         .verticalFovRadians = 1.0f,
+                                         .nearPlane = 0.25f,
+                                         .farPlane = 400.0f};
+
+    // Zéro CameraLens : la caméra imposée est celle du rendu, sans consulter les entités.
+    const auto alone = levain::app::renderCameraOr(imposed, cameras);
+    REQUIRE(alone.has_value());
+    CHECK(alone->position == imposed.position);
+    CHECK(alone->farPlane == 400.0f);
+    // Plusieurs CameraLens : elle ne s'arrête pas non plus, ce que `renderCameraOf` refuse.
+    world.entity("vue").set(levain::app::CameraLens{}).set(levain::scene::WorldTransform{});
+    world.entity("autre").set(levain::app::CameraLens{}).set(levain::scene::WorldTransform{});
+    CHECK_FALSE(levain::app::renderCameraOf(cameras).has_value());
+    const auto among = levain::app::renderCameraOr(imposed, cameras);
+    REQUIRE(among.has_value());
+    CHECK(among->position == imposed.position);
+
+    // Un plan lointain imposé qui ne passe pas le proche est ramené au-delà, comme celui d'un
+    // objectif.
+    auto degenerate = imposed;
+    degenerate.farPlane = degenerate.nearPlane;
+    CHECK(levain::app::renderCameraOr(degenerate, cameras)->farPlane == 0.5f);
+
+    // Sans caméra imposée, rien ne change : plusieurs CameraLens (ici), comme zéro, sont refusés.
+    const auto refused = levain::app::renderCameraOr(std::nullopt, cameras);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("vue") != std::string::npos);
+    flecs::world empty;
+    const auto none =
+        empty.query<const levain::app::CameraLens, const levain::scene::WorldTransform>();
+    CHECK_FALSE(levain::app::renderCameraOr(std::nullopt, none).has_value());
+}
+
 TEST_CASE("un appui est vu par un seul pas, même quand l'image en joue deux")
 {
     flecs::world world;
