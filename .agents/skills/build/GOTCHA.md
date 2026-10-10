@@ -3,6 +3,20 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un depth buffer que NVRHI Vulkan ne retient pas (2026-10-10)
+
+M7.7, morceau 2 (`gpu.app-script.vulkan`).
+
+- **Symptôme** : sur le portable, avec une vraie fenêtre (`ctest --test-dir build/windows-debug -R
+  '^gpu[.]app-script[.]vulkan$'`), le test sort en 3 sur « vkDestroyImage(): can't be called on VkImage [depth buffer]
+  that is currently in use by VkCommandBuffer » juste après « fenêtre fermée » (4 fois sur 4) ; vert sous lavapipe et
+  sur WARP. **Cause** : `clearTexture` et `clearDepthStencilTexture` de NVRHI Vulkan n'ajoutent pas la texture à
+  `referencedResources` (`vulkan-texture.cpp`, sources du port) : un programme qui n'affiche aucun mesh n'a son depth
+  buffer qu'effacé, et `runApp` le libérait à la fermeture avec la dernière image en vol. Le sandbox dessine des
+  meshes, dont le framebuffer le retient ; le chemin hors écran attend le GPU à chaque image (`device.cpp`). **Parade** :
+  `runApp` attend le GPU (`waitForIdle`) entre la dernière image et la destruction de `App`. Contre-test, windows-debug :
+  sans cette ligne, `gpu.app-script.vulkan` sort en 3 sur le message ci-dessus ; avec, en 0.
+
 ## Direct3D 12 sur WARP : la fenêtre sans HWND, `SDL_WINDOW_VULKAN`, et un `-R` trop large (2026-10-10)
 
 #19 : `ctest -R d3d12-warp` (`tests/CMakeLists.txt`), huit tests par configuration Windows, sur le portable (WARP

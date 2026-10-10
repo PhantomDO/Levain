@@ -798,15 +798,25 @@ double sceneSecondsOf(const Loop& loop)
     return loop.app.settings.frozenSeconds.value_or(secondsBetween(loop.loopStart, Clock::now()));
 }
 
+/// Le script d'input mène la boucle quand aucune autre fin n'est donnée : sans `--seconds` ni
+/// `--steps`, elle s'arrête après sa dernière image. Avec l'une d'elles, la première échéance
+/// gagne.
+bool scriptEndsRun(const AppSettings& settings, int frameCount)
+{
+    return settings.inputScript && !settings.steps && std::isinf(settings.loopSeconds) &&
+           frameCount >= platform::scriptLength(*settings.inputScript);
+}
+
 /// Une image de la boucle ; `false` quand elle s'arrête (fenêtre fermée, `--seconds` écoulées,
-/// `--steps` joués).
+/// `--steps` joués, script fini).
 bool runFrame(Loop& loop)
 {
     App& app = loop.app;
     const AppSettings& settings = app.settings;
     if (!loop.state.isRunning ||
         secondsBetween(loop.loopStart, Clock::now()) >= settings.loopSeconds ||
-        (settings.steps && app.frameCount >= *settings.steps))
+        (settings.steps && app.frameCount >= *settings.steps) ||
+        scriptEndsRun(settings, app.frameCount))
     {
         return false;
     }
@@ -838,7 +848,13 @@ bool runFrame(Loop& loop)
     {
         LEVAIN_PROFILE_SCOPE_NAMED("événements");
 
-        const platform::Events events = platform::pollEvents(app.window);
+        platform::Events events = platform::pollEvents(app.window);
+        // Le banc d'essai : les événements du script s'ajoutent aux vrais, et la suite de l'image
+        // (ImGui, `gameInputOf`, les actions) ne sait pas d'où ils viennent.
+        if (settings.inputScript)
+        {
+            platform::addScriptedEvents(events, *settings.inputScript, app.frameCount);
+        }
         for (const auto& event : events.window)
         {
             applyWindowEvent(loop.state, event);
@@ -969,6 +985,16 @@ bool finishLoop(Loop& loop)
     {
         core::log("app", core::LogLevel::Error, "--steps : {} pas simulés sur les {} demandés",
                   app.frameCount, *app.settings.steps);
+        return false;
+    }
+    // Même règle pour le script : arrêtée avant sa dernière image, la boucle n'a pas rejoué ce que
+    // le test attend (règle n°7).
+    if (app.settings.inputScript &&
+        app.frameCount < platform::scriptLength(*app.settings.inputScript))
+    {
+        core::log("app", core::LogLevel::Error,
+                  "script d'input : {} images jouées sur les {} du script", app.frameCount,
+                  platform::scriptLength(*app.settings.inputScript));
         return false;
     }
     // Le critère de M5.3 : le temps GPU de la passe d'ombres, quatre cascades.
@@ -1229,8 +1255,29 @@ OptionUse parseCommonOption(AppSettings& settings, std::string_view name, std::s
     return OptionUse::Taken;
 }
 
-int runApp(const AppSettings& settings, const StartFunction& start)
+core::Result<std::optional<platform::InputScript>> inputScriptOf(const AppSettings& settings)
 {
+    if (settings.inputScript)
+    {
+        if (auto checked = platform::checkInputScript(*settings.inputScript); !checked)
+        {
+            return std::unexpected(checked.error());
+        }
+    }
+    return settings.inputScript;
+}
+
+int runApp(const AppSettings& requested, const StartFunction& start)
+{
+    // Le script avant la fenêtre : un script refusé s'arrête sans ouvrir ni device ni fenêtre.
+    AppSettings settings = requested;
+    auto script = inputScriptOf(requested);
+    if (!script)
+    {
+        core::log("app", core::LogLevel::Critical, "script d'input : {}", script.error().message);
+        return 1;
+    }
+    settings.inputScript = std::move(*script);
     auto window = platform::createWindow(settings.title, settings.width, settings.height,
                                          gpu::surfaceFor(settings.api));
     if (!window)
@@ -1251,8 +1298,9 @@ int runApp(const AppSettings& settings, const StartFunction& start)
     // Déclaré après window, gpu sera détruit avant elle : la surface Vulkan doit disparaître
     // avant la fenêtre SDL qui la porte. Et `app`, déclarée après gpu, avant lui.
     const Clock::time_point deviceStart = Clock::now();
-    auto gpu =
-        gpu::createGpuDevice(*window, {.enableValidation = EnableValidation, .api = settings.api});
+    auto gpu = gpu::createGpuDevice(
+        *window,
+        {.enableValidation = EnableValidation, .api = settings.api, .adapter = settings.adapter});
     if (!gpu)
     {
         core::log("app", core::LogLevel::Critical, "{}", gpu.error().message);
@@ -1271,6 +1319,12 @@ int runApp(const AppSettings& settings, const StartFunction& start)
     while (runFrame(loop))
     {
     }
+    // NVRHI Vulkan ne retient pas une texture que la command list ne fait qu'effacer
+    // (`clearTexture`, `clearDepthStencilTexture`) : un programme qui ne dessine aucun mesh libère
+    // son depth buffer à la fermeture alors que la dernière image est encore en vol, ce que la
+    // couche de validation refuse. Hors écran, `GpuDevice` attend à chaque image ; avec une
+    // swapchain, personne. Ici, avant que `app` ne soit détruite (build/GOTCHA.md).
+    gpu->nvrhi->waitForIdle();
     if (!finishLoop(loop))
     {
         return 1;

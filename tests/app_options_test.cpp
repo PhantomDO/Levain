@@ -79,3 +79,18 @@ TEST_CASE("les chemins se rangent tels quels, et les options du programme lui re
     CHECK(levain::app::parseCommonOption(settings, "--view", "hike") == OptionUse::NotMine);
     CHECK(levain::app::parseCommonOption(settings, "--walk", "1,0") == OptionUse::NotMine);
 }
+
+TEST_CASE("inputScriptOf : un script vide est une erreur, et sans script rien n'est touché")
+{
+    // `runApp` s'arrête sur cette erreur avant sa fenêtre : ici, sans fenêtre ni device, ce qu'elle
+    // refuse.
+    using levain::app::inputScriptOf;
+    levain::app::AppSettings settings;
+    CHECK_FALSE(inputScriptOf(settings).value().has_value()); // sans script, rien n'est touché
+
+    // L'API de test : un script sans événement, écrit à la main, ne rejouerait rien.
+    settings.inputScript = levain::platform::InputScript{};
+    CHECK_FALSE(inputScriptOf(settings).has_value());
+    settings.inputScript = levain::platform::InputScript{.frames = {{3, {}}}};
+    CHECK(inputScriptOf(settings).has_value());
+}

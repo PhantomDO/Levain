@@ -28,6 +28,7 @@
 #include "levain/gpu/device.hpp"
 #include "levain/input/bindings.hpp"
 #include "levain/input/state.hpp"
+#include "levain/platform/input_script.hpp"
 #include "levain/platform/process.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/camera.hpp"
@@ -127,6 +128,9 @@ struct AppSettings
     std::optional<std::filesystem::path> capturePath; ///< `--capture f.png` : la dernière image.
     /// `--gpu vulkan|d3d12|webgpu` ; sans l'option, celui de la cible (`gpu::DefaultBackend`).
     nvrhi::GraphicsAPI api = gpu::DefaultBackend;
+    /// Direct3D 12 seulement : le GPU, ou WARP (`gpu::Adapter`). Pas d'option : les tests le
+    /// posent.
+    gpu::Adapter adapter = gpu::Adapter::HighPerformance;
     /// `--sky f.hdr|none` : le ciel qui éclaire la scène ; sans, `defaultSky` s'il existe.
     std::optional<std::filesystem::path> sky;
     std::optional<std::filesystem::path> defaultSky;
@@ -141,7 +145,20 @@ struct AppSettings
     /// `--ui on|off` : les panneaux de debug ouverts dès le départ, pour la CI et les captures.
     /// F1 les ouvre et les ferme (ADR-0032).
     bool showUiPanels = false;
+    /// L'API des tests : le script lui-même, que la boucle rejoue (`platform::addScriptedEvents`).
+    /// Sans `--steps` ni `--seconds`, il mène la boucle, qui s'arrête après sa dernière image ;
+    /// avec l'un d'eux, la première fin gagne, et un script que la boucle n'a pas fini de jouer
+    /// fait échouer le programme (règle n°7). Sans script, l'input n'est pas touché. **Pour un
+    /// résultat qui se reproduise**, `--steps N` avec N au moins la longueur du script : sans lui,
+    /// le monde avance du temps réel de chaque image, qui change d'une machine à l'autre.
+    std::optional<platform::InputScript> inputScript;
 };
+
+/// Le script d'input des réglages : celui de l'API de test, vérifié ; rien sans lui. Un script
+/// vide (écrit à la main) est une erreur : `runApp` s'arrête avant d'ouvrir une fenêtre plutôt que
+/// de jouer sans ce que le test attend (règle n°7).
+[[nodiscard]] core::Result<std::optional<platform::InputScript>>
+inputScriptOf(const AppSettings& settings);
 
 /// Ce que `parseCommonOption` a fait d'une option.
 enum class OptionUse : std::uint8_t

@@ -378,6 +378,14 @@ add_test(NAME gpu.ui.vulkan COMMAND levain_ui_gpu vulkan)
 set_tests_properties(gpu.ui.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 add_test(NAME gpu.ui.webgpu COMMAND levain_ui_gpu webgpu)
 
+# Le banc d'essai de l'App (ADR-0036) : un script d'input rejoué dans la vraie boucle, hors écran. Une touche scriptée
+# atteint PlayerInput par sa position et ImGui par sa lettre (la paire AZERTY).
+add_executable(levain_app_script app_script_gpu.cpp)
+target_link_libraries(levain_app_script PRIVATE levain::app levain::assets levain::input levain::platform levain::scene levain::ui)
+target_compile_definitions(levain_app_script PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.app-script.vulkan COMMAND levain_app_script vulkan)
+set_tests_properties(gpu.app-script.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # ImGui reste dans ui/ et au-dessus, et SDL hors de ui/ (SPECS §7, ADR-0032).
 levain_add_host_test(deps.imgui-visibility
     ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_imgui_visibility.cmake)
@@ -442,7 +450,7 @@ foreach(scene triangle cube cube-instance lines shadow)
 endforeach()
 
 # Direct3D 12 sur WARP, le rendu logiciel de Windows (#19) : le runner de la CI n'a pas de GPU, WARP est son seul
-# adaptateur. Les mêmes scènes et les mêmes références que Vulkan, et les trois programmes GPU. Le pilote offscreen de
+# adaptateur. Les mêmes scènes et les mêmes références que Vulkan, et les quatre programmes GPU. Le pilote offscreen de
 # SDL, et non testVideo : sans HWND, Direct3D 12 n'a ni swapchain ni bureau à attendre (device_d3d12.cpp). Lancé de la
 # distro, l'exe ne reçoit cette variable que par WSLENV (build/GOTCHA.md). Windows seulement : ces tests n'existent pas
 # ailleurs, et windows-build les liste pour windows-test (ci.yml).
@@ -454,8 +462,11 @@ if(WIN32)
     add_test(NAME gpu.light-clusters.d3d12-warp COMMAND levain_light_clusters d3d12-warp)
     add_test(NAME gpu.environment.d3d12-warp COMMAND levain_environment d3d12-warp)
     add_test(NAME gpu.ui.d3d12-warp COMMAND levain_ui_gpu d3d12-warp)
+    # Celui-ci passe par runApp, dont la validation suit les assertions (EnableValidation) : en Release, il tourne sans les
+    # couches de debug que les autres forcent. Le contrôle des couches (ci.yml) repose sur ces autres tests.
+    add_test(NAME gpu.app-script.d3d12-warp COMMAND levain_app_script d3d12-warp)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
-        PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+        gpu.app-script.d3d12-warp PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 
 # ADR-0018 et ADR-0034 : le moteur vu d'un jeu. La frontière des plugins et de l'éditeur, sur un
