@@ -59,7 +59,7 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    l'UI après le tonemapping. La caméra est aussi relue après `ui`, sans recomposition, tant qu'elle est imposée
    (`cameraOverride` : l'éditeur la bouge dans `ui`) ou qu'elle l'était avant `ui` (qui l'a rendue aux entités). Le
    drapeau est remis à faux à chaque image : le sandbox et *Rando* ne le posent pas et
-   ne paient rien.
+   ne paient rien (`tools/recompose-cost.sh` mesure ce que coûte une image qui le pose).
 10. **Un appelant dont l'envoi échoue après `open()`** appelle `submitAbandonedUpload` avant de rendre l'erreur
    (voir « Pièges connus »).
 11. **`CameraLens` est décrit pour l'éditeur** (ADR-0034, `describeAppComponents`, par `prepareAppWorld`, que

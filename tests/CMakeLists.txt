@@ -400,6 +400,12 @@ target_compile_definitions(levain_app_loop PRIVATE
 add_test(NAME gpu.app-loop.vulkan COMMAND levain_app_loop vulkan)
 set_tests_properties(gpu.app-loop.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# Le coût de la recomposition après ui, sur les 10 000 cubes de la démo : un banc, hors de ctest, comme levain_scene_bench
+# (tools/recompose-cost.sh le lance en Release ; le chiffre dépend de la machine).
+add_executable(levain_recompose_bench recompose_bench.cpp)
+target_link_libraries(levain_recompose_bench PRIVATE levain::app levain::platform levain::scene)
+target_compile_definitions(levain_recompose_bench PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+
 # ImGui reste dans ui/ et au-dessus, et SDL hors de ui/ (SPECS §7, ADR-0032).
 levain_add_host_test(deps.imgui-visibility
     ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_imgui_visibility.cmake)
