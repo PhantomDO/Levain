@@ -114,6 +114,27 @@ void ensureBuffer(nvrhi::IDevice& device, nvrhi::BufferHandle& buffer, std::size
             .setDebugName(isIndexBuffer ? "index de l'UI" : "sommets de l'UI"));
 }
 
+/// Le binding set qui fait lire `texture` à la passe : la constante, la texture, l'échantillonneur.
+/// Le même pour l'atlas d'ImGui et pour une texture que le programme montre (`registerUiTexture`),
+/// et sans format d'une vue (`Format::UNKNOWN`) : le texel se lit dans le format de la texture,
+/// donc décodé par le matériel si elle est sRGB, brut sinon.
+///
+/// `setTrackLiveness(true)` est la valeur par défaut de NVRHI, posée ici pour qu'elle ne change pas
+/// sans qu'on le voie : `releaseUiTexture` lâche la texture sans attendre le GPU, ce que seule la
+/// référence que les command lists prennent au binding set permet (`BindingSetDesc::trackLiveness`,
+/// nvrhi.h : à faux, c'est à l'appelant de ne rien libérer avant la fin des commandes).
+nvrhi::BindingSetHandle bindingsFor(nvrhi::IDevice& device, const UiPass& pass,
+                                    nvrhi::ITexture* texture)
+{
+    return device.createBindingSet(
+        nvrhi::BindingSetDesc()
+            .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, pass.constants))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(0, texture))
+            .addItem(nvrhi::BindingSetItem::Sampler(0, pass.sampler))
+            .setTrackLiveness(true),
+        pass.layout);
+}
+
 /// La texture d'ImGui sur le GPU, et son binding set. ImGui la donne en RGBA tant qu'on ne lui en
 /// demande pas une autre (`ImFontAtlas::TexDesiredFormat`) : le shader multiplie par toute la
 /// couleur, un atlas d'un seul canal y serait faux.
@@ -131,12 +152,7 @@ UiTexture createTexture(nvrhi::IDevice& device, const UiPass& pass, const ImText
                                  .setDebugName("texture de l'UI"));
     if (texture.texture)
     {
-        texture.bindings = device.createBindingSet(
-            nvrhi::BindingSetDesc()
-                .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, pass.constants))
-                .addItem(nvrhi::BindingSetItem::Texture_SRV(0, texture.texture))
-                .addItem(nvrhi::BindingSetItem::Sampler(0, pass.sampler)),
-            pass.layout);
+        texture.bindings = bindingsFor(device, pass, texture.texture);
     }
     return texture;
 }
@@ -308,6 +324,43 @@ void updateUiTextures(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, 
             break;
         }
     }
+}
+
+core::Result<ImTextureID> registerUiTexture(nvrhi::IDevice& device, UiPass& pass,
+                                            nvrhi::ITexture* texture)
+{
+    if (texture == nullptr)
+    {
+        return core::makeError(core::ErrorCode::InvalidData, "texture d'UI nulle");
+    }
+    UiTexture shown{
+        .texture = texture, .bindings = bindingsFor(device, pass, texture), .registered = true};
+    if (!shown.bindings)
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               "binding set de la texture d'UI refusé par NVRHI");
+    }
+    const ImTextureID id = pass.nextTextureId++;
+    pass.textures.emplace(id, std::move(shown));
+    return id;
+}
+
+void releaseUiTexture(UiPass& pass, ImTextureID id)
+{
+    const auto found = pass.textures.find(id);
+    const bool isRegistered = found != pass.textures.end() && found->second.registered;
+    LEVAIN_ASSERT(isRegistered, "libération d'une texture d'UI qui n'est pas enregistrée");
+    if (!isRegistered)
+    {
+        core::log("ui", core::LogLevel::Error,
+                  "libération de la texture d'UI {} : elle n'est pas enregistrée (déjà libérée, ou "
+                  "à ImGui)",
+                  id);
+        return;
+    }
+    // Pas d'attente du GPU : le binding set, que les command lists d'une image en vol tiennent
+    // (`trackLiveness`, voir `bindingsFor`), garde la texture jusqu'à leur fin.
+    pass.textures.erase(found);
 }
 
 UiDrawStats recordUi(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, UiPass& pass,

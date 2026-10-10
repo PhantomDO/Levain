@@ -4,20 +4,26 @@
 // (`linearOnSrgbTarget`). Le rectangle de découpe déborde de l'image : borné, il ne doit faire
 // aucune erreur de validation (`clampScissorToTarget`). L'atlas des polices passe par le chemin des
 // textures d'ImGui 1.92 : sans lui, le rectangle, qui lit son pixel blanc, ne se dessinerait pas.
+// Puis la table des textures que l'UI ne possède pas (`registerUiTexture`, ADR-0036 morceau 6) :
+// enregistrer, libérer, enregistrer encore.
 //   levain_ui_gpu [vulkan|webgpu]
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <print>
 #include <span>
+#include <string>
 #include <string_view>
 
 #include <imgui.h>
 
 #include "gpu_test_backend.hpp"
 
+#include "levain/core/assert.hpp"
+#include "levain/core/error.hpp"
 #include "levain/gpu/device.hpp"
 #include "levain/gpu/webgpu.hpp"
 #include "levain/platform/window.hpp"
@@ -36,21 +42,26 @@ constexpr std::uint8_t Red = 200;
 constexpr std::uint8_t Green = 100;
 constexpr std::uint8_t Blue = 50;
 
+/// La cible de l'UI : une texture de `format` où l'on dessine, effacée en noir transparent.
+nvrhi::TextureHandle createTarget(nvrhi::IDevice& device, nvrhi::Format format)
+{
+    return device.createTexture(nvrhi::TextureDesc()
+                                    .setWidth(Width)
+                                    .setHeight(Height)
+                                    .setFormat(format)
+                                    .setIsRenderTarget(true)
+                                    .setInitialState(nvrhi::ResourceStates::RenderTarget)
+                                    .setKeepInitialState(true)
+                                    .setClearValue(nvrhi::Color(0.0f))
+                                    .setUseClearValue(true)
+                                    .setDebugName("cible de l'UI"));
+}
+
 /// Dessine le rectangle dans une cible de `format`, et rend l'écart le plus grand, en niveaux,
 /// entre la couleur relue en son centre et celle demandée ; -1 si rien ne s'est dessiné.
 int drawAndCompare(nvrhi::IDevice& device, nvrhi::Format format)
 {
-    const nvrhi::TextureHandle texture =
-        device.createTexture(nvrhi::TextureDesc()
-                                 .setWidth(Width)
-                                 .setHeight(Height)
-                                 .setFormat(format)
-                                 .setIsRenderTarget(true)
-                                 .setInitialState(nvrhi::ResourceStates::RenderTarget)
-                                 .setKeepInitialState(true)
-                                 .setClearValue(nvrhi::Color(0.0f))
-                                 .setUseClearValue(true)
-                                 .setDebugName("cible de l'UI"));
+    const nvrhi::TextureHandle texture = createTarget(device, format);
     const nvrhi::FramebufferHandle target =
         device.createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(texture));
     auto pass = levain::ui::createUiPass(device, target->getFramebufferInfo());
@@ -125,6 +136,99 @@ int compareTargets(nvrhi::IDevice& device)
     return failures;
 }
 
+/// Une petite texture que l'UI sait montrer, pour les tests de la table des identifiants : ils
+/// n'en lisent pas les texels.
+nvrhi::TextureHandle tinyTexture(nvrhi::IDevice& device)
+{
+    return device.createTexture(nvrhi::TextureDesc()
+                                    .setWidth(4)
+                                    .setHeight(4)
+                                    .setFormat(nvrhi::Format::RGBA8_UNORM)
+                                    .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                    .setKeepInitialState(true)
+                                    .setDebugName("image de la table"));
+}
+
+/// La table des identifiants : enregistrer, libérer, enregistrer encore. Un identifiant libéré ne
+/// revient pas (`UiPass::nextTextureId` ne recule jamais), et libérer l'un n'enlève pas l'autre.
+int checkIdTable(nvrhi::IDevice& device)
+{
+    const nvrhi::TextureHandle target = createTarget(device, nvrhi::Format::SRGBA8_UNORM);
+    const nvrhi::FramebufferHandle framebuffer =
+        device.createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(target));
+    auto pass = levain::ui::createUiPass(device, framebuffer->getFramebufferInfo());
+    if (!pass)
+    {
+        std::println(stderr, "{}", pass.error().message);
+        return 1;
+    }
+    int failures = 0;
+    const auto expect = [&](bool condition, const std::string& what)
+    {
+        if (!condition)
+        {
+            std::println(stderr, "table des identifiants : {}", what);
+            ++failures;
+        }
+    };
+    const nvrhi::TextureHandle first = tinyTexture(device);
+    const nvrhi::TextureHandle second = tinyTexture(device);
+    const auto idFirst = levain::ui::registerUiTexture(device, *pass, first);
+    const auto idSecond = levain::ui::registerUiTexture(device, *pass, second);
+    if (!idFirst || !idSecond)
+    {
+        std::println(stderr, "table des identifiants : enregistrement refusé");
+        return 1;
+    }
+    expect(*idFirst != ImTextureID_Invalid && *idFirst != *idSecond, "deux identifiants distincts");
+    expect(pass->textures.size() == 2, "deux textures dans la table");
+
+    levain::ui::releaseUiTexture(*pass, *idFirst);
+    expect(!pass->textures.contains(*idFirst) && pass->textures.contains(*idSecond),
+           "libérer l'une laisse l'autre");
+    const auto idAgain = levain::ui::registerUiTexture(device, *pass, first);
+    expect(idAgain && *idAgain != *idFirst && *idAgain != *idSecond,
+           "l'identifiant libéré ne revient pas");
+    expect(pass->textures.size() == 2, "deux textures après le nouvel enregistrement");
+
+    // Les refus sont des erreurs, pas des assertions : le programme les reçoit.
+    expect(!levain::ui::registerUiTexture(device, *pass, nullptr), "une texture nulle est refusée");
+    expect(pass->textures.size() == 2, "un refus ne laisse rien dans la table");
+#if !LEVAIN_ASSERTIONS_ENABLED
+    // En Debug, libérer deux fois s'arrête sur l'assertion : seule la Release rend la main, et
+    // dit l'erreur au journal sans toucher à la table.
+    levain::ui::releaseUiTexture(*pass, *idFirst);
+    levain::ui::releaseUiTexture(*pass, 12345);
+    expect(pass->textures.size() == 2, "libérer deux fois, ou l'inconnu, ne change rien");
+    // L'atlas des polices est à ImGui : le libérer ici est la même erreur, il reste dans la table.
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = Width, .height = Height}, 1.0 / 60.0);
+    ImGui::NewFrame();
+    ImGui::Render();
+    const nvrhi::CommandListHandle commandList = device.createCommandList();
+    commandList->open();
+    levain::ui::updateUiTextures(device, *commandList, *pass, ImGui::GetPlatformIO().Textures);
+    commandList->close();
+    device.executeCommandList(commandList);
+    ImTextureID atlas = ImTextureID_Invalid;
+    for (const auto& [id, texture] : pass->textures)
+    {
+        atlas = texture.registered ? atlas : id;
+    }
+    expect(atlas != ImTextureID_Invalid && pass->textures.size() == 3, "l'atlas est dans la table");
+    levain::ui::releaseUiTexture(*pass, atlas);
+    expect(pass->textures.contains(atlas), "l'atlas d'ImGui n'est pas libéré par le programme");
+    levain::ui::destroyUiTextures(*pass, ImGui::GetPlatformIO().Textures);
+#endif
+    std::println("table des identifiants : {} échec(s)", failures);
+    return failures;
+}
+
+int check(nvrhi::IDevice& device)
+{
+    return compareTargets(device) + checkIdTable(device);
+}
+
 int run(const levain::tests::TestBackend& backend)
 {
     if (backend.api == nvrhi::GraphicsAPI::WEBGPU)
@@ -135,7 +239,7 @@ int run(const levain::tests::TestBackend& backend)
             std::println(stderr, "{}", device.error().message);
             return 1;
         }
-        return compareTargets(**device) == 0 ? 0 : 1;
+        return check(**device) == 0 ? 0 : 1;
     }
     auto window =
         levain::platform::createWindow("Levain - UI", 64, 64, levain::gpu::surfaceFor(backend.api));
@@ -150,7 +254,7 @@ int run(const levain::tests::TestBackend& backend)
         std::println(stderr, "{}", gpu.error().message);
         return 1;
     }
-    return compareTargets(*gpu->nvrhi) == 0 ? 0 : 1;
+    return check(*gpu->nvrhi) == 0 ? 0 : 1;
 }
 
 } // namespace

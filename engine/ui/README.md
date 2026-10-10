@@ -24,19 +24,26 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 - **Un contexte à la fois** : celui d'ImGui est global, comme la fenêtre de `platform`.
 - **Les textures d'ImGui 1.92 sont les nôtres** (`ImGuiBackendFlags_RendererHasTextures`) : ImGui rastérise
   ses polices à la taille de l'écran, et demande de créer, mettre à jour ou détruire leurs textures.
+- **Une texture que l'UI ne possède pas passe par `registerUiTexture`** (la scène de la Vue, ADR-0036) : un
+  identifiant pour `ImGui::Image`, un binding set fait comme celui de l'atlas, et `releaseUiTexture` pour le
+  retirer. La table ne rend **jamais** un identifiant, libéré ou non : un `ImDrawList` périmé ne montre jamais une
+  autre texture que la sienne. Dessiner un identifiant inconnu ou libéré est l'assertion de `recordUi` en Debug.
+  Libérer deux fois, ou un identifiant inconnu ou d'ImGui, est une assertion en Debug et une erreur au journal en
+  Release. Une texture nulle est refusée par une erreur, et non une assertion.
 - **Pas d'`imgui.ini`** : la disposition se reconstruit à chaque lancement.
 
 ## Points d'entrée
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/ui/ui_pass.hpp`](include/levain/ui/ui_pass.hpp) | `UiPass`, `createUiPass`, `recordUi`, `updateUiTextures`, `destroyUiTextures` ; les pièges `linearOnSrgbTarget` et `clampScissorToTarget` |
+| [`include/levain/ui/ui_pass.hpp`](include/levain/ui/ui_pass.hpp) | `UiPass`, `createUiPass`, `recordUi`, `updateUiTextures`, `destroyUiTextures`, `registerUiTexture`, `releaseUiTexture` ; les pièges `linearOnSrgbTarget` et `clampScissorToTarget` |
 | [`include/levain/ui/input.hpp`](include/levain/ui/input.hpp) | `feedInput`, `imguiKeyOf`, `PressedKeys` |
 | [`include/levain/ui/context.hpp`](include/levain/ui/context.hpp) | `UiContext`, `createUiContext`, `prepareUiFrame`, `followTextInput` |
 | [`include/levain/ui/tr.hpp`](include/levain/ui/tr.hpp) | `tr`, `trf`, `textf`, `labelOf` : le catalogue des textes vu de l'interface, la table est dans `core` (ADR-0036) |
 
-Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB), et `levain_ui_gpu [vulkan|webgpu]`
-(`gpu.ui.*` dans ctest), qui relit la couleur d'un rectangle dessiné dans une cible sRGB puis UNORM.
+Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB), et
+`levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu]` (`gpu.ui.*` dans ctest, WARP compris), qui relit la couleur d'un rectangle
+dessiné dans une cible sRGB puis UNORM, puis la table des identifiants.
 
 ## Pièges connus
 
@@ -55,6 +62,9 @@ Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe,
 - **Les couleurs d'ImGui sont en sRGB** (`linearOnSrgbTarget`). Une cible sRGB convertit en écrivant : sans
   linéarisation dans le shader, l'UI serait convertie deux fois, et délavée. Relu par `levain_ui_gpu` : 72
   niveaux d'écart sans la linéarisation.
+- **Une image montrée est opaque, et n'est pas la cible de l'UI.** Le mélange de la passe est celui d'ImGui, l'alpha du
+  texel compris (la sortie du tonemap écrit 1.0). Lire la texture où l'UI écrit est une boucle de rétroaction que
+  `registerUiTexture` ne détecte pas.
 - **Les découpes d'ImGui sortent de l'image** (`clampScissorToTarget`) : passées telles quelles, c'est une
   erreur de validation.
 - **Pas de push constants** : notre backend WebGPU ne les a pas. La taille de l'image et le drapeau sRGB
@@ -80,3 +90,7 @@ Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe,
 | **Godot** | Les nœuds `Control` | L'éditeur est un programme du moteur, avec sa propre UI (**documenté**, ADR-0032). |
 
 Les textes : `FText`/`LOCTEXT` chez Unreal, le paquet Localization chez Unity, `tr()` et gettext chez Godot ; ici le français est la clé, comme le `msgid` de gettext (Godot **documenté**, ADR-0036 [8] ; Unreal et Unity **supposé**).
+
+Montrer une texture que l'UI ne possède pas (`registerUiTexture`) : une `RenderTexture` dans une `EditorWindow` chez
+Unity, la `ViewportTexture` d'un `SubViewport` posée dans un `TextureRect` chez Godot, une `FSlateBrush` sur une ressource
+rendue (`SImage`) chez Unreal ; **supposé** pour les trois, aucun n'est lu dans leurs sources.
