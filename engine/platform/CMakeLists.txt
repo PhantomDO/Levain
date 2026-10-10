@@ -1,6 +1,6 @@
 find_package(SDL3 CONFIG REQUIRED)
 
-add_library(levain_platform STATIC src/input.cpp src/process.cpp src/window.cpp)
+add_library(levain_platform STATIC src/input.cpp src/process.cpp src/input_script.cpp src/window.cpp)
 add_library(levain::platform ALIAS levain_platform)
 
 target_include_directories(levain_platform PUBLIC include)
