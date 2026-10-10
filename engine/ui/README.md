@@ -45,7 +45,8 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 
 Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées), et
 `levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu]` (`gpu.ui.*` dans ctest, WARP compris), qui relit la couleur d'un rectangle
-dessiné dans une cible sRGB puis UNORM, puis la table des identifiants.
+dessiné dans une cible sRGB puis UNORM, puis un gris moyen montré par `ImGui::Image` dans chaque combinaison de formats,
+plusieurs textures dans la même image, une image libérée en vol, et la table des identifiants.
 
 ## Pièges connus
 
@@ -64,6 +65,20 @@ dessiné dans une cible sRGB puis UNORM, puis la table des identifiants.
 - **Les couleurs d'ImGui sont en sRGB** (`linearOnSrgbTarget`). Une cible sRGB convertit en écrivant : sans
   linéarisation dans le shader, l'UI serait convertie deux fois, et délavée. Relu par `levain_ui_gpu` : 72
   niveaux d'écart sans la linéarisation.
+- **Une image montrée par `ImGui::Image` n'est convertie qu'une fois, par la cible.** La passe ne touche pas aux
+  texels : elle les multiplie par la couleur (blanche) du sommet, que `linearOnSrgbTarget` ne change pas. Une texture sRGB
+  sur une cible sRGB est juste (le matériel décode en lisant, la cible encode en écrivant), comme une UNORM aux valeurs
+  déjà encodées sur une cible UNORM. Une UNORM aux valeurs encodées (188 pour le gris moyen) sur une cible sRGB est
+  **convertie deux fois** : 223 relu au lieu de 188 (`levain_ui_gpu`, le cas témoin). D'où le format de la Vue :
+  celui de la swapchain. Les valeurs linéaires d'une UNORM sur une cible sRGB sont justes (128 devient 188, à ±2 près : 187 sur la 4070).
+- **Libérer une image n'attend pas le GPU, et c'est sûr.** Les command lists qui la dessinent tiennent chacune le binding
+  set (NVRHI : `referencedResources` ; le bind group de WebGPU), qui tient la texture : `releaseUiTexture` après
+  `recordUi`, avant la soumission, montre encore l'image (`levain_ui_gpu`, « libérée en vol »). Ce qui est interdit, c'est de
+  la **dessiner** après : l'identifiant a quitté la table. Cette garde est `BindingSetDesc::trackLiveness` (nvrhi.h), que
+  la passe pose explicitement : à faux, `levain_ui_gpu` rougit sur Vulkan (« vkDestroyDescriptorPool … currently in use »).
+  L'état de la texture n'est pas deviné par NVRHI : avec un état initial gardé (`setKeepInitialState`), la command list la
+  remet dans cet état en se fermant ; avec `beginTrackingTextureState`, elle reste en `ShaderResource` et l'appelant
+  fixe l'état d'après.
 - **Une image montrée est opaque, et n'est pas la cible de l'UI.** Le mélange de la passe est celui d'ImGui, l'alpha du
   texel compris (la sortie du tonemap écrit 1.0). Lire la texture où l'UI écrit est une boucle de rétroaction que
   `registerUiTexture` ne détecte pas.
