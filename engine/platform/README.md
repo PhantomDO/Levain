@@ -28,6 +28,7 @@ clavier, de la souris et des manettes, avec la résolution des noms de SDL dont 
 | Fichier | Contenu |
 |---|---|
 | [`include/levain/platform/window.hpp`](include/levain/platform/window.hpp) | `createWindow` (et `GraphicsSurface`, la surface que la fenêtre annonce), `windowPixelSize`, `pollEvents`, `waitEvents`, `setWindowTitle` |
+| [`include/levain/platform/input_script.hpp`](include/levain/platform/input_script.hpp) | `InputScript`, `parseInputScript`, `addScriptedEvents` : des événements écrits dans un fichier, rejoués image par image (ADR-0036) |
 | [`include/levain/platform/process.hpp`](include/levain/platform/process.hpp) | `runProcess` — lance un programme, attend sa fin, rend sa sortie (standard et erreur mêlées) et son code de retour |
 | [`include/levain/platform/input.hpp`](include/levain/platform/input.hpp) | `InputEvent` (appuis, axes, souris), `keyCodeFromName` et ses cousines, `setMouseCaptured`, `cursorPosition` (la souris en pixels de la swapchain, pour viser à l'écran) ; pour une interface (ADR-0032) : `UiEvent`, `startTextInput`, `stopTextInput`, `clipboardText`, `setClipboardText`, `displayScale` |
 

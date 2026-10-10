@@ -38,6 +38,7 @@ set(nativeTests
     editor_test.cpp
     environment_test.cpp
     grass_test.cpp
+    input_script_test.cpp
     input_test.cpp
     light_clusters_test.cpp
     shadows_test.cpp
