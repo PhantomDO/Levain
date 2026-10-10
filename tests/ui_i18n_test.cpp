@@ -2,8 +2,7 @@
 
 #include <doctest/doctest.h>
 #include <imgui.h>
-// La fenêtre en cours et les nœuds de la disposition sont de l'API interne d'ImGui, comme
-// DockBuilder.
+// La fenêtre en cours et les nœuds de la disposition : l'API interne d'ImGui, comme DockBuilder.
 #include <imgui_internal.h>
 
 #include "panels.hpp"

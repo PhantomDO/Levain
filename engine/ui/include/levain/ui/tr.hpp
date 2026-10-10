@@ -2,10 +2,10 @@
 
 // Le catalogue des textes vu de l'interface (ADR-0036, décision 14) ; la table est dans `core`
 // (core/i18n.hpp). La clé est le texte français : sans traduction, c'est lui qu'on voit. Un texte
-// traduit n'est JAMAIS un format d'ImGui
-// (`ImGui::Text(tr(…))` lirait ses « % ») : `TextUnformatted`, ou `textf` pour y mettre des
-// valeurs. Un libellé n'est pas un identifiant : `labelOf` garde le sien après « ### », sans quoi
-// traduire un titre ferait perdre sa fenêtre à la disposition.
+// traduit n'est JAMAIS un format d'ImGui (`ImGui::Text(tr(…))` lirait ses « % ») :
+// `TextUnformatted`, ou `textf` pour y mettre des valeurs. Un libellé n'est pas un identifiant :
+// `labelOf` garde le sien après « ### », sans quoi traduire un titre ferait perdre sa fenêtre à la
+// disposition.
 
 #include <format>
 #include <string>

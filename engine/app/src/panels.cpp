@@ -32,8 +32,8 @@ DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
     ImGuiID rightBottom = 0;
     const ImGuiID rightTop =
         ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.4f, nullptr, &rightBottom);
-    // Par la clé : ImGui hache ce qui suit « ### », donc « Image » est l'identifiant de «
-    // Picture###Image ».
+    // Par la clé : ImHashStr (imgui.cpp) ne hache que ce qui suit « ### », donc « Image » est
+    // l'identifiant de « Picture###Image ».
     ImGui::DockBuilderDockWindow(ImageWindow, leftTop);
     ImGui::DockBuilderDockWindow(PassesWindow, leftBottom);
     ImGui::DockBuilderDockWindow(SceneWindow, rightTop);
@@ -85,8 +85,8 @@ void drawPassesWindow(const App& app)
     {
         if (ImGui::BeginTable("passes", 2, ImGuiTableFlags_RowBg))
         {
-            ImGui::TableSetupColumn(ui::tr("passe"));
-            ImGui::TableSetupColumn(ui::tr("GPU (ms)"));
+            ImGui::TableSetupColumn(ui::labelOf("passe").c_str());
+            ImGui::TableSetupColumn(ui::labelOf("GPU (ms)").c_str());
             ImGui::TableHeadersRow();
             const auto row = [](const char* name, const render::GpuTimeAverage& time)
             {

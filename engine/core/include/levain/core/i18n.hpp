@@ -24,8 +24,9 @@ struct Catalog
 /// Le français seul, ou, pour un homonyme, contexte, EOT, français (le `msgctxt` de gettext).
 [[nodiscard]] std::string catalogKey(std::string_view context, std::string_view french);
 
-/// Les champs d'un format de `std::format`, dans l'ordre (« {} », « {:.3f} »). Vide si
-/// `std::vformat` ne le lirait pas : accolade seule, champ imbriqué.
+/// Les champs d'un format de `std::format`, dans l'ordre (« {} », « {:.3f} »). Rien (`nullopt`)
+/// pour un format que ce lecteur refuse : une accolade seule, ou un champ imbriqué (« {:{}} »,
+/// que `std::vformat` lit, mais pas lui). Un français ainsi écrit n'est donc jamais traduit.
 [[nodiscard]] std::optional<std::vector<std::string>> placeholdersOf(std::string_view format);
 
 /// La traduction de ce français dans ce contexte (vide pour aucun), sinon le français. **Jamais un
@@ -36,11 +37,13 @@ struct Catalog
 
 /// Comme `translate`, puis les valeurs. Une traduction aux champs différents (ordre compris) de
 /// ceux du français mettrait une valeur au mauvais endroit, ou ferait lever `std::vformat` : c'est
-/// le français qui s'affiche.
+/// le français qui s'affiche. Ce français doit être un format valide, sans quoi `std::vformat`
+/// lève : `ui::trf` le vérifie à la compilation, un appelant direct (`core::log`, M7.8) en répond.
 [[nodiscard]] std::string translateFormat(const Catalog& catalog, std::string_view context,
                                           std::string_view french, std::format_args args);
 
-/// Le catalogue du processus, vide au départ. Se remplace entre deux images, sans verrou.
+/// Le catalogue du processus, vide au départ. Se remplace entre deux images, sans verrou : à
+/// revoir en M7.8, quand `core::log`, appelé de tous les fils, le lira.
 [[nodiscard]] Catalog& activeCatalog();
 
 } // namespace levain::core

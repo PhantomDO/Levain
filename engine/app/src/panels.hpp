@@ -11,8 +11,7 @@ namespace levain::app
 
 struct App;
 
-/// Les fenêtres du moteur, par leur clé de catalogue : `ui::labelOf` en fait le titre (ADR-0036,
-/// décision 14).
+/// Les fenêtres du moteur, par leur clé de catalogue : `ui::labelOf` en fait le titre (ADR-0036).
 inline constexpr const char* ImageWindow = "Image";
 inline constexpr const char* PassesWindow = "Passes";
 inline constexpr const char* SceneWindow = "Scène";

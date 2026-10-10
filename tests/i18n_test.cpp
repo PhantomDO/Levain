@@ -21,8 +21,7 @@ std::string gpuText(const Catalog& catalog)
 
 } // namespace
 
-TEST_CASE(
-    "une clé traduite donne sa traduction, absente ou vide le français, un homonyme son contexte")
+TEST_CASE("une traduction absente ou vide laisse le français, un homonyme garde son contexte")
 {
     const Catalog catalog{.entries = {{"Fichier", "File"},
                                       {"Vide", ""},
@@ -30,9 +29,8 @@ TEST_CASE(
                                       {catalogKey("fonction", "Retour"), "Return value"}}};
     CHECK(std::string_view{translate(catalog, {}, "Fichier")} == "File");
     CHECK(std::string_view{translate(catalog, {}, "Inconnu")} == "Inconnu");
-    CHECK(std::string_view{translate(catalog, {}, "Vide")} == "Vide"); // jamais un texte vide
-    CHECK(std::string_view{translate({}, {}, "Fichier")} ==
-          "Fichier"); // le catalogue d'aujourd'hui
+    CHECK(std::string_view{translate(catalog, {}, "Vide")} == "Vide");  // jamais un texte vide
+    CHECK(std::string_view{translate({}, {}, "Fichier")} == "Fichier"); // le catalogue vide
     CHECK(std::string_view{translate(catalog, "navigation", "Retour")} == "Back");
     CHECK(std::string_view{translate(catalog, "fonction", "Retour")} == "Return value");
     CHECK(std::string_view{translate(catalog, {}, "Retour")} == "Retour"); // sans contexte

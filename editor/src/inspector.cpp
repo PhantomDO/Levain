@@ -487,16 +487,16 @@ std::string entityLabelOf(flecs::entity entity)
 {
     if (entity.id() == 0)
     {
-        return "aucune";
+        return ui::tr("aucune");
     }
-    return entity.is_alive() ? std::string{entity.path("::", "").c_str()} : "(détruite)";
+    return entity.is_alive() ? std::string{entity.path("::", "").c_str()} : ui::tr("(détruite)");
 }
 
 std::string assetNameOf(const assets::AssetRegistry* registry, const assets::AssetRef& ref)
 {
     if (!ref.isSet())
     {
-        return "aucun";
+        return ui::tr("aucun");
     }
     std::string name = assets::toString(ref.asset);
     if (registry != nullptr)
