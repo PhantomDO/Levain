@@ -1,6 +1,26 @@
 # Roadmap v1
 
-> Version 0.15 — 08/10/2026 — statut : **validé par Donnovan** (sondage du 08/10, ADR-0035)
+> Version 0.16 — 10/10/2026 — statut : **validé par Donnovan** (sondages du 10/10, ADR-0036)
+>
+> v0.16 : **l'atelier avant Play/Stop** ([ADR-0036](adr/0036-mode-edition-vue-et-camera-de-l-editeur.md)). Le mandat
+> de Donnovan du 10/10 demande que « l'editor soit aussi agréable à utilisé que celui d'Unity ou Unreal » ; celui de
+> M7.2 n'est que le jeu avec deux panneaux. Son choix, mot pour mot : « M7.7 « L'atelier » d'abord, puis Play/Stop
+> (Recommandé) ». **M7.7 « L'atelier »** (1,0 h) ouvre la suite : le mode Édition, simulation arrêtée, la Vue, la
+> caméra de l'éditeur, les menus et la console ; les raccourcis d'Unreal, que l'on peut changer (« Unreal et il faudra
+> faire un menu ou on peut régler les raccourcis pour ceux qui veulent les changers. »), les touches d'outil par
+> position (« Par position : Z, E, R (Recommandé) ») ; les polices sous OFL (« Accepter l'OFL pour les polices
+> (Recommandé) »), que SPECS §5 admet désormais. **M7.8 « L'éditeur en anglais »** (**0,5 h**) ferme la phase :
+> « Français mais il faudrait faire une passe de traduction à la fin pour qu'on puisse changer la langue du moteur pour
+> l'anglais pour le reste des gens. » Nouvel ordre : **M7.7 → M7.5 → M7.3 → M7.4 → M7.6 → M7.8**. Play/Stop remonte :
+> Stop doit restaurer la scène en place, sans relire de fichier (prévu, ADR à venir), et l'annulation de M7.3 reprend
+> son point d'exécution hors du mode différé. Les estimations suivent l'étude de la phase : M7.5 1,0 → **0,75 h**, M7.3
+> 1,25 → **1,5 h** (l'annulation, puis les scènes, en deux PR vers `main`), M7.4 1,75 → **1,5 h**, M7.6 1,25 →
+> **2,25 h** et 2 sessions (l'ADR du terrain, deux sondages, la vallée retouchée ; E7 y était déjà). **Validé** par
+> sondage, avec l'ADR-0036 : « Accepter (Recommandé) ». Au sondage sur les messages du moteur, Donnovan a répondu
+> « Traduits aussi » : en M7.8, console, erreurs et journaux passent aussi par le catalogue, chacun sous un nom stable
+> que lit la CI ; M7.8 passe de 0,25 à **0,5 h**. Phase 7 : **7,6 h → 9,85 h** ; total : **70,2 h → 72,45 h** (M1.4
+> clos le même jour, voir v0.15). Les échéances des phases 7 et 8 sont recalculées à 1,5 h par semaine depuis
+> l'ancienne échéance de M1.4 (14/03/2027), arrondies au dimanche suivant : la v1 finit le 30/05/2027 au lieu du 16/05.
 >
 > v0.15 : **Windows revient** ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : Donnovan a un PC Windows.
 > M1.4 est rouvert, compilé depuis Linux par clang-cl, en deux étapes : Windows en Vulkan, puis le backend
@@ -90,17 +110,17 @@
 | 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
 | 5 | Rendu PBR et monde | 10,0 (réel, 11,0 estimées) | 13 | fini le 03/10/2026 |
 | 6 | Physique et traversée | 11,25 (réel, 9,65 estimées) | 6 | fini le 07/10/2026 |
-| 7 | Éditeur | 7,6 | 8 | 04/04/2027 |
-| 8 | Audio et le jeu | 8,35 | 8 | 16/05/2027 |
-| **Total** | | **70,2** | **69** | |
+| 7 | Éditeur | 9,85 | 12 | 18/04/2027 |
+| 8 | Audio et le jeu | 8,35 | 8 | 30/05/2027 |
+| **Total** | | **72,45** | **73** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante au 10/10/2026 (13,6 h, M7.3 à M8.3), selon le rythme : **2 h/sem. → 7 semaines** (28/11/2026) ·
-**1,5 h/sem. → 10 semaines** (19/12/2026) · **1 h/sem. → 14 semaines** (16/01/2027).
+Durée restante au 10/10/2026 (15,85 h, M7.7 à M8.3), selon le rythme : **2 h/sem. → 8 semaines** (05/12/2026) ·
+**1,5 h/sem. → 11 semaines** (26/12/2026) · **1 h/sem. → 16 semaines** (30/01/2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
-23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 09/05/2027.
+23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 23/05/2027.
 
 ### Pourquoi 68 h et pas 60
 
@@ -389,10 +409,16 @@ pourquoi c'est presque toujours une bibliothèque.
 |---|---:|---:|---|
 | M7.1 ImGui et panneaux de debug | 1,0 (réel, 1,1 estimées) | 1 | fini le 07/10/2026 |
 | M7.2 Réflexion et inspecteur | 0,75 (réel, 1,25 estimées) | 1 | fini le 10/10/2026 |
-| M7.3 Sérialisation et undo/redo | 1,25 | 2 | 21/03/2027 |
-| M7.4 Gizmos et picking | 1,75 | 2 | 28/03/2027 |
-| M7.5 Play/Stop dans l'éditeur | 1,0 | 1 | 04/04/2027 |
-| M7.6 Outils de terrain | 1,25 | 1 | 04/04/2027 |
+| M7.7 L'atelier (ajouté en v0.16) | 1,0 | 2 | 21/03/2027 |
+| M7.5 Play/Stop dans l'éditeur | 0,75 | 1 | 28/03/2027 |
+| M7.3 Sérialisation et undo/redo | 1,5 | 2 | 04/04/2027 |
+| M7.4 Gizmos et picking | 1,5 | 2 | 11/04/2027 |
+| M7.6 Outils de terrain | 2,25 | 2 | 18/04/2027 |
+| M7.8 L'éditeur en anglais (ajouté en v0.16) | 0,5 | 1 | 18/04/2027 |
+
+Les milestones restants se suivent dans l'ordre du tableau (v0.16), chacun sur sa branche de fonctionnalité : M7.5 a
+besoin du mode Édition, de la Vue et du routage de l'input de M7.7 ; l'annulation de M7.3 reprend le point
+d'exécution hors du mode différé de M7.5 ; M7.4 a besoin des commandes de M7.3, M7.6 de tout ce qui précède.
 
 **M7.1 — ImGui et panneaux de debug.** Renderer ImGui pour NVRHI (adapté de Donut), dans un module `ui` du
 moteur ; l'input par `platform` ; panneaux de statistiques et de profiling, en fenêtres ancrées
@@ -404,20 +430,43 @@ moteur ; l'input par `platform` ; panneaux de statistiques et de profiling, en f
 bibliothèque éditeur (`editor/`).
 *Critère* : un nouveau composant devient éditable en une seule déclaration.
 
+**M7.7 — L'atelier** (ajouté en v0.16, [ADR-0036](adr/0036-mode-edition-vue-et-camera-de-l-editeur.md), issues #389 à
+#393). L'éditeur cesse d'être le jeu : il s'ouvre en mode Édition, la simulation arrêtée et le jeu sans input ; la
+scène se voit dans une fenêtre « Vue », parcourue par une caméra d'éditeur pilotée comme celle d'Unreal ; menus,
+barres d'outils et d'état, console, disposition et préférences gardées ; les raccourcis d'Unreal, que Préférences >
+Raccourcis laisse changer ; chaque chaîne par un catalogue, en français ; les polices Inter et les icônes Material
+Symbols. Un mode temporaire, « Jouer (sans retour) », garde le jeu d'aujourd'hui jusqu'à M7.5.
+*Critères*, mesurés par le banc d'essai de l'App, qui rejoue des événements : en Édition, aucun pas de simulation,
+l'accumulateur immobile et `PlayerInput` vide, touches tenues ; une écriture faite depuis le point d'accroche `ui` se
+voit dans l'image rendue de la même image ; la Vue rend la scène à sa taille ; chaque geste de navigation passe en
+QWERTY et en AZERTY simulés ; un raccourci changé survit à un redémarrage ; un conflit est nommé, et rien ne change
+sans « Remplacer ».
+
+**M7.5 — Play/Stop.** Sauvegarde de la scène, simulation, restauration. Remonté après M7.7 (v0.16) : Stop doit
+restaurer la scène en place, sans relire de fichier (prévu, ADR à venir).
+*Critère* : après Stop, la scène est identique à l'état d'avant Play (test).
+
 **M7.3 — Sérialisation et undo/redo.** Scènes en JSON : les valeurs par le JSON de flecs, l'enveloppe et le
-chargeur à nous (ADR-0034) ; pattern Command.
+chargeur à nous (ADR-0034) ; pattern Command. Deux fonctionnalités, donc deux PR vers `main` : l'annulation, puis
+les scènes.
 *Critères* : sauvegarde puis chargement donnent une scène identique (test) ; 100 niveaux d'annulation.
 
 **M7.4 — Gizmos et picking.** ImGuizmo, sélection à la souris par buffer d'identifiants.
 *Critère* : sélection en une frame.
 
-**M7.5 — Play/Stop.** Sauvegarde de la scène, simulation, restauration.
-*Critère* : après Stop, la scène est identique à l'état d'avant Play (test).
-
 **M7.6 — Outils de terrain.** Plugin moteur : sculpt de la heightmap, peinture des textures, placement au
 pinceau des arbres, des rochers et de la densité d'herbe.
 *Critère* : la vallée du jeu est faite entièrement dans l'éditeur, et survit à une sauvegarde puis un
 chargement.
+
+**M7.8 — L'éditeur en anglais** (ajouté en v0.16, ADR-0036, issue #394). La passe de traduction que Donnovan a
+demandée : le catalogue anglais de toutes les chaînes de l'éditeur, et la langue choisie dans les Préférences, gardée
+avec elles. Les messages du moteur aussi, console, erreurs et journaux (sondage du 10/10 : « Traduits aussi ») : chacun
+gagne un nom stable, écrit en tête de sa ligne, que la CI lit à la place du texte français ; ses contrôles qui lisent
+une phrase passent à ce nom, message par message. La clôture de la phase 7 suit.
+*Critères* : l'éditeur passe en anglais depuis les Préférences, sa disposition gardée, et les messages du moteur avec
+lui ; les contrôles de la CI lisent le nom stable de chaque message et passent dans les deux langues ; la CI échoue si
+une chaîne ou un message du catalogue n'a pas sa traduction anglaise, ou pas les mêmes `{}` (avec son contre-test).
 
 **Étude E7 — Réflexion et éditeurs** (0,4 h, dans M7.6) : Unreal Header Tool, sérialisation d'Unity, `ClassDB` de Godot, addon meta
 de flecs.
@@ -426,9 +475,9 @@ de flecs.
 
 | Milestone | Heures D. | Sessions | Échéance |
 |---|---:|---:|---|
-| M8.1 Audio | 1,0 | 1 | 11/04/2027 |
-| M8.2 Le jeu (vertical slice) | 6,1 | 6 | 09/05/2027 |
-| M8.3 Bilan v1 | 1,25 | 1 | 16/05/2027 |
+| M8.1 Audio | 1,0 | 1 | 25/04/2027 |
+| M8.2 Le jeu (vertical slice) | 6,1 | 6 | 23/05/2027 |
+| M8.3 Bilan v1 | 1,25 | 1 | 30/05/2027 |
 
 **M8.1 — Audio.** miniaudio, composants AudioSource et AudioListener, spatialisation 3D.
 *Critère* : 32 sons 3D simultanés sans coupure.
@@ -477,6 +526,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0033 | La cible processeur des dépendances : `-march=x86-64` dans le triplet vcpkg (CI sur Ubuntu 26.04) | M7.1 |
 | 0034 | La réflexion des composants : une déclaration, les champs lus dans la struct, rangés dans flecs | M7.2 |
 | 0035 | Windows revient, compilé depuis Linux par clang-cl ; Vulkan d'abord, puis D3D12 ; la CI compile sous Linux et teste sous Windows | M1.4 |
+| 0036 | L'atelier : le mode Édition, l'input de l'éditeur, la Vue et sa caméra, les raccourcis d'Unreal, un catalogue de chaînes, les polices sous OFL | M7.7 |
 
 ## Numérotation des ADR
 
@@ -507,13 +557,14 @@ dépens — mesurée d'abord à 3,0 h en ne comptant que les relectures, contre 
 
 La règle juge une phase, à sa clôture, et non un milestone seul. Comme M4.6 (1,29), ajouté après la clôture de la
 phase 4 et jugé avec elle (0,89), M1.4 se juge avec la phase 1 : 8,0 h pour 6,0, **1,33**, au-dessus de la
-fourchette. La règle demandait de multiplier par 1,33 les milestones restants des phases 7 et 8 : 13,6 h → 18,1 h
-(+4,5 h). Donnovan a choisi de ne pas le faire, sur sondage, le 10/10/2026, comme pour la phase 4 (v0.7) : à « Je
-recalibre ? », il a répondu « Non, pas de recalibrage (Recommandé) ». Les raisons de cette option : le ratio cumulé
-des phases 0 à 6, M1.4 compris, 54,25 / 52,65 = **1,03**, est dans la fourchette ; la phase 7 en est à 0,74 (1,75 h
-pour 2,35 : M7.1 et M7.2) ; et le dépassement tient à ce que M1.4 seul a rencontré : une CI qui tournait pour chaque
-PR d'une pile (la règle n°1 du 09/10 l'a arrêtée), la CRT de Windows, la couche de debug de Direct3D 12, 34 PR pour
-un milestone estimé à 1,5 h. Les estimations ne changent pas ; le point se refait à la clôture de la phase 7.
+fourchette. La règle demandait de multiplier par 1,33 les milestones restants des phases 7 et 8 : 15,85 h → 21,1 h
+(+5,3 h ; 13,6 h → 18,1 h avant la v0.16). Donnovan a choisi de ne pas le faire, sur sondage, le 10/10/2026, comme
+pour la phase 4 (v0.7) : à « Je recalibre ? », il a répondu « Non, pas de recalibrage (Recommandé) ». Les raisons de
+cette option : le ratio cumulé des phases 0 à 6, M1.4 compris, 54,25 / 52,65 = **1,03**, est dans la fourchette ; la
+phase 7 en est à 0,74 (1,75 h pour 2,35 : M7.1 et M7.2) ; et le dépassement tient à ce que M1.4 seul a rencontré :
+une CI qui tournait pour chaque PR d'une pile (la règle n°1 du 09/10 l'a arrêtée), la CRT de Windows, la couche de
+debug de Direct3D 12, 34 PR pour un milestone estimé à 1,5 h. Les estimations ne changent pas ; le point se refait à
+la clôture de la phase 7.
 
 ### Phase 6 — ratio 1,17, aucun recalibrage
 
