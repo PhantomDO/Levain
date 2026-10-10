@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string_view>
 #include <unordered_map>
 
 #include <imgui.h>
@@ -85,6 +86,14 @@ clampScissorToTarget(const ImVec4& clip, std::uint32_t width, std::uint32_t heig
 void updateUiTextures(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, UiPass& pass,
                       ImVector<ImTextureData*>& textures);
 
+/// Pourquoi l'UI ne peut pas montrer une texture de cette description, ou vide si elle le peut. Son
+/// shader lit un `Texture2D<float4>` par un échantillonneur qui filtre : une texture
+/// multi-échantillon, un cube, une profondeur, un format entier, une texture que NVRHI ne laisse
+/// pas à un shader (`isShaderResource`) ou un flottant sur 32 bits (WebGPU ne le filtre pas) ferait
+/// une erreur de validation au premier dessin, ou à la création du bind group. Mieux vaut le
+/// refuser à l'enregistrement.
+[[nodiscard]] std::string_view uiTextureRefusal(const nvrhi::TextureDesc& desc);
+
 /// Montre à l'UI une texture qu'elle ne possède pas, la scène rendue dans la Vue (ADR-0036,
 /// décision 7) : le binding set se construit comme celui de `createTexture`, et l'identifiant rendu
 /// va à `ImGui::Image`. La table garde une référence à la texture, qui vit donc jusqu'à
@@ -112,8 +121,8 @@ void updateUiTextures(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, 
 /// rétroaction, que les API interdisent et que `registerUiTexture` ne détecte pas (la passe ne
 /// connaît que le format de sa cible).
 ///
-/// Une erreur, et pas une assertion, pour une texture nulle : le programme peut la recevoir d'une
-/// ressource qu'il a créée.
+/// Une erreur, et pas une assertion, pour une texture nulle ou que l'UI ne sait pas lire
+/// (`uiTextureRefusal`) : le programme peut les recevoir d'une ressource qu'il a créée.
 [[nodiscard]] core::Result<ImTextureID> registerUiTexture(nvrhi::IDevice& device, UiPass& pass,
                                                           nvrhi::ITexture* texture);
 

@@ -1,3 +1,5 @@
+#include <string_view>
+
 #include <doctest/doctest.h>
 #include <imgui.h>
 
@@ -148,4 +150,50 @@ TEST_CASE("une touche relâchée sous Maj, dans le navigateur, est bien relâch�
     CHECK_FALSE(ImGui::IsKeyDown(ImGuiKey_A));
     // Et une majuscule seule, sous Maj : la touche A.
     CHECK(levain::ui::imguiKeyOf('A', 4) == ImGuiKey_A);
+}
+
+TEST_CASE("l'UI ne montre qu'une texture 2D, mono-échantillon, de couleur")
+{
+    // Les refus de `registerUiTexture` (ui_pass.hpp) : son shader lit un Texture2D de flottants.
+    // Le test GPU (levain_ui_gpu) montre les textures acceptées.
+    const auto colorTexture = nvrhi::TextureDesc().setFormat(nvrhi::Format::SRGBA8_UNORM);
+    CHECK(levain::ui::uiTextureRefusal(colorTexture).empty());
+    CHECK(levain::ui::uiTextureRefusal(
+              nvrhi::TextureDesc(colorTexture).setFormat(nvrhi::Format::RGBA16_FLOAT))
+              .empty());
+    CHECK_FALSE(
+        levain::ui::uiTextureRefusal(
+            nvrhi::TextureDesc(colorTexture).setDimension(nvrhi::TextureDimension::TextureCube))
+            .empty());
+    // Une texture multi-échantillon de NVRHI est une `Texture2DMS` : c'est le nombre
+    // d'échantillons qui la refuse, avec son propre message.
+    const auto multisampled = nvrhi::TextureDesc(colorTexture)
+                                  .setDimension(nvrhi::TextureDimension::Texture2DMS)
+                                  .setSampleCount(4);
+    CHECK(levain::ui::uiTextureRefusal(multisampled).find("multi-échantillon") !=
+          std::string_view::npos);
+    CHECK_FALSE(
+        levain::ui::uiTextureRefusal(nvrhi::TextureDesc(colorTexture).setFormat(nvrhi::Format::D32))
+            .empty());
+    CHECK_FALSE(levain::ui::uiTextureRefusal(
+                    nvrhi::TextureDesc(colorTexture).setFormat(nvrhi::Format::D24S8))
+                    .empty());
+    // Un format entier ne se lit pas par un `Texture2D<float4>` ; une texture sans usage de shader
+    // n'a ni échantillonnage ni SRV ; un flottant sur 32 bits ne se filtre pas sous WebGPU.
+    for (const nvrhi::Format format :
+         {nvrhi::Format::RGBA8_UINT, nvrhi::Format::R32_UINT, nvrhi::Format::RGBA8_SINT,
+          nvrhi::Format::R32_FLOAT, nvrhi::Format::RG32_FLOAT, nvrhi::Format::RGB32_FLOAT,
+          nvrhi::Format::RGBA32_FLOAT})
+    {
+        CAPTURE(nvrhi::getFormatInfo(format).name);
+        CHECK_FALSE(levain::ui::uiTextureRefusal(nvrhi::TextureDesc(colorTexture).setFormat(format))
+                        .empty());
+    }
+    nvrhi::TextureDesc unreadable = colorTexture;
+    unreadable.isShaderResource = false; // NVRHI n'a pas de setter pour ce champ
+    CHECK_FALSE(levain::ui::uiTextureRefusal(unreadable).empty());
+    // Les normalisés, eux, se filtrent partout.
+    CHECK(levain::ui::uiTextureRefusal(
+              nvrhi::TextureDesc(colorTexture).setFormat(nvrhi::Format::RGBA8_UNORM))
+              .empty());
 }
