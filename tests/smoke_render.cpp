@@ -5,6 +5,10 @@
 // Avec « webgpu », la même scène passe par le backend WebGPU de NVRHI, sur Dawn (ADR-0023), et doit
 // donner la même image que Vulkan : c'est la preuve que le backend traduit fidèlement le moteur.
 //
+// Avec « d3d12-warp » (Windows), la scène passe par Direct3D 12 sur WARP, son rendu logiciel : le
+// seul adaptateur d'un runner de CI (#19). Sous le pilote offscreen de SDL, sans fenêtre Win32 ni
+// swapchain ; la même référence que Vulkan.
+//
 // Mettre à jour une référence après un changement voulu du rendu :
 //   LEVAIN_UPDATE_REFERENCE=1 SDL_VIDEO_DRIVER=offscreen \
 //     ./build/linux-debug/tests/levain_smoke_render cube
@@ -29,6 +33,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+
+#include "gpu_test_backend.hpp"
 
 #include "levain/assets/image.hpp"
 #include "levain/core/environment.hpp"
@@ -361,10 +367,12 @@ levain::core::Result<Image> renderScene(nvrhi::IDevice& device, std::string_view
 }
 
 /// L'image de `scene`, rendue par Vulkan ou Direct3D 12 (`createGpuDevice`, sur une fenêtre :
-/// Vulkan en tire sa surface) ou par WebGPU (sans fenêtre).
-levain::core::Result<Image> renderWith(std::string_view backend, std::string_view scene)
+/// Vulkan en tire sa surface, Direct3D 12 sa swapchain, sauf sous le pilote offscreen de SDL) ou
+/// par WebGPU (sans fenêtre).
+levain::core::Result<Image> renderWith(const levain::tests::TestBackend& backend,
+                                       std::string_view scene)
 {
-    if (backend == "webgpu")
+    if (backend.api == nvrhi::GraphicsAPI::WEBGPU)
     {
         auto device = levain::gpu::createWebGpuDevice({.enableValidation = true});
         if (!device)
@@ -373,17 +381,13 @@ levain::core::Result<Image> renderWith(std::string_view backend, std::string_vie
         }
         return renderScene(**device, scene);
     }
-    // Une surface Vulkan pour Vulkan seulement : Direct3D 12 ne doit pas dépendre du chargeur
-    // Vulkan.
-    const nvrhi::GraphicsAPI api =
-        levain::gpu::graphicsApiNamed(backend).value_or(nvrhi::GraphicsAPI::VULKAN);
     auto window = levain::platform::createWindow("Levain - test de fumée", ImageSize, ImageSize,
-                                                 levain::gpu::surfaceFor(api));
+                                                 levain::gpu::surfaceFor(backend.api));
     if (!window)
     {
         return std::unexpected(window.error());
     }
-    auto gpu = levain::gpu::createGpuDevice(*window, {.enableValidation = true, .api = api});
+    auto gpu = levain::gpu::createGpuDevice(*window, levain::tests::testDeviceOptions(backend));
     if (!gpu)
     {
         return std::unexpected(gpu.error());
@@ -391,7 +395,8 @@ levain::core::Result<Image> renderWith(std::string_view backend, std::string_vie
     return renderScene(*gpu->nvrhi, scene);
 }
 
-int runSmokeTest(std::string_view scene, std::string_view backend)
+int runSmokeTest(std::string_view scene, std::string_view backendName,
+                 const levain::tests::TestBackend& backend)
 {
     auto actual = renderWith(backend, scene);
     if (!actual)
@@ -433,7 +438,7 @@ int runSmokeTest(std::string_view scene, std::string_view backend)
     }
 
     // L'image obtenue reste à côté du binaire, pour la comparer à l'œil à la référence.
-    writePpm(std::format("{}.{}.actual.ppm", scene, backend), *actual);
+    writePpm(std::format("{}.{}.actual.ppm", scene, backendName), *actual);
     return 1;
 }
 
@@ -445,20 +450,23 @@ int main(int argc, char** argv)
     try
     {
         const std::span arguments{argv, static_cast<std::size_t>(argc)};
-        const std::string_view backend = arguments.size() == 3 ? arguments[2] : "vulkan";
+        const std::string_view backendName = arguments.size() == 3 ? arguments[2] : "vulkan";
+        const auto backend = levain::tests::testBackendNamed(backendName);
         if (arguments.size() < 2 || arguments.size() > 3 ||
             (std::string_view{arguments[1]} != "triangle" &&
              std::string_view{arguments[1]} != "cube" &&
              std::string_view{arguments[1]} != "cube-instance" &&
              std::string_view{arguments[1]} != "lines" &&
              std::string_view{arguments[1]} != "shadow") ||
-            !levain::gpu::graphicsApiNamed(backend))
+            !backend)
         {
-            std::println(stderr, "usage : levain_smoke_render "
-                                 "triangle|cube|cube-instance|lines|shadow [vulkan|d3d12|webgpu]");
+            std::println(
+                stderr,
+                "usage : levain_smoke_render "
+                "triangle|cube|cube-instance|lines|shadow [vulkan|d3d12|d3d12-warp|webgpu]");
             return 2;
         }
-        return runSmokeTest(arguments[1], backend);
+        return runSmokeTest(arguments[1], backendName, *backend);
     }
     catch (const std::exception& e)
     {

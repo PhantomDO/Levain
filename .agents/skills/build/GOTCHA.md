@@ -3,6 +3,54 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Direct3D 12 sur WARP : la fenêtre sans HWND, `SDL_WINDOW_VULKAN`, et un `-R` trop large (2026-10-10)
+
+#19 : `ctest -R d3d12-warp` (`tests/CMakeLists.txt`), huit tests par configuration Windows, sur le portable (WARP
+« Microsoft Basic Render Driver », pilote 10.0.26100.9549, shader model 6.8). Le runner de la CI (`windows-2025-vs2026`)
+n'a que « Microsoft Hyper-V Video » : WARP y est le seul adaptateur Direct3D 12.
+
+- **Symptôme** : `SDL_VIDEO_DRIVER=offscreen levain_smoke_render.exe triangle d3d12` s'arrête sur « la fenêtre SDL n'a
+  pas de HWND » (code 1). **Cause** : le pilote `offscreen` de SDL n'ouvre pas de fenêtre Win32, et la swapchain DXGI
+  en veut une. **Parade** : sans HWND, sous ce pilote seulement (`isOffscreenVideoDriver`, le pilote que SDL a retenu),
+  `createD3d12Device` rend un device sans swapchain, et `beginFrame` dessine dans l'image hors écran de `GpuDevice`,
+  comme WebGPU en natif. Tout autre pilote sans HWND reste une erreur : `SDL_VIDEO_DRIVER=dummy WSLENV=SDL_VIDEO_DRIVER
+  levain_smoke_render.exe triangle d3d12-warp` sort en 1 sur ce message.
+- **Symptôme** : sur une machine sans `vulkan-1.dll`, `SDL_CreateWindow` rend `NULL` même pour `--gpu d3d12`. **Cause** :
+  SDL charge la bibliothèque Vulkan pour toute fenêtre qui annonce `SDL_WINDOW_VULKAN` (`SDL_video.c:2517`, SDL 3.4.12).
+  **Parade** : `createWindow(…, GraphicsSurface)` ne pose le drapeau que pour Vulkan (`gpu::surfaceFor`) ; le doctest
+  « une fenêtre n'annonce Vulkan qu'à la demande » pointe `SDL_VULKAN_LIBRARY` sur un fichier absent (le pilote
+  offscreen la lit). Rouge avec le drapeau toujours posé (la fenêtre sans surface échoue), et rouge avec le drapeau
+  jamais posé (la fenêtre Vulkan s'ouvre).
+- **Un GPU ne doit pas passer pour WARP** : `EnumWarpAdapter` rendu par DXGI est vérifié par son drapeau
+  `DXGI_ADAPTER_FLAG_SOFTWARE`. Contre-test, dans une copie de `device_d3d12.cpp` : `EnumWarpAdapter` remplacé par
+  `EnumAdapterByGpuPreference(0, HIGH_PERFORMANCE)`, `smoke.d3d12-warp.triangle` rouge, « EnumWarpAdapter a rendu « NVIDIA
+  GeForce RTX 4070 Laptop GPU », qui n'est pas un adaptateur logiciel » ; avec en plus le contrôle retiré, il passe en
+  0,33 s sur la 4070 sans rien dire (le journal `[gpu]` nomme l'adaptateur).
+- **WARP garde la validation** : une queue `BUNDLE` créée avant l'inscription de la couche de debug (D3D12_MESSAGE_ID 909,
+  voir « Direct3D 12 sur la 4070 ») arrête `smoke.d3d12-warp.triangle` sur l'assertion en Debug, comme sur la 4070.
+- **Sans swapchain, personne ne relisait la file de la couche de debug DXGI** : elle ne rappelle pas le moteur (voir
+  « Direct3D 12 sur la 4070 »), seule la swapchain la lit, et le chemin `offscreen`, le seul que la CI lance, n'en a
+  pas : ce que DXGI disait à la création de la factory ou de l'adaptateur était perdu, les huit tests restant verts.
+  Parade : `createD3d12Device` relit la file (`drainDxgiMessages`) avant de rendre un device sans swapchain.
+  Contre-test, dans une copie de `device_d3d12.cpp` : un message d'erreur ajouté à la file avant la relecture
+  (`AddMessage(DXGI_DEBUG_DXGI, …, ERROR, …)`) arrête `smoke_render.exe triangle d3d12-warp` sur l'assertion (code 3) ;
+  avec la relecture retirée et le même message, le programme sort en 0 : c'est elle qui protège. De même, un
+  `GetDesc1` refusé dans `warpAdapter` (copie, `E_FAIL`) sort en 1 sur « IDXGIAdapter1::GetDesc1 : HRESULT 0x80004005 »,
+  plutôt que d'accuser un adaptateur sans nom.
+- **Hors écran aussi sur la 4070** : `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER levain_smoke_render.exe
+  triangle d3d12` (puis `shadow`) rend 0 pixel différent, sans fenêtre (« Direct3D 12 sous le pilote offscreen de SDL »).
+- **Les mêmes références que lavapipe, sans tolérance de plus** : triangle, cube et cube-instance à 0 pixel, lines à 0
+  (4 admis), shadow à 3 (16 admis), light-clusters « 0 différents du CPU », en Debug comme en Release
+  (`SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER ctest --test-dir build/windows-debug -R d3d12-warp -V`, puis
+  `windows-release`) ; 0,1 à 0,7 s par test, les huit en 2,6 s en Debug et 2,2 s en Release (somme des durées de ctest).
+- **Piège de la commande, vu en session** : `-R 'smoke.d3d12-warp.triangle|smoke.triangle'` a lancé aussi le test
+  **Vulkan** `smoke.triangle`. Avec `WSLENV=SDL_VIDEO_DRIVER`, la propriété `ENVIRONMENT` de ce test
+  (`SDL_VIDEO_DRIVER=windows`, `testVideo`) passe devant le `offscreen` de l'appelant et atteint l'exe, qui a ouvert
+  une vraie fenêtre de 64 × 64 sur le bureau du portable pendant 1,4 s. Sans `WSLENV`, la variable n'atteint pas l'exe
+  et SDL prend le pilote `windows` par défaut : la fenêtre s'ouvre de même. **Parade** : depuis la distro, ne lancer
+  que `-R d3d12-warp` (leur `ENVIRONMENT` est `offscreen`, que `WSLENV` fait passer), et jamais un `-R` assez large
+  pour attraper un test Vulkan ou `gpu.*.vulkan` : le `offscreen` de l'appelant ne les protège pas.
+
 ## Un `PASS_REGULAR_EXPRESSION` sur le message d'un `static_assert` passe quand il n'est plus évalué (2026-10-09)
 
 - **Symptôme** : `scene.reflection-refuses-compile.*` (`tests/reflection_compile_refusals.cpp`). Avec la condition du

@@ -42,9 +42,17 @@ les `dxil.*`, `cmake --build` pour les refus à la compilation) portent le label
 les programmes de la cible, ce que fait le runner Windows de la CI. Le winsysroot de la machine de référence :
 `tools/winsysroot.sh` (xwin, celui de la CI), dans un dossier nommé d'après son tampon (docs/SETUP.md).
 
-Direct3D 12 (#18) se lance à la main sur la 4070, ctest ne le déclarant pas encore (WARP, #19) :
-`levain_sandbox.exe --gpu d3d12`, `levain_smoke_render.exe <scène> d3d12`, `levain_light_clusters.exe d3d12`,
-`levain_environment.exe d3d12`, `levain_ui_gpu.exe d3d12`.
+Direct3D 12 (#18, #19). Sur WARP, le rendu logiciel de Windows, ctest déclare huit tests par configuration
+(`smoke.d3d12-warp.*`, `gpu.*.d3d12-warp`) : ceux de la CI, qui n'a pas de GPU, et de la distro. Ils tournent sous le
+pilote `offscreen` de SDL (pas de fenêtre Win32, pas de swapchain), et lancés de la distro il faut le leur transmettre :
+`SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER ctest --test-dir build/windows-debug -R d3d12-warp`. **Ne pas élargir
+le `-R` aux tests Vulkan** : ils ouvrent une vraie fenêtre sur le bureau, avec ou sans `WSLENV` (sans lui, SDL prend le
+pilote `windows` par défaut ; avec lui, la propriété `ENVIRONMENT` de ces tests, `windows`, passe devant le `offscreen`
+de l'appelant) : le `offscreen` du shell ne les protège pas (build/GOTCHA.md). Sur la 4070, à la main, sans fenêtre :
+`SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER levain_smoke_render.exe <scène> d3d12` et ses trois cousins
+(`levain_light_clusters.exe`, `levain_environment.exe`, `levain_ui_gpu.exe`), le sandbox par
+`SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER levain_sandbox.exe --gpu d3d12 --capture x.png` ; sans le
+`offscreen`, `levain_sandbox.exe --gpu d3d12` ouvre une fenêtre.
 
 Un exe Windows n'ouvre ni la fenêtre de la CRT ni celle d'une exception quand il échoue (assertion, STL, `abort()`,
 paramètre invalide, plantage) : le message va sur stderr, puis le programme s'arrête en Debug (code non nul), ou, en

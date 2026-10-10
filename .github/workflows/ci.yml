@@ -738,7 +738,11 @@ jobs:
 
       # La CRT vient du runner (ADR-0035 : rien de Microsoft dans l'artefact) : au moins celle de la STL qui a compilé,
       # Debug comprise, sans quoi un exe s'arrêterait au chargement, ou plus loin, sur une fonction qui manque. Puis
-      # lavapipe et les couches de validation, que le chargeur doit trouver : vulkaninfo les nomme.
+      # Direct3D 12 sur WARP (les tests d3d12-warp, #19) : le rendu logiciel est dans le système (d3d10warp.dll), et les
+      # tests exigent les couches de debug de Direct3D 12 et de DXGI, aussi en Release (d3d12SDKLayers.dll, de la
+      # fonctionnalité facultative « Outils graphiques » de Windows ; dxgidebug.dll, build/GOTCHA.md). Une absence arrête
+      # le job ici en nommant le fichier, plutôt que dans huit tests rouges (règle n°7). Enfin lavapipe et les couches de
+      # validation, que le chargeur doit trouver : vulkaninfo les nomme.
       - name: Vérifier le runner
         run: |
           $ErrorActionPreference = 'Stop'
@@ -751,6 +755,19 @@ jobs:
             if ($dll -notlike 'ucrt*' -and ($found.Major -ne $msvc.Major -or $found -lt $msvc)) {
               throw "$dll $($info.FileVersion), plus ancienne que la STL $msvc qui a compilé"
             }
+          }
+          # Chaque fichier avec sa provenance : celle d'un fichier manquant est la piste à suivre.
+          $direct3d = [ordered]@{
+            'd3d10warp.dll'      = 'WARP, qui fait partie de Windows'
+            'd3d12SDKLayers.dll' = 'fonctionnalité « Outils graphiques » de Windows'
+            'dxgidebug.dll'      = 'fonctionnalité « Outils graphiques » de Windows'
+          }
+          foreach ($dll in $direct3d.Keys) {
+            $path = "$env:SystemRoot\System32\$dll"
+            if (-not (Test-Path $path)) {
+              throw "$dll absent du runner : les tests d3d12-warp l'exigent ($($direct3d[$dll]))"
+            }
+            "$dll $((Get-Item $path).VersionInfo.FileVersion)"
           }
           $summary = & vulkan-rt\vulkaninfo.exe --summary | Out-String
           $summary
