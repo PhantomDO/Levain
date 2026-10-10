@@ -741,7 +741,7 @@ jobs:
       # Direct3D 12 sur WARP (les tests d3d12-warp, #19) : le rendu logiciel est dans le système (d3d10warp.dll), et les
       # tests exigent les couches de debug de Direct3D 12 et de DXGI, aussi en Release (d3d12SDKLayers.dll, de la
       # fonctionnalité facultative « Outils graphiques » de Windows ; dxgidebug.dll, celle de DXGI). Une absence arrête
-      # le job ici en nommant le fichier, plutôt que dans neuf tests rouges (règle n°7). Enfin lavapipe et les couches de
+      # le job ici en nommant le fichier, plutôt que dans dix tests rouges (règle n°7). Enfin lavapipe et les couches de
       # validation, que le chargeur doit trouver : vulkaninfo les nomme.
       - name: Vérifier le runner
         run: |

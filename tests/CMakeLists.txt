@@ -390,6 +390,14 @@ target_compile_definitions(levain_app_script PRIVATE LEVAIN_DATA_DIR="${CMAKE_SO
 add_test(NAME gpu.app-script.vulkan COMMAND levain_app_script vulkan)
 set_tests_properties(gpu.app-script.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# La boucle de l'App par ses points nommés (ADR-0036, morceau 4) : la simulation à l'arrêt, dans la vraie boucle hors
+# écran.
+add_executable(levain_app_loop app_loop_gpu.cpp)
+target_link_libraries(levain_app_loop PRIVATE levain::app levain::platform levain::scene)
+target_compile_definitions(levain_app_loop PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.app-loop.vulkan COMMAND levain_app_loop vulkan)
+set_tests_properties(gpu.app-loop.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # ImGui reste dans ui/ et au-dessus, et SDL hors de ui/ (SPECS §7, ADR-0032).
 levain_add_host_test(deps.imgui-visibility
     ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_imgui_visibility.cmake)
@@ -473,8 +481,9 @@ if(WIN32)
     # Celui-ci passe par runApp, dont la validation suit les assertions (EnableValidation) : en Release, il tourne sans les
     # couches de debug que les autres forcent. Le contrôle des couches (ci.yml) repose sur ces autres tests.
     add_test(NAME gpu.app-script.d3d12-warp COMMAND levain_app_script d3d12-warp)
+    add_test(NAME gpu.app-loop.d3d12-warp COMMAND levain_app_loop d3d12-warp)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
-        gpu.app-script.d3d12-warp PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+        gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 
 # ADR-0018 et ADR-0034 : le moteur vu d'un jeu. La frontière des plugins et de l'éditeur, sur un
