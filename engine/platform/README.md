@@ -28,7 +28,7 @@ clavier, de la souris et des manettes, avec la résolution des noms de SDL dont 
 | Fichier | Contenu |
 |---|---|
 | [`include/levain/platform/window.hpp`](include/levain/platform/window.hpp) | `createWindow` (et `GraphicsSurface`, la surface que la fenêtre annonce), `windowPixelSize`, `pollEvents`, `waitEvents`, `setWindowTitle` |
-| [`include/levain/platform/input_script.hpp`](include/levain/platform/input_script.hpp) | `InputScript`, `parseInputScript`, `addScriptedEvents` : des événements écrits dans un fichier, rejoués image par image (ADR-0036) |
+| [`include/levain/platform/input_script.hpp`](include/levain/platform/input_script.hpp) | `InputScript`, `parseInputScript`, `loadInputScript`, `addScriptedEvents` : des événements écrits dans un fichier, rejoués image par image (ADR-0036) |
 | [`include/levain/platform/process.hpp`](include/levain/platform/process.hpp) | `runProcess` — lance un programme, attend sa fin, rend sa sortie (standard et erreur mêlées) et son code de retour |
 | [`include/levain/platform/input.hpp`](include/levain/platform/input.hpp) | `InputEvent` (appuis, axes, souris), `keyCodeFromName` et ses cousines, `setMouseCaptured`, `cursorPosition` (la souris en pixels de la swapchain, pour viser à l'écran) ; pour une interface (ADR-0032) : `UiEvent`, `startTextInput`, `stopTextInput`, `clipboardText`, `setClipboardText`, `displayScale` |
 
@@ -61,6 +61,31 @@ Le jeu lit des actions ; une interface (ImGui, `engine/ui`) a besoin d'autre cho
 - **Le texte n'arrive qu'entre `startTextInput` et `stopTextInput`.** C'est aussi ce qui ouvre le clavier d'un
   téléphone.
 - **La position de la souris est en pixels de l'image**, densité comprise, comme `cursorPosition`.
+
+## Le banc d'essai de l'input (ADR-0036)
+
+`parseInputScript` lit un fichier d'événements (format dans `input_script.hpp`) et `addScriptedEvents` les ajoute,
+image par image, à ceux de `pollEvents` : ImGui, `gameInputOf` et les actions ne savent pas d'où ils viennent. **Une
+touche y a deux identités**, comme chez SDL : sa position (le scancode, que lit le jeu) et sa lettre (le keycode, que
+lit ImGui) ; `key down W as z` simule un AZERTY. Sans `as`, la lettre est celle d'un QWERTY américain, par une table à
+nous : `SDL_GetKeyFromScancode` lit la disposition de la machine, et le même script doit donner les mêmes touches
+partout. Une ligne illisible, un script sans événement, une image au-delà de `MaxInputScriptFrame` sont refusés en
+nommant la ligne et le champ (règle n°7).
+
+**Pas encore scriptés, et le morceau d'ADR-0036 qui les ajoute** (`addKey` et `addButton` montrent où) :
+
+| Événement | Morceau | Pour quel scénario |
+|---|---|---|
+| la position de la souris | 5, 8 | un clic dans la Vue ou hors d'elle |
+| le mouvement, la molette | 11 | l'orbite, le zoom, le vol |
+| le texte | 12 | un champ texte qui garde son Ctrl+Z |
+| la fermeture de la fenêtre | 13 | la modale de fermeture |
+| la répétition d'une touche | aucun | rien ne la demande |
+
+**Le piège du morceau 8** : le picking du sandbox lit `platform::cursorPosition`, qui interroge SDL, pas les
+événements. Une position scriptée n'y changerait rien : le morceau 8 doit faire lire à `App` la position que les
+événements ont portée (ou la leur substituer sous un script), sans quoi « un clic dans la Vue choisit le cube visé »
+resterait intestable.
 
 ## Trois choses à savoir sur les fenêtres
 
@@ -96,3 +121,4 @@ pixels, parce que c'est ce dont la swapchain aura besoin.
 | **Unreal** | `ApplicationCore` | `FGenericApplication` et `FGenericWindow`, une implémentation par plateforme. Sous Linux, `FLinuxApplication` est construit sur SDL : Unreal fait exactement le choix de l'ADR-0003 (**documenté** : sources publiques, `Runtime/ApplicationCore/Private/Linux/`). |
 | **Godot** | `DisplayServer` | Une classe par système (`DisplayServerX11`, `DisplayServerWayland`). La boucle principale saute le rendu quand aucune fenêtre ne peut dessiner (`can_any_window_draw`, `main/main.cpp`) : c'est notre `Hidden` (**documenté** : dépôt public). |
 | **Unity** | — | Côté C#, `OnApplicationFocus`, `OnApplicationPause` et `Application.runInBackground` exposent le même besoin. L'implémentation C++ n'est pas publique. |
+| **Test d'input** | `InputTestFixture` (Unity Input System), `Input.parse_input_event` (Godot), Automation Driver (Unreal) | Rejouer des événements dans la vraie boucle : **documenté** pour Unity et Godot ; chez Unreal, `IAutomationDriver` simule la souris et le clavier par Slate (**documenté** dans l'API, non lu en détail). |

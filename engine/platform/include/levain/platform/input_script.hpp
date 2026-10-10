@@ -4,8 +4,9 @@
 // image par image à la place d'un clavier et d'une souris. Ce que le moteur en voit est du type de
 // ce que `pollEvents` rend, `Events` : toute la chaîne qui suit (ImGui, `gameInputOf`, les actions)
 // est celle du vrai programme. À une différence près : pas de répétition de touche, pas de texte,
-// et la lettre d'une ponctuation est son scancode au lieu du caractère que SDL donnerait.
+// et la lettre d'une ponctuation sans `as` est son scancode au lieu du caractère que SDL donnerait.
 
+#include <filesystem>
 #include <map>
 #include <string_view>
 
@@ -36,17 +37,24 @@ struct InputScript
 [[nodiscard]] core::Result<void> checkInputScript(const InputScript& script);
 
 /// Lit un script, une ligne par événement, `#` pour un commentaire. Les mots sont séparés par des
-/// espaces, les images en ordre croissant :
+/// espaces ou des tabulations, les images en ordre croissant (un fichier peut commencer par la
+/// marque UTF-8, comme l'écrit le Bloc-notes) :
 ///
-///     <image> key down|up <touche>   une position du clavier, par son nom SDL
+///     <image> key down|up <touche> [as <lettre>]   une position du clavier, par son nom SDL
+///     <image> button down|up left|right|middle     un bouton de la souris
 ///
 /// **Une touche a deux identités** : sa position (`W`, le scancode, que lit le jeu) et la lettre
-/// qu'elle tape (le keycode, que lit ImGui). La lettre est celle d'un clavier QWERTY américain.
+/// qu'elle tape (le keycode, que lit ImGui). Sans `as`, la lettre est celle d'un clavier QWERTY
+/// américain ; `key down W as z` simule un AZERTY, où la touche à la place du W tape « z ». Les
+/// touches de modification tenues s'ajoutent aux événements qui suivent, comme chez SDL.
 ///
 /// Une ligne que le script ne sait pas lire est refusée en nommant la ligne et le champ : un script
 /// qui ne rejouerait pas ce qu'il dit serait un test qui ne vérifie rien (règle n°7). Un texte sans
 /// aucun événement l'est aussi (`checkInputScript`).
 [[nodiscard]] core::Result<InputScript> parseInputScript(std::string_view text);
+
+/// Comme `parseInputScript`, pour un fichier : une erreur y ajoute son nom.
+[[nodiscard]] core::Result<InputScript> loadInputScript(const std::filesystem::path& path);
 
 /// Ajoute aux événements d'une image, ceux que `pollEvents` a rendus, ceux que le script lui
 /// réserve, après les leurs. Sans événement pour cette image, ne fait rien.
