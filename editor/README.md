@@ -9,11 +9,33 @@ avec une définition qui enveloppe son démarrage par `withEditor`, et lié à `
 ainsi `levain_sandbox_editor` (dans `sandbox/`) pour ses démos et sa CI ; *Rando* construira `rando_editor` à côté
 de `rando`, dont la cible ne change pas.
 
-**État en M7.2 (en cours)** : le branchement sur la boucle, l'option `--select`, le bilan que lit la CI, **la
-hiérarchie** : les entités placées (`Transform`), rangées par `flecs::Parent` (ADR-0015), et un nœud
-*Singletons*, qui sélectionne seulement ; et **l'inspecteur** : les composants de l'entité choisie, un widget par
-champ, lus dans la description de flecs, aux valeurs de l'image. Une donnée d'auteur (`Authored`) s'édite, le
-reste est grisé ; trois dessinateurs lui donnent des angles, des noms d'entité et d'asset.
+**État après M7.2 : l'éditeur, c'est le jeu avec deux panneaux de plus.** Il a le branchement sur la boucle,
+l'option `--select`, le bilan que lit la CI, **la hiérarchie** : les entités placées (`Transform`), rangées par
+`flecs::Parent` (ADR-0015), et un nœud *Singletons*, qui sélectionne seulement ; et **l'inspecteur** : les
+composants de l'entité choisie, un widget par champ, lus dans la description de flecs, aux valeurs de l'image. Une
+donnée d'auteur (`Authored`) s'édite, le reste est grisé ; trois dessinateurs lui donnent des angles, des noms
+d'entité et d'asset. Il n'a pas encore :
+
+- **de mode Édition** : `withEditor` n'enveloppe que `ui` et `finish` (editor/src/editor.cpp:88-108), et la
+  simulation avance à chaque image (engine/app/src/app.cpp:875-877). Le clavier va au jeu dès qu'aucun widget ne le
+  prend (app.cpp:851-852) : les touches de vol, ZQSD sur un AZERTY, déplacent la caméra pendant qu'on édite, et
+  Ctrl+Z y appuie aussi sur « avancer » ;
+- **de Vue** : la scène couvre la fenêtre, vue par le centre du docking (engine/app/src/panels.cpp:152), mais sa
+  projection est celle de la fenêtre entière (engine/render/src/renderer.cpp:139) ; la caméra est celle du jeu, une
+  entité que déplace un système du pas fixe (sandbox/src/main.cpp:641-647 ; engine/scene/src/scene.cpp:111-117), et
+  panneaux ouverts, la souris n'est jamais capturée (engine/app/include/levain/app/ui_layer.hpp:93-96) ;
+- **d'écriture vue dans son image** : les panneaux passent après les pas et le choix de la caméra (app.cpp:875-891) ;
+  une valeur tapée dans l'inspecteur se voit à l'image suivante ;
+- **d'enregistrement** : rien n'écrit la scène, et fermer la fenêtre arrête la boucle sans rien demander
+  (app.cpp:106-107) ;
+- **d'annulation** : `commitEdit` écrit la copie par `setComponentValue` sans garder l'ancienne valeur
+  (editor/src/inspector.cpp:542-551) ;
+- ni menu, ni raccourci, ni console.
+
+La suite : l'[ADR-0036](../docs/adr/0036-mode-edition-vue-et-camera-de-l-editeur.md), proposé pour M7.7, que
+suivent M7.5, M7.3, M7.4 et M7.6. Les gestes quotidiens d'Unity et d'Unreal que l'éditeur doit rendre, chacun avec son
+milestone et le scénario qui le prouvera, sont dans [GESTES.md](GESTES.md) : chaque clôture y compte « N gestes sur
+M couverts par un test ».
 
 ## Invariants
 
