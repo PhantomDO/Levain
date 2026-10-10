@@ -32,6 +32,9 @@ d'entité et d'asset. Il n'a pas encore :
   (editor/src/inspector.cpp:543-552) ;
 - ni menu, ni raccourci, ni console.
 
+**La logique de sa caméra est écrite** (M7.7, morceau 9, `camera.hpp`), sans entrée ni Vue pour la porter : les gestes
+(morceau 11) lui donneront des deltas, `App::cameraOverride` sa sortie.
+
 La suite : l'[ADR-0036](../docs/adr/0036-mode-edition-vue-et-camera-de-l-editeur.md), proposé pour M7.7, que
 suivent M7.5, M7.3, M7.4 et M7.6. Les gestes quotidiens d'Unity et d'Unreal que l'éditeur doit rendre, chacun avec son
 milestone et le scénario qui le prouvera, sont dans [GESTES.md](GESTES.md) : chaque clôture y compte « N gestes sur
@@ -90,6 +93,13 @@ M couverts par un test ».
 14. **Tout texte affiché passe par le catalogue** (`ui::tr`, `trf`, `textf`, `labelOf` ; ADR-0036, décision 14), sauf les
     noms de la réflexion (composants, champs), qui restent ceux du code. Un identifiant seul prend « ## » ; une fenêtre,
     un titre en `ui::labelOf`. `i18n.untranslated` le refuse, un texte construit à l'exécution lui échappe.
+15. **La caméra de l'éditeur est un état et des fonctions libres** (ADR-0036, décision 6, ADR-0011) : `EditorCamera`
+    (l'œil, le lacet, le tangage, la distance du pivot, la vitesse), que chaque fonction reçoit et rend
+    modifié. Ni entité, ni SDL, ni ImGui, ni flecs : un delta est en pixels, en crans de molette ou en unités, la durée
+    est celle de l'image. **Les angles sont la source** (comme `scene::FpsController`), le pivot se déduit (`pivotOf`,
+    à `pivotDistance` devant l'œil). **Tout nombre qui entre est fini ou ignoré** : un NaN dans un delta, une durée
+    ou un axe ne change rien. Le tangage, le lacet et la vitesse ne sont **jamais utilisés** hors de leurs bornes (±89°,
+    replié à ±180°, 0,1 à 1000) : un état lu d'un fichier avec un tangage de 120° regarde comme à 89°.
 
 ## Points d'entrée
 
@@ -109,6 +119,8 @@ M couverts par un test ».
   l'application nomme les assets, sans lui leur GUID. `eulerHint` et `rotationFromEuler` : les angles d'une
   rotation et la rotation de ces angles ; `entityFieldOf` et `entityLabelOf` : l'entité d'un champ, et son
   texte ; `assetNameOf` : le texte d'un asset.
+- `scaleFlySpeed(camera, crans)` : la molette en vol, qui rend la caméra suivante. `clampEditorPitch`,
+  `wrapYawDegrees` et `clampFlySpeed` nomment les bornes.
 
 ## Pièges connus
 
@@ -160,6 +172,10 @@ M couverts par un test ».
   ne sont pas parcourus. À plusieurs sur un nœud, c'est ImGui qui met un onglet devant, sans règle qu'il documente :
   l'inspecteur a donc son nœud (`DockNodes::inspector`), toujours visible, sans quoi la CI pourrait compter zéro
   champ. La hiérarchie, onglet d'« Image », dresse sa liste avant `Begin` : le compte de ses lignes n'en dépend pas.
+- **`clampEditorPitch`** : ±89° et non ±90°. À 90° exactement l'avant est parallèle à la verticale et `lookAtRH`
+  (render/src/camera.cpp:10) n'a plus de droite ; au-delà, l'avant passe de l'autre côté et l'image se retourne.
+  `viewDirectionOf` borne aussi : un tangage lu dans un fichier ne retourne pas la vue. `std::clamp(NaN)` rend NaN,
+  qui resterait dans la position : un NaN vaut 0.
 - **Les options vont par paires** : `takeEditorOptions` lit nom et valeur comme `app::parseCommonOption`. Un
   « --select » en valeur d'une autre option n'est pas pris ; seul, sans valeur, il reste dans la ligne de
   commande, et le programme la refuse.
