@@ -25,7 +25,7 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
   (Image, Passes, Scène, en fenêtres ancrées), que F1 ou `--ui on` ouvrent ; le point d'accroche `ui`, où le
   programme ajoute ses fenêtres ; et la capture de la souris, que `App` possède. La disposition des panneaux
   garde ses nœuds (`UiLayer::dock`), où l'éditeur ancre les siens (ADR-0034) ;
-- **le banc d'essai** (ADR-0036) : `AppSettings::inputScript`, pour un test, rejoue les
+- **le banc d'essai** (ADR-0036) : `--input-script f` (ou `AppSettings::inputScript`, pour un test) rejoue les
   `platform::Events` d'un script dans la vraie boucle, hors écran. Voir l'invariant 12.
 
 ## Invariants
@@ -67,9 +67,9 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    mène la boucle, qui s'arrête après son dernier événement ; avec l'un d'eux, la première fin gagne, et un script
    que la boucle n'a pas fini de jouer fait échouer le programme (règle n°7) : un test ne passe pas sans avoir rejoué
    ce qu'il dit. **Pour un résultat qui se reproduise**, `--steps N` avec N au moins la longueur du script : sans lui,
-   le monde avance du temps réel de chaque image. `inputScriptOf` vérifie le script avant la fenêtre ; un script
-   vide arrête `runApp`. Sans script, rien n'est touché. `tests/app_script_gpu.cpp` est le banc :
-   un appui atteint `PlayerInput` par sa position, ImGui par sa lettre.
+   le monde avance du temps réel de chaque image. `inputScriptOf` lit le fichier avant la fenêtre ; un script
+   illisible, refusé ou vide arrête `runApp`. Sans option, rien n'est touché. `tests/app_script_gpu.cpp` est le banc :
+   un appui atteint `PlayerInput` par sa position, ImGui par sa lettre, du fichier comme de l'API.
 
 ## Pièges connus
 

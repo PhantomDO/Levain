@@ -993,7 +993,7 @@ bool finishLoop(Loop& loop)
         app.frameCount < platform::scriptLength(*app.settings.inputScript))
     {
         core::log("app", core::LogLevel::Error,
-                  "script d'input : {} images jouées sur les {} du script", app.frameCount,
+                  "--input-script : {} images jouées sur les {} du script", app.frameCount,
                   platform::scriptLength(*app.settings.inputScript));
         return false;
     }
@@ -1170,9 +1170,11 @@ std::optional<glm::vec3> parseVector(std::string_view text)
 
 OptionUse parseCommonOption(AppSettings& settings, std::string_view name, std::string_view value)
 {
-    if (name == "--capture" || name == "--sky")
+    if (name == "--capture" || name == "--sky" || name == "--input-script")
     {
-        (name == "--capture" ? settings.capturePath : settings.sky) = std::filesystem::path{value};
+        (name == "--capture" ? settings.capturePath
+         : name == "--sky"   ? settings.sky
+                             : settings.inputScriptFile) = std::filesystem::path{value};
         return OptionUse::Taken;
     }
     if (name == "--gpu")
@@ -1257,6 +1259,15 @@ OptionUse parseCommonOption(AppSettings& settings, std::string_view name, std::s
 
 core::Result<std::optional<platform::InputScript>> inputScriptOf(const AppSettings& settings)
 {
+    if (settings.inputScriptFile)
+    {
+        auto script = platform::loadInputScript(*settings.inputScriptFile);
+        if (!script)
+        {
+            return std::unexpected(script.error());
+        }
+        return std::optional{std::move(*script)};
+    }
     if (settings.inputScript)
     {
         if (auto checked = platform::checkInputScript(*settings.inputScript); !checked)
@@ -1274,7 +1285,7 @@ int runApp(const AppSettings& requested, const StartFunction& start)
     auto script = inputScriptOf(requested);
     if (!script)
     {
-        core::log("app", core::LogLevel::Critical, "script d'input : {}", script.error().message);
+        core::log("app", core::LogLevel::Critical, "--input-script : {}", script.error().message);
         return 1;
     }
     settings.inputScript = std::move(*script);

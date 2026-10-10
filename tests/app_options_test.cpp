@@ -1,6 +1,10 @@
+#include <filesystem>
+#include <fstream>
+
 #include <doctest/doctest.h>
 
 #include "levain/app/app.hpp"
+#include "levain/assets/asset_ref.hpp"
 #include "levain/gpu/device.hpp"
 
 // Les options communes de la ligne de commande (ADR-0029) : le contrat que le sandbox et *Rando*
@@ -76,19 +80,38 @@ TEST_CASE("les chemins se rangent tels quels, et les options du programme lui re
     CHECK(settings.capturePath == std::filesystem::path{"out.png"});
     CHECK(levain::app::parseCommonOption(settings, "--sky", "none") == OptionUse::Taken);
     CHECK(settings.sky == std::filesystem::path{"none"});
+    CHECK(levain::app::parseCommonOption(settings, "--input-script", "gestes.txt") ==
+          OptionUse::Taken);
+    CHECK(settings.inputScriptFile == std::filesystem::path{"gestes.txt"});
     CHECK(levain::app::parseCommonOption(settings, "--view", "hike") == OptionUse::NotMine);
     CHECK(levain::app::parseCommonOption(settings, "--walk", "1,0") == OptionUse::NotMine);
 }
 
-TEST_CASE("inputScriptOf : un script vide est une erreur, et sans script rien n'est touché")
+TEST_CASE("inputScriptOf : le fichier est lu, un script refusé, absent ou vide est une erreur")
 {
-    // `runApp` s'arrête sur cette erreur avant sa fenêtre : ici, sans fenêtre ni device, ce qu'elle
-    // refuse.
+    // `runApp` s'arrête sur cette erreur avant sa fenêtre (tests/app_script_gpu.cpp le joue de bout
+    // en bout) : ici, sans fenêtre ni device, ce qu'elle refuse.
+    namespace fs = std::filesystem;
     using levain::app::inputScriptOf;
+    const fs::path file = fs::temp_directory_path() /
+                          ("levain-app-options-" +
+                           levain::assets::toString(levain::assets::generateAssetId()) + ".txt");
     levain::app::AppSettings settings;
     CHECK_FALSE(inputScriptOf(settings).value().has_value()); // sans script, rien n'est touché
 
-    // L'API de test : un script sans événement, écrit à la main, ne rejouerait rien.
+    settings.inputScriptFile = file; // absent
+    CHECK_FALSE(inputScriptOf(settings).has_value());
+    std::ofstream(file) << "0 key down W\n1 key down Wxyz\n"; // touche inconnue
+    const auto refused = inputScriptOf(settings);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("ligne 2, touche") != std::string::npos);
+    std::ofstream(file) << "0 key down W\n";
+    const auto read = inputScriptOf(settings);
+    fs::remove(file);
+    CHECK((read && *read ? levain::platform::scriptLength(**read) : 0) == 1);
+
+    // L'API de test : un script sans événement, écrit à la main, ne rejouerait rien non plus.
+    settings.inputScriptFile.reset();
     settings.inputScript = levain::platform::InputScript{};
     CHECK_FALSE(inputScriptOf(settings).has_value());
     settings.inputScript = levain::platform::InputScript{.frames = {{3, {}}}};
