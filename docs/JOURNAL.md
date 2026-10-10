@@ -82,10 +82,11 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   (0,60) ne l'ont déclenchée. Comme M4.6, jugé avec la phase 4 (0,89), M1.4 se juge avec la phase 1 : à 1,33, la règle
   multiplierait par 1,33 les milestones restants des phases 7 et 8 : 15,85 h → 21,1 h (+5,3 h) avec la ROADMAP v0.16,
   acceptée le même jour (ci-dessous), 13,6 h → 18,1 h (+4,5 h) avec la v0.15 de `main`
-  (`awk 'BEGIN { printf "%.1f %.1f\n", 15.85 * 4 / 3, 13.6 * 4 / 3 }'`). Hors de la fourchette, la phase 4 (v0.7) a
-  été tranchée par Donnovan, par sondage : même chemin ici, avec une proposition, **aucun recalibrage** (le cumul à
-  1,03 ; la phase 7 à 0,74, 1,75 h pour 2,35 ; un dépassement propre à Windows et à la CI d'avant la règle n°1). La
-  ROADMAP a sa section « M1.4 — ratio 3,33 » ; le « Cumul » a sa ligne « 1 (M1.4) », comme « 4 (M4.6) ».
+  (`awk 'BEGIN { printf "%.1f %.1f\n", 15.85 * 4 / 3, 13.6 * 4 / 3 }'`). Hors de la fourchette, comme pour la phase 4
+  (v0.7), Donnovan a tranché par sondage : **aucun recalibrage** (ses mots ci-dessous ; le cumul à 1,03 ; la phase 7
+  à 0,74, 1,75 h pour 2,35 ; un dépassement propre à Windows et à la CI d'avant la règle n°1), le point refait à la
+  clôture de la phase 7. La ROADMAP a sa section « M1.4 — ratio 3,33 … : aucun recalibrage (décision de Donnovan) » ;
+  le « Cumul » a sa ligne « 1 (M1.4) », comme « 4 (M4.6) ».
 - Décisions de Donnovan :
   - l'ADR-0035 (le 08/10, deux sondages) ; le 09/10, les écritures sur GitHub, la CRT de Release comme les autres
     moteurs, la règle n°2 pour Direct3D 12, puis la règle n°1 (la CI une fois par fonctionnalité) : leurs mots sont
@@ -95,6 +96,18 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
     datait d'avant le portable ; le binaire tourne maintenant nativement sur sa 4070, et sous WARP en CI. La ROADMAP
     remplace la clause en citant sa réponse ;
   - la release `m1.4` : « Notes + mesures (Recommandé) » ;
+  - le même jour, par sondage, les deux questions que la clôture laissait ouvertes :
+    - « Avec M1.4 (5 h pour 1,5 h), la phase 1 passe à 8,0 h pour 6,0 h estimées : ratio 1,33, hors de la fourchette
+      0,8–1,25. La règle de la ROADMAP multiplierait les milestones restants (M7.7 à M8.3, 15,85 h) par 1,33, soit
+      +5,3 h. Je recalibre ? » : « Non, pas de recalibrage (Recommandé) ». L'option disait pourquoi : le cumul des
+      phases 0 à 6, M1.4 compris, à 1,03 ; la phase 7 à 0,74 ; un dépassement venu du PC Windows et de la CI de
+      chaque PR, que la règle n°1 a arrêtée ; le point refait à la clôture de la phase 7. La ROADMAP (« Recalibrage »)
+      le consigne ; les estimations ne changent pas ;
+    - « SPECS §10 demande, à chaque milestone de rendu, de lancer le binaire Windows de la CI sous Proton sur la
+      machine de référence. Maintenant qu'il tourne nativement sur ta 4070 et sous WARP en CI, je remplace ce
+      point ? » : « Remplacer (Recommandé) ». SPECS passe en v0.7 : à chaque milestone de rendu, le sandbox lancé
+      nativement sur sa 4070, en Vulkan et en Direct3D 12, fenêtré, et les tests Direct3D 12 sous WARP en CI
+      (§10, point 2) ; Proton n'est plus requis. L'ADR-0002 (amendé) et SETUP §4 (Proton facultatif) suivent ;
   - le même jour, pour M7.7 : « J'accepte l'ADR-0036 et la ROADMAP v0.16 ? » : « Accepter (Recommandé) » ; « Quand
     l'éditeur passera en anglais (M7.8), les messages du moteur (console, erreurs, journaux) doivent-ils aussi se
     traduire ? » : « Traduits aussi ». Chaque message passera par le catalogue, sous un nom stable que lit la CI, et
@@ -105,19 +118,17 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
     arrêtée le 09/10 (« ça fait 3 jours qu'on attend parfois 3h juste pour savoir si un commit passe »), ni la CRT de
     Windows, en Debug puis en Release (six PR), ni ce que la couche de debug de Direct3D 12 a trouvé (#372) : 34 PR et
     8 issues au milestone ;
-  - **le critère Proton est remplacé, pas tenu** ; SPECS §10 (point 2) prévoit encore Proton « à chaque milestone de
-    rendu » : la réponse ne vise que M1.4, le reste est à trancher ;
+  - **le critère Proton est remplacé, pas tenu** : Proton n'a pas lancé le binaire de M1.4. SPECS §10 (point 2), qui
+    le prévoyait « à chaque milestone de rendu », est remplacé lui aussi (décisions ci-dessus) ;
   - **ouvertes, hors milestone** : #361 (`PoolAllocator`), #363 (`SDL_assert` ouvre encore sa fenêtre sous Windows),
     #376 (l'indication de `shell.html` effacée) ; aucune ne touche un critère de M1.4. Les causes à trouver de l'entrée
     du 2026-10-09 (l'écart d'images par seconde entre Vulkan et Direct3D 12 sur la 4070, deux plantages de Release
     lents sous WER) n'ont pas d'issue.
 - Prochaine étape :
-  - **un sondage pour Donnovan**, deux questions : le recalibrage proposé ci-dessus (aucun, ou les phases 7 et 8 par
-    1,33) ; et SPECS §10, point 2, « Proton sur la machine de référence (à chaque milestone de rendu) », que sa réponse
-    de clôture ne touche pas : le morceau 7 de M7.7 rend la scène dans une texture, et M7.7 se clôturerait contre lui ;
-  - cette clôture et les corrections de `pr-autonome` vont à `main` par leur PR, hors de M7.7 (règle n°1), puis `main`
-    rejoint `m7.7/atelier` ; M7.7 « L'atelier » reprend par son morceau 0 (#389), puis les bancs d'essai et le mode
-    Édition (#390).
+  - cette clôture, ses deux décisions et les corrections de `pr-autonome` vont à `main` par leur PR, hors de M7.7
+    (règle n°1), puis `main` rejoint `m7.7/atelier`, dont la ROADMAP v0.16 reprend la section « Recalibrage » de
+    M1.4 ; M7.7 « L'atelier » reprend par son morceau 0 (#389), puis les bancs d'essai et le mode Édition (#390). Son
+    morceau 7 rend la scène dans une texture : M7.7 se clôturera avec le nouveau point 2 de SPECS §10.
 
 ## 2026-10-10 — M1.4 — #19 : Direct3D 12 sur WARP, en CI sans GPU ; le programme de l'éditeur décidé
 

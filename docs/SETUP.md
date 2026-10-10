@@ -26,7 +26,7 @@ free -h
 | Outil | Rôle |
 |---|---|
 | git, gh (GitHub CLI ; sous CachyOS : `sudo pacman -S github-cli`) | Dépôt et suivi |
-| Steam avec Proton | Lancer les binaires Windows sur la machine de référence (dès M1.4) |
+| Steam avec Proton (facultatif depuis le 10/10/2026) | Lancer les binaires Windows sur la machine de référence |
 | CMake 3.28 ou plus, Ninja | Build |
 | Clang et LLVM 23 (`clang-cl`, `lld-link`, `llvm-lib`, `llvm-rc`, `llvm-mt`) ; pour Windows, la STL et le SDK de Microsoft dans un winsysroot (ADR-0035) | Compilateurs ; Windows se compile depuis Linux |
 | Vulkan SDK de LunarG | Validation layers, `vulkaninfo`, `slangc`, `dxc` |
@@ -94,7 +94,10 @@ DRY_RUN=1 ./tools/github-bootstrap.sh <nom-du-moteur>   # affiche ce qui sera fa
 Le script crée le dépôt public, les labels, les 35 milestones avec leurs échéances, le board avec ses champs,
 et les issues des phases 0 et 1 avec leurs estimations. On peut le relancer : il saute ce qui existe déjà.
 
-## 4. Lancer un binaire Windows sous Proton (dès M1.4)
+## 4. Lancer un binaire Windows sous Proton (facultatif)
+
+Ce n'est plus une vérification requise depuis le 10/10/2026 (sondage de Donnovan) : à chaque milestone de rendu, le
+sandbox se lance nativement sur son PC Windows, et Direct3D 12 sous WARP en CI (SPECS §10, point 2).
 
 1. Récupérer l'artefact Windows de la dernière CI : `gh run download --name <artefact>` (ou l'onglet Actions).
 2. Dans Steam : *Ajouter un jeu* → *Ajouter un jeu non-Steam*, choisir l'exécutable.
