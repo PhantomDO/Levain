@@ -129,10 +129,17 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 drawInspector(app.world, editor->inspector, editor->selected,
                               app.ui.dock.inspector);
                 app.world.defer_end();
+                if (editor->inspector.wrote)
+                {
+                    app.recomposeAfterUi = true; // la valeur tapée se voit dans l'image même
+                }
             }
-            // Alt+P, panneaux ouverts ou fermés : `modeRequested` décide.
-            if (const auto requested =
-                    modeRequested(editor->mode.current, {.playShortcut = playShortcutPressed()}))
+            // Le bouton, Alt+P : `modeRequested` décide, la barre est dessinée panneaux fermés
+            // aussi.
+            if (const auto requested = modeRequested(
+                    editor->mode.current,
+                    {.toolbar = drawModeBar(editor->mode.current, app.sceneRect, app.ui.panelsOpen),
+                     .playShortcut = playShortcutPressed()}))
             {
                 enterMode(app, editor->mode, *requested);
             }

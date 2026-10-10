@@ -54,8 +54,8 @@ struct Editor
 /// les fenêtres du programme (`FrameHooks::ui`), panneaux ouverts seulement, et son bilan avant
 /// celui du programme (`FrameHooks::finish`). **Le `frame` du programme est enveloppé aussi** : en
 /// Édition, qui est le mode du départ, il n'est jamais appelé, la simulation est à l'arrêt et le
-/// jeu ne reçoit rien (`App::inputRoute`). Alt+P passe en « Jouer (sans retour) », qu'Échap
-/// quitte (`mode.hpp`).
+/// jeu ne reçoit rien (`App::inputRoute`). Alt+P ou la barre de mode passent en « Jouer (sans
+/// retour) », qu'Échap quitte (`mode.hpp`).
 [[nodiscard]] app::StartFunction withEditor(app::StartFunction start, EditorOptions options);
 
 } // namespace levain::editor

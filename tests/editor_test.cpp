@@ -278,6 +278,11 @@ TEST_CASE("l'inspecteur dessine un widget par champ, en suivant la description d
     entity.destruct();
     uiFrame(world, [&] { levain::editor::drawInspector(world, inspector, entity, 0); });
     CHECK(inspector.fieldsDrawn == 0);
+
+    // `wrote` est celui de l'image : une image qui n'écrit rien le remet à faux.
+    inspector.wrote = true;
+    uiFrame(world, [&] { levain::editor::drawInspector(world, inspector, entity, 0); });
+    CHECK_FALSE(inspector.wrote);
 }
 
 TEST_CASE("un composant non décrit, une étiquette, une paire : une ligne à leur nom")
@@ -442,9 +447,11 @@ TEST_CASE("un nombre tapé dans le champ d'une donnée d'auteur est borné, et p
 
     typing.frame<editor_test::Dial>(entity); // au repos, rien n'est écrit
     CHECK(typing.sets == 0);
+    CHECK_FALSE(typing.inspector.wrote);
     typing.type<editor_test::Dial>(entity, "0.25");
     CHECK(level() == doctest::Approx(0.25f));
     CHECK(typing.sets == 1);
+    CHECK(typing.inspector.wrote); // l'éditeur en demande la recomposition de l'image
     CHECK(typing.active); // le champ se tape : le pendant du test de la donnée en lecture seule
     // 5 dépasse la borne [0, 1] : Ctrl+clic tape au-delà sans AlwaysClamp.
     typing.type<editor_test::Dial>(entity, "5");
@@ -461,6 +468,7 @@ TEST_CASE("le champ d'une donnée en lecture seule est grisé : il ne se tape pa
     CHECK_FALSE(typing.active); // le grisé, que la garde de `commitEdit` ne suffit pas à prouver
     CHECK(entity.get<editor_test::Gauge>().level == 0.5f);
     CHECK(typing.sets == 0);
+    CHECK_FALSE(typing.inspector.wrote); // rien d'écrit, rien à recomposer
 }
 
 namespace
@@ -687,6 +695,8 @@ TEST_CASE(
     // une touche de vol.
     CHECK(levain::editor::inputRouteFor(Mode::PlayWithoutReturn, true) == InputRoute::Game);
     CHECK(levain::editor::inputRouteFor(Mode::PlayWithoutReturn, false) == InputRoute::Ui);
+    CHECK(levain::editor::otherMode(Mode::Edit) == Mode::PlayWithoutReturn);
+    CHECK(levain::editor::otherMode(Mode::PlayWithoutReturn) == Mode::Edit);
 }
 
 TEST_CASE("Échap ramène à l'Édition à son appui, pas tant qu'elle est tenue")
@@ -703,7 +713,7 @@ TEST_CASE("Échap ramène à l'Édition à son appui, pas tant qu'elle est tenue
     CHECK(levain::editor::stopPressed(state, raw)); // un nouvel appui
 }
 
-TEST_CASE("Alt+P joue, Échap arrête : chacune dans un seul sens")
+TEST_CASE("Alt+P joue, Échap arrête, seul le bouton va dans les deux sens")
 {
     using levain::editor::Mode;
     using levain::editor::modeRequested;
@@ -717,7 +727,22 @@ TEST_CASE("Alt+P joue, Échap arrête : chacune dans un seul sens")
     // Échap : du jeu à l'Édition, et rien en Édition.
     CHECK(modeRequested(Play, {.stop = true}) == Edit);
     CHECK_FALSE(modeRequested(Edit, {.stop = true}).has_value());
+    // Le bouton propose l'autre mode ; un bouton qui propose le mode courant ne change rien.
+    CHECK(modeRequested(Edit, {.toolbar = Play}) == Play);
+    CHECK(modeRequested(Play, {.toolbar = Edit}) == Edit);
+    CHECK_FALSE(modeRequested(Play, {.toolbar = Play}).has_value());
     CHECK_FALSE(modeRequested(Edit, ModeRequests{}).has_value());
     // Échap l'emporte sur le reste : sortir du jeu ne se dispute pas.
     CHECK(modeRequested(Play, {.playShortcut = true, .stop = true}) == Edit);
+    CHECK(modeRequested(Play, {.toolbar = Play, .stop = true}) == Edit);
+}
+
+TEST_CASE("le rappel de la barre de mode ne promet pas d'Alt+P pour revenir")
+{
+    using levain::editor::Mode;
+    CHECK(std::string_view{levain::editor::modeHintOf(Mode::Edit)}.contains("Alt+P"));
+    // En jeu, seule Échap ramène : Alt+P n'y fait rien (`modeRequested`).
+    const std::string_view inPlay = levain::editor::modeHintOf(Mode::PlayWithoutReturn);
+    CHECK(inPlay.contains("Échap"));
+    CHECK_FALSE(inPlay.contains("Alt+P"));
 }

@@ -50,7 +50,7 @@ ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole)
         return whole;
     }
     // Une fenêtre ancrée dans le centre n'y laisse plus de trou : ImGui la dessine et la prend.
-    // Rectangle vide, gardé à l'origine du nœud (la barre de mode s'y accrochera) : la souris n'est
+    // Rectangle vide, gardé à l'origine du nœud (la barre de mode s'y accroche) : la souris n'est
     // pas au jeu, et `WantCaptureMouse` ne l'aurait pas dit, la route *jeu* l'ignorant.
     if (!central->IsEmpty())
     {
