@@ -44,7 +44,7 @@ qu'un tableau à lire.
 |---|---|---|---|---|---|---|---|---|
 | 1 | Regarder et voler | clic droit tenu, souris, W A S D : documenté [E1] | clic droit tenu, souris, W A S D : documenté [U1] | clic droit tenu dans la Vue ; pos. W A S D (Z Q S D) | M7.7 | 11 | `gestes.vol` | à faire |
 | 2 | Sélectionner au clic dans la Vue | clic gauche : documenté [E1] | clic : documenté [U7] | clic gauche | M7.4 | à venir | `gestes.clic-vue` | à faire |
-| 3 | Sélectionner dans la hiérarchie | clic dans l'Outliner : documenté [E3] | clic dans la Hierarchy : supposé | clic sur la ligne (existe : editor/src/hierarchy.cpp:135-137 ; le scénario manque) | M7.7 | 8 | `gestes.clic-hierarchie` | à faire |
+| 3 | Sélectionner dans la hiérarchie | clic dans l'Outliner : documenté [E3] | clic dans la Hierarchy : supposé | clic sur la ligne (existe : editor/src/hierarchy.cpp:137-139 ; le scénario manque) | M7.7 | 8 | `gestes.clic-hierarchie` | à faire |
 | 4 | Annuler | Ctrl+Z : documenté [E9] pour le sculpt, supposé ailleurs | Ctrl+Z : documenté [U6] | Ctrl+Z | M7.3 | à venir (annulation) | `gestes.annuler` | à faire |
 | 5 | Cadrer la sélection | F : documenté [E1] | F : documenté [U1] | pos. F, Vue survolée | M7.7 | 11 | `gestes.cadrer` | à faire |
 | 6 | Glisser le gizmo : une étape d'annulation | une transaction par portée : documenté [E7] ; une par glissé : supposé | un appui de souris sépare les groupes : documenté [U18] | glisser une poignée | M7.4 | à venir | `gestes.gizmo-une-etape` | à faire |

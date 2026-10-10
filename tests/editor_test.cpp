@@ -16,6 +16,7 @@
 #include "levain/assets/asset_id.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/registry.hpp"
+#include "levain/core/i18n.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
@@ -603,6 +604,23 @@ TEST_CASE("une entité se lit comme un flecs::entity, par son chemin, vivante ou
     target.destruct();
     CHECK(levain::editor::entityLabelOf(levain::editor::entityFieldOf(world, &beacon.target)) ==
           "(détruite)");
+}
+
+TEST_CASE("les textes que l'inspecteur construit à l'exécution passent par le catalogue")
+{
+    flecs::world world;
+    const flecs::entity target = world.entity("ancre");
+    const editor_test::Beacon beacon{.target = target};
+    const editor_test::Beacon none{};
+    target.destruct();
+    levain::core::activeCatalog().entries = {
+        {"aucune", "none"}, {"(détruite)", "(destroyed)"}, {"aucun", "no asset"}};
+    const auto entityText = [&world](const flecs::entity& field)
+    { return levain::editor::entityLabelOf(levain::editor::entityFieldOf(world, &field)); };
+    CHECK(entityText(none.target) == "none");
+    CHECK(entityText(beacon.target) == "(destroyed)");
+    CHECK(levain::editor::assetNameOf(nullptr, levain::assets::AssetRef{}) == "no asset");
+    levain::core::activeCatalog().entries.clear(); // vide, hors de ce cas
 }
 
 TEST_CASE("un asset se nomme par son fichier au registre, sinon par son GUID, en lecture seule")

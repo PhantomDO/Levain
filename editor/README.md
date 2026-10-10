@@ -20,7 +20,7 @@ d'entité et d'asset. Il n'a pas encore :
   simulation avance à chaque image (engine/app/src/app.cpp:875-877). Le clavier va au jeu dès qu'aucun widget ne le
   prend (app.cpp:851-852) : les touches de vol, ZQSD sur un AZERTY, déplacent la caméra pendant qu'on édite, et
   Ctrl+Z y appuie aussi sur « avancer » ;
-- **de Vue** : la scène couvre la fenêtre, vue par le centre du docking (engine/app/src/panels.cpp:152), mais sa
+- **de Vue** : la scène couvre la fenêtre, vue par le centre du docking (engine/app/src/panels.cpp:148), mais sa
   projection est celle de la fenêtre entière (engine/render/src/renderer.cpp:139) ; la caméra est celle du jeu, une
   entité que déplace un système du pas fixe (sandbox/src/main.cpp:641-647 ; engine/scene/src/scene.cpp:111-117), et
   panneaux ouverts, la souris n'est jamais capturée (engine/app/include/levain/app/ui_layer.hpp:93-96) ;
@@ -29,7 +29,7 @@ d'entité et d'asset. Il n'a pas encore :
 - **d'enregistrement** : rien n'écrit la scène, et fermer la fenêtre arrête la boucle sans rien demander
   (app.cpp:106-107) ;
 - **d'annulation** : `commitEdit` écrit la copie par `setComponentValue` sans garder l'ancienne valeur
-  (editor/src/inspector.cpp:542-551) ;
+  (editor/src/inspector.cpp:543-552) ;
 - ni menu, ni raccourci, ni console.
 
 La suite : l'[ADR-0036](../docs/adr/0036-mode-edition-vue-et-camera-de-l-editeur.md), proposé pour M7.7, que
@@ -87,6 +87,9 @@ M couverts par un test ».
     l'asset par le nom de son fichier au registre, sinon son GUID (`assetNameOf`), en lecture seule : les deux
     entiers de 64 bits d'un `AssetRef` ne se tapent pas. Celui d'un plugin viendra dans sa cible éditeur
     (ADR-0018).
+14. **Tout texte affiché passe par le catalogue** (`ui::tr`, `trf`, `textf`, `labelOf` ; ADR-0036, décision 14), sauf les
+    noms de la réflexion (composants, champs), qui restent ceux du code. Un identifiant seul prend « ## » ; une fenêtre,
+    un titre en `ui::labelOf`. `i18n.untranslated` le refuse, un texte construit à l'exécution lui échappe.
 
 ## Points d'entrée
 

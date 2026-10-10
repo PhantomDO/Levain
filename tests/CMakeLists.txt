@@ -394,6 +394,10 @@ set_tests_properties(gpu.app-script.vulkan PROPERTIES ENVIRONMENT "${testVideo}"
 levain_add_host_test(deps.imgui-visibility
     ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_imgui_visibility.cmake)
 
+# Aucun littéral affiché par ImGui hors du catalogue des textes, dans l'éditeur et les panneaux du moteur (ADR-0036).
+levain_add_host_test(i18n.untranslated
+    ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_untranslated.py ${PROJECT_SOURCE_DIR})
+
 # Un programme qui ne relie que levain::gpu (gpu_alone.cpp) : une dépendance manquante ou mal ordonnée
 # casse le build, comme elle casserait celui d'un jeu.
 add_executable(levain_gpu_alone gpu_alone.cpp)
