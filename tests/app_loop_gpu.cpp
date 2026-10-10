@@ -1,7 +1,8 @@
-// La boucle de l'App vue de ses points nommés (ADR-0036, morceau 4) : la simulation à l'arrêt et
-// l'horloge des squelettes, dans la vraie boucle (`runApp`), hors écran. Chaque scénario écrit ce
-// qu'un programme (demain, l'éditeur) ferait par les points d'accroche, et relit dans `record` ce
-// que le rendu va voir. Il faut un device, comme `levain_app_script`.
+// La boucle de l'App vue de ses points nommés (ADR-0036, morceau 4) : la simulation à l'arrêt,
+// l'horloge des squelettes, la recomposition après `ui` et la caméra imposée, dans la vraie boucle
+// (`runApp`), hors écran. Chaque scénario écrit ce qu'un programme (demain, l'éditeur) ferait par
+// les points d'accroche, et relit dans `record` ce que le rendu va voir. Il faut un device, comme
+// `levain_app_script`.
 //   levain_app_loop [vulkan|d3d12|d3d12-warp]
 
 #include <algorithm>
@@ -16,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -36,6 +38,8 @@ using levain::scene::Transform;
 /// Ce que `record` voit de chaque image, juste avant que le rendu ne la dessine.
 struct Seen
 {
+    float cubeX = 0.0f;   ///< la matrice monde du « cube », celle que le rendu lirait
+    float cameraX = 0.0f; ///< la caméra du rendu (`App::camera`)
     /// Le `Transform` de « mover », que la simulation avance d'un pas à la fois.
     float moverX = 0.0f;
     float alpha = 0.0f;            ///< `RenderAlpha`
@@ -46,11 +50,14 @@ struct Seen
 /// Ce qu'un scénario pose : la scène, et ce que ses points d'accroche font à chaque image.
 struct Scenario
 {
+    bool cameraEntity = true; ///< une entité à `CameraLens`, sinon aucune
+    std::optional<levain::render::Camera> imposed;
     bool paused = false;
     std::optional<std::filesystem::path> assetDir; ///< une racine d'assets de plus, avec le modèle
     std::optional<double> frozenSeconds;           ///< `--time`
-    std::function<void(App&, int frame)> onFrame;  ///< `hooks.frame`
-    std::function<void(App&, int frame)> onUi;     ///< `hooks.ui`
+    std::optional<std::filesystem::path> capturePath; ///< `--capture`
+    std::function<void(App&, int frame)> onFrame;     ///< `hooks.frame`
+    std::function<void(App&, int frame)> onUi;        ///< `hooks.ui`
 };
 
 struct Run
@@ -61,8 +68,10 @@ struct Run
 
 Seen seenBy(App& app)
 {
-    Seen seen{.alpha = app.world.get<levain::scene::RenderAlpha>().value,
+    Seen seen{.cameraX = app.camera.position.x,
+              .alpha = app.world.get<levain::scene::RenderAlpha>().value,
               .accumulator = app.fixedStep.accumulator};
+    seen.cubeX = app.world.lookup("cube").get<levain::scene::WorldTransform>().matrix[3].x;
     seen.moverX = app.world.lookup("mover").get<Transform>().position.x;
     if (!app.models.empty())
     {
@@ -75,12 +84,17 @@ levain::app::StartFunction startOf(const Scenario& scenario, std::vector<Seen>& 
 {
     return [&scenario, &seen](App& app) -> levain::core::Result<levain::app::FrameHooks>
     {
+        app.world.entity("cube").set(Transform{});
         app.world.entity("mover")
             .set(Transform{})
             .set(levain::scene::Velocity{.linear = {1, 0, 0}});
-        app.world.entity("camera")
-            .set(Transform{.position = {0.0f, 0.0f, 5.0f}})
-            .set(levain::app::CameraLens{});
+        if (scenario.cameraEntity)
+        {
+            app.world.entity("camera")
+                .set(Transform{.position = {0.0f, 0.0f, 5.0f}})
+                .set(levain::app::CameraLens{});
+        }
+        app.cameraOverride = scenario.imposed;
         app.simulationPaused = scenario.paused;
         if (scenario.paused)
         {
@@ -138,6 +152,7 @@ Run play(const levain::tests::TestBackend& backend, const Scenario& scenario, in
     settings.api = backend.api;
     settings.adapter = backend.adapter;
     settings.frozenSeconds = scenario.frozenSeconds;
+    settings.capturePath = scenario.capturePath;
     Run run;
     run.exitCode = levain::app::runApp(settings, startOf(scenario, run.seen));
     return run;
@@ -152,8 +167,19 @@ int expect(bool holds, std::string_view what)
     return holds ? 0 : 1;
 }
 
-/// Un dossier à soi, effacé à la fin du test : le scan des assets y écrit ses `.meta`, qu'il ne
-/// faut pas laisser dans le dépôt.
+std::vector<float> column(const Run& run, float Seen::* member)
+{
+    std::vector<float> values;
+    values.reserve(run.seen.size());
+    for (const Seen& seen : run.seen)
+    {
+        values.push_back(seen.*member);
+    }
+    return values;
+}
+
+/// Un dossier à soi, effacé à la fin du test : la capture y est écrite, et le scan des assets y
+/// écrit ses `.meta`, qu'il ne faut pas laisser dans le dépôt.
 struct TempDir
 {
     std::filesystem::path path;
@@ -181,6 +207,57 @@ void copyModelInto(const TempDir& dir)
 {
     std::filesystem::copy_file(std::filesystem::path{LEVAIN_TEST_DATA_DIR} / "two-joints.gltf",
                                dir.path / "two-joints.gltf");
+}
+
+/// `ui` écrit un `Transform` à chaque image (le cube et la caméra, à x = image + 1) et demande la
+/// recomposition selon `asks`. `record` voit les matrices monde que le rendu lira. `capturePath` :
+/// l'image de la capture (`--capture`) est une de plus, rendue par `captureFrame`.
+Run writeFromUi(const levain::tests::TestBackend& backend, bool (*asks)(int frame),
+                std::optional<std::filesystem::path> capturePath = std::nullopt)
+{
+    Scenario scenario;
+    scenario.capturePath = std::move(capturePath);
+    scenario.onUi = [asks](App& app, int frame)
+    {
+        const auto x = static_cast<float>(frame + 1);
+        app.world.lookup("cube").set(Transform{.position = {x, 0.0f, 0.0f}});
+        app.world.lookup("camera").set(Transform{.position = {x, 0.0f, 5.0f}});
+        if (asks(frame))
+        {
+            // Posé seulement : remettre à faux est l'affaire de la boucle, que ce test vérifie.
+            app.recomposeAfterUi = true;
+        }
+    };
+    return play(backend, scenario, 6);
+}
+
+/// Un `set` fait depuis `ui` est dans l'image rendue de la même image : avec la recomposition. Sans
+/// elle, il n'y est qu'à la suivante (le test est rouge si la boucle ne recompose pas). Le drapeau
+/// ne vaut que pour l'image où il est posé : une image qui ne le repose pas voit l'écriture de la
+/// précédente, non la sienne.
+int playRecompose(const levain::tests::TestBackend& backend)
+{
+    // Une septième image, celle de la capture : `ui` y écrit aussi (x = 7), et `captureFrame`
+    // recompose elle aussi.
+    const TempDir captureDir;
+    const Run always =
+        writeFromUi(backend, [](int) { return true; }, captureDir.path / "capture.png");
+    const Run never = writeFromUi(backend, [](int) { return false; });
+    const Run alternate = writeFromUi(backend, [](int frame) { return frame % 2 == 0; });
+    const std::vector<float> nowAndCaptured{1, 2, 3, 4, 5, 6, 7};
+    const std::vector<float> late{0, 1, 2, 3, 4, 5};
+    const std::vector<float> everyOther{1, 1, 3, 3, 5, 5};
+    return expect(column(always, &Seen::cubeX) == nowAndCaptured &&
+                      column(always, &Seen::cameraX) == nowAndCaptured,
+                  "recomposeAfterUi : l'écriture de ui est dans le rendu de la même image, la "
+                  "capture comprise") +
+           expect(column(never, &Seen::cubeX) == late && column(never, &Seen::cameraX) == late,
+                  "sans recomposition, l'écriture de ui n'est vue qu'à l'image suivante") +
+           expect(column(alternate, &Seen::cubeX) == everyOther &&
+                      column(alternate, &Seen::cameraX) == everyOther,
+                  "recomposeAfterUi est remis à faux à chaque image") +
+           expect(always.exitCode == 0 && never.exitCode == 0 && alternate.exitCode == 0,
+                  "les trois boucles vont à leur terme");
 }
 
 constexpr int ResumeFrame = 300;
@@ -345,6 +422,97 @@ int playSkeletonFrozenTime(const levain::tests::TestBackend& backend, const Temp
                   "--time fige les squelettes à T, même démarrée à l'arrêt (non à 0)");
 }
 
+/// La caméra imposée : zéro ou plusieurs `CameraLens` ne la dérangent pas, `startApp` la respecte,
+/// et ce que `ui` en change est dans le rendu de la même image.
+int playCameraOverride(const levain::tests::TestBackend& backend)
+{
+    Scenario scenario;
+    scenario.cameraEntity = false;
+    scenario.imposed = levain::render::Camera{.position = {0.0f, 1.0f, 5.0f},
+                                              .target = {0.0f, 0.0f, 0.0f},
+                                              .verticalFovRadians = 1.0f,
+                                              .nearPlane = 0.5f,
+                                              .farPlane = 100.0f};
+    scenario.onUi = [](App& app, int frame)
+    {
+        if (frame >= 2)
+        {
+            app.cameraOverride->position.x = 3.0f;
+        }
+    };
+    const Run alone = play(backend, scenario, 5);
+
+    // Deux `CameraLens` : sans caméra imposée, la boucle s'arrête ; avec, elle ne s'en soucie pas.
+    scenario.cameraEntity = true;
+    scenario.onFrame = [](App& app, int frame)
+    {
+        if (frame == 1)
+        {
+            app.world.entity("seconde").set(Transform{}).set(levain::app::CameraLens{});
+        }
+    };
+    const Run several = play(backend, scenario, 5);
+
+    // `ui` rend la caméra aux entités à l'image 2 : cette image-là se rend déjà par la caméra de la
+    // scène (x = 0), non par celle de l'éditeur (x = 3) de l'image d'avant.
+    Scenario released;
+    released.imposed = levain::render::Camera{.position = {3.0f, 1.0f, 5.0f},
+                                              .target = {0.0f, 0.0f, 0.0f},
+                                              .verticalFovRadians = 1.0f,
+                                              .nearPlane = 0.5f,
+                                              .farPlane = 100.0f};
+    released.onUi = [](App& app, int frame)
+    {
+        if (frame == 2)
+        {
+            app.cameraOverride.reset();
+        }
+    };
+    const Run handedBack = play(backend, released, 5);
+    return expect(alone.exitCode == 0 && alone.seen.size() == 5,
+                  "une caméra imposée, zéro CameraLens : startApp et la boucle l'acceptent") +
+           expect(column(alone, &Seen::cameraX) == std::vector<float>{0, 0, 3, 3, 3},
+                  "la caméra imposée, relue après ui, est celle du rendu de la même image") +
+           expect(several.exitCode == 0 && several.seen.size() == 5,
+                  "une caméra imposée, deux CameraLens : la boucle continue") +
+           expect(handedBack.exitCode == 0 &&
+                      column(handedBack, &Seen::cameraX) == std::vector<float>{3, 3, 0, 0, 0},
+                  "la caméra rendue aux entités par ui est celle du rendu de la même image");
+}
+
+/// Sans caméra imposée, le refus reste : zéro `CameraLens` au démarrage, ou qui disparaît en route,
+/// arrête le programme (règle n°7).
+int playNoCamera(const levain::tests::TestBackend& backend)
+{
+    Scenario none;
+    none.cameraEntity = false;
+    const Run atStart = play(backend, none, 5);
+
+    Scenario vanishing;
+    vanishing.onFrame = [](App& app, int frame)
+    {
+        if (frame == 2)
+        {
+            app.world.lookup("camera").destruct();
+        }
+    };
+    const Run midway = play(backend, vanishing, 5);
+
+    // La même disparition, mais avec une caméra imposée : la boucle continue.
+    vanishing.imposed = levain::render::Camera{.position = {0.0f, 1.0f, 5.0f},
+                                               .target = {0.0f, 0.0f, 0.0f},
+                                               .verticalFovRadians = 1.0f,
+                                               .nearPlane = 0.5f,
+                                               .farPlane = 100.0f};
+    const Run imposed = play(backend, vanishing, 5);
+    return expect(atStart.exitCode == 1 && atStart.seen.empty(),
+                  "zéro CameraLens au démarrage, sans caméra imposée : le programme s'arrête") +
+           expect(midway.exitCode == 1 && midway.seen.size() == 2,
+                  "la CameraLens disparue en route arrête la boucle, sans caméra imposée") +
+           expect(imposed.exitCode == 0 && imposed.seen.size() == 5,
+                  "la même disparition, caméra imposée : la boucle va à son terme");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -361,9 +529,10 @@ int main(int argc, char** argv)
         }
         const TempDir modelDir; // le modèle skinné, copié une fois pour les trois scénarios
         copyModelInto(modelDir);
-        const int failures = playPaused(*backend) + playSkeleton(*backend, modelDir) +
-                             playPauseFromUi(*backend, modelDir) +
-                             playSkeletonFrozenTime(*backend, modelDir);
+        const int failures =
+            playRecompose(*backend) + playPaused(*backend) + playSkeleton(*backend, modelDir) +
+            playPauseFromUi(*backend, modelDir) + playSkeletonFrozenTime(*backend, modelDir) +
+            playCameraOverride(*backend) + playNoCamera(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

@@ -533,6 +533,8 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .world = flecs::world{},
             .fixedStep = {},
             .simulationPaused = false,
+            .recomposeAfterUi = false,
+            .cameraOverride = std::nullopt,
             .camera = {},
             .registry = std::move(registry),
             .modelCache = {},
@@ -618,6 +620,35 @@ void applyMouseCapture(App& app)
         platform::setMouseCaptured(app.window, captured);
         app.mouseCaptured = captured;
     }
+}
+
+/// Après les fenêtres (ADR-0036, décisions 2 et 6) : si `ui` a demandé la recomposition
+/// (`recomposeAfterUi`), les matrices monde sont recomposées pour que le rendu voie ce qu'elle a
+/// écrit ; la caméra est relue dans ce cas, et chaque fois qu'elle est imposée, puisque l'éditeur
+/// la bouge dans `ui`. `overrideBeforeUi` : la caméra était imposée avant `ui`. Si `ui` l'a rendue
+/// aux entités (`cameraOverride.reset()`), l'image se rend par la caméra de la scène, relue elle
+/// aussi, et non par celle de l'éditeur. Le drapeau est remis à faux : il ne vaut que pour l'image.
+/// `false` quand la caméra a disparu ou se multiplie (sans caméra imposée) : la boucle s'arrête
+/// (règle n°7).
+bool settleAfterUi(App& app, bool overrideBeforeUi)
+{
+    const bool recompose = std::exchange(app.recomposeAfterUi, false);
+    if (recompose)
+    {
+        scene::composeWorldTransforms(app.world);
+    }
+    if (!recompose && !overrideBeforeUi && !app.cameraOverride)
+    {
+        return true;
+    }
+    auto camera = renderCameraOr(app.cameraOverride, app.cameras);
+    if (!camera)
+    {
+        core::log("app", core::LogLevel::Error, "{}", camera.error().message);
+        return false;
+    }
+    app.camera = *camera;
+    return true;
 }
 
 /// Les deux horloges d'une image : celle de la scène, que lisent l'eau, l'herbe, les matériaux et
@@ -738,7 +769,12 @@ bool captureFrame(App& app, nvrhi::ICommandList& commandList, const FrameClocks&
     nvrhi::StagingTextureHandle staging;
     // Une image d'UI pour la capture, sans input : avec `--ui on`, les panneaux s'y voient.
     beginUiFrame(app, {}, app.fixedStep.stepSeconds);
+    const bool overrideBeforeUi = app.cameraOverride.has_value();
     endUiFrame(app);
+    if (!settleAfterUi(app, overrideBeforeUi))
+    {
+        return false;
+    }
     // std::addressof et non « & » : le RefCountPtr de NVRHI surcharge l'opérateur & (il rend
     // l'adresse du pointeur brut, comme les ComPtr de COM).
     static_cast<void>(renderFrame(app, commandList, clocks, std::addressof(staging)));
@@ -870,6 +906,7 @@ bool runFrame(Loop& loop)
     const Clock::time_point frameStart = Clock::now();
     double displayWait = 0.0;
     bool simulationPaused = false; // lu une fois, par le bloc « monde », pour toute l'image
+    bool overrideBeforeUi = false; // la caméra imposée avant que `ui` ne la touche
     {
         LEVAIN_PROFILE_SCOPE_NAMED("événements");
 
@@ -918,7 +955,7 @@ bool runFrame(Loop& loop)
                             settings.steps ? app.fixedStep.stepSeconds
                                            : static_cast<float>(loop.lastFrameSeconds),
                             simulationPaused);
-        auto camera = renderCameraOf(app.cameras);
+        auto camera = renderCameraOr(app.cameraOverride, app.cameras);
         if (!camera)
         {
             core::log("app", core::LogLevel::Error, "{}", camera.error().message);
@@ -931,8 +968,20 @@ bool runFrame(Loop& loop)
     {
         LEVAIN_PROFILE_SCOPE_NAMED("interface");
         const Clock::time_point uiStart = Clock::now();
+        overrideBeforeUi = app.cameraOverride.has_value();
         endUiFrame(app);
         app.ui.frameCpuMs += secondsBetween(uiStart, Clock::now()) * 1000.0;
+    }
+
+    {
+        // Ce que `ui` a écrit doit se voir dans cette image (ADR-0036) : à la demande seulement,
+        // le sandbox et *Rando* ne paient rien.
+        LEVAIN_PROFILE_SCOPE_NAMED("recomposition");
+        if (!settleAfterUi(app, overrideBeforeUi))
+        {
+            loop.failed = true;
+            return false;
+        }
     }
 
     std::optional<float> frameGpuMs;
@@ -1095,9 +1144,10 @@ core::Result<std::unique_ptr<App>> startApp(platform::Window& window, gpu::GpuDe
         return std::unexpected(hooks.error());
     }
     (*app)->hooks = std::move(*hooks);
-    // Les matrices monde, avant la première image, et la caméra par laquelle elle se verra.
+    // Les matrices monde, avant la première image, et la caméra par laquelle elle se verra : celle
+    // que le programme impose, le cas échéant, sans consulter les entités (ADR-0036).
     scene::advanceWorld((*app)->world, (*app)->fixedStep, 0.0f, (*app)->simulationPaused);
-    auto camera = renderCameraOf((*app)->cameras);
+    auto camera = renderCameraOr((*app)->cameraOverride, (*app)->cameras);
     if (!camera)
     {
         return std::unexpected(camera.error());

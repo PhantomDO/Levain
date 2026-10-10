@@ -245,8 +245,21 @@ struct App
     /// images : à l'arrêt, il ne joue aucun pas. Les squelettes s'arrêtent avec elle
     /// (`skinningState.clock`) ; l'eau, l'herbe et les matériaux gardent le temps de la scène.
     bool simulationPaused = false;
+    /// **La recomposition sur demande** (ADR-0036, décision 2) : posée par `ui` (ou `frame`) quand
+    /// elle a écrit un `Transform` que l'image doit montrer, remise à faux par la boucle à chaque
+    /// image. Posée, la boucle recompose les matrices monde après `hooks.ui` et `ImGui::Render`
+    /// (`scene::composeWorldTransforms`), relit la caméra, puis rend : une écriture de l'éditeur
+    /// se voit dans son image, non dans la suivante. Sans elle, rien ne change.
+    bool recomposeAfterUi = false;
+    /// **La caméra imposée** (ADR-0036, décision 6) : celle de l'éditeur, un état qui n'est pas
+    /// une entité. Posée, la boucle ne consulte pas `renderCameraOf`, même avant la première image
+    /// (`startApp` la respecte) : zéro ou plusieurs `CameraLens` ne l'arrêtent plus. Elle est relue
+    /// après `hooks.ui`, où l'éditeur la bouge. Sans elle, zéro ou plusieurs arrêtent toujours la
+    /// boucle (règle n°7).
+    std::optional<render::Camera> cameraOverride;
     /// La caméra du rendu de la dernière image, relue sur l'unique entité qui porte un
-    /// `CameraLens` (camera.hpp) : le programme la lit, pour viser à la souris par exemple.
+    /// `CameraLens` (camera.hpp), ou imposée (`cameraOverride`) : le programme la lit, pour viser à
+    /// la souris par exemple.
     render::Camera camera;
 
     /// Les modèles glTF, par GUID (ADR-0019) : le registre des chemins, les modèles en mémoire, et
