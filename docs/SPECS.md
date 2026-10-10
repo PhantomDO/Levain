@@ -80,6 +80,10 @@ consoles, mobile, macOS (NVRHI n'a pas de backend Metal), VR.
 ## 5. Contraintes
 
 - **Coût zéro** : outils et bibliothèques gratuits, sous licence permissive (MIT, BSD, zlib, Apache 2.0, Boost).
+  Une police est une donnée, pas du code : la SIL Open Font License 1.1 (OFL) est admise pour les polices, et pour
+  elles seules, car elle permet de les livrer avec le jeu, leur licence jointe, sans les vendre seules ; une police
+  modifiée (un sous-ensemble) reste sous OFL et perd son nom réservé, s'il y en a un
+  ([ADR-0036](adr/0036-mode-edition-vue-et-camera-de-l-editeur.md)).
 - **Build reproductible** : un preset CMake et une commande de build, sans étape manuelle hormis l'installation
   des outils listés dans `docs/SETUP.md`.
 - **CI verte obligatoire** avant toute fusion dans `main` : Linux, et Windows dès que Donnovan ajoute ses jobs
