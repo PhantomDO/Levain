@@ -1,6 +1,6 @@
 # Spécifications — Levain
 
-> Version 0.6 — 08/10/2026 — statut : **validé par Donnovan** (ADR-0035 accepté)
+> Version 0.7 — 10/10/2026 — statut : **validé par Donnovan** (Proton remplacé, sondage du 10/10/2026)
 > Documents liés : [ROADMAP](ROADMAP.md) · [JOURNAL](JOURNAL.md) · [ADR](adr/) · [Études](etudes/) ·
 > [Lectures](LECTURES.md) · [Q&R](QA.md)
 >
@@ -11,6 +11,8 @@
 > v0.5 : **retour au C++23** (ADR-0011). Périmètre **Linux d'abord** ; Windows et Direct3D 12 différés. La
 > forme du code est fixée : fonctions libres, dépendances dans la signature, pièges nommés.
 > v0.6 : **Windows revient** (ADR-0035), compilé depuis Linux par clang-cl : Vulkan d'abord, puis Direct3D 12.
+> v0.7 : à chaque milestone de rendu, le sandbox lancé nativement sur le PC Windows de Donnovan et Direct3D 12 sous
+> WARP en CI, à la place du binaire de la CI sous Proton (§10, point 2).
 
 ## 1. Vision
 
@@ -255,13 +257,23 @@ Deux points relevés par `vulkaninfo --summary`, à traiter en M1.2 :
 La machine de référence est sous Linux. Le code Windows est vérifié à trois niveaux :
 
 1. **CI (à la PR vers `main`, une fois par fonctionnalité)** : le build Windows, Debug et Release, compilé sur un runner
-   Linux par clang-cl, puis lancé sur un runner Windows : tests unitaires, tests GPU en Vulkan sur lavapipe, et test de
-   fumée D3D12 sous WARP (rendu logiciel) dès que le backend existe
+   Linux par clang-cl, puis lancé sur un runner Windows : tests unitaires, tests GPU en Vulkan sur lavapipe, et tests
+   Direct3D 12 sous WARP (rendu logiciel), huit par configuration depuis #19
    ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
-2. **Proton sur la machine de référence (à chaque milestone de rendu)** : le binaire Windows produit par la CI est
-   lancé sous Proton. Direct3D 12 y est traduit en Vulkan par vkd3d-proton : ça vérifie notre code Windows et le
-   backend D3D12 de NVRHI sur le vrai GPU, mais pas un pilote D3D12 natif, et la couche de debug D3D12 de
-   Microsoft n'y est pas disponible (seule la validation NVRHI s'applique).
+2. **Le PC Windows de Donnovan, à chaque milestone de rendu** (depuis le 10/10/2026) : le sandbox, en Debug, lancé
+   nativement sur sa RTX 4070 (point 3), en Vulkan puis en Direct3D 12, fenêtré, sans un message des couches de
+   validation ni de la couche de debug D3D12. En Direct3D 12, de la distro, depuis la racine du dépôt,
+   `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20` le
+   redimensionne, le réduit et le restaure (`tools/wsl/README.md`). Les tests Direct3D 12 sous WARP tournent en CI
+   (point 1), et dans la distro par
+   `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER ctest --test-dir build/windows-debug -R d3d12-warp`
+   (build/SKILL.md, « Compiler et tester »). Ce point remplace le binaire de la CI lancé sous Proton sur la machine
+   de référence, prévu avant que Donnovan ait le portable : au sondage « SPECS §10 demande, à chaque milestone de
+   rendu, de lancer le binaire Windows de la CI sous Proton sur la machine de référence. Maintenant qu'il tourne
+   nativement sur ta 4070 et sous WARP en CI, je remplace ce point ? », Donnovan a répondu « Remplacer
+   (Recommandé) » (10/10/2026). Proton n'est plus requis ; il reste un moyen de lancer le binaire sur la machine de
+   référence (SETUP §4), où vkd3d-proton traduit Direct3D 12 en Vulkan, sans pilote D3D12 natif ni couche de debug
+   D3D12 (seule la validation NVRHI s'y applique).
 3. **Le PC Windows de Donnovan** (RTX 4070 Laptop, depuis le 2026-10-08) : le binaire compilé dans sa distro WSL
    (`tools/wsl/`) se lance sous Windows depuis le terminal de la distro, sur le vrai pilote, Vulkan comme D3D12,
    avec la couche de debug D3D12. Ce n'est pas une machine de référence : aucune mesure de performance n'en vient.

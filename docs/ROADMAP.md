@@ -202,7 +202,7 @@ de M7.2, dont il reprend l'échéance. Deux étapes :
 ni de la couche de debug D3D12 ; les tests GPU passent sur sa RTX 4070 comme sous lavapipe (#347) ; le même
 triangle sous les deux backends ; CI Windows verte, Direct3D 12 compris, sous WARP (#19). Le binaire Windows de la
 CI lancé sous Proton sur la machine de référence, prévu avant que Donnovan ait le portable, est remplacé par ces
-lancements natifs sur sa RTX 4070 et sous WARP en CI (SPECS §10, « Vérification sous Windows », points 1 et 3) ;
+lancements natifs sur sa RTX 4070 et sous WARP en CI (SPECS §10, « Vérification sous Windows », points 1 à 3) ;
 son choix au sondage de clôture, le 10/10 : « Remplacer Proton, clore maintenant (Recommandé) ». *Fini le
 10/10/2026* : 5,0 h pour 1,5 estimées (journal, clôture de M1.4).
 
@@ -548,7 +548,7 @@ décisions en font partie (voir la définition des « Heures Donnovan » plus ha
 dépens — mesurée d'abord à 3,0 h en ne comptant que les relectures, contre **4,9 h réelles**. Le ratio erroné de
 0,50 aurait amputé la roadmap de 30 % sans raison.
 
-### M1.4 — ratio 3,33, rouvert après la clôture de la phase 1 : recalibrage à trancher
+### M1.4 — ratio 3,33, rouvert après la clôture de la phase 1 : aucun recalibrage (décision de Donnovan)
 
 | Milestone | Estimé | Passé |
 |---|---:|---:|
@@ -557,12 +557,14 @@ dépens — mesurée d'abord à 3,0 h en ne comptant que les relectures, contre 
 
 La règle juge une phase, à sa clôture, et non un milestone seul. Comme M4.6 (1,29), ajouté après la clôture de la
 phase 4 et jugé avec elle (0,89), M1.4 se juge avec la phase 1 : 8,0 h pour 6,0, **1,33**, au-dessus de la
-fourchette. La règle multiplierait par 1,33 les milestones restants des phases 7 et 8 : 15,85 h → 21,1 h (+5,3 h).
-Contre : le ratio cumulé des phases 0 à 6, M1.4 compris, 54,25 / 52,65 = **1,03**, est dans la fourchette ; la phase
-7 en est à 0,74 (1,75 h pour 2,35 : M7.1 et M7.2) ; et le dépassement tient à ce que M1.4 seul a rencontré : une CI
-qui tournait pour chaque PR d'une pile (la règle n°1 du 09/10 l'a changée), la CRT de Windows, la couche de debug de
-Direct3D 12, 34 PR pour un milestone estimé à 1,5 h. **Proposition : aucun recalibrage**, que Donnovan tranche par
-sondage, comme pour la phase 4 (v0.7) ; d'ici là, les estimations restent celles de la v0.16.
+fourchette. La règle demandait de multiplier par 1,33 les milestones restants des phases 7 et 8 : 15,85 h → 21,1 h
+(+5,3 h ; 13,6 h → 18,1 h avant la v0.16). Donnovan a choisi de ne pas le faire, sur sondage, le 10/10/2026, comme
+pour la phase 4 (v0.7) : à « Je recalibre ? », il a répondu « Non, pas de recalibrage (Recommandé) ». Les raisons de
+cette option : le ratio cumulé des phases 0 à 6, M1.4 compris, 54,25 / 52,65 = **1,03**, est dans la fourchette ; la
+phase 7 en est à 0,74 (1,75 h pour 2,35 : M7.1 et M7.2) ; et le dépassement tient à ce que M1.4 seul a rencontré :
+une CI qui tournait pour chaque PR d'une pile (la règle n°1 du 09/10 l'a arrêtée), la CRT de Windows, la couche de
+debug de Direct3D 12, 34 PR pour un milestone estimé à 1,5 h. Les estimations ne changent pas ; le point se refait à
+la clôture de la phase 7.
 
 ### Phase 6 — ratio 1,17, aucun recalibrage
 
