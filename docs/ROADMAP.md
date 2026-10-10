@@ -1,7 +1,6 @@
 # Roadmap v1
 
-> Version 0.16 — 10/10/2026 — statut : **proposé**, à valider avec l'ADR-0036 (sondage d'acceptation) ; ses choix de
-> fond viennent des sondages du 10/10
+> Version 0.16 — 10/10/2026 — statut : **validé par Donnovan** (sondages du 10/10, ADR-0036)
 >
 > v0.16 : **l'atelier avant Play/Stop** ([ADR-0036](adr/0036-mode-edition-vue-et-camera-de-l-editeur.md)). Le mandat
 > de Donnovan du 10/10 demande que « l'editor soit aussi agréable à utilisé que celui d'Unity ou Unreal » ; celui de
@@ -10,22 +9,24 @@
 > caméra de l'éditeur, les menus et la console ; les raccourcis d'Unreal, que l'on peut changer (« Unreal et il faudra
 > faire un menu ou on peut régler les raccourcis pour ceux qui veulent les changers. »), les touches d'outil par
 > position (« Par position : Z, E, R (Recommandé) ») ; les polices sous OFL (« Accepter l'OFL pour les polices
-> (Recommandé) »), que SPECS §5 admet désormais. **M7.8 « L'éditeur en anglais »** (0,25 h) ferme la phase : « Français
-> mais il faudrait faire une passe de traduction à la fin pour qu'on puisse changer la langue du moteur pour l'anglais
-> pour le reste des gens. » Nouvel ordre : **M7.7 → M7.5 → M7.3 → M7.4 → M7.6 → M7.8**. Play/Stop remonte : Stop
-> doit restaurer la scène en place, sans relire de fichier (prévu, ADR à venir), et l'annulation de M7.3 reprend son
-> point d'exécution hors du mode différé. Les estimations suivent l'étude de la phase : M7.5 1,0 → **0,75 h**, M7.3
+> (Recommandé) »), que SPECS §5 admet désormais. **M7.8 « L'éditeur en anglais »** (**0,5 h**) ferme la phase :
+> « Français mais il faudrait faire une passe de traduction à la fin pour qu'on puisse changer la langue du moteur pour
+> l'anglais pour le reste des gens. » Nouvel ordre : **M7.7 → M7.5 → M7.3 → M7.4 → M7.6 → M7.8**. Play/Stop remonte :
+> Stop doit restaurer la scène en place, sans relire de fichier (prévu, ADR à venir), et l'annulation de M7.3 reprend
+> son point d'exécution hors du mode différé. Les estimations suivent l'étude de la phase : M7.5 1,0 → **0,75 h**, M7.3
 > 1,25 → **1,5 h** (l'annulation, puis les scènes, en deux PR vers `main`), M7.4 1,75 → **1,5 h**, M7.6 1,25 →
-> **2,25 h** et 2 sessions (l'ADR du terrain, deux sondages, la vallée retouchée ; E7 y était déjà). Phase 7 :
-> **7,6 h → 9,6 h** ; total : **66,7 h → 68,7 h**. Les échéances des phases 7 et 8 sont recalculées à 1,5 h par semaine
-> depuis celle de M1.4 (14/03/2027), arrondies au dimanche suivant : la v1 finit le 30/05/2027 au lieu du 16/05.
-> **À valider** : ces estimations, l'ordre, les deux PR de M7.3 et les échéances, que Donnovan n'a pas encore vus ;
-> le sondage d'acceptation de l'ADR-0036 les porte.
+> **2,25 h** et 2 sessions (l'ADR du terrain, deux sondages, la vallée retouchée ; E7 y était déjà). **Validé** par
+> sondage, avec l'ADR-0036 : « Accepter (Recommandé) ». Au sondage sur les messages du moteur, Donnovan a répondu
+> « Traduits aussi » : en M7.8, console, erreurs et journaux passent aussi par le catalogue, chacun sous un nom stable
+> que lit la CI ; M7.8 passe de 0,25 à **0,5 h**. Phase 7 : **7,6 h → 9,85 h** ; total : **70,2 h → 72,45 h** (M1.4
+> clos le même jour, voir v0.15). Les échéances des phases 7 et 8 sont recalculées à 1,5 h par semaine depuis
+> l'ancienne échéance de M1.4 (14/03/2027), arrondies au dimanche suivant : la v1 finit le 30/05/2027 au lieu du 16/05.
 >
 > v0.15 : **Windows revient** ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : Donnovan a un PC Windows.
 > M1.4 est rouvert, compilé depuis Linux par clang-cl, en deux étapes : Windows en Vulkan, puis le backend
 > Direct3D 12. Il passe maintenant, avant la fin de M7.2 (choix de Donnovan), et en reprend l'échéance. M1.4 :
-> **1,5 h**, 4 sessions. Total : **65,2 h → 66,7 h** ; les autres échéances ne bougent pas.
+> **1,5 h**, 4 sessions. Total : **65,2 h → 66,7 h** ; les autres échéances ne bougent pas. **M1.4 est clos le
+> 10/10/2026** à son temps réel, 5,0 h pour 1,5 estimées (ratio 3,33, voir « Recalibrage ») : total **66,7 h → 70,2 h**.
 >
 > v0.14 : **l'ADR-0034**, accepté par sondage. M7.2 ouvre la bibliothèque éditeur (`editor/`, choix de
 > Donnovan) ; M7.3 écrit l'enveloppe et le chargeur de ses scènes, le JSON de flecs ne servant qu'aux valeurs, et
@@ -103,20 +104,20 @@
 | Phase | Contenu | Heures Donnovan | Sessions | Fin visée (1,5 h/sem.) |
 |---|---|---:|---:|---|
 | 0 | Fondations | 5,0 (réel) | 4 | fini le 20/09/2026 |
-| 1 | Fenêtre et premier triangle, puis Windows (M1.4, rouvert) | 3,0 (réel, 4,5 estimées) + 1,5 | 3 + 4 | fini le 21/09/2026 ; M1.4 : 14/03/2027 |
+| 1 | Fenêtre et premier triangle, puis Windows (M1.4, rouvert) | 3,0 (réel, 4,5 estimées) + 5,0 (réel, 1,5 estimées) | 3 + 4 | fini le 21/09/2026 ; M1.4 fini le 10/10/2026 |
 | 2 | 3D de base | 4,25 (réel, 3,75 estimées) | 4 | fini le 22/09/2026 |
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
 | 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
 | 5 | Rendu PBR et monde | 10,0 (réel, 11,0 estimées) | 13 | fini le 03/10/2026 |
 | 6 | Physique et traversée | 11,25 (réel, 9,65 estimées) | 6 | fini le 07/10/2026 |
-| 7 | Éditeur | 9,6 | 12 | 18/04/2027 |
+| 7 | Éditeur | 9,85 | 12 | 18/04/2027 |
 | 8 | Audio et le jeu | 8,35 | 8 | 30/05/2027 |
-| **Total** | | **68,7** | **73** | |
+| **Total** | | **72,45** | **73** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante après la phase 6, M1.4 compris (19,45 h), selon le rythme : **2 h/sem. → 10 semaines** (mi-décembre
-2026) · **1,5 h/sem. → 13 semaines** (début janvier 2027) · **1 h/sem. → 20 semaines** (fin février 2027).
+Durée restante au 10/10/2026 (15,85 h, M7.7 à M8.3), selon le rythme : **2 h/sem. → 8 semaines** (05/12/2026) ·
+**1,5 h/sem. → 11 semaines** (26/12/2026) · **1 h/sem. → 16 semaines** (30/01/2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 23/05/2027.
@@ -170,7 +171,7 @@ dans une capture Tracy.
 | M1.1 Fenêtre et boucle | 1,5 | 1 | 18/10/2026 |
 | M1.2 Device NVRHI (Vulkan) et swapchain | 1,5 | 1 | 25/10/2026 |
 | M1.3 Premier triangle | 1,5 | 1 | 01/11/2026 |
-| M1.4 Windows depuis Linux, puis Direct3D 12 (rouvert, ADR-0035) | 1,5 | 4 | 14/03/2027 |
+| M1.4 Windows depuis Linux, puis Direct3D 12 (rouvert, ADR-0035) | 5,0 (réel, 1,5 estimées) | 4 | fini le 10/10/2026 |
 
 **M1.1 — Fenêtre et boucle.** Fenêtre SDL3, boucle principale, événements, redimensionnement, mesure du
 frame time ; ASan et UBSan en CI Linux.
@@ -198,9 +199,12 @@ de M7.2, dont il reprend l'échéance. Deux étapes :
    (`--gpu vulkan|d3d12`) ; test de fumée sous WARP (D3D12 logiciel) en CI Windows.
 
 *Critères* : le sandbox tourne sur le PC Windows de Donnovan, en Vulkan puis en D3D12, sans erreur de validation
-ni de la couche de debug D3D12 ; les tests GPU passent sur sa RTX 4070 comme sous lavapipe (#347) ; le même triangle sous les deux backends ; CI Windows verte ; binaire Windows de la
-CI lancé sous Proton sur la machine de référence en `--gpu d3d12` (voir SPECS §10, « Vérification sous
-Windows »).
+ni de la couche de debug D3D12 ; les tests GPU passent sur sa RTX 4070 comme sous lavapipe (#347) ; le même
+triangle sous les deux backends ; CI Windows verte, Direct3D 12 compris, sous WARP (#19). Le binaire Windows de la
+CI lancé sous Proton sur la machine de référence, prévu avant que Donnovan ait le portable, est remplacé par ces
+lancements natifs sur sa RTX 4070 et sous WARP en CI (SPECS §10, « Vérification sous Windows », points 1 et 3) ;
+son choix au sondage de clôture, le 10/10 : « Remplacer Proton, clore maintenant (Recommandé) ». *Fini le
+10/10/2026* : 5,0 h pour 1,5 estimées (journal, clôture de M1.4).
 
 **Étude E1 — Les couches RHI** : déjà écrite ([E1-rhi.md](etudes/E1-rhi.md)), à relire pendant la phase.
 
@@ -410,7 +414,7 @@ pourquoi c'est presque toujours une bibliothèque.
 | M7.3 Sérialisation et undo/redo | 1,5 | 2 | 04/04/2027 |
 | M7.4 Gizmos et picking | 1,5 | 2 | 11/04/2027 |
 | M7.6 Outils de terrain | 2,25 | 2 | 18/04/2027 |
-| M7.8 L'éditeur en anglais (ajouté en v0.16) | 0,25 | 1 | 18/04/2027 |
+| M7.8 L'éditeur en anglais (ajouté en v0.16) | 0,5 | 1 | 18/04/2027 |
 
 Les milestones restants se suivent dans l'ordre du tableau (v0.16), chacun sur sa branche de fonctionnalité : M7.5 a
 besoin du mode Édition, de la Vue et du routage de l'input de M7.7 ; l'annulation de M7.3 reprend le point
@@ -426,12 +430,12 @@ moteur ; l'input par `platform` ; panneaux de statistiques et de profiling, en f
 bibliothèque éditeur (`editor/`).
 *Critère* : un nouveau composant devient éditable en une seule déclaration.
 
-**M7.7 — L'atelier** (ajouté en v0.16, [ADR-0036](adr/0036-mode-edition-vue-et-camera-de-l-editeur.md)). L'éditeur
-cesse d'être le jeu : il s'ouvre en mode Édition, la simulation arrêtée et le jeu sans input ; la scène se voit dans
-une fenêtre « Vue », parcourue par une caméra d'éditeur pilotée comme celle d'Unreal ; menus, barres d'outils et
-d'état, console, disposition et préférences gardées ; les raccourcis d'Unreal, que Préférences > Raccourcis laisse
-changer ; chaque chaîne par un catalogue, en français ; les polices Inter et les icônes Material Symbols. Un mode
-temporaire, « Jouer (sans retour) », garde le jeu d'aujourd'hui jusqu'à M7.5.
+**M7.7 — L'atelier** (ajouté en v0.16, [ADR-0036](adr/0036-mode-edition-vue-et-camera-de-l-editeur.md), issues #389 à
+#393). L'éditeur cesse d'être le jeu : il s'ouvre en mode Édition, la simulation arrêtée et le jeu sans input ; la
+scène se voit dans une fenêtre « Vue », parcourue par une caméra d'éditeur pilotée comme celle d'Unreal ; menus,
+barres d'outils et d'état, console, disposition et préférences gardées ; les raccourcis d'Unreal, que Préférences >
+Raccourcis laisse changer ; chaque chaîne par un catalogue, en français ; les polices Inter et les icônes Material
+Symbols. Un mode temporaire, « Jouer (sans retour) », garde le jeu d'aujourd'hui jusqu'à M7.5.
 *Critères*, mesurés par le banc d'essai de l'App, qui rejoue des événements : en Édition, aucun pas de simulation,
 l'accumulateur immobile et `PlayerInput` vide, touches tenues ; une écriture faite depuis le point d'accroche `ui` se
 voit dans l'image rendue de la même image ; la Vue rend la scène à sa taille ; chaque geste de navigation passe en
@@ -455,12 +459,14 @@ pinceau des arbres, des rochers et de la densité d'herbe.
 *Critère* : la vallée du jeu est faite entièrement dans l'éditeur, et survit à une sauvegarde puis un
 chargement.
 
-**M7.8 — L'éditeur en anglais** (ajouté en v0.16, ADR-0036). La passe de traduction que Donnovan a demandée : le
-catalogue anglais de toutes les chaînes de l'éditeur, et la langue choisie dans les Préférences, gardée avec elles.
-Les messages du moteur (console, erreurs) restent en français, sauf si le sondage de son ouverture en décide
-autrement. La clôture de la phase 7 suit.
-*Critères* : l'éditeur passe en anglais depuis les Préférences, sa disposition gardée ; la CI échoue si une chaîne
-du catalogue n'a pas sa traduction anglaise, ou pas les mêmes `{}` (avec son contre-test).
+**M7.8 — L'éditeur en anglais** (ajouté en v0.16, ADR-0036, issue #394). La passe de traduction que Donnovan a
+demandée : le catalogue anglais de toutes les chaînes de l'éditeur, et la langue choisie dans les Préférences, gardée
+avec elles. Les messages du moteur aussi, console, erreurs et journaux (sondage du 10/10 : « Traduits aussi ») : chacun
+gagne un nom stable, écrit en tête de sa ligne, que la CI lit à la place du texte français ; ses contrôles qui lisent
+une phrase passent à ce nom, message par message. La clôture de la phase 7 suit.
+*Critères* : l'éditeur passe en anglais depuis les Préférences, sa disposition gardée, et les messages du moteur avec
+lui ; les contrôles de la CI lisent le nom stable de chaque message et passent dans les deux langues ; la CI échoue si
+une chaîne ou un message du catalogue n'a pas sa traduction anglaise, ou pas les mêmes `{}` (avec son contre-test).
 
 **Étude E7 — Réflexion et éditeurs** (0,4 h, dans M7.6) : Unreal Header Tool, sérialisation d'Unity, `ClassDB` de Godot, addon meta
 de flecs.
@@ -541,6 +547,22 @@ dans le journal, puis :
 décisions en font partie (voir la définition des « Heures Donnovan » plus haut). La phase 0 l'a appris à ses
 dépens — mesurée d'abord à 3,0 h en ne comptant que les relectures, contre **4,9 h réelles**. Le ratio erroné de
 0,50 aurait amputé la roadmap de 30 % sans raison.
+
+### M1.4 — ratio 3,33, rouvert après la clôture de la phase 1 : recalibrage à trancher
+
+| Milestone | Estimé | Passé |
+|---|---:|---:|
+| M1.4 Windows depuis Linux, puis Direct3D 12 | 1,5 h | 5,0 h — ratio **3,33** |
+| **Phase 1, M1.4 compris** | **6,0 h** | **8,0 h** — ratio **1,33** |
+
+La règle juge une phase, à sa clôture, et non un milestone seul. Comme M4.6 (1,29), ajouté après la clôture de la
+phase 4 et jugé avec elle (0,89), M1.4 se juge avec la phase 1 : 8,0 h pour 6,0, **1,33**, au-dessus de la
+fourchette. La règle multiplierait par 1,33 les milestones restants des phases 7 et 8 : 15,85 h → 21,1 h (+5,3 h).
+Contre : le ratio cumulé des phases 0 à 6, M1.4 compris, 54,25 / 52,65 = **1,03**, est dans la fourchette ; la phase
+7 en est à 0,74 (1,75 h pour 2,35 : M7.1 et M7.2) ; et le dépassement tient à ce que M1.4 seul a rencontré : une CI
+qui tournait pour chaque PR d'une pile (la règle n°1 du 09/10 l'a changée), la CRT de Windows, la couche de debug de
+Direct3D 12, 34 PR pour un milestone estimé à 1,5 h. **Proposition : aucun recalibrage**, que Donnovan tranche par
+sondage, comme pour la phase 4 (v0.7) ; d'ici là, les estimations restent celles de la v0.16.
 
 ### Phase 6 — ratio 1,17, aucun recalibrage
 

@@ -1,11 +1,12 @@
 # ADR-0036 — L'atelier : le mode Édition, l'input de l'éditeur, la Vue et sa caméra
 
-- **Statut** : proposé, à accepter par sondage avec la ROADMAP v0.16 ; les réponses aux sondages du 10/10 sont les
-  choix de Donnovan, les options 1A à 6A et le détail des décisions sont nos propositions
+- **Statut** : accepté le 2026-10-10 par sondage, avec la ROADMAP v0.16 (« J'accepte l'ADR-0036 et la ROADMAP
+  v0.16 ? » : « Accepter (Recommandé) ») ; les réponses aux sondages du 10/10 sont les choix de Donnovan, les
+  options 1A à 6A et le détail des décisions sont nos propositions, acceptées avec l'ADR
 - **Modifie** : les invariants 4 et 7 d'`editor/README.md`, 6, 8 et 9 d'`engine/app/README.md` ; les ADR-0029,
   0032 et 0034 (détail plus bas) ; SPECS §5 (les polices)
 - **Date** : 2026-10-10
-- **Milestone** : M7.7 (nouveau)
+- **Milestone** : M7.7 (nouveau, issues #389 à #393) ; l'anglais en M7.8 (#394)
 
 ## Contexte
 
@@ -36,7 +37,8 @@ session est en remote donc je peux y répondre. » Ses réponses aux sondages du
 - **Langue** : « Français mais il faudrait faire une passe de traduction à la fin pour qu'on puisse changer la
   langue du moteur pour l'anglais pour le reste des gens. » ;
 - **Fenêtres** (les tests sur le portable Windows) : « Oui, quand tu veux (Recommandé) » ;
-- **Police** : « Accepter l'OFL pour les polices (Recommandé) ».
+- **Police** : « Accepter l'OFL pour les polices (Recommandé) » ;
+- **Messages du moteur** (console, erreurs, journaux, traduits eux aussi en M7.8 ?) : « Traduits aussi ».
 
 Unity et Unreal ont deux états : **l'édition**, où rien ne tourne et où une caméra d'éditeur regarde la scène, et
 **le jeu** (Play, PIE). M7.5 (Play/Stop) a besoin du premier ; M7.7 le pose, avec le confort quotidien. Tout cela
@@ -75,7 +77,7 @@ touche `app`, dont l'éditeur promettait de ne pas changer la boucle : d'où cet
 
 | 6. Les chaînes de l'éditeur | Pour | Contre |
 |---|---|---|
-| **A. Un catalogue dès M7.7, le texte français pour clé (`tr("Fichier")`), comme gettext [8]** | Le code reste lisible ; une traduction manquante s'affiche en français, jamais vide ; M7.8 n'ajoute qu'un fichier | Corriger un texte français change sa clé (le contrôle de M7.8 le voit) ; un homonyme (un français, deux anglais) demande un contexte, le `msgctxt` de gettext ; pluriels et valeurs ont leurs règles (décision 14) |
+| **A. Un catalogue dès M7.7, le texte français pour clé (`tr("Fichier")`), comme gettext [8]** | Le code reste lisible ; une traduction manquante s'affiche en français, jamais vide ; pour les chaînes de l'éditeur, M7.8 n'ajoute qu'un fichier | Corriger un texte français change sa clé (le contrôle de M7.8 le voit) ; un homonyme (un français, deux anglais) demande un contexte, le `msgctxt` de gettext ; pluriels et valeurs ont leurs règles (décision 14) |
 | B. Des identifiants (`str::FileMenu`) | Une clé stable | Chaque texte écrit deux fois ; le code ne se lit plus |
 | C. Rien avant M7.8 | Rien maintenant | Toutes les fenêtres de la phase 7 à reprendre à la fin, et leurs identifiants ImGui avec |
 
@@ -189,9 +191,15 @@ l'anglais de M7.8 ; des polices sous OFL, une console, une disposition gardée. 
     traduire perdrait la disposition, et deux clés traduites par un même mot se heurteraient (imgui.h:2594). **Les noms
     de la réflexion** (inspector.cpp:229-396) restent ceux du code, comme chez Unity. `i18n.untranslated` refuse un
     premier argument littéral d'affichage d'ImGui, avec une lettre et sans `##` en tête, hors de `tr` (un identifiant
-    seul, comme hierarchy.cpp:127, prend `##`) ; un texte construit à l'exécution lui échappe. Journaux et ligne de la
-    CI restent en français, la CI les lit ; les traduire se tranche à l'ouverture de M7.8, par sondage. **M7.8** : le
-    catalogue anglais, la langue dans les Préférences, une CI qui exige l'anglais de chaque clé, aux mêmes `{}`.
+    seul, comme hierarchy.cpp:127, prend `##`) ; un texte construit à l'exécution lui échappe. **Les messages du
+    moteur aussi** (sondage « Messages du moteur ») : journaux, erreurs et console passent par le catalogue en M7.8,
+    mais leur clé est un nom stable (`app.loop-stopped`), écrit en tête de ligne avant le texte traduit, car la CI les
+    lit et qu'une faute corrigée changerait une clé française. La CI cherche ce nom et des valeurs formatées sans
+    locale, jamais une phrase : la même ligne passe dans les deux langues. Les `grep` de phrases françaises
+    (tools/ci-programs.sh, ci.yml, la CI de *Rando*) passent au nom message par message en M7.8, chacun contre-testé ;
+    les deux lignes que M7.7 ajoute pour la CI (morceaux 5 et 8) naissent sous leur nom. Le catalogue vit donc dans
+    `core`, que `core::log` lit, dès le morceau 3 ; `ui::tr` en est la façade. **M7.8** : le catalogue anglais de
+    l'éditeur et du moteur, la langue dans les Préférences, une CI qui exige l'anglais de chaque clé, aux mêmes `{}`.
 15. **Les polices et les icônes** (sondage « Police ») : **Inter**, sous SIL OFL 1.1, pour l'interface, Noto Sans
     (même licence) fusionnée derrière pour un glyphe manquant ; **Material Symbols**, sous Apache-2.0, pour les
     icônes. La console garde ProggyForever, la police d'ImGui (MIT, à chasse fixe), Latin-1 comme ProggyClean
@@ -238,18 +246,19 @@ Donnovan ne regardera pas : les tests prouvent tout, chaque contrôle nouveau av
 ## Les morceaux
 
 Chacun sous 400 lignes, relu, vérifié par `tools/verify.sh`, fusionné dans la branche `m7.7/atelier` (règle n°1).
+Les issues : #389 (0), #390 (1, 2, 4, 5), #391 (6 à 8), #392 (9 à 11, 16), #393 (3, 12 à 15, 17).
 
 | n° | Contenu | Modules | Lignes | Tests et contre-tests |
 |---|---|---|---:|---|
 | 0 | Cet ADR, ROADMAP v0.16, SPECS §5 ; les milestones GitHub M7.7 et M7.8, les échéances de M7 et M8 ; les issues | docs | 350 | — |
 | 1 | Le banc d'essai des gestes : chaque geste d'Unity et d'Unreal, son scénario ; l'« État » du README de l'éditeur | docs | 200 | — |
 | 2 | Le banc d'essai de l'App : des `platform::Events` rejoués (API de test, `--input-script`), l'App hors écran | platform, app, tests | 350 | Un appui scripté atteint `PlayerInput` ; une paire AZERTY donne la bonne touche d'ImGui. Contre-test : une touche inconnue dans le script est refusée bruyamment |
-| 3 | Le catalogue : `ui::tr`, `ui::trf`, `ui::labelOf` et les `###` existants ; les panneaux du moteur sans format traduit ; `i18n.untranslated` | ui, app, editor, tests | 300 | La disposition retrouve ses fenêtres ; une traduction aux `{}` fautifs affiche le français. Contre-test : un `ImGui::Text("…")` sans `tr` fait rougir le contrôle |
+| 3 | Le catalogue, sa table dans `core` (décision 14) : `ui::tr`, `ui::trf`, `ui::labelOf` et les `###` existants ; les panneaux du moteur sans format traduit ; `i18n.untranslated` | core, ui, app, editor, tests | 300 | La disposition retrouve ses fenêtres ; une traduction aux `{}` fautifs affiche le français. Contre-test : un `ImGui::Text("…")` sans `tr` fait rougir le contrôle |
 | 4 | L'arrêt (0 pas, alpha 1, accumulateur figé) ; l'horloge des squelettes ; la recomposition sur demande après `ui` ; la caméra imposée, `startApp` compris ; le script de coût | scene, app | 350 | Un `set` fait depuis `ui` est dans l'image rendue (rouge sans la recomposition) ; 300 images à l'arrêt : `FixedStep` inchangé, puis au plus un pas ; la pose du renard ne bouge pas ; sans caméra imposée, zéro `CameraLens` arrête toujours la boucle |
-| 5 | Les modes ; `frame` enveloppé ; `inputRoute` ; `mouseCaptureWanted` remis à faux ; la ligne « mode : édition ; pas : 0 » | editor, app, tools | 350 | En Édition, le `frame` du programme n'est jamais appelé et `PlayerInput` reste vide ; en jeu, les touches l'atteignent, pas ImGui, et un clic hors de la Vue n'atteint pas le jeu ; clic droit tenu au changement de mode : la souris est rendue |
+| 5 | Les modes ; `frame` enveloppé ; `inputRoute` ; `mouseCaptureWanted` remis à faux ; la ligne « mode : édition ; pas : 0 », sous son nom stable (décision 14) | editor, app, tools | 350 | En Édition, le `frame` du programme n'est jamais appelé et `PlayerInput` reste vide ; en jeu, les touches l'atteignent, pas ImGui, et un clic hors de la Vue n'atteint pas le jeu ; clic droit tenu au changement de mode : la souris est rendue |
 | 6 | `registerUiTexture` et `releaseUiTexture`, un binding set comme `createTexture` | ui | 250 | Un `ImGui::Image` gris moyen (0,5 linéaire, 188 en sRGB, à ±2 près) relu : une double conversion se voit (Vulkan, WebGPU ; D3D12 au portable) ; un identifiant libéré quitte la table, et le dessiner fait l'assertion en Debug, l'erreur en Release |
 | 7 | La scène dans une texture (format de la swapchain, cible et ressource de shader, valeur d'effacement pour D3D12), recréée une fois la taille stable, avant `ImGui::Image`, l'ancienne libérée après l'image ; la swapchain effacée, sans `PassthruCentralNode` ; F1 ; `--gpu webgpu` refusé. **CI à la main** | app, editor | 300 | Rendu en 640×360, l'aspect suit ; 30 images de glisser : au plus 2 recréations ; Vue fermée : pas de scène, une image effacée ; zéro erreur de validation sous Vulkan et D3D12 |
-| 8 | La fenêtre Vue ; `App::sceneRect`, que lit le picking du sandbox ; la disposition ; le menu Fenêtre ; la ligne « vue : L×H » | app, editor, sandbox | 350 | Chaque fenêtre sur son nœud, l'inspecteur visible ; en jeu, un clic dans la Vue choisit le cube visé ; contre-test de la ligne |
+| 8 | La fenêtre Vue ; `App::sceneRect`, que lit le picking du sandbox ; la disposition ; le menu Fenêtre ; la ligne « vue : L×H », sous son nom stable | app, editor, sandbox | 350 | Chaque fenêtre sur son nœud, l'inspecteur visible ; en jeu, un clic dans la Vue choisit le cube visé ; contre-test de la ligne |
 | 9 | La caméra en fonctions libres, les plans de découpe, `clampEditorPitch` | editor | 300 | L'orbite garde la distance ; le cadrage et les plans contiennent la boîte ; vitesse et tangage bornés |
 | 10 | La table des raccourcis, défauts seuls ; `keyAtPosition` et l'événement de disposition ; F1 sans modificateur ; les relâchements d'ImGui pendant la capture | platform, ui, app, editor | 300 | Une paire AZERTY donne Z à la place du W ; Maj+F1 laisse les panneaux ouverts. Contre-test : sans relâchement donné à ImGui, après un vol, le menu au clic droit ne s'ouvre plus |
 | 11 | Les gestes (décision 6), par l'input brut ; la capture pendant le vol | app, editor | 350 | En QWERTY et en AZERTY : clic droit + la touche à la place du W avance ; rien hors de la Vue ; F cadre. Contre-test : pas de capture hors du vol |
@@ -268,12 +277,12 @@ Chacun sous 400 lignes, relu, vérifié par `tools/verify.sh`, fusionné dans la
   n'en posent aucun et gardent leur boucle, sans recomposition ; leurs contrôles de CI le vérifient déjà.
 - **M7.5 en hérite** : Play prend la route *jeu* et la caméra du jeu, et retire « Jouer (sans retour) ». **M7.4**
   dessine ses gizmos et lit ses clics dans le rectangle de la Vue, sans image de retard.
-- **La langue n'est que celle de l'éditeur** : en anglais (M7.8), la console garde les messages du moteur en
-  français tant que le sondage de M7.8 n'en décide pas autrement : « changer la langue du moteur » à moitié.
+- **La langue est celle du moteur entier** : en anglais (M7.8), la console, les erreurs et les journaux aussi ; chaque
+  message gagne un nom stable, chaque contrôle de la CI qui lit une phrase passe à ce nom : des morceaux de plus.
 - **Les risques** : le mode relatif de SDL face à ImGui ; la table des positions, relue quand le clavier change ; la
   CI qui doit toujours voir l'inspecteur et compter plus de 0 champ, sous Linux comme sous Windows.
-- **Une phase 7 plus longue** : +2,0 h pour Donnovan (ROADMAP v0.16, proposée avec cet ADR), surtout des sondages ;
-  environ 60 morceaux pour l'agent sur la phase. Les polices sous OFL serviront aussi au HUD du jeu (M8.2).
+- **Une phase 7 plus longue** : +2,25 h pour Donnovan (ROADMAP v0.16, acceptée avec cet ADR, M7.8 à 0,5 h), surtout
+  des sondages ; plus de 60 morceaux pour l'agent. Les polices sous OFL serviront aussi au HUD du jeu (M8.2).
 
 ## Ce que font les autres moteurs
 
