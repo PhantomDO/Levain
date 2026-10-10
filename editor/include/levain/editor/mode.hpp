@@ -1,7 +1,7 @@
 #pragma once
 
 // Les modes de l'éditeur (ADR-0036, décision 3) : **Édition**, où rien ne tourne et où le jeu ne
-// reçoit rien, et « Jouer (sans retour) », le jeu d'aujourd'hui, jusqu'à Play et
+// reçoit rien, et « Jouer (sans retour) », le jeu d'aujourd'hui sous un bandeau, jusqu'à Play et
 // Stop (M7.5). La logique est en fonctions libres dont les dépendances sont des paramètres
 // (ADR-0011) ; `withEditor` n'en a que la glu. Équivalents : le mode Édition d'Unity (hors Play) et
 // d'Unreal (hors PIE) ; Godot, lui, ne joue que dans une fenêtre à part.
@@ -55,9 +55,16 @@ struct ModeState
     return sceneFocused ? app::InputRoute::Game : app::InputRoute::Ui;
 }
 
-/// Ce qui demande un changement de mode à cette image : Alt+P, le front d'Échap.
+[[nodiscard]] constexpr Mode otherMode(Mode mode)
+{
+    return mode == Mode::Edit ? Mode::PlayWithoutReturn : Mode::Edit;
+}
+
+/// Ce qui demande un changement de mode à cette image : le bouton de la barre (le mode qu'il
+/// propose), Alt+P, le front d'Échap.
 struct ModeRequests
 {
+    std::optional<Mode> toolbar = std::nullopt;
     bool playShortcut = false;
     bool stop = false;
 };
@@ -65,7 +72,8 @@ struct ModeRequests
 /// Le mode où passer, s'il y en a un. **Alt+P ne fait que jouer** (« Jouer » dans la table des
 /// raccourcis, ADR-0036, décision 13) et **Échap ne fait qu'arrêter** : sous la route *jeu*, ImGui
 /// n'a pas Alt+P, donc une Alt+P qui basculerait dans les deux sens ne reviendrait qu'à certaines
-/// images, selon le focus. Échap passe avant le reste : sortir du jeu ne se dispute pas.
+/// images, selon le focus. Seul le bouton va dans les deux sens, par le mode qu'il propose. Échap
+/// passe avant le reste : sortir du jeu ne se dispute pas.
 [[nodiscard]] constexpr std::optional<Mode> modeRequested(Mode current,
                                                           const ModeRequests& requests)
 {
@@ -77,6 +85,10 @@ struct ModeRequests
     {
         return Mode::PlayWithoutReturn;
     }
+    if (requests.toolbar && *requests.toolbar != current)
+    {
+        return requests.toolbar;
+    }
     return std::nullopt;
 }
 
@@ -84,6 +96,13 @@ struct ModeRequests
 [[nodiscard]] constexpr const char* modeNameOf(Mode mode)
 {
     return mode == Mode::Edit ? "Édition" : "Jouer (sans retour)";
+}
+
+/// Le rappel de la touche du mode, clé du catalogue : celle qui sort du mode où l'on est. Alt+P ne
+/// ramène pas de Jouer (`modeRequested`) : la dire ici serait fausse sous la route *jeu*.
+[[nodiscard]] constexpr const char* modeHintOf(Mode mode)
+{
+    return mode == Mode::Edit ? "Alt+P : jouer" : "Échap : revenir à l'édition";
 }
 
 /// Le mot du mode dans la ligne que lit la CI (`editor.mode`) : le même dans toutes les langues.
@@ -107,6 +126,14 @@ inline constexpr std::uint16_t StopScancode = 41;
 /// capturée resterait prise. Rend aussi le jeu à l'immobile : ce qu'il tenait est relâché et les
 /// appuis qu'aucun pas n'a vus sont oubliés, sans quoi ils partiraient tous au premier pas de Play.
 void enterMode(app::App& app, ModeState& state, Mode mode);
+
+/// La barre de mode, accrochée au coin haut gauche de la scène (`scene`, `App::sceneRect`) : dans
+/// le trou du centre, jamais sur les onglets des colonnes. **Dessinée toujours** : le bandeau de
+/// « Jouer (sans retour) » et le rappel de la touche valent aussi panneaux fermés, où le bouton
+/// manque (`interactive`) : la fenêtre est alors un bandeau que rien ne vise ni ne focalise, et la
+/// route *jeu* reste. Rend le mode demandé par un clic sur le bouton.
+[[nodiscard]] std::optional<Mode> drawModeBar(Mode current, const app::ScreenRect& scene,
+                                              bool interactive);
 
 /// Alt+P est pressée, par la lettre (ADR-0036, décision 13) : le raccourci d'Unreal pour jouer.
 /// ImGui doit recevoir le clavier : sous la route *jeu*, il n'en a que les relâchements.

@@ -450,7 +450,8 @@ Inspector createInspector(const flecs::world& world, const assets::AssetRegistry
             .assetRef = world.id<assets::AssetRef>(),
             .registry = registry,
             .typedAngles = {},
-            .fieldsDrawn = 0};
+            .fieldsDrawn = 0,
+            .wrote = false};
 }
 
 glm::vec3 eulerHint(const glm::quat& rotation, const std::optional<glm::vec3>& typed)
@@ -569,9 +570,9 @@ int inspectComponent(flecs::world& world, Inspector& inspector, flecs::entity en
     ImGui::BeginDisabled(!isAuthored(world, component));
     drawMembers(walk, *description, copy);
     ImGui::EndDisabled();
-    if (walk.changed)
+    if (walk.changed && commitEdit(world, entity, component, current, copy))
     {
-        commitEdit(world, entity, component, current, copy);
+        inspector.wrote = true;
     }
     ecs_value_free(world, component, copy);
     return walk.fields;
@@ -582,6 +583,7 @@ void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t se
 {
     LEVAIN_ASSERT(world.is_deferred(), "drawInspector : le monde doit être différé (defer_begin)");
     inspector.fieldsDrawn = 0;
+    inspector.wrote = false;
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
     if (ImGui::Begin(ui::labelOf(InspectorWindow).c_str()))
     {

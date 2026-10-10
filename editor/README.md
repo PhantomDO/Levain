@@ -53,8 +53,8 @@ M couverts par un test ».
    récupère Levain par `FetchContent` reçoit la bibliothèque.
 4. **La boucle ne change que par les points nommés d'`app`** (ADR-0036, qui modifie cet invariant) :
    `withEditor` enveloppe la fonction de démarrage du programme et ses points d'accroche (ADR-0029), `frame`
-   compris depuis le morceau 5, et pose `simulationPaused`, `inputRoute` et `mouseCaptureWanted` ; il ne touche
-   rien d'autre.
+   compris depuis le morceau 5, et pose `simulationPaused`, `inputRoute`, `mouseCaptureWanted` et
+   `recomposeAfterUi` ; il ne touche rien d'autre.
 5. **L'exécutable éditeur ouvre les panneaux** : son `main` pose `settings.showUiPanels = true` avant de lire
    les options, que `--ui off` les ferme encore.
 6. **Un `--select` introuvable fait échouer le démarrage**, en nommant l'entité (règle n°7).
@@ -105,10 +105,10 @@ M couverts par un test ».
 
 16. **L'éditeur s'ouvre en Édition** (`mode.hpp`, ADR-0036, décision 3) : aucun pas (`App::simulationPaused`), le
     `frame` du programme jamais appelé (`programFrameRunsIn`), la route de l'input *éditeur* (rien au jeu, ce qu'il
-    tenait relâché), `PlayerInput` vide touches tenues. **Alt+P** (`ImGui::Shortcut`, route globale) passe en
-    « Jouer (sans retour) » : le jeu d'aujourd'hui, rien n'est restauré à l'arrêt (M7.5 viendra avec Play et Stop) ;
-    la barre de mode, son bouton et son bandeau viennent ensuite. **Alt+P ne fait que jouer** (la table de la
-    décision 13 : « Jouer »), **Échap ne fait qu'arrêter** : `modeRequested` en décide, testée. Sous la
+    tenait relâché), `PlayerInput` vide touches tenues. **Alt+P** (`ImGui::Shortcut`, route globale) ou le bouton de
+    la barre de mode passent en « Jouer (sans retour) » : le jeu d'aujourd'hui sous un bandeau, rien n'est restauré à
+    l'arrêt (M7.5 viendra avec Play et Stop). **Alt+P ne fait que jouer** (la table de la décision 13 : « Jouer »),
+    **Échap ne fait qu'arrêter**, et seul le bouton va dans les deux sens : `modeRequested` en décide, testée. Sous la
     route *jeu*, ImGui n'a pas Alt+P ; une Alt+P qui basculerait ne ramènerait qu'aux images où un panneau a le focus.
     Échap est lue sur l'input brut par position (`StopScancode`) : elle vaut partout où le jeu reçoit le clavier,
     donc sous la route *jeu* mais aussi sous la route *UI* quand une fenêtre a le focus sans qu'un champ soit actif ;
@@ -121,6 +121,13 @@ M couverts par un test ».
     la disposition, ou la fenêtre entière panneaux fermés (`App::sceneRect`) ; une fenêtre ancrée dans le centre n'y
     laisse pas de trou. Un clic dans le trou retire le focus à la fin de son image (`ImGui::Render`, après `ui`) :
     `ui` de l'image suivante le voit et pose la route *jeu*, qui vaut **deux images après le clic**, non une.
+    **La barre de mode** s'accroche au coin haut gauche de la scène (`App::sceneRect`), dans le trou, et non sur
+    les onglets des colonnes. Elle est dessinée toujours : panneaux ouverts avec son bouton, fermés sans lui, en
+    bandeau que rien ne vise ni ne focalise (`NoInputs`), pour que le bandeau de « Jouer (sans retour) » se voie
+    aussi sans panneaux et que la route *jeu* reste. Celle du morceau 12 la remplacera.
+17. **Une valeur tapée dans l'inspecteur se voit dans l'image même** : `commitEdit` qui écrit lève
+    `Inspector::wrote` (remis à faux à chaque `drawInspector`), et `withEditor` pose alors
+    `App::recomposeAfterUi` (ADR-0036, décision 2). Le scénario de bout en bout attend le texte scripté (morceau 12).
 
 ## Points d'entrée
 
@@ -129,7 +136,7 @@ M couverts par un test ».
   bilan que lit la CI, « éditeur : N entités, M champs dessinés ; sélection : chemin », N étant les lignes de la
   hiérarchie et M les champs de la sélection à la dernière image.
 - `Mode`, `ModeState`, `ModeRequests`, `modeRequested`, `enterMode`, `stopPressed`, `inputRouteFor`,
-  `simulationPausedIn`, `programFrameRunsIn`, `modeNameOf`, `modeTokenOf`,
+  `simulationPausedIn`, `programFrameRunsIn`, `otherMode`, `modeNameOf`, `modeHintOf`, `modeTokenOf`, `drawModeBar`,
   `playShortcutPressed`, `sceneHasFocus` (`mode.hpp`) : les modes, en fonctions libres. À la fin, `withEditor` écrit aussi `editor.mode mode=edit steps=0 -- mode : Édition ; pas : 0`,
   sous son nom stable (ADR-0036, décision 14), que la CI lit : l'éditeur lancé sans script est en Édition à zéro pas
   (`App::stepsPlayed`, tous les pas de la boucle).

@@ -2,6 +2,20 @@
 
 Chaque entrée : symptôme, cause, parade, date. La plus récente en haut.
 
+## `pgrep -f tools/verify.sh` se trouve lui-même : l'attente d'un `verify.sh` qui n'existe pas (2026-10-10)
+
+- **Symptôme** : la vérification « aucun `tools/verify.sh` ne tourne dans CE worktree », `for p in $(pgrep -f
+  tools/verify.sh); do readlink /proc/$p/cwd; done`, rend le worktree courant, avec le pid d'un `verify.sh`
+  qu'aucun `ps` ne montre ensuite. Une attente en boucle (`until ! pgrep -f "ct/run1.py"; do sleep 3; done`) ne finit
+  jamais.
+- **Cause** : `-f` lit la ligne de commande entière, et le `bash -c '…'` de l'outil de commandes contient le motif :
+  `pgrep` trouve le shell qui l'a lancé, dont le dossier courant est celui du worktree.
+- **Parade** : la ligne entière, `pgrep -fx 'bash tools/verify.sh'` (`-x` : la ligne doit être exactement celle-là, le
+  `bash -c '…'` de l'outil ne l'est pas ; le dossier se lit ensuite par `readlink /proc/<pid>/cwd`). Un `-f` à motif partiel
+  se trouve toujours lui-même, même écrit `verify[.]sh`, si la commande cite ailleurs le texte brut (un heredoc, un
+  message). Attendre un fichier (`until grep -q fin journal`) plutôt qu'un processus. Ne tuer que le pid qu'on a lancé
+  (ici, le shell de l'attente) : le `verify.sh` d'un autre worktree n'est pas à soi.
+
 ## `gh pr merge --delete-branch` supprime aussi la branche locale, qu'une vérification lisait (2026-10-10)
 
 - **Symptôme** : les morceaux de #19 étaient empilés, chacun écrit sur le précédent pendant sa relecture

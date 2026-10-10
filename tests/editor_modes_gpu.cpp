@@ -19,6 +19,8 @@
 #include <vector>
 
 #include <imgui.h>
+// La fenêtre de la barre de mode, retrouvée par son nom : l'API interne d'ImGui.
+#include <imgui_internal.h>
 
 #include "gpu_test_backend.hpp"
 
@@ -46,7 +48,10 @@ struct Seen
     bool captured = false;        ///< la souris est capturée
     levain::app::ScreenRect rect; ///< `App::sceneRect`, tel que les panneaux l'ont posé
     levain::app::InputRoute route = levain::app::InputRoute::Ui; ///< celle de cette image
-    bool imguiP = false; ///< ImGui voit la touche P tenue (Alt+P lui arrive)
+    bool imguiP = false;   ///< ImGui voit la touche P tenue (Alt+P lui arrive)
+    bool barDrawn = false; ///< la barre de mode a été dessinée à l'image d'avant
+    float barX = 0.0f;     ///< son coin haut gauche, à l'image d'avant
+    float barY = 0.0f;
 };
 
 /// Le programme : une caméra, un « mover » que la simulation avance, un `frame` qui compte ses
@@ -78,6 +83,9 @@ levain::app::StartFunction programOf(std::vector<Seen>& seen, int& programFrames
         {
             const auto& state = uiApp.world.get<levain::app::PlayerInput>().state;
             const auto& raw = uiApp.input.raw;
+            // La barre de mode de l'image d'avant : le programme passe avant l'éditeur dans `ui`.
+            const ImGuiWindow* bar = ImGui::FindWindowByName("###Mode");
+            const bool barDrawn = bar != nullptr && bar->WasActive;
             seen.push_back(
                 {.programFrames = programFrames,
                  .steps = uiApp.stepsPlayed,
@@ -90,7 +98,10 @@ levain::app::StartFunction programOf(std::vector<Seen>& seen, int& programFrames
                  .captured = uiApp.mouseCaptured,
                  .rect = uiApp.sceneRect,
                  .route = uiApp.inputRoute,
-                 .imguiP = ImGui::IsKeyDown(ImGuiKey_P)});
+                 .imguiP = ImGui::IsKeyDown(ImGuiKey_P),
+                 .barDrawn = barDrawn,
+                 .barX = barDrawn ? bar->Pos.x : 0.0f,
+                 .barY = barDrawn ? bar->Pos.y : 0.0f});
             if (pinRect)
             {
                 uiApp.sceneRect = {.x = 0.0f, .y = 0.0f, .width = 160.0f, .height = 180.0f};
@@ -192,6 +203,8 @@ int playModes(const levain::tests::TestBackend& backend)
         const Seen& seen = run.seen.at(i);
         played += playsAt(frame) ? 1 : 0;
         const std::string at = std::format("image {} : ", frame);
+        // Panneaux fermés aussi, en Édition comme en jeu : le bandeau et le rappel de la touche.
+        failures += expect(seen.barDrawn == (frame >= 1), at + "la barre de mode se dessine");
         // Édition : le frame du programme n'est jamais appelé, aucun pas, rien dans PlayerInput. Le
         // jeu : un pas et un frame par image, la simulation avance de ce qu'elle a joué.
         failures += expect(seen.programFrames == played,
@@ -225,9 +238,11 @@ int playModes(const levain::tests::TestBackend& backend)
     return failures;
 }
 
-/// Panneaux ouverts : `sceneRect` est le trou du centre de la disposition, plus étroit que la
-/// fenêtre. Alt+P joue ; une seconde Alt+P, que le panneau qui a le focus (la route UI) laisse
-/// arriver à ImGui, ne ramène pas à l'Édition : seule Échap le fait.
+/// Panneaux ouverts : la barre de mode se dessine sans que la validation d'ImGui ne proteste, dans
+/// le trou du centre de la disposition et non sur les onglets des colonnes ; `sceneRect` est ce
+/// trou, plus étroit que la fenêtre. Alt+P joue ; une seconde Alt+P, que le panneau qui a le
+/// focus (la route UI) laisse arriver à ImGui, ne ramène pas à l'Édition : seuls Échap et le bouton
+/// le font.
 int playPanels(const levain::tests::TestBackend& backend)
 {
     const Run run = play(backend,
@@ -246,14 +261,17 @@ int playPanels(const levain::tests::TestBackend& backend)
                   "panneaux ouverts : un panneau a le focus, la seconde Alt+P arrive à ImGui") +
            expect(last.rect.x > 0.0f && last.rect.width > 0.0f &&
                       last.rect.x + last.rect.width < 320.0f,
-                  "panneaux ouverts : la scène est le trou du centre, entre les colonnes");
+                  "panneaux ouverts : la scène est le trou du centre, entre les colonnes") +
+           expect(last.barDrawn && last.barX >= last.rect.x && last.barY >= last.rect.y,
+                  "panneaux ouverts : la barre est dans le trou, pas sur les colonnes");
 }
 
 /// Panneaux fermés, rien d'épinglé : la scène est la fenêtre entière (320 × 180), et un clic à
 /// x = 250, où une disposition aurait des panneaux, atteint le jeu. Sans la remise de `sceneRect` à
-/// la fenêtre à chaque image, le rectangle resterait vide et la souris n'arriverait jamais. Un
-/// clic dans le coin, en jeu, ne prend pas le focus et laisse la route *jeu* (la route *UI*
-/// laisserait encore passer W, tant qu'aucun champ n'est actif : c'est la route qu'on lit).
+/// la fenêtre à chaque image, le rectangle resterait vide et la souris n'arriverait jamais. Le
+/// bandeau est dessiné sans bouton, et il ne prend jamais le focus : un clic sur lui, en jeu,
+/// laisse la route *jeu* (la route *UI* laisserait encore passer W, tant qu'aucun champ n'est
+/// actif : c'est la route qu'on lit).
 int playWholeWindow(const levain::tests::TestBackend& backend)
 {
     const Run run = play(backend,
@@ -270,13 +288,47 @@ int playWholeWindow(const levain::tests::TestBackend& backend)
         failures += expect(seen.rect.x == 0.0f && seen.rect.y == 0.0f &&
                                seen.rect.width == 320.0f && seen.rect.height == 180.0f,
                            at + "la scène est la fenêtre entière");
-        failures += expect(seen.leftSeen == (i == 3 || i == 6),
-                           at + "le clic, hors de tout panneau, atteint le jeu");
+        failures +=
+            expect(seen.leftSeen == (i == 3 || i == 6),
+                   at + "le clic, hors de tout panneau comme sur le bandeau, atteint le jeu");
         failures += expect(
             seen.route == (i < 2 ? levain::app::InputRoute::Editor : levain::app::InputRoute::Game),
-            at + "le clic n'a pas pris le focus : la route reste jeu");
+            at + "le bandeau cliqué n'a pas pris le focus : la route reste jeu");
     }
     return failures;
+}
+
+/// Le bouton de la barre, cliqué à la souris scriptée : Édition, jeu, Édition. Les coordonnées
+/// viennent de la disposition (le coin du trou, la marge de la fenêtre, le bouton) : un premier
+/// passage sans script lit le trou.
+int playButton(const levain::tests::TestBackend& backend)
+{
+    // (un script vide est refusé, bruyamment : un mouvement de souris loin de tout, pour rien.)
+    const Run probe = play(backend, "0 mouse move 1 1\n", 3, true, false);
+    if (probe.seen.empty())
+    {
+        return expect(false, "le passage qui lit le trou n'a relevé aucune image");
+    }
+    const levain::app::ScreenRect hole = probe.seen.back().rect;
+    // La barre est à 8 px du coin du trou, sa marge est de 8 px, le bouton fait environ 19 px.
+    const float x = hole.x + 8.0f + 8.0f + 20.0f;
+    const float y = hole.y + 8.0f + 8.0f + 9.0f;
+    const std::string script = std::format("0 mouse move {} {}\n2 button down left\n"
+                                           "3 button up left\n6 button down left\n"
+                                           "7 button up left\n",
+                                           x, y);
+    const Run run = play(backend, script, 12, true, false);
+    if (run.seen.size() != 12)
+    {
+        return expect(false, "le bouton : une image relevée par image");
+    }
+    // Le clic de l'image 3 joue (images 4 à 7), celui de l'image 7 revient à l'Édition (8 à 11).
+    return expect(run.exitCode == 0, "le bouton : code 0") +
+           expect(run.seen.at(3).steps == 0, "le bouton : rien ne joue avant son clic") +
+           expect(run.seen.at(7).steps == 4 && run.seen.at(7).programFrames == 4,
+                  "le bouton « Jouer » joue à l'image suivante") +
+           expect(run.seen.at(11).steps == 4 && run.seen.at(11).programFrames == 4,
+                  "le bouton « Revenir à l'édition » arrête le jeu");
 }
 
 } // namespace
@@ -293,7 +345,8 @@ int main(int argc, char** argv)
             std::println(stderr, "usage : levain_editor_modes [vulkan|d3d12|d3d12-warp]");
             return 2;
         }
-        const int failures = playModes(*backend) + playPanels(*backend) + playWholeWindow(*backend);
+        const int failures = playModes(*backend) + playPanels(*backend) +
+                             playWholeWindow(*backend) + playButton(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

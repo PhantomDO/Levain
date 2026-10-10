@@ -49,7 +49,7 @@ qu'un tableau à lire.
 | 5 | Cadrer la sélection | F : documenté [E1] | F : documenté [U1] | pos. F, Vue survolée | M7.7 | 11 | `gestes.cadrer` | à faire |
 | 6 | Glisser le gizmo : une étape d'annulation | une transaction par portée : documenté [E7] ; une par glissé : supposé | un appui de souris sépare les groupes : documenté [U18] | glisser une poignée | M7.4 | à venir | `gestes.gizmo-une-etape` | à faire |
 | 7 | Prendre l'outil déplacer, tourner, échelle | W, E, R : documenté [E2] | W, E, R : documenté [U3] | pos. W E R (Z E R) | M7.4 | à venir (la touche : M7.7, 10) | `gestes.outils` | à faire |
-| 8 | Taper une valeur, la voir dans l'image | dans l'image : supposé | dans l'image : supposé | dans la même image (l'image suivante aujourd'hui) | M7.7 | 4, 5 | `gestes.champ-meme-image` | à faire |
+| 8 | Taper une valeur, la voir dans l'image | dans l'image : supposé | dans l'image : supposé | dans la même image (l'éditeur demande la recomposition depuis M7.7, 5 ; le scénario attend le texte scripté) | M7.7 | 12 (la recomposition : 4, 5) | `gestes.champ-meme-image` | à faire |
 | 9 | Enregistrer la scène | Ctrl+S : supposé | Ctrl+S : supposé | Ctrl+S | M7.3 | à venir (scènes) | `gestes.enregistrer` | à faire |
 | 10 | Monter, descendre en vol | E, Q : documenté [E1] | E, Q : documenté [U1] | pos. E et Q (E et A) | M7.7 | 11 | `gestes.vol-monter` | à faire |
 | 11 | Régler la vitesse du vol | molette, clic droit tenu : documenté [E1] | molette en vol : documenté [U1] | molette, clic droit tenu | M7.7 | 11 | `gestes.vol-vitesse` | à faire |

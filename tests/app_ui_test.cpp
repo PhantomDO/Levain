@@ -219,7 +219,7 @@ TEST_CASE("la scène est le trou du nœud central, et rien tant qu'une fenêtre 
     // Sans nœud central, la scène est la fenêtre.
     CHECK(levain::app::sceneRectOf(nullptr, Whole).width == 320.0f);
     // Une fenêtre ancrée dans le centre : plus de trou, le clic est à elle. L'origine reste celle
-    // du nœud, où la barre de mode s'accrochera.
+    // du nœud, où la barre de mode s'accroche.
     node.Windows.push_back(window);
     const levain::app::ScreenRect covered = levain::app::sceneRectOf(&node, Whole);
     CHECK_FALSE(levain::app::rectContains(covered, 50.0f, 40.0f));

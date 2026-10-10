@@ -36,6 +36,10 @@ struct Inspector
     std::unordered_map<ImGuiID, glm::vec3> typedAngles;
     /// Les champs dessinés à la dernière image pour la sélection : le bilan que lit la CI.
     int fieldsDrawn = 0;
+    /// `commitEdit` a écrit une valeur pendant `drawInspector` : l'éditeur demande alors à `App`
+    /// de recomposer les matrices monde après `ui` (`recomposeAfterUi`, ADR-0036, décision 2), pour
+    /// que l'image montre le `Transform` tapé. Remis à faux au début de chaque `drawInspector`.
+    bool wrote = false;
 };
 
 /// L'inspecteur d'un monde qui a importé la scène (ses feuilles glm) ; `registry` nomme les assets.

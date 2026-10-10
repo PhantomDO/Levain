@@ -3,6 +3,44 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un test de « ne prend pas le focus » qui lit une touche ne voit rien : lire la route (2026-10-10)
+
+M7.7, morceau 5 (`gpu.editor-modes.*`, le bandeau de la barre de mode, panneaux fermés).
+
+- **Symptôme** : le contre-test « le bandeau perd `NoInputs` » (il prend alors le focus au clic) laissait
+  `gpu.editor-modes.vulkan` vert, alors que le test cliquait sur lui puis tenait W en jeu. **Cause** : sous la route
+  *UI*, la touche W va quand même au jeu tant qu'aucun champ d'ImGui n'est actif (`WantCaptureKeyboard` faux) : la perte
+  de la route *jeu* ne change rien à ce qu'une touche fait. **Parade** : le test lit la route (`App::inputRoute`, relevée
+  dans `ui`), pas l'effet d'une touche ; rouge sans `NoInputs` aux images 8 et 9 (la route repasse à *UI* deux images
+  après le clic), vert avec.
+- **Symptôme** : le test d'un rectangle « fenêtre entière » restait vert quand la boucle ne le posait plus. **Cause** : le
+  test épinglait `sceneRect` lui-même. **Parade** : un passage sans épinglage, panneaux fermés, qui clique là où une
+  disposition aurait des panneaux (`playWholeWindow`) ; rouge quand `endUiFrame` ne remet plus le rectangle (14 échecs).
+- **Symptôme** : `verify.sh` rouge à `clang-tidy` seul (le build et les tests verts) sur `const Events& uiEventsOf(route,
+  const Events& events, Events& scratch)` : `bugprone-return-const-ref-from-parameter`. **Cause** : rendre sa référence
+  constante en paramètre peut pendre si l'argument est un temporaire. **Parade** : un `std::optional<Events>` (`nullopt` :
+  « les événements tels quels »), et l'appelant choisit `filtered ? *filtered : events` (`uiEventsOf`, app.cpp) ; le test
+  lit l'optionnel par un accès explicite, `bugprone-unchecked-optional-access` ne suivant pas `REQUIRE`.
+- **Une fenêtre ImGui retrouvée par son nom** dans un test : `ImGui::FindWindowByName("###Mode")` (imgui_internal.h) ;
+  le `###` suffit, le libellé traduit devant lui ne compte pas dans l'identifiant. `WasActive` dit si elle a été dessinée
+  à l'image d'avant.
+
+## Un accord ImGui en `|`, `clang-format -i` sur un CMakeLists, et une faute qui doit compiler (2026-10-10)
+
+M7.7, morceau 5 (`editor/src/mode.cpp`, `tests/CMakeLists.txt`).
+
+- **Symptôme** : `ImGui::Shortcut(ImGuiMod_Alt | ImGuiKey_P, …)` et `ImGuiWindowFlags_A | ImGuiWindowFlags_B` échouent à
+  `bugprone-signed-bitwise` (clang-tidy 23), seulement à l'analyse, jamais au build. **Cause** : les enums d'ImGui sont
+  signés (`ImGuiKey` est un `int`). **Parade** : `withFlags` (hierarchy.cpp, context.cpp, mode.cpp) pour les drapeaux, un
+  `static_cast<unsigned>` de chaque côté pour un accord (`playShortcutPressed`).
+- **Symptôme** : `clang-format -i tests/CMakeLists.txt` (passé avec une liste de fichiers `*.cpp` et `CMakeLists.txt`)
+  réécrit le CMake en charabia : « Parse error. Expected a command name » au configure suivant. **Parade** : ne formater
+  que les `.cpp` et `.hpp` ; le fichier abîmé se refait depuis l'index (`git checkout -- fichier`, s'il n'avait pas
+  d'autre changement non commité) puis on rejoue la modification.
+- **Contre-test** : la faute doit compiler. Un `return true;` à la place d'un `return mode != Mode::Edit;` laisse `mode`
+  inutilisé (`-Wunused-parameter`, `-Werror`) : `static_cast<void>(mode); return true;`. Une fonction que la faute ne
+  rappelle plus (`logMode`) est `-Wunused-function` : `static_cast<void>(&logMode);`.
+
 ## Un contre-test restauré par `git checkout -- fichier` revient à l'index, pas au dernier commit (2026-10-10)
 
 M7.7, morceau 6.
