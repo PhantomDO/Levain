@@ -670,3 +670,54 @@ TEST_CASE("un composant neuf, une seule déclaration : tous ses champs dessinés
     CHECK(entity.get<editor_test::Beacon>().intensity == 1.0f); // la borne
     CHECK(typing.sets == 1);
 }
+
+TEST_CASE(
+    "l'Édition arrête la simulation et le frame du programme, la route suit le mode et le focus")
+{
+    using levain::app::InputRoute;
+    using levain::editor::Mode;
+    CHECK(levain::editor::simulationPausedIn(Mode::Edit));
+    CHECK_FALSE(levain::editor::simulationPausedIn(Mode::PlayWithoutReturn));
+    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Edit));
+    CHECK(levain::editor::programFrameRunsIn(Mode::PlayWithoutReturn));
+    // Édition : rien au jeu, que la scène ait le focus ou non.
+    CHECK(levain::editor::inputRouteFor(Mode::Edit, true) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteFor(Mode::Edit, false) == InputRoute::Editor);
+    // Jeu : au jeu si la scène a le focus ; sinon à l'UI, qu'un champ de texte actif ne soit pas
+    // une touche de vol.
+    CHECK(levain::editor::inputRouteFor(Mode::PlayWithoutReturn, true) == InputRoute::Game);
+    CHECK(levain::editor::inputRouteFor(Mode::PlayWithoutReturn, false) == InputRoute::Ui);
+}
+
+TEST_CASE("Échap ramène à l'Édition à son appui, pas tant qu'elle est tenue")
+{
+    levain::editor::ModeState state{.current = levain::editor::Mode::PlayWithoutReturn};
+    levain::input::RawInput raw;
+    CHECK_FALSE(levain::editor::stopPressed(state, raw));
+    raw.keys.set(levain::editor::StopScancode);
+    CHECK(levain::editor::stopPressed(state, raw));
+    CHECK_FALSE(levain::editor::stopPressed(state, raw)); // toujours tenue : le front est passé
+    raw.keys.reset(levain::editor::StopScancode);
+    CHECK_FALSE(levain::editor::stopPressed(state, raw));
+    raw.keys.set(levain::editor::StopScancode);
+    CHECK(levain::editor::stopPressed(state, raw)); // un nouvel appui
+}
+
+TEST_CASE("Alt+P joue, Échap arrête : chacune dans un seul sens")
+{
+    using levain::editor::Mode;
+    using levain::editor::modeRequested;
+    using levain::editor::ModeRequests;
+    constexpr Mode Edit = Mode::Edit;
+    constexpr Mode Play = Mode::PlayWithoutReturn;
+    // Alt+P : de l'Édition au jeu, jamais l'inverse (sous la route jeu, ImGui ne la reçoit pas :
+    // un retour par Alt+P ne marcherait qu'à certaines images).
+    CHECK(modeRequested(Edit, {.playShortcut = true}) == Play);
+    CHECK_FALSE(modeRequested(Play, {.playShortcut = true}).has_value());
+    // Échap : du jeu à l'Édition, et rien en Édition.
+    CHECK(modeRequested(Play, {.stop = true}) == Edit);
+    CHECK_FALSE(modeRequested(Edit, {.stop = true}).has_value());
+    CHECK_FALSE(modeRequested(Edit, ModeRequests{}).has_value());
+    // Échap l'emporte sur le reste : sortir du jeu ne se dispute pas.
+    CHECK(modeRequested(Play, {.playShortcut = true, .stop = true}) == Edit);
+}

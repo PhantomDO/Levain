@@ -245,6 +245,10 @@ struct App
     /// images : à l'arrêt, il ne joue aucun pas. Les squelettes s'arrêtent avec elle
     /// (`skinningState.clock`) ; l'eau, l'herbe et les matériaux gardent le temps de la scène.
     bool simulationPaused = false;
+    /// Les pas de simulation joués depuis le début, tous les `advanceWorld` : il n'avance pas tant
+    /// que la simulation est à l'arrêt, et reste à zéro si rien n'a jamais joué. Ce que compte un
+    /// bilan (le « pas : 0 » de l'éditeur lancé en Édition) ; la simulation, elle, ne le lit pas.
+    int stepsPlayed = 0;
     /// **La recomposition sur demande** (ADR-0036, décision 2) : posée par `ui` (ou `frame`) quand
     /// elle a écrit un `Transform` que l'image doit montrer, remise à faux par la boucle à chaque
     /// image. Posée, la boucle recompose les matrices monde après `hooks.ui` et `ImGui::Render`

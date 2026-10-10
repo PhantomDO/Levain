@@ -14,6 +14,7 @@
 #include "levain/app/app.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
+#include "levain/editor/mode.hpp"
 
 namespace levain::editor
 {
@@ -40,6 +41,8 @@ struct Editor
     flecs::entity_t selected = 0;
     Hierarchy hierarchy;
     Inspector inspector;
+    /// Le mode (ADR-0036) : l'éditeur s'ouvre en Édition.
+    ModeState mode;
 };
 
 /// L'entité choisie si elle vit encore ; l'entité nulle sinon, ou sans choix. Une sélection
@@ -49,7 +52,10 @@ struct Editor
 /// La fonction de démarrage du programme, enveloppée (ADR-0029) : `start`, puis l'entité de
 /// `--select`, dont l'absence fait échouer le démarrage ; les panneaux de l'éditeur passent après
 /// les fenêtres du programme (`FrameHooks::ui`), panneaux ouverts seulement, et son bilan avant
-/// celui du programme (`FrameHooks::finish`). La boucle ne change pas.
+/// celui du programme (`FrameHooks::finish`). **Le `frame` du programme est enveloppé aussi** : en
+/// Édition, qui est le mode du départ, il n'est jamais appelé, la simulation est à l'arrêt et le
+/// jeu ne reçoit rien (`App::inputRoute`). Alt+P passe en « Jouer (sans retour) », qu'Échap
+/// quitte (`mode.hpp`).
 [[nodiscard]] app::StartFunction withEditor(app::StartFunction start, EditorOptions options);
 
 } // namespace levain::editor
