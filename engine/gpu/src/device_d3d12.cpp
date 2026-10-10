@@ -307,8 +307,12 @@ core::Result<nvrhi::RefCountPtr<IDXGIAdapter1>> highPerformanceAdapter(IDXGIFact
             return failedCall(std::format("IDXGIFactory6::EnumAdapterByGpuPreference({})", index),
                               result);
         }
+        // Un GetDesc1 raté laisserait `Flags` à zéro : WARP passerait le filtre pour un GPU.
         DXGI_ADAPTER_DESC1 desc{};
-        adapter->GetDesc1(&desc);
+        if (const HRESULT descResult = adapter->GetDesc1(&desc); FAILED(descResult))
+        {
+            return failedCall("IDXGIAdapter1::GetDesc1", descResult);
+        }
         const std::string name = utf8Of(desc.Description);
         if ((desc.Flags & static_cast<UINT>(DXGI_ADAPTER_FLAG_SOFTWARE)) != 0)
         {

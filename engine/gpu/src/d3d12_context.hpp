@@ -115,8 +115,10 @@ struct D3d12Context final : NativeDevice
 
 /// Les messages que la couche de debug DXGI a gardés depuis la dernière relecture, passés par le
 /// chemin de ceux de Direct3D 12 (nos logs, une assertion sur une erreur en Debug), puis effacés.
-/// DXGI n'a pas de rappel comme `ID3D12InfoQueue1` : la swapchain relit la file après chaque
-/// présentation et à chaque redimensionnement, là où DXGI travaille.
+/// DXGI n'a pas de rappel comme `ID3D12InfoQueue1` : la swapchain relit la file à sa création,
+/// après chaque présentation et à chaque redimensionnement, là où DXGI travaille. Sans swapchain
+/// (le pilote offscreen de SDL), le device la relit une fois, à sa création : DXGI ne travaille
+/// plus ensuite.
 void drainDxgiMessages(IDXGIInfoQueue& queue);
 
 /// Crée la swapchain DXGI de la fenêtre `window`, à la taille donnée, et en enveloppe les images en
