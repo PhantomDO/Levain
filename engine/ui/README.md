@@ -43,7 +43,15 @@ Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe,
 - **Traduire un titre sans identifiant fait perdre sa fenêtre à la disposition.** ImGui ne hache que ce qui suit « ### »
   (`ImHashStr`, imgui.cpp) : « Image » et « Picture###Image » ont le même identifiant, que `labelOf` écrit. Un test qui
   bâtit et ouvre dans la même langue passe sans « ### » : `ui_i18n_test.cpp` bâtit en français, ouvre en anglais. Un texte
-  traduit n'est jamais un format d'ImGui (`textf`, `TextUnformatted`).
+  traduit n'est jamais un format d'ImGui (`textf`, `TextUnformatted`). `i18n.untranslated` (`tests/check_untranslated.py`)
+  refuse, sous `editor/`, `engine/app/` et `engine/ui/`, tout littéral d'un appel `ImGui::` hors du catalogue (un
+  identifiant seul prend « ## », sauf pour les fonctions de `ID_ONLY`) et un `Begin` sans `labelOf` ; un texte construit
+  à l'exécution lui échappe.
+- **Des clés arrivent au catalogue par une variable**, hors de tout `tr("…")` : l'extraction de M7.8 ne les verra pas, et
+  son contrôle « l'anglais de chaque clé » passerait en les laissant en français. Les constantes de fenêtre (`ImageWindow`,
+  `PassesWindow`, `SceneWindow` dans `panels.hpp`, `HierarchyWindow`, `InspectorWindow`), les deux courbes de
+  `plotHistory("image (ms)")` et `("GPU (ms)")`, `RendererPassNames` (`render/renderer.hpp`) et la ligne `"interface"` de
+  `panels.cpp`. M7.8 les marque (comme le `N_` de gettext) ou les relit depuis cette liste.
 - **Les couleurs d'ImGui sont en sRGB** (`linearOnSrgbTarget`). Une cible sRGB convertit en écrivant : sans
   linéarisation dans le shader, l'UI serait convertie deux fois, et délavée. Relu par `levain_ui_gpu` : 72
   niveaux d'écart sans la linéarisation.
