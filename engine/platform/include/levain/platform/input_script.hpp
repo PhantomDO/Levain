@@ -42,6 +42,7 @@ struct InputScript
 ///
 ///     <image> key down|up <touche> [as <lettre>]   une position du clavier, par son nom SDL
 ///     <image> button down|up left|right|middle     un bouton de la souris
+///     <image> mouse move <x> <y>                   le curseur, en pixels de l'image
 ///
 /// **Une touche a deux identités** : sa position (`W`, le scancode, que lit le jeu) et la lettre
 /// qu'elle tape (le keycode, que lit ImGui). Sans `as`, la lettre est celle d'un clavier QWERTY

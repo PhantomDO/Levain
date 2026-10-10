@@ -29,7 +29,7 @@ qu'un tableau à lire.
 - **Le scénario** est le nom du test qui prouvera le geste de bout en bout, par le banc d'essai de l'App (ADR-0036,
   morceau 2 : des événements rejoués, en QWERTY et en AZERTY pour une touche à position). Il est provisoire tant que le
   geste est « à faire » : la PR qui écrit le scénario peut le renommer, ici aussi.
-  Le banc sait écrire des touches et des boutons ; la position de la souris (morceaux 5 et 8), le mouvement et la
+  Le banc sait écrire des touches, des boutons et la position de la souris (morceau 5) ; le mouvement et la
   molette (11), le texte (12) et la fermeture (13) viennent avec le morceau qui en a besoin
   ([platform/README](../engine/platform/README.md)).
 - **L'état** prend l'un de trois mots, et la commande refuse tout autre :
@@ -67,7 +67,7 @@ qu'un tableau à lire.
 | 23 | Vider la sélection | Échap : supposé | Échap : supposé | Échap, Vue survolée (proposé) | M7.4 | à venir | `gestes.selection-vide` | à faire |
 | 24 | Courir en vol | Maj : supposé | Maj : documenté [U1] | Maj tenu (proposé : absent de la décision 13) | M7.7 | 11 | `gestes.vol-courir` | à faire |
 | 25 | Cadrer depuis la hiérarchie | F dans l'Outliner : documenté [E3] ; double-clic : supposé | double-clic : supposé | double-clic sur la ligne ; pos. F, hiérarchie en focus (proposé) | M7.7 | 11 | `gestes.cadrer-hierarchie` | à faire |
-| 26 | Ouvrir l'éditeur : rien ne bouge, le jeu ne reçoit rien | rien ne tourne avant Play ou Simulate : supposé | un mode Édition, Play à part : documenté [U20] | le mode Édition au lancement | M7.7 | 4, 5 | `gestes.edition-ouverture` | à faire |
+| 26 | Ouvrir l'éditeur : rien ne bouge, le jeu ne reçoit rien | rien ne tourne avant Play ou Simulate : supposé | un mode Édition, Play à part : documenté [U20] | le mode Édition au lancement | M7.7 | 4, 5 | `gpu.editor-modes.vulkan` | couvert |
 | 27 | Créer une entité | panneau Place Actors : supposé | Ctrl+Maj+N, en renommage : documenté [U12] | menu Entité, clic droit dans la hiérarchie (proposé) | M7.3 | à venir (annulation) | `gestes.creer` | à faire |
 | 28 | Reparenter par glisser-déposer | glisser sur un acteur l'attache : documenté [E3] | glisser sur un objet : documenté [U11] | glisser la ligne sur une autre | M7.3 | à venir (annulation) | `gestes.reparenter` | à faire |
 | 29 | Ajouter un composant | bouton d'ajout : supposé | Add Component, avec recherche : documenté [U14] | bouton de l'inspecteur, avec recherche (proposé) | M7.3 | à venir (annulation) | `gestes.composant-ajouter` | à faire |

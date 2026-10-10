@@ -4,6 +4,7 @@
 #include <bitset>
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <format>
 #include <ranges>
 #include <span>
@@ -196,6 +197,36 @@ core::Result<void> addButton(Events& events, int line, const Words& words)
     return {};
 }
 
+/// Un nombre à virgule, fini, et rien d'autre dans le texte : `from_chars` lit aussi « nan » et
+/// « inf », qu'une position de souris ne peut pas être.
+std::optional<float> coordinateOf(std::string_view text)
+{
+    float value = 0.0f;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+    return error == std::errc{} && end == text.data() + text.size() && std::isfinite(value)
+               ? std::optional{value}
+               : std::nullopt;
+}
+
+/// `mouse move <x> <y>` : la position du curseur, en pixels de l'image. Pour l'interface seule (la
+/// position n'est pas un `InputEvent` : le jeu lit un déplacement, pas un lieu), comme chez SDL.
+core::Result<void> addMouseMove(Events& events, int line, const Words& words)
+{
+    if (words.size() != 5 || words[2] != "move")
+    {
+        return refusal(line, "champs", "mouse move <x> <y> est attendu");
+    }
+    const auto x = coordinateOf(words[3]);
+    const auto y = coordinateOf(words[4]);
+    if (!x || !y)
+    {
+        return refusal(line, "position",
+                       std::format("« {} {} » : deux nombres finis", words[3], words[4]));
+    }
+    events.ui.push_back({.type = UiEventType::MouseMoved, .x = *x, .y = *y});
+    return {};
+}
+
 } // namespace
 
 core::Result<InputScript> parseInputScript(std::string_view text)
@@ -236,7 +267,9 @@ core::Result<InputScript> parseInputScript(std::string_view text)
         Events& events = script.frames[*frame];
         const auto added = kind == "key"      ? addKey(events, line, words, held)
                            : kind == "button" ? addButton(events, line, words)
-                                              : refusal(line, "type", "key ou button est attendu");
+                           : kind == "mouse"
+                               ? addMouseMove(events, line, words)
+                               : refusal(line, "type", "key, button ou mouse est attendu");
         if (!added)
         {
             return std::unexpected(added.error());

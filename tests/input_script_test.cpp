@@ -115,9 +115,24 @@ TEST_CASE("un script refuse ce qu'il ne saurait pas rejouer, en nommant la ligne
     refused("0 jump W\n", "ligne 1", "type");
     refused("0 button down thumb\n", "ligne 1", "bouton");
     refused("0 button down\n", "ligne 1", "champs");
+    refused("0 mouse move 3\n", "ligne 1", "champs");
+    refused("0 mouse jump 3 4\n", "ligne 1", "champs");
+    refused("0 mouse move 3 4x\n", "ligne 1", "position");
+    refused("0 mouse move nan 4\n", "ligne 1", "position"); // from_chars lit « nan » et « inf »
+    refused("0 mouse move 3 inf\n", "ligne 1", "position");
     refused("2147483647 key down W\n", "ligne 1",
             "image"); // « dernière image plus une » déborderait
     refused("1000001 key down W\n", "ligne 1", "image");
+}
+
+TEST_CASE("la position de la souris n'est que pour l'interface : le jeu lit un déplacement")
+{
+    const Events events = eventsAt(parsed("2 mouse move 120.5 -4\n"), 2);
+    CHECK(events.input.empty());
+    REQUIRE(events.ui.size() == 1);
+    CHECK(events.ui[0].type == levain::platform::UiEventType::MouseMoved);
+    CHECK(events.ui[0].x == 120.5f);
+    CHECK(events.ui[0].y == -4.0f);
 }
 
 TEST_CASE("un script sans aucun événement est refusé : il ne rejouerait rien")

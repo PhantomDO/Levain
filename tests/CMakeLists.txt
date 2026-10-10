@@ -412,6 +412,14 @@ target_compile_definitions(levain_app_loop PRIVATE
 add_test(NAME gpu.app-loop.vulkan COMMAND levain_app_loop vulkan)
 set_tests_properties(gpu.app-loop.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# Les modes de l'éditeur (ADR-0036, morceau 5) : l'Édition ne joue rien et ne donne rien au jeu, Alt+P joue, la route
+# de l'input suit le mode, Échap revient et rend la souris, dans la vraie boucle hors écran.
+add_executable(levain_editor_modes editor_modes_gpu.cpp)
+target_link_libraries(levain_editor_modes PRIVATE levain::editor levain::app levain::input levain::platform levain::scene)
+target_compile_definitions(levain_editor_modes PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.editor-modes.vulkan COMMAND levain_editor_modes vulkan)
+set_tests_properties(gpu.editor-modes.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # Le coût de la recomposition après ui, sur les 10 000 cubes de la démo : un banc, hors de ctest, comme levain_scene_bench
 # (tools/recompose-cost.sh le lance en Release ; le chiffre dépend de la machine).
 add_executable(levain_recompose_bench recompose_bench.cpp)
@@ -502,8 +510,10 @@ if(WIN32)
     # couches de debug que les autres forcent. Le contrôle des couches (ci.yml) repose sur ces autres tests.
     add_test(NAME gpu.app-script.d3d12-warp COMMAND levain_app_script d3d12-warp)
     add_test(NAME gpu.app-loop.d3d12-warp COMMAND levain_app_loop d3d12-warp)
+    add_test(NAME gpu.editor-modes.d3d12-warp COMMAND levain_editor_modes d3d12-warp)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
-        gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+        gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp
+        PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 
 # ADR-0018 et ADR-0034 : le moteur vu d'un jeu. La frontière des plugins et de l'éditeur, sur un
