@@ -80,4 +80,17 @@ core::Result<void> requireBackendBuilt(nvrhi::GraphicsAPI api)
     return {};
 }
 
+core::Result<void> requireAdapterChoosable(nvrhi::GraphicsAPI api, Adapter adapter)
+{
+    if (adapter == Adapter::HighPerformance || api == nvrhi::GraphicsAPI::D3D12)
+    {
+        return {};
+    }
+    return core::makeError(
+        core::ErrorCode::Unsupported,
+        "le rendu logiciel (WARP) n'existe que sous Direct3D 12 : sous Vulkan, le "
+        "chargeur choisit le pilote (VK_DRIVER_FILES pour lavapipe), et sous "
+        "WebGPU, Dawn ou le navigateur choisit l'adaptateur");
+}
+
 } // namespace levain::gpu

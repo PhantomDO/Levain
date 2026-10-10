@@ -22,6 +22,12 @@ void requestGpuDevice(const platform::Window& window, const DeviceOptions& optio
         onDevice(std::unexpected{std::move(built.error())});
         return;
     }
+    // Le rendu logiciel de Direct3D 12 n'existe pas ici non plus.
+    if (auto choosable = requireAdapterChoosable(options.api, options.adapter); !choosable)
+    {
+        onDevice(std::unexpected{std::move(choosable.error())});
+        return;
+    }
     // Le sélecteur du canvas que SDL a pris pour la fenêtre, « #canvas » par défaut (SDL_video.h,
     // SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING : dièse compris, malgré son nom).
     const std::string selector =

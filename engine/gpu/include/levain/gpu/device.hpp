@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -49,6 +50,17 @@ inline constexpr nvrhi::GraphicsAPI DefaultBackend = nvrhi::GraphicsAPI::WEBGPU;
 inline constexpr nvrhi::GraphicsAPI DefaultBackend = nvrhi::GraphicsAPI::VULKAN;
 #endif
 
+/// Quel adaptateur Direct3D 12 prend le device. `Software` est le rendu logiciel de Windows, WARP
+/// (« Microsoft Basic Render Driver ») : un runner de CI n'a pas de GPU, et c'est le seul
+/// adaptateur qu'il ait (#19). Sous Vulkan, c'est le chargeur qui choisit le pilote
+/// (`VK_DRIVER_FILES` pour lavapipe), pas le moteur : `requireAdapterChoosable` refuse `Software`
+/// ailleurs que sous Direct3D 12.
+enum class Adapter : std::uint8_t
+{
+    HighPerformance, ///< Le GPU matériel le plus performant (discret de préférence).
+    Software,        ///< WARP, le rendu logiciel de Direct3D 12.
+};
+
 struct DeviceOptions
 {
     /// Couches de validation Vulkan (ou couche de debug Direct3D 12) et couche de validation NVRHI,
@@ -59,6 +71,8 @@ struct DeviceOptions
     /// ce dernier sert à développer et vérifier le backend WebGPU sans navigateur. Il dessine hors
     /// écran : la fenêtre reste vide, `--capture` montre l'image.
     nvrhi::GraphicsAPI api = DefaultBackend;
+    /// Direct3D 12 seulement (`requireAdapterChoosable`).
+    Adapter adapter = Adapter::HighPerformance;
 };
 
 /// Le backend que nomme la ligne de commande (`--gpu`, les tests GPU) : « vulkan », « d3d12 » ou
@@ -76,6 +90,11 @@ struct DeviceOptions
 /// pourquoi « d3d12 » n'est pas pris.
 [[nodiscard]] core::Result<void> requireBackendBuilt(nvrhi::GraphicsAPI api);
 
+/// Refuse `Adapter::Software` hors de Direct3D 12, en disant qui choisit le GPU ailleurs : ne pas
+/// le lire reviendrait à lancer le GPU sans un mot (règle n°7). Comme `requireBackendBuilt`, sur
+/// toutes les cibles, avant le device.
+[[nodiscard]] core::Result<void> requireAdapterChoosable(nvrhi::GraphicsAPI api, Adapter adapter);
+
 #ifndef __EMSCRIPTEN__
 /// Le GPU vu par le moteur : un `nvrhi::IDevice`, les objets du backend qui le portent, et la
 /// swapchain où il dessine.
@@ -90,7 +109,8 @@ struct GpuDevice
     std::unique_ptr<NativeDevice, NativeDeviceDeleter> native;
     nvrhi::DeviceHandle nvrhi;
     std::unique_ptr<Swapchain, SwapchainDeleter> swapchain;
-    /// Sans swapchain (WebGPU en natif), l'image où dessiner, à la taille de la fenêtre.
+    /// Sans swapchain (WebGPU en natif, Direct3D 12 sous le pilote offscreen de SDL), l'image où
+    /// dessiner, à la taille de la fenêtre.
     nvrhi::TextureHandle offscreen;
 };
 #else
@@ -119,13 +139,16 @@ void requestGpuDevice(const platform::Window& window, const DeviceOptions& optio
 ///
 /// Échoue pour un backend absent de ce build (`requireBackendBuilt`), ou sans GPU compatible :
 /// - Vulkan : 1.3, dynamicRendering, synchronization2, timeline semaphores ;
-/// - Direct3D 12 : un adaptateur matériel au niveau 12_0 et au shader model 6.0 (WARP écarté).
+/// - Direct3D 12 : un adaptateur matériel au niveau 12_0 et au shader model 6.0 ; WARP sur demande
+///   seulement (`Adapter::Software`), jamais en repli d'un GPU absent.
 ///
 /// Avec la validation, échoue aussi sans ses couches : sous Vulkan, les couches de validation ;
 /// sous Direct3D 12, les couches de debug de Direct3D 12 et de DXGI (`d3d12SDKLayers.dll` et
 /// `dxgidebug.dll`, de la fonctionnalité facultative « Outils graphiques » de Windows), et
 /// `ID3D12InfoQueue1` (Windows 11, Windows Server 2025), par laquelle la première rappelle le
-/// moteur. Sous Direct3D 12, échoue enfin si la swapchain DXGI ne se crée pas sur la fenêtre.
+/// moteur. Sous Direct3D 12, échoue enfin si la swapchain DXGI ne se crée pas sur la fenêtre, sauf
+/// sous le pilote vidéo `offscreen` de SDL, qui n'a pas de fenêtre Win32 : le device n'a alors pas
+/// de swapchain et dessine hors écran, comme WebGPU en natif.
 [[nodiscard]] core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
                                                       const DeviceOptions& options);
 #endif

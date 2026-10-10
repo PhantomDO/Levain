@@ -49,6 +49,10 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
     {
         return std::unexpected{std::move(built.error())};
     }
+    if (auto choosable = requireAdapterChoosable(options.api, options.adapter); !choosable)
+    {
+        return std::unexpected{std::move(choosable.error())};
+    }
     if (options.api == nvrhi::GraphicsAPI::WEBGPU)
     {
         return createOffscreenWebGpuDevice(options.enableValidation);
@@ -56,7 +60,7 @@ core::Result<GpuDevice> createGpuDevice(const platform::Window& window,
 #ifdef _WIN32
     if (options.api == nvrhi::GraphicsAPI::D3D12)
     {
-        return createD3d12Device(window, options.enableValidation);
+        return createD3d12Device(window, options);
     }
 #endif
     return createVulkanDevice(window, options.enableValidation);

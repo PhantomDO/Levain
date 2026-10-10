@@ -287,7 +287,7 @@ std::string utf8Of(const wchar_t* text)
 /// Le plus performant des adaptateurs matériels qui créent un device Direct3D 12 : le GPU discret
 /// plutôt que l'iGPU, comme vk-bootstrap pour Vulkan. DXGI les range ainsi lui-même
 /// (`EnumAdapterByGpuPreference`). Le rendu logiciel (« Microsoft Basic Render Driver », WARP) est
-/// écarté : il ne se choisit qu'exprès (#19).
+/// écarté : il ne se choisit qu'exprès (`warpAdapter`, #19).
 core::Result<nvrhi::RefCountPtr<IDXGIAdapter1>> highPerformanceAdapter(IDXGIFactory6& factory)
 {
     std::string rejected;
@@ -307,8 +307,12 @@ core::Result<nvrhi::RefCountPtr<IDXGIAdapter1>> highPerformanceAdapter(IDXGIFact
             return failedCall(std::format("IDXGIFactory6::EnumAdapterByGpuPreference({})", index),
                               result);
         }
+        // Un GetDesc1 raté laisserait `Flags` à zéro : WARP passerait le filtre pour un GPU.
         DXGI_ADAPTER_DESC1 desc{};
-        adapter->GetDesc1(&desc);
+        if (const HRESULT descResult = adapter->GetDesc1(&desc); FAILED(descResult))
+        {
+            return failedCall("IDXGIAdapter1::GetDesc1", descResult);
+        }
         const std::string name = utf8Of(desc.Description);
         if ((desc.Flags & static_cast<UINT>(DXGI_ADAPTER_FLAG_SOFTWARE)) != 0)
         {
@@ -325,6 +329,53 @@ core::Result<nvrhi::RefCountPtr<IDXGIAdapter1>> highPerformanceAdapter(IDXGIFact
     }
     return core::makeError(core::ErrorCode::Unsupported,
                            std::format("aucun GPU Direct3D 12 compatible{}", rejected));
+}
+
+/// WARP, le rendu logiciel de Direct3D 12 (« Microsoft Basic Render Driver »), que DXGI fournit
+/// lui-même (`IDXGIFactory4::EnumWarpAdapter`) : un runner de CI n'a pas de GPU, WARP est son seul
+/// adaptateur. Le drapeau SOFTWARE est vérifié sur ce que DXGI rend : un adaptateur matériel ne
+/// doit jamais passer pour WARP, ou les tests « WARP » resteraient verts sur un GPU, sans rien dire
+/// du runner.
+core::Result<nvrhi::RefCountPtr<IDXGIAdapter1>> warpAdapter(IDXGIFactory6& factory)
+{
+    nvrhi::RefCountPtr<IDXGIAdapter1> adapter;
+    if (const HRESULT result = factory.EnumWarpAdapter(iidOf(adapter), outPointer(adapter));
+        FAILED(result))
+    {
+        return failedCall("IDXGIFactory4::EnumWarpAdapter", result);
+    }
+    // Un GetDesc1 raté laisserait `desc` à zéro : le refus plus bas accuserait un adaptateur sans
+    // nom, au lieu de la vraie cause.
+    DXGI_ADAPTER_DESC1 desc{};
+    if (const HRESULT result = adapter->GetDesc1(&desc); FAILED(result))
+    {
+        return failedCall("IDXGIAdapter1::GetDesc1", result);
+    }
+    if ((desc.Flags & static_cast<UINT>(DXGI_ADAPTER_FLAG_SOFTWARE)) == 0)
+    {
+        return core::makeError(core::ErrorCode::Unsupported,
+                               std::format("EnumWarpAdapter a rendu « {} », qui n'est pas un "
+                                           "adaptateur logiciel : refusé, il ne doit pas passer "
+                                           "pour WARP",
+                                           utf8Of(desc.Description)));
+    }
+    return adapter;
+}
+
+/// L'adaptateur que demandent les options : WARP sur demande, sinon le GPU le plus performant.
+core::Result<nvrhi::RefCountPtr<IDXGIAdapter1>> chooseAdapter(IDXGIFactory6& factory,
+                                                              Adapter adapter)
+{
+    return adapter == Adapter::Software ? warpAdapter(factory) : highPerformanceAdapter(factory);
+}
+
+/// Vrai sous le pilote vidéo « offscreen » de SDL, qui n'a pas de fenêtre Win32 (pas de HWND) : ni
+/// swapchain ni bureau, le device dessine hors écran. Le pilote que SDL a retenu, pas la variable
+/// d'environnement : SDL peut en avoir pris un autre.
+bool isOffscreenVideoDriver()
+{
+    const char* driver = SDL_GetCurrentVideoDriver();
+    return driver != nullptr && std::string_view{driver} == "offscreen";
 }
 
 /// Le plus haut shader model du device. CheckFeatureSupport refuse un modèle que le runtime ne
@@ -386,8 +437,10 @@ void drainDxgiMessages(IDXGIInfoQueue& queue)
     queue.ClearStoredMessages(DXGI_DEBUG_DXGI);
 }
 
-core::Result<GpuDevice> createD3d12Device(const platform::Window& window, bool enableValidation)
+core::Result<GpuDevice> createD3d12Device(const platform::Window& window,
+                                          const DeviceOptions& options)
 {
+    const bool enableValidation = options.enableValidation;
     auto d3d12 = std::make_unique<D3d12Context>();
     if (enableValidation)
     {
@@ -410,7 +463,7 @@ core::Result<GpuDevice> createD3d12Device(const platform::Window& window, bool e
     {
         return failedCall("CreateDXGIFactory2", result);
     }
-    auto adapter = highPerformanceAdapter(*d3d12->factory);
+    auto adapter = chooseAdapter(*d3d12->factory, options.adapter);
     if (!adapter)
     {
         return std::unexpected{std::move(adapter.error())};
@@ -473,7 +526,30 @@ core::Result<GpuDevice> createD3d12Device(const platform::Window& window, bool e
         SDL_GetWindowProperties(window.handle.get()), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
     if (hwnd == nullptr)
     {
-        return core::makeError(core::ErrorCode::Unsupported, "la fenêtre SDL n'a pas de HWND");
+        // Sans HWND, seul le pilote offscreen est connu et voulu (tests, CI sans bureau,
+        // --capture). Pas de swapchain alors, l'image se dessine dans `offscreen` (beginFrame).
+        // Tout autre pilote sans HWND est une panne, que le moteur ne doit pas prendre pour un
+        // rendu hors écran.
+        if (!isOffscreenVideoDriver())
+        {
+            return core::makeError(core::ErrorCode::Unsupported, "la fenêtre SDL n'a pas de HWND");
+        }
+        // La couche de debug DXGI ne rappelle pas le moteur, et la swapchain, qui relit sa file
+        // (createD3d12Swapchain), n'existe pas ici : sans cette relecture, ce que DXGI a dit
+        // depuis la création de la factory serait perdu, sur le seul chemin que la CI lance. Sans
+        // swapchain, DXGI ne fait plus rien après le device : une seule relecture couvre tout
+        // (règle n°7).
+        if (d3d12->dxgiInfoQueue)
+        {
+            drainDxgiMessages(*d3d12->dxgiInfoQueue);
+        }
+        core::log("gpu", core::LogLevel::Info,
+                  "Direct3D 12 sous le pilote offscreen de SDL : rendu hors écran (--capture)");
+        return GpuDevice{.native =
+                             std::unique_ptr<NativeDevice, NativeDeviceDeleter>{d3d12.release()},
+                         .nvrhi = std::move(nvrhiDevice),
+                         .swapchain = nullptr,
+                         .offscreen = nullptr};
     }
     auto swapchain =
         createD3d12Swapchain(*d3d12, d3d12Device, hwnd, platform::windowPixelSize(window));
