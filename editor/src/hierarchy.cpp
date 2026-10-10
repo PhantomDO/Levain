@@ -7,6 +7,8 @@
 #include <span>
 #include <string>
 
+#include "levain/ui/tr.hpp"
+
 namespace levain::editor
 {
 
@@ -87,7 +89,7 @@ void appendRow(const Hierarchy& hierarchy, flecs::entity entity, int depth,
 
 void drawSingletons(const flecs::world& world, flecs::entity_t& selected)
 {
-    if (!ImGui::TreeNode("Singletons"))
+    if (!ImGui::TreeNode(ui::labelOf("Singletons").c_str()))
     {
         return;
     }
@@ -124,7 +126,7 @@ void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow
                          (static_cast<float>(row.depth) * ImGui::GetStyle().IndentSpacing));
     pushEntityId(row.entity);
     ImGui::SetNextItemOpen(hierarchy.open.contains(row.entity));
-    ImGui::TreeNodeEx("entité", flags, "%s", labelOf(world.entity(row.entity)).c_str());
+    ImGui::TreeNodeEx("##entité", flags, "%s", labelOf(world.entity(row.entity)).c_str());
     if (ImGui::IsItemToggledOpen())
     {
         if (hierarchy.open.erase(row.entity) == 0)
@@ -233,7 +235,7 @@ void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entit
 {
     listHierarchyRows(hierarchy, hierarchy.rows);
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(HierarchyWindow))
+    if (ImGui::Begin(ui::labelOf(HierarchyWindow).c_str()))
     {
         drawSingletons(world, selected);
         // Ses lignes ont le retrait des racines qui suivent : le trait marque où le nœud s'arrête.

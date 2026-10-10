@@ -33,12 +33,17 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 | [`include/levain/ui/ui_pass.hpp`](include/levain/ui/ui_pass.hpp) | `UiPass`, `createUiPass`, `recordUi`, `updateUiTextures`, `destroyUiTextures` ; les pièges `linearOnSrgbTarget` et `clampScissorToTarget` |
 | [`include/levain/ui/input.hpp`](include/levain/ui/input.hpp) | `feedInput`, `imguiKeyOf`, `PressedKeys` |
 | [`include/levain/ui/context.hpp`](include/levain/ui/context.hpp) | `UiContext`, `createUiContext`, `prepareUiFrame`, `followTextInput` |
+| [`include/levain/ui/tr.hpp`](include/levain/ui/tr.hpp) | `tr`, `trf`, `textf`, `labelOf` : le catalogue des textes vu de l'interface, la table est dans `core` (ADR-0036) |
 
 Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB), et `levain_ui_gpu [vulkan|webgpu]`
 (`gpu.ui.*` dans ctest), qui relit la couleur d'un rectangle dessiné dans une cible sRGB puis UNORM.
 
 ## Pièges connus
 
+- **Traduire un titre sans identifiant fait perdre sa fenêtre à la disposition.** ImGui ne hache que ce qui suit « ### »
+  (`ImHashStr`, imgui.cpp) : « Image » et « Picture###Image » ont le même identifiant, que `labelOf` écrit. Un test qui
+  bâtit et ouvre dans la même langue passe sans « ### » : `ui_i18n_test.cpp` bâtit en français, ouvre en anglais. Un texte
+  traduit n'est jamais un format d'ImGui (`textf`, `TextUnformatted`).
 - **Les couleurs d'ImGui sont en sRGB** (`linearOnSrgbTarget`). Une cible sRGB convertit en écrivant : sans
   linéarisation dans le shader, l'UI serait convertie deux fois, et délavée. Relu par `levain_ui_gpu` : 72
   niveaux d'écart sans la linéarisation.
@@ -65,3 +70,5 @@ Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe,
 | **Unreal** | Slate, rendu par le RHI | Le même cadre pour l'éditeur et le jeu ; en mode retenu, avec un arbre de widgets (**documenté**, ADR-0032). |
 | **Unity** | IMGUI (`OnGUI`), pour les outils | Un mode immédiat, comme ImGui ; déconseillé pour l'interface du joueur (**documenté**, ADR-0032). |
 | **Godot** | Les nœuds `Control` | L'éditeur est un programme du moteur, avec sa propre UI (**documenté**, ADR-0032). |
+
+Les textes : `FText`/`LOCTEXT` chez Unreal, le paquet Localization chez Unity, `tr()` et gettext chez Godot ; ici le français est la clé, comme le `msgid` de gettext (Godot **documenté**, ADR-0036 [8] ; Unreal et Unity **supposé**).
