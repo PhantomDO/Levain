@@ -5,7 +5,7 @@
 // aucune erreur de validation (`clampScissorToTarget`). L'atlas des polices passe par le chemin des
 // textures d'ImGui 1.92 : sans lui, le rectangle, qui lit son pixel blanc, ne se dessinerait pas.
 // Puis la table des textures que l'UI ne possède pas (`registerUiTexture`, ADR-0036 morceau 6) :
-// enregistrer, libérer, enregistrer encore.
+// enregistrer, libérer, enregistrer encore, et refuser ce que l'UI ne sait pas lire.
 //   levain_ui_gpu [vulkan|webgpu]
 
 #include <algorithm>
@@ -194,6 +194,51 @@ int checkIdTable(nvrhi::IDevice& device)
     // Les refus sont des erreurs, pas des assertions : le programme les reçoit.
     expect(!levain::ui::registerUiTexture(device, *pass, nullptr), "une texture nulle est refusée");
     expect(pass->textures.size() == 2, "un refus ne laisse rien dans la table");
+    // Le refus de la description (`uiTextureRefusal`) est bien appelé par `registerUiTexture` :
+    // sans lui, ces textures feraient une erreur de validation, à la création du bind group
+    // (WebGPU, flottants sur 32 bits : une assertion en Debug) ou au premier dessin (Vulkan, format
+    // entier).
+    const auto refusedAtRegistration = [&](std::string_view what, nvrhi::TextureDesc desc)
+    {
+        const nvrhi::TextureHandle texture =
+            device.createTexture(desc.setWidth(4).setHeight(4).setDebugName("image refusée"));
+        expect(texture != nullptr, std::string{what} + " : texture non créée");
+        if (texture)
+        {
+            const auto refused = levain::ui::registerUiTexture(device, *pass, texture);
+            expect(!refused && refused.error().code == levain::core::ErrorCode::Unsupported,
+                   std::string{what} + " : refusée à l'enregistrement");
+        }
+        expect(pass->textures.size() == 2, std::string{what} + " : rien dans la table");
+    };
+    const auto color = nvrhi::TextureDesc().setFormat(nvrhi::Format::RGBA8_UNORM);
+    refusedAtRegistration(
+        "une profondeur",
+        nvrhi::TextureDesc(color).setFormat(nvrhi::Format::D32).setIsRenderTarget(true));
+    // NVRHI ne crée une texture multi-échantillon qu'en `Texture2DMS`.
+    refusedAtRegistration("une texture multi-échantillon",
+                          nvrhi::TextureDesc(color)
+                              .setDimension(nvrhi::TextureDimension::Texture2DMS)
+                              .setSampleCount(4)
+                              .setIsRenderTarget(true));
+    // R32_UINT : le seul entier que le backend WebGPU sait créer.
+    refusedAtRegistration("un format entier",
+                          nvrhi::TextureDesc(color).setFormat(nvrhi::Format::R32_UINT));
+    refusedAtRegistration("des flottants sur 32 bits",
+                          nvrhi::TextureDesc(color).setFormat(nvrhi::Format::RGBA32_FLOAT));
+    // Direct3D 12 ne crée pas une texture de couleur sans usage de shader (DENY_SHADER_RESOURCE
+    // exige une profondeur : D3D12_MESSAGE_ID 599, une assertion en Debug) : le cas ne s'y
+    // construit pas, et le doctest de `uiTextureRefusal` garde la règle pour tous les backends.
+    if (device.getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+    {
+        std::println("une texture que le shader ne lit pas : non constructible sous Direct3D 12");
+    }
+    else
+    {
+        nvrhi::TextureDesc unreadable = nvrhi::TextureDesc(color).setIsRenderTarget(true);
+        unreadable.isShaderResource = false;
+        refusedAtRegistration("une texture que le shader ne lit pas", unreadable);
+    }
 #if !LEVAIN_ASSERTIONS_ENABLED
     // En Debug, libérer deux fois s'arrête sur l'assertion : seule la Release rend la main, et
     // dit l'erreur au journal sans toucher à la table.

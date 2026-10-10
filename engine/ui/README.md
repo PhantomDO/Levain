@@ -29,19 +29,21 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
   retirer. La table ne rend **jamais** un identifiant, libéré ou non : un `ImDrawList` périmé ne montre jamais une
   autre texture que la sienne. Dessiner un identifiant inconnu ou libéré est l'assertion de `recordUi` en Debug.
   Libérer deux fois, ou un identifiant inconnu ou d'ImGui, est une assertion en Debug et une erreur au journal en
-  Release. Une texture nulle est refusée par une erreur, et non une assertion.
+  Release. Le shader lit un `Texture2D<float4>` par un échantillonneur qui filtre : `registerUiTexture` refuse, par
+  une erreur et non une assertion (`uiTextureRefusal`), une texture nulle, non 2D, multi-échantillon, sans usage de
+  shader, de profondeur, d'un format entier ou de flottants sur 32 bits (WebGPU ne les filtre pas).
 - **Pas d'`imgui.ini`** : la disposition se reconstruit à chaque lancement.
 
 ## Points d'entrée
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/ui/ui_pass.hpp`](include/levain/ui/ui_pass.hpp) | `UiPass`, `createUiPass`, `recordUi`, `updateUiTextures`, `destroyUiTextures`, `registerUiTexture`, `releaseUiTexture` ; les pièges `linearOnSrgbTarget` et `clampScissorToTarget` |
+| [`include/levain/ui/ui_pass.hpp`](include/levain/ui/ui_pass.hpp) | `UiPass`, `createUiPass`, `recordUi`, `updateUiTextures`, `destroyUiTextures`, `registerUiTexture`, `releaseUiTexture` ; les pièges `linearOnSrgbTarget`, `clampScissorToTarget` et `uiTextureRefusal` |
 | [`include/levain/ui/input.hpp`](include/levain/ui/input.hpp) | `feedInput`, `imguiKeyOf`, `PressedKeys` |
 | [`include/levain/ui/context.hpp`](include/levain/ui/context.hpp) | `UiContext`, `createUiContext`, `prepareUiFrame`, `followTextInput` |
 | [`include/levain/ui/tr.hpp`](include/levain/ui/tr.hpp) | `tr`, `trf`, `textf`, `labelOf` : le catalogue des textes vu de l'interface, la table est dans `core` (ADR-0036) |
 
-Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB), et
+Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées), et
 `levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu]` (`gpu.ui.*` dans ctest, WARP compris), qui relit la couleur d'un rectangle
 dessiné dans une cible sRGB puis UNORM, puis la table des identifiants.
 

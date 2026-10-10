@@ -52,6 +52,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <format>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -133,6 +135,25 @@ nvrhi::BindingSetHandle bindingsFor(nvrhi::IDevice& device, const UiPass& pass,
             .addItem(nvrhi::BindingSetItem::Sampler(0, pass.sampler))
             .setTrackLiveness(true),
         pass.layout);
+}
+
+/// Les quatre formats de flottants sur 32 bits par canal. Le sampler de l'UI filtre (linéaire), et
+/// WebGPU ne filtre ces formats qu'avec la fonctionnalité facultative `float32-filterable` : Dawn
+/// refuse le bind group (« UnfilterableFloat … expected Float »), une erreur de NVRHI qui, en
+/// Debug, arrête sur l'assertion. Vulkan et Direct3D 12 les liraient d'ordinaire : on les refuse
+/// partout, pour qu'un même programme montre la même chose sur chaque backend.
+bool isUnfilterableFloat32(nvrhi::Format format)
+{
+    switch (format)
+    {
+    case nvrhi::Format::R32_FLOAT:
+    case nvrhi::Format::RG32_FLOAT:
+    case nvrhi::Format::RGB32_FLOAT:
+    case nvrhi::Format::RGBA32_FLOAT:
+        return true;
+    default:
+        return false;
+    }
 }
 
 /// La texture d'ImGui sur le GPU, et son binding set. ImGui la donne en RGBA tant qu'on ne lui en
@@ -326,12 +347,54 @@ void updateUiTextures(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, 
     }
 }
 
+std::string_view uiTextureRefusal(const nvrhi::TextureDesc& desc)
+{
+    // Avant la dimension : NVRHI ne crée une texture multi-échantillon qu'en `Texture2DMS`, que la
+    // dimension refuserait sans dire pourquoi.
+    if (desc.sampleCount != 1)
+    {
+        return "l'UI ne lit pas une texture multi-échantillon (résoudre d'abord)";
+    }
+    if (desc.dimension != nvrhi::TextureDimension::Texture2D)
+    {
+        return "l'UI ne montre que des textures 2D";
+    }
+    // `isShaderResource` vaut vrai par défaut dans NVRHI (nvrhi.h, « backward compatibility ») :
+    // une texture qui le désactive n'a ni usage d'échantillonnage (Vulkan) ni SRV (Direct3D 12).
+    if (!desc.isShaderResource)
+    {
+        return "la texture n'est pas lisible par un shader (isShaderResource)";
+    }
+    const nvrhi::FormatInfo& format = nvrhi::getFormatInfo(desc.format);
+    if (format.hasDepth || format.hasStencil)
+    {
+        return "l'UI ne lit pas une profondeur ou un stencil";
+    }
+    // Le shader déclare un `Texture2D<float4>` : un format entier ne s'y lit pas (Vulkan : VUID
+    // 07753, le type de composante).
+    if (format.kind == nvrhi::FormatKind::Integer)
+    {
+        return "l'UI ne lit pas un format entier";
+    }
+    if (isUnfilterableFloat32(desc.format))
+    {
+        return "l'UI filtre ses textures, et WebGPU ne filtre pas les flottants sur 32 bits";
+    }
+    return {};
+}
+
 core::Result<ImTextureID> registerUiTexture(nvrhi::IDevice& device, UiPass& pass,
                                             nvrhi::ITexture* texture)
 {
     if (texture == nullptr)
     {
         return core::makeError(core::ErrorCode::InvalidData, "texture d'UI nulle");
+    }
+    if (const std::string_view refusal = uiTextureRefusal(texture->getDesc()); !refusal.empty())
+    {
+        return core::makeError(
+            core::ErrorCode::Unsupported,
+            std::format("texture d'UI « {} » : {}", texture->getDesc().debugName, refusal));
     }
     UiTexture shown{
         .texture = texture, .bindings = bindingsFor(device, pass, texture), .registered = true};
