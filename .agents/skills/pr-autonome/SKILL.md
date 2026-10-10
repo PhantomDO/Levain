@@ -69,15 +69,20 @@ cache binaire de vcpkg (`~/.cache/vcpkg`) les remplit vite. À la fin :
 ## 6. Ouvrir et fusionner
 
 - Le modèle `.github/pull_request_template.md`, le guide de lecture d'abord ; le milestone ; « Partie de #N » ou
-  « Closes #N ».
+  « Closes #N ». Le texte d'une PR se change par l'API REST :
+  `gh api -X PATCH repos/PhantomDO/Levain/pulls/N -F body=@fichier` ; `gh pr edit` échoue avec le `gh` 2.46 de la
+  distro WSL (GOTCHA.md).
 - **Un morceau** : `gh pr create --base <branche de la fonctionnalité>`, relu par le subagent, puis
-  `gh pr merge N --merge --delete-branch` : aucune CI n'est lancée pour une base autre que `main`, il n'y a rien à
-  attendre. Le suivant s'ouvre ensuite (règle n°1 : un seul à la fois).
+  `gh pr merge N --merge` et `git push origin --delete <branche du morceau>` : aucune CI n'est lancée pour une base
+  autre que `main`, il n'y a rien à attendre. Pas de `--delete-branch` : il supprime aussi la branche locale, qu'une
+  vérification en cours peut lire (GOTCHA.md) ; les branches locales se suppriment à la fin (§ 2), quand plus rien ne
+  s'en sert. Le suivant s'ouvre ensuite (règle n°1 : un seul à la fois).
 - **La CI à la main**, avant une étape risquée : `gh workflow run ci.yml --ref <branche de la fonctionnalité>`, puis
   l'id du passage, `gh run list --workflow ci.yml --branch <b> --limit 1 --json databaseId` (`<b>` est la branche de la
   fonctionnalité), et `gh run watch <id> --exit-status` en tâche de fond (qui réveille la session à la fin), jamais par
   un `&` dans un shell. Un seul passage à la fois : les runners et le cache Windows (1 Go) sont comptés.
 - **La PR finale**, fonctionnalité vers `main` : le guide de lecture renvoie aux PR des morceaux, qui ont été relus.
-  `gh pr checks <N> --watch` en tâche de fond ; une fois tout vert, `gh pr merge <N> --merge --delete-branch`. Puis,
-  dans le dépôt principal : `git pull --ff-only`, et `git worktree remove` de la fonctionnalité.
+  `gh pr checks <N> --watch` en tâche de fond ; une fois tout vert, `gh pr merge <N> --merge`, puis
+  `git push origin --delete <branche de la fonctionnalité>`. Puis, dans le dépôt principal : `git pull --ff-only`,
+  `git worktree remove` de la fonctionnalité, et `git branch -d` de ses branches.
 - Le board : l'issue passe en Done quand une PR la ferme ; « Passé (h) » quand Donnovan donne son temps.

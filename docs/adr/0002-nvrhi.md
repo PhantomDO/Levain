@@ -1,6 +1,7 @@
 # ADR-0002 — Couche graphique : NVRHI, backends Vulkan et Direct3D 12
 
-- **Statut** : accepté le 2026-09-20 ; remis en vigueur par [ADR-0011](0011-retour-au-cpp.md) après la parenthèse Rust
+- **Statut** : accepté le 2026-09-20 ; remis en vigueur par [ADR-0011](0011-retour-au-cpp.md) après la parenthèse Rust ;
+  amendé le 2026-10-10 (la vérification sous Proton remplacée, voir les conséquences)
 - **Date** : 2026-09-20
 - **Milestone** : M0.1 (mise en place en phase 1)
 - **Historique** : la première version de cet ADR proposait une couche RHI écrite par nous au-dessus de Vulkan.
@@ -54,7 +55,10 @@ exemples (Donut-Samples) pour écrire les nôtres.
 - Tests de fumée sans GPU en CI : lavapipe (Vulkan logiciel de Mesa) sous Linux, WARP (D3D12 logiciel de Microsoft)
   sous Windows.
 - Sur la machine de référence (Linux), le backend D3D12 est vérifié en lançant le binaire Windows sous Proton :
-  vkd3d-proton traduit D3D12 en Vulkan. Ce n'est pas un pilote D3D12 natif (voir SPECS §10).
+  vkd3d-proton traduit D3D12 en Vulkan. Ce n'est pas un pilote D3D12 natif (voir SPECS §10). *Amendé le
+  2026-10-10, par sondage de Donnovan :* Proton n'est plus requis. À chaque milestone de rendu, le sandbox se lance
+  nativement sur son PC Windows, en Vulkan et en Direct3D 12, avec la couche de debug D3D12, et les tests Direct3D 12
+  tournent sous WARP en CI (SPECS §10, point 2).
 - NVRHI ne dépend pas du constructeur : la machine de référence a un GPU AMD. Les extensions propres à NVIDIA
   (NVAPI) restent désactivées.
 - Si un jour on vise macOS, il faudra une autre solution pour Metal (hors périmètre v1).
