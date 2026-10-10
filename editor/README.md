@@ -16,10 +16,9 @@ composants de l'entité choisie, un widget par champ, lus dans la description de
 donnée d'auteur (`Authored`) s'édite, le reste est grisé ; trois dessinateurs lui donnent des angles, des noms
 d'entité et d'asset. Il n'a pas encore :
 
-- **de mode Édition** : `withEditor` n'enveloppe que `ui` et `finish` (editor/src/editor.cpp:88-108), et la
-  simulation avance à chaque image (engine/app/src/app.cpp:875-877). Le clavier va au jeu dès qu'aucun widget ne le
-  prend (app.cpp:851-852) : les touches de vol, ZQSD sur un AZERTY, déplacent la caméra pendant qu'on édite, et
-  Ctrl+Z y appuie aussi sur « avancer » ;
+- **de caméra d'éditeur** (morceau 9) : en Édition (M7.7, morceau 5), la simulation est à l'arrêt, le `frame` du
+  programme n'est jamais appelé et le jeu ne reçoit rien (invariant 16) ; la caméra du jeu reste donc une vue fixe,
+  aucun système ne la déplace, et ZQSD ne fait plus rien ;
 - **de Vue** : la scène couvre la fenêtre, vue par le centre du docking (engine/app/src/panels.cpp:148), mais sa
   projection est celle de la fenêtre entière (engine/render/src/renderer.cpp:139) ; la caméra est celle du jeu, une
   entité que déplace un système du pas fixe (sandbox/src/main.cpp:641-647 ; engine/scene/src/scene.cpp:111-117), et
@@ -30,7 +29,7 @@ d'entité et d'asset. Il n'a pas encore :
   (app.cpp:106-107) ;
 - **d'annulation** : `commitEdit` écrit la copie par `setComponentValue` sans garder l'ancienne valeur
   (editor/src/inspector.cpp:543-552) ;
-- ni menu, ni raccourci, ni console.
+- ni menu, ni console, ni raccourci que Alt+P et Échap (invariant 16).
 
 **La logique de sa caméra est écrite** (M7.7, morceau 9, `camera.hpp`), sans entrée ni Vue pour la porter : les gestes
 (morceau 11) lui donneront des deltas, `App::cameraOverride` sa sortie.
@@ -52,8 +51,10 @@ M couverts par un test ».
 2. **L'éditeur ne lie jamais un plugin** : la même fonction parcourt `editor/` comme `engine/`.
 3. **Natif seulement**, hors du bloc `PROJECT_IS_TOP_LEVEL` : la page web n'a pas d'éditeur, et un jeu qui
    récupère Levain par `FetchContent` reçoit la bibliothèque.
-4. **La boucle ne change pas** : `withEditor` enveloppe la fonction de démarrage du programme et ses points
-   d'accroche (ADR-0029).
+4. **La boucle ne change que par les points nommés d'`app`** (ADR-0036, qui modifie cet invariant) :
+   `withEditor` enveloppe la fonction de démarrage du programme et ses points d'accroche (ADR-0029), `frame`
+   compris depuis le morceau 5, et pose `simulationPaused`, `inputRoute` et `mouseCaptureWanted` ; il ne touche
+   rien d'autre.
 5. **L'exécutable éditeur ouvre les panneaux** : son `main` pose `settings.showUiPanels = true` avant de lire
    les options, que `--ui off` les ferme encore.
 6. **Un `--select` introuvable fait échouer le démarrage**, en nommant l'entité (règle n°7).
@@ -102,12 +103,36 @@ M couverts par un test ».
     replié à ±180°, 0,1 à 1000) : un état lu d'un fichier avec un tangage de 120° regarde comme à 89°. Le pan et le
     dolly, qui ne les changent pas, les laissent tels quels dans l'état.
 
+16. **L'éditeur s'ouvre en Édition** (`mode.hpp`, ADR-0036, décision 3) : aucun pas (`App::simulationPaused`), le
+    `frame` du programme jamais appelé (`programFrameRunsIn`), la route de l'input *éditeur* (rien au jeu, ce qu'il
+    tenait relâché), `PlayerInput` vide touches tenues. **Alt+P** (`ImGui::Shortcut`, route globale) passe en
+    « Jouer (sans retour) » : le jeu d'aujourd'hui, rien n'est restauré à l'arrêt (M7.5 viendra avec Play et Stop) ;
+    la barre de mode, son bouton et son bandeau viennent ensuite. **Alt+P ne fait que jouer** (la table de la
+    décision 13 : « Jouer »), **Échap ne fait qu'arrêter** : `modeRequested` en décide, testée. Sous la
+    route *jeu*, ImGui n'a pas Alt+P ; une Alt+P qui basculerait ne ramènerait qu'aux images où un panneau a le focus.
+    Échap est lue sur l'input brut par position (`StopScancode`) : elle vaut partout où le jeu reçoit le clavier,
+    donc sous la route *jeu* mais aussi sous la route *UI* quand une fenêtre a le focus sans qu'un champ soit actif ;
+    la décision 13 la réserve au contexte *jeu*, ce que la table des raccourcis (morceau 10) rendra. **Chaque
+    changement de mode remet `mouseCaptureWanted` à faux** (`enterMode`) : le `frame` du programme, qui le repose,
+    ne tourne plus en Édition, et un clic droit tenu qui capturait la souris la gardait ; le jeu repart aussi d'un
+    `InputState` neuf, sans appuis en attente pour le premier pas. La route de l'image suivante se pose à la fin de
+    `ui` : *éditeur* en Édition, en jeu *jeu* si aucune fenêtre d'ImGui n'a le focus (`sceneHasFocus`), sinon *UI*.
+    **La Vue n'existe pas** (morceaux 7 et 8) : tant qu'elle manque, « dans la Vue » est le trou du nœud central de
+    la disposition, ou la fenêtre entière panneaux fermés (`App::sceneRect`) ; une fenêtre ancrée dans le centre n'y
+    laisse pas de trou. Un clic dans le trou retire le focus à la fin de son image (`ImGui::Render`, après `ui`) :
+    `ui` de l'image suivante le voit et pose la route *jeu*, qui vaut **deux images après le clic**, non une.
+
 ## Points d'entrée
 
 - `withEditor(start, options)` : la fonction de démarrage du programme, enveloppée. Elle choisit l'entité de
   `--select`, en ouvre les ancêtres, ajoute la hiérarchie et l'inspecteur aux fenêtres, et écrit à la fin le
   bilan que lit la CI, « éditeur : N entités, M champs dessinés ; sélection : chemin », N étant les lignes de la
   hiérarchie et M les champs de la sélection à la dernière image.
+- `Mode`, `ModeState`, `ModeRequests`, `modeRequested`, `enterMode`, `stopPressed`, `inputRouteFor`,
+  `simulationPausedIn`, `programFrameRunsIn`, `modeNameOf`, `modeTokenOf`,
+  `playShortcutPressed`, `sceneHasFocus` (`mode.hpp`) : les modes, en fonctions libres. À la fin, `withEditor` écrit aussi `editor.mode mode=edit steps=0 -- mode : Édition ; pas : 0`,
+  sous son nom stable (ADR-0036, décision 14), que la CI lit : l'éditeur lancé sans script est en Édition à zéro pas
+  (`App::stepsPlayed`, tous les pas de la boucle).
 - `takeEditorOptions(arguments, options)` : retire `--select chemin` de la ligne de commande avant que le programme
   ne lise ses options, qu'il refuserait sinon.
 - `selectedIfAlive(world, selected)` : l'entité choisie si elle vit encore.
@@ -232,3 +257,6 @@ M couverts par un test ».
 | **Unreal**, la caméra | La caméra de la vue de niveau | Ses gestes (clic droit tenu, Alt+clic gauche, bouton du milieu, molette, F) : **documenté** (*Viewport Controls*, ADR-0036 [1]). Elle n'est pas un acteur : **supposé** (`FEditorViewportClient`). Levain en prend les gestes, mais **le sens du pan est un choix, pas une copie** : le contenu suit le curseur (la vue va à l'opposé), comme la main d'Unity et de Godot (**supposé**, non relu). Unreal a, je crois, un réglage pour l'inverser (*Invert Middle Mouse Pan*, **supposé**, non relu) : le morceau 11 le lit avant de le retourner. |
 | **Unity**, la caméra | La caméra de la vue Scène | Une vitesse bornée et le *Dynamic Clipping*, qui « calculate the Camera's near and far clipping planes relative to the viewport size of the Scene » (**documenté**, ADR-0036 [4]). Cette « viewport size » est, je crois, `SceneView.size`, le zoom autour du pivot, et non la taille de la fenêtre en pixels (**supposé**, UnityCsReference, non relu) : Levain fait donc de même, ses plans suivent la vue sans réglage, mais ils se mesurent sur la profondeur de la scène (`clipPlanesFor`) et non sur le zoom. |
 | **Godot**, la caméra | La vue 3D de l'éditeur | Clic droit tenu pour regarder et voler en WASD, E et Q, la molette pour la vitesse, le **bouton du milieu pour l'orbite** (**documenté**, ADR-0036 [7]) : Levain suit Unreal, où le bouton du milieu fait glisser et Alt+clic gauche tourne. |
+| **Unreal**, les modes | Édition, puis *Play* (PIE) | Échap arrête le jeu, Alt+S simule (**documenté**, ADR-0036 [2]), Alt+P joue (**supposé**) ; PIE joue une copie du niveau, que notre « Jouer (sans retour) » ne fait pas avant M7.5 (**supposé**). |
+| **Unity**, les modes | Le mode Play | Un mode Édition où rien ne tourne, Play à part, et les changements faits en jeu perdus à l'arrêt (**documenté**, GESTES.md [U20]) ; ici, rien n'est restauré avant M7.5. |
+| **Godot**, les modes | Jouer la scène | Le jeu tourne dans une fenêtre à part, l'éditeur ne change pas de mode (**supposé**) : l'écart est assumé. |

@@ -533,6 +533,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .world = flecs::world{},
             .fixedStep = {},
             .simulationPaused = false,
+            .stepsPlayed = 0,
             .recomposeAfterUi = false,
             .cameraOverride = std::nullopt,
             .camera = {},
@@ -966,10 +967,10 @@ bool runFrame(Loop& loop)
         // celle de l'image précédente : celle-ci n'est pas encore finie.
         LEVAIN_PROFILE_SCOPE_NAMED("monde");
         simulationPaused = app.simulationPaused;
-        scene::advanceWorld(app.world, app.fixedStep,
-                            settings.steps ? app.fixedStep.stepSeconds
-                                           : static_cast<float>(loop.lastFrameSeconds),
-                            simulationPaused);
+        app.stepsPlayed += scene::advanceWorld(
+            app.world, app.fixedStep,
+            settings.steps ? app.fixedStep.stepSeconds : static_cast<float>(loop.lastFrameSeconds),
+            simulationPaused);
         auto camera = renderCameraOr(app.cameraOverride, app.cameras);
         if (!camera)
         {

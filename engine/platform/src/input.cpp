@@ -24,6 +24,9 @@ static_assert(SDL_GAMEPAD_AXIS_COUNT <= PadAxisCount);
 // sur lesquels sa table repose. Une version de SDL qui les changerait casserait le build ici.
 // Une touche qui ne tape rien : son scancode, plus 2^30 (le bit 30, `SDLK_SCANCODE_MASK`).
 static_assert(SDLK_F1 == 0x40000000U + 58 && SDL_SCANCODE_F1 == 58);
+// Échap par sa position, le scancode 41 d'USB : l'éditeur la lit sans en-tête SDL (`StopScancode`,
+// editor/mode.hpp), comme `app` lit F1 (`PanelsKey`).
+static_assert(SDL_SCANCODE_ESCAPE == 41);
 static_assert(SDL_SCANCODE_F13 == 104 && SDL_SCANCODE_F24 == 115);
 static_assert(SDLK_LEFT == 0x40000000U + 80 && SDLK_LCTRL == 0x40000000U + 224);
 static_assert(SDLK_CAPSLOCK == 0x40000000U + 57 && SDLK_PRINTSCREEN == 0x40000000U + 70 &&

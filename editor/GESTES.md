@@ -57,8 +57,8 @@ qu'un tableau à lire.
 | 13 | Zoomer | molette : documenté [E1] | molette : documenté [U1] | molette, hors vol | M7.7 | 11 | `gestes.zoom` | à faire |
 | 14 | Faire glisser la vue (pan) | bouton du milieu : documenté [E1] | bouton du milieu : documenté [U1] | bouton du milieu | M7.7 | 11 | `gestes.pan` | à faire |
 | 15 | Voir la sélection dans la Vue | contour : supposé | contour orange, enfants en bleu : documenté [U7] | contour | M7.4 | à venir | `gestes.contour` | à faire |
-| 16 | Jouer | bouton Play ; Alt+P : supposé | Ctrl+P : documenté [U6] | Alt+P | M7.5 | à venir | `gestes.jouer` | à faire |
-| 17 | Arrêter : la scène revient à l'état d'avant Play | Échap, changements perdus : documenté [E5] | Ctrl+P, une bascule : documenté [U6] pour Play, supposé pour l'arrêt ; changements perdus : documenté [U20] | pos. Échap | M7.5 | à venir | `gestes.arreter` | à faire |
+| 16 | Jouer | bouton Play ; Alt+P : supposé | Ctrl+P : documenté [U6] | Alt+P | M7.5 | à venir (la touche : M7.7, 5) | `gestes.jouer` | à faire |
+| 17 | Arrêter : la scène revient à l'état d'avant Play | Échap, changements perdus : documenté [E5] | Ctrl+P, une bascule : documenté [U6] pour Play, supposé pour l'arrêt ; changements perdus : documenté [U20] | pos. Échap | M7.5 | à venir (la touche : M7.7, 5) | `gestes.arreter` | à faire |
 | 18 | Refaire | Ctrl+Y : documenté [E9] pour le sculpt, supposé ailleurs | Ctrl+Y sous Windows : documenté [U6] | Ctrl+Y, et Ctrl+Maj+Z | M7.3 | à venir (annulation) | `gestes.refaire` | à faire |
 | 19 | Dupliquer | Ctrl+W, Alt+glisser : documenté [E2] | Ctrl+D : documenté [U12] | Ctrl+W ; Ctrl+D en second accord (proposé) | M7.3 | à venir (annulation) | `gestes.dupliquer` | à faire |
 | 20 | Supprimer | Suppr : supposé | Maj+Suppr : documenté [U6] | Suppr (proposé) | M7.3 | à venir (annulation) | `gestes.supprimer` | à faire |

@@ -279,6 +279,9 @@ runUi() {
 # entité, zéro champ (le panneau n'a rien dessiné pour la sélection) ou une autre sélection que
 # celle de --select font échouer l'étape, qui sinon resterait verte sans rien vérifier (règle
 # n°7). Le compte dit que le panneau a dessiné ; quels champs, c'est le test de l'éditeur.
+# Sa ligne `editor.mode` (M7.7, ADR-0036, décision 14) naît sous un nom stable, que la traduction du
+# message ne changera pas : l'éditeur lancé sans script s'ouvre en Édition (`mode=edit`) et ne joue
+# aucun pas en trois secondes (`steps=0`). Un éditeur qui jouerait, ou dont la ligne manque, échoue.
 runEditor() {
     timeout --foreground --preserve-status -k 10 120 \
         "$editor" --select grid::cube_1_2 \
@@ -291,6 +294,10 @@ runEditor() {
     [ "$fields" -gt 0 ] || { echo "::error::l'inspecteur n'a dessiné aucun champ : $line"; exit 1; }
     echo "$line" | grep -q "sélection : grid::cube_1_2$" \
         || { echo "::error::la sélection n'est pas celle de --select : $line"; exit 1; }
+    mode=$(grep -o "editor.mode mode=[a-z]* steps=[0-9]*" editor.log) \
+        || { echo "::error::l'éditeur n'a pas rendu compte de son mode (editor.mode)"; exit 1; }
+    [ "$mode" = "editor.mode mode=edit steps=0" ] \
+        || { echo "::error::l'éditeur lancé sans script devrait être en Édition à zéro pas : $mode"; exit 1; }
 }
 
 # Sponza cuite, après levain_cook : aucun asset chargé depuis sa source (ADR-0020).

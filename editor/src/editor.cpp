@@ -2,12 +2,14 @@
 
 #include <format>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
 
 #include "levain/core/error.hpp"
 #include "levain/core/log.hpp"
+#include "levain/ui/tr.hpp"
 
 namespace levain::editor
 {
@@ -26,6 +28,18 @@ void logEditor(const flecs::world& world, const Editor& editor)
     core::log("editor", core::LogLevel::Info,
               "éditeur : {} entités, {} champs dessinés ; sélection : {}",
               editor.hierarchy.rows.size(), editor.inspector.fieldsDrawn, name);
+}
+
+/// Le mode et les pas joués, la ligne que lit la CI sous son nom stable (ADR-0036, décision 14) :
+/// `editor.mode mode=edit steps=0`, des mots sans langue, puis la phrase. La CI échoue si la ligne
+/// manque, ou si l'éditeur lancé sans script n'est pas en Édition à zéro pas. `steps` compte tous
+/// les pas de la boucle (`App::stepsPlayed`), que le jeu soit passé par là ou non.
+void logMode(const app::App& app, const Editor& editor)
+{
+    const Mode mode = editor.mode.current;
+    core::log("editor", core::LogLevel::Info, "editor.mode mode={} steps={} -- {}",
+              modeTokenOf(mode), app.stepsPlayed,
+              ui::trf("mode : {} ; pas : {}", ui::tr(modeNameOf(mode)), app.stepsPlayed));
 }
 
 } // namespace
@@ -69,10 +83,11 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         {
             return hooks;
         }
-        const auto editor = std::make_shared<Editor>(
-            Editor{.selected = 0,
-                   .hierarchy = createHierarchy(app.world),
-                   .inspector = createInspector(app.world, &app.registry)});
+        const auto editor =
+            std::make_shared<Editor>(Editor{.selected = 0,
+                                            .hierarchy = createHierarchy(app.world),
+                                            .inspector = createInspector(app.world, &app.registry),
+                                            .mode = {}});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -85,6 +100,21 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             editor->selected = chosen;
             revealInHierarchy(editor->hierarchy, chosen);
         }
+        // L'éditeur s'ouvre en Édition : rien ne tourne, le jeu ne reçoit rien (ADR-0036).
+        enterMode(app, editor->mode, Mode::Edit);
+        hooks->frame = [frame = std::move(hooks->frame), editor](app::App& app)
+        {
+            // Échap ramène à l'Édition ; le `frame` du programme ne tourne qu'en jeu.
+            if (const auto requested = modeRequested(
+                    editor->mode.current, {.stop = stopPressed(editor->mode, app.input.raw)}))
+            {
+                enterMode(app, editor->mode, *requested);
+            }
+            if (programFrameRunsIn(editor->mode.current) && frame)
+            {
+                frame(app);
+            }
+        };
         hooks->ui = [ui = std::move(hooks->ui), editor](app::App& app)
         {
             if (ui)
@@ -100,10 +130,19 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                               app.ui.dock.inspector);
                 app.world.defer_end();
             }
+            // Alt+P, panneaux ouverts ou fermés : `modeRequested` décide.
+            if (const auto requested =
+                    modeRequested(editor->mode.current, {.playShortcut = playShortcutPressed()}))
+            {
+                enterMode(app, editor->mode, *requested);
+            }
+            // La route de l'image suivante : le focus ne se sait que maintenant (ADR-0036, 4).
+            app.inputRoute = inputRouteFor(editor->mode.current, sceneHasFocus());
         };
         hooks->finish = [finish = std::move(hooks->finish), editor](app::App& app)
         {
             logEditor(app.world, *editor);
+            logMode(app, *editor);
             return !finish || finish(app);
         };
         return hooks;
