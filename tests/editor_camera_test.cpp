@@ -19,10 +19,12 @@ using levain::editor::clampEditorPitch;
 using levain::editor::clampFlySpeed;
 using levain::editor::ClipPlanes;
 using levain::editor::clipPlanesFor;
+using levain::editor::dollyCamera;
 using levain::editor::EditorCamera;
 using levain::editor::editorCameraFrom;
 using levain::editor::flyCamera;
 using levain::editor::FlyInput;
+using levain::editor::framingOf;
 using levain::editor::orbitCamera;
 using levain::editor::panCamera;
 using levain::editor::pivotOf;
@@ -76,6 +78,31 @@ std::array<glm::vec3, 8> cornersOf(const Box& box)
                       (i & 4U) != 0 ? box.max.z : box.min.z};
     }
     return corners;
+}
+
+/// Où la boîte tombe dans l'image : le plus grand écart des coins au centre en x et y (1 touche le
+/// bord), et la profondeur extrême de 0 à 1. Calculé par la projection du rendu, pas par la logique
+/// qu'on vérifie.
+struct Extent
+{
+    float xy = 0.0f;
+    float depthMin = std::numeric_limits<float>::max();
+    float depthMax = std::numeric_limits<float>::lowest();
+};
+
+Extent extentOf(const Box& box, const levain::render::Camera& camera, float aspect)
+{
+    const glm::mat4 viewProjection = levain::render::viewProjectionOf(camera, aspect);
+    Extent extent;
+    for (const glm::vec3& corner : cornersOf(box))
+    {
+        const glm::vec4 clip = viewProjection * glm::vec4{corner, 1.0f};
+        const glm::vec3 ndc = glm::vec3{clip} / clip.w;
+        extent.xy = std::max({extent.xy, std::abs(ndc.x), std::abs(ndc.y)});
+        extent.depthMin = std::min(extent.depthMin, ndc.z);
+        extent.depthMax = std::max(extent.depthMax, ndc.z);
+    }
+    return extent;
 }
 
 /// Les profondeurs extrêmes de la boîte devant l'œil, mesurées le long du regard.
@@ -147,6 +174,8 @@ TEST_CASE("caméra de l'éditeur : un lacet qui n'est pas un nombre ne donne jam
         CHECK(glm::distance(viewDirectionOf(camera), viewDirectionOf(EditorCamera{})) < 1.0e-6f);
         CHECK(isFinite(toRenderCamera(camera, {}).target));
         CHECK(isFinite(orbitCamera(camera, {10.0f, 0.0f}).position));
+        CHECK(isFinite(
+            framingOf(camera, Box{{-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}}, 1.0f).position));
     }
     // Un lacet de plusieurs tours regarde comme le même lacet replié.
     const EditorCamera turned{.yawDegrees = 395.0f};
@@ -405,6 +434,148 @@ TEST_CASE("caméra de l'éditeur : le pan suit la droite et le haut de l'écran,
     CHECK(panCamera(camera, {NaN, Infinity}, 720.0f).position == camera.position);
 }
 
+TEST_CASE("caméra de l'éditeur : le dolly rapproche l'œil du pivot sans le déplacer")
+{
+    const EditorCamera camera = tiltedCamera(); // à 40 du pivot
+    const glm::vec3 pivot = pivotOf(camera);
+
+    const EditorCamera closer = dollyCamera(camera, 1.0f);
+    CHECK(closer.pivotDistance == doctest::Approx(32.0f));
+    CHECK(glm::distance(pivotOf(closer), pivot) < 1.0e-3f);
+    CHECK(glm::distance(closer.position, camera.position + (viewDirectionOf(camera) * 8.0f)) <
+          1.0e-4f);
+    CHECK(closer.yawDegrees == camera.yawDegrees);
+    CHECK(closer.pitchDegrees == camera.pitchDegrees);
+
+    CHECK(dollyCamera(camera, 2.0f).pivotDistance == doctest::Approx(25.6f));
+    CHECK(dollyCamera(camera, -1.0f).pivotDistance == doctest::Approx(50.0f));
+
+    // Un cran en avant puis un cran en arrière : on revient où l'on était.
+    const EditorCamera back = dollyCamera(closer, -1.0f);
+    CHECK(back.pivotDistance == doctest::Approx(40.0f));
+    CHECK(glm::distance(back.position, camera.position) < 1.0e-3f);
+}
+
+TEST_CASE("caméra de l'éditeur : le dolly ne se coince pas contre le pivot, et reste fini")
+{
+    // Collé au pivot, le zoom avance encore, de 0,2 unité par cran, et pousse le pivot devant lui.
+    EditorCamera camera = tiltedCamera();
+    camera.pivotDistance = levain::editor::MinPivotDistance;
+    const glm::vec3 start = camera.position;
+    for (int notch = 0; notch < 50; ++notch)
+    {
+        camera = dollyCamera(camera, 1.0f);
+    }
+    CHECK(camera.pivotDistance == doctest::Approx(levain::editor::MinPivotDistance));
+    CHECK(glm::distance(camera.position, start) == doctest::Approx(10.0f).epsilon(1.0e-3));
+
+    // Des crans sans fin dans un sens ou l'autre : jamais de position infinie ou NaN.
+    camera = dollyCamera(camera, 1.0e30f);
+    CHECK(isFinite(camera.position));
+    const glm::vec3 pivot = pivotOf(camera);
+    for (int i = 0; i < 100; ++i)
+    {
+        camera = dollyCamera(camera, -1.0e30f);
+    }
+    CHECK(isFinite(camera.position));
+    CHECK(camera.pivotDistance == doctest::Approx(levain::editor::MaxPivotDistance));
+    // Le plafond arrête l'œil, il ne pousse pas le pivot : il reste où il était, à 10⁶ de l'œil.
+    CHECK(glm::distance(pivotOf(camera), pivot) < 1.0f);
+    CHECK(dollyCamera(camera, NaN).position == camera.position);
+}
+
+TEST_CASE("caméra de l'éditeur : au plafond de distance le dolly arrière ne bouge plus rien")
+{
+    EditorCamera camera = tiltedCamera();
+    camera.pivotDistance = levain::editor::MaxPivotDistance;
+    for (const float notches : {-1.0f, -40.0f, -1.0e30f})
+    {
+        const EditorCamera farther = dollyCamera(camera, notches);
+        CHECK(farther.position == camera.position);
+        CHECK(farther.pivotDistance == camera.pivotDistance);
+    }
+    // Une molette libre qui passe de loin le plafond, puis revient : l'œil retrouve le pivot de
+    // départ au lieu de rester à l'autre bout du monde, coincé là où un pas de 0,2 n'est plus
+    // représentable.
+    const EditorCamera start = tiltedCamera();
+    const glm::vec3 pivot = pivotOf(start);
+    EditorCamera spun = start;
+    for (int notch = 0; notch < 120; ++notch)
+    {
+        spun = dollyCamera(spun, -1.0f);
+    }
+    CHECK(spun.pivotDistance == doctest::Approx(levain::editor::MaxPivotDistance));
+    // Jusqu'à deux unités du pivot : plus près, le pas garde sa taille et pousse le pivot, par
+    // conception (`MinDollyStep`).
+    for (int notch = 0; notch < 200 && spun.pivotDistance > 2.0f; ++notch)
+    {
+        spun = dollyCamera(spun, 1.0f);
+    }
+    CHECK(spun.pivotDistance <= 2.0f);
+    CHECK(glm::distance(pivotOf(spun), pivot) < 1.0f);
+
+    // Sous le plafond le zoom est réversible : trente crans de chaque côté ramènent l'œil.
+    EditorCamera there = start;
+    for (int notch = 0; notch < 30; ++notch)
+    {
+        there = dollyCamera(there, -1.0f);
+    }
+    for (int notch = 0; notch < 30; ++notch)
+    {
+        there = dollyCamera(there, 1.0f);
+    }
+    CHECK(glm::distance(there.position, start.position) < 0.05f);
+    CHECK(there.pivotDistance == doctest::Approx(start.pivotDistance).epsilon(1.0e-3));
+}
+
+TEST_CASE(
+    "caméra de l'éditeur : le cadrage et les plans contiennent la boîte, sous tous les champs et "
+    "proportions")
+{
+    const std::array<Box, 4> boxes{{
+        {{-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}},          // un cube
+        {{20.0f, 0.0f, -80.0f}, {120.0f, 1.0f, 20.0f}},       // une dalle large, loin de l'origine
+        {{-1.0f, -10.0f, -1.0f}, {1.0f, 70.0f, 1.0f}},        // une tour
+        {{-256.0f, -5.0f, -256.0f}, {256.0f, 60.0f, 256.0f}}, // une vallée de 512 m
+    }};
+    for (const float fov : {30.0f, 60.0f, 90.0f, 120.0f})
+    {
+        for (const float aspect : {0.5f, 1.0f, 16.0f / 9.0f, 3.0f})
+        {
+            for (const glm::vec2 angles : {glm::vec2{0.0f, 0.0f}, glm::vec2{35.0f, 20.0f},
+                                           glm::vec2{-130.0f, -60.0f}, glm::vec2{179.0f, 85.0f}})
+            {
+                for (const Box& box : boxes)
+                {
+                    CAPTURE(fov);
+                    CAPTURE(aspect);
+                    CAPTURE(angles.x);
+                    CAPTURE(angles.y);
+                    CAPTURE(box.max.y);
+                    EditorCamera camera = tiltedCamera();
+                    camera.verticalFovDegrees = fov;
+                    camera.yawDegrees = angles.x;
+                    camera.pitchDegrees = angles.y;
+                    const EditorCamera framed = framingOf(camera, box, aspect);
+                    const ClipPlanes planes = clipPlanesFor(framed, box);
+                    const Extent extent = extentOf(box, toRenderCamera(framed, planes), aspect);
+
+                    // Les huit coins dans le volume de vue, profondeur de 0 à 1.
+                    CHECK(extent.xy <= doctest::Approx(1.0f).epsilon(1.0e-4));
+                    CHECK(extent.depthMin >= -1.0e-4f);
+                    CHECK(extent.depthMax <= 1.0f + 1.0e-4f);
+
+                    // F ne tourne pas la vue, et le centre de la boîte devient le pivot.
+                    CHECK(framed.yawDegrees == camera.yawDegrees);
+                    CHECK(framed.pitchDegrees == camera.pitchDegrees);
+                    CHECK(glm::distance(pivotOf(framed), (box.min + box.max) * 0.5f) <
+                          1.0e-3f * framed.pivotDistance);
+                }
+            }
+        }
+    }
+}
+
 TEST_CASE("caméra de l'éditeur : les plans de découpe suivent la scène, avec un rapport sain")
 {
     // Une vallée de 512 m vue de 300 m : le lointain par défaut de 100 la couperait en deux.
@@ -441,22 +612,96 @@ TEST_CASE("caméra de l'éditeur : les plans de découpe suivent la scène, avec
     CHECK(deepPlanes.farPlane / deepPlanes.nearPlane <= levain::editor::MaxClipRatio * 1.0001f);
 }
 
-TEST_CASE("caméra de l'éditeur : des plans de découpe sans boîte utilisable sont ceux par défaut")
+TEST_CASE("caméra de l'éditeur : le cadrage tient sous un champ étroit, loin de l'origine")
+{
+    // Un champ de 1° sur une image étroite recule l'œil de dizaines de milliers d'unités :
+    // l'arrondi de la position y est de l'ordre du centième d'unité, et ne doit pas tourner la vue.
+    const std::array<Box, 3> boxes{{
+        {{900.0f, -800.0f, 700.0f}, {1300.0f, -400.0f, 1100.0f}},
+        {{-5000.0f, 10.0f, 3000.0f}, {-4990.0f, 20.0f, 3010.0f}},
+        {{-20.0f, 300.0f, -9000.0f}, {20.0f, 340.0f, -8000.0f}},
+    }};
+    for (const float fov : {1.1f, 3.0f, 5.0f, 20.0f})
+    {
+        for (const float aspect : {0.1f, 0.2f, 1.0f, 3.0f})
+        {
+            for (const glm::vec2 angles :
+                 {glm::vec2{35.0f, 20.0f}, glm::vec2{-130.0f, -60.0f}, glm::vec2{179.0f, 85.0f}})
+            {
+                for (const Box& box : boxes)
+                {
+                    CAPTURE(fov);
+                    CAPTURE(aspect);
+                    CAPTURE(angles.x);
+                    CAPTURE(angles.y);
+                    CAPTURE(box.min.x);
+                    EditorCamera camera = tiltedCamera();
+                    camera.verticalFovDegrees = fov;
+                    camera.yawDegrees = angles.x;
+                    camera.pitchDegrees = angles.y;
+                    const EditorCamera framed = framingOf(camera, box, aspect);
+                    const ClipPlanes planes = clipPlanesFor(framed, box);
+                    const Extent extent = extentOf(box, toRenderCamera(framed, planes), aspect);
+                    CHECK(extent.xy <= doctest::Approx(1.0f).epsilon(1.0e-3));
+                    CHECK(extent.depthMin >= -1.0e-3f);
+                    CHECK(extent.depthMax <= 1.0f + 1.0e-3f);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("caméra de l'éditeur : cadrer un petit objet ne rogne pas la scène derrière lui")
+{
+    // F sur un objet au milieu de la vallée, puis les plans de la **scène** : les plans doivent
+    // contenir l'objet, qui est tout près de l'œil, et la vallée entière derrière lui. Si les plans
+    // suivaient la boîte cadrée, le lointain tomberait à quelques mètres et la vallée
+    // disparaîtrait.
+    const Box valley{{-256.0f, -5.0f, -256.0f}, {256.0f, 60.0f, 256.0f}};
+    constexpr float Aspect = 16.0f / 9.0f;
+    for (const float half : {0.5f, 0.025f}) // un cube de 1 m, un objet de 5 cm
+    {
+        CAPTURE(half);
+        const Box object{{-half, 20.0f - half, -half}, {half, 20.0f + half, half}};
+        const EditorCamera framed = framingOf(tiltedCamera(), object, Aspect);
+        const ClipPlanes planes = clipPlanesFor(framed, valley);
+        CHECK(planes.nearPlane <= depthRangeOf(object, framed).first);
+        CHECK(planes.farPlane >= depthRangeOf(valley, framed).second);
+
+        // L'objet cadré remplit l'image : un plancher de rayon trop haut le laisserait minuscule.
+        CHECK(extentOf(object, toRenderCamera(framed, planes), Aspect).xy >= 0.3f);
+    }
+}
+
+TEST_CASE("caméra de l'éditeur : un cadrage ou des plans sans boîte utilisable ne changent rien")
 {
     const EditorCamera camera = tiltedCamera();
+    const Box good{{-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}};
     const Box notANumber{{NaN, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
     const Box inverted{{2.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
     const Box infinite{{-Infinity, 0.0f, 0.0f}, {Infinity, 1.0f, 1.0f}};
     for (const Box& box : {notANumber, inverted, infinite})
     {
+        CHECK(framingOf(camera, box, 1.5f).position == camera.position);
         CHECK(clipPlanesFor(camera, box).nearPlane == levain::editor::DefaultNearPlane);
         CHECK(clipPlanesFor(camera, box).farPlane == levain::editor::DefaultFarPlane);
+    }
+    for (const float aspect : {0.0f, -1.0f, NaN, Infinity})
+    {
+        CHECK(framingOf(camera, good, aspect).position == camera.position);
     }
 
     // Tout derrière l'œil : rien à contenir, les plans par défaut.
     const Box behind{{-1.0f, -1.0f, 50.0f}, {1.0f, 1.0f, 60.0f}};
     CHECK(clipPlanesFor(EditorCamera{.position = {0.0f, 0.0f, 0.0f}}, behind).farPlane ==
           levain::editor::DefaultFarPlane);
+
+    // Un point : cadré comme une boule de `MinFramedRadius`, jamais l'œil dans le point.
+    const Box point{{3.0f, 4.0f, 5.0f}, {3.0f, 4.0f, 5.0f}};
+    const EditorCamera framed = framingOf(camera, point, 1.5f);
+    CHECK(framed.pivotDistance > levain::editor::MinFramedRadius);
+    CHECK(glm::distance(framed.position, glm::vec3{3.0f, 4.0f, 5.0f}) ==
+          doctest::Approx(framed.pivotDistance).epsilon(1.0e-4));
 }
 
 TEST_CASE("caméra de l'éditeur : loin de l'origine, la caméra du rendu garde la droite du regard")
@@ -501,6 +746,35 @@ TEST_CASE("caméra de l'éditeur : la caméra du rendu reprend la position, le r
     CHECK(glm::degrees(toRenderCamera(extreme, {}).verticalFovRadians) == doctest::Approx(179.0f));
     extreme.verticalFovDegrees = NaN;
     CHECK(glm::degrees(toRenderCamera(extreme, {}).verticalFovRadians) == doctest::Approx(60.0f));
+}
+
+TEST_CASE("caméra de l'éditeur : le cadrage d'un cube ne s'éloigne pas plus qu'il ne faut")
+{
+    // Un cube tient dans sa sphère à peu de chose près : une fois cadré, il remplit au moins 30 %
+    // de la demi-image, sous tous les angles. Un cadrage qui se contenterait de « contenir » en
+    // reculant à l'infini passerait le cas précédent, pas celui-ci. (Une dalle ou une tour, que
+    // leur sphère entoure de vide, y font moins : c'est le prix de la sphère.)
+    const Box cube{{4.5f, 4.5f, 4.5f}, {5.5f, 5.5f, 5.5f}};
+    for (const float fov : {30.0f, 60.0f, 120.0f})
+    {
+        for (const float aspect : {0.5f, 1.0f, 3.0f})
+        {
+            for (const glm::vec2 angles :
+                 {glm::vec2{0.0f, 0.0f}, glm::vec2{35.0f, 20.0f}, glm::vec2{179.0f, 85.0f}})
+            {
+                CAPTURE(fov);
+                CAPTURE(aspect);
+                CAPTURE(angles.x);
+                EditorCamera camera = tiltedCamera();
+                camera.verticalFovDegrees = fov;
+                camera.yawDegrees = angles.x;
+                camera.pitchDegrees = angles.y;
+                const EditorCamera framed = framingOf(camera, cube, aspect);
+                const ClipPlanes planes = clipPlanesFor(framed, cube);
+                CHECK(extentOf(cube, toRenderCamera(framed, planes), aspect).xy >= 0.3f);
+            }
+        }
+    }
 }
 
 TEST_CASE("caméra de l'éditeur : partir de la caméra du jeu retrouve l'œil, le regard et le champ")

@@ -32,11 +32,25 @@ inline constexpr float FlySpeedPerNotch = 1.25f;
 inline constexpr float MinPivotDistance = 0.05f;
 inline constexpr float MaxPivotDistance = 1.0e6f;
 
+/// Un cran de molette (ou son équivalent en glissé) divise la distance de l'œil au pivot par 1,25,
+/// soit 20 % de moins. Sous `MinDollyStep` de distance, le pas ne rétrécit plus : voir
+/// `dollyCamera`.
+inline constexpr float DollyFactorPerNotch = 1.25f;
+inline constexpr float MinDollyStep = 1.0f;
+inline constexpr float MaxDollyNotches = 40.0f;
+
 /// Le champ vertical se règle dans le même intervalle qu'un `CameraLens` (app/camera.hpp) : hors de
 /// lui, la projection et le pan divisent par zéro ou s'inversent.
 inline constexpr float DefaultFovDegrees = 60.0f;
 inline constexpr float MinFovDegrees = 1.0f;
 inline constexpr float MaxFovDegrees = 179.0f;
+
+/// Le cadrage entoure la boîte d'une sphère, agrandie de `FramingPadding` pour que rien ne touche
+/// le bord ; une boîte plus petite que `MinFramedRadius` (un point) est cadrée comme celle-là. Le
+/// plancher n'écarte que la boîte réduite à un point : à 0,5, un objet de 5 cm serait cadré à 2,3 m
+/// et n'occuperait que 4 % de l'image.
+inline constexpr float FramingPadding = 1.15f;
+inline constexpr float MinFramedRadius = 0.05f;
 
 /// Les plans de découpe suivent le cadrage, comme le *Dynamic Clipping* d'Unity (documenté,
 /// ADR-0036 [4]) : le lointain par défaut de `render::Camera` est 100, pour une vallée de 512 m. Le
@@ -119,6 +133,23 @@ struct FlyInput
 /// hauteur de fenêtre nulle ou invalide ne déplace rien.
 [[nodiscard]] EditorCamera panCamera(EditorCamera camera, glm::vec2 pixels,
                                      float viewportHeightPixels);
+
+/// La molette hors vol et Alt+clic droit : rapproche l'œil du pivot de `notches` crans (positifs :
+/// plus près), en gardant le pivot. Le piège : la distance au pivot a un plancher, et un zoom qui
+/// s'y arrête se coince devant ce qu'on regarde. Le pas ne descend donc jamais sous `MinDollyStep`
+/// : à la borne, l'œil avance quand même et pousse le pivot devant lui. Au plafond
+/// (`MaxPivotDistance`), c'est l'inverse : l'œil s'arrête, car il traînerait sinon le pivot avec
+/// lui sans limite, et une molette libre l'enverrait à l'autre bout du monde, d'où il ne
+/// reviendrait pas.
+[[nodiscard]] EditorCamera dollyCamera(EditorCamera camera, float notches);
+
+/// F : place l'œil, sans changer le regard, pour que `box` tienne dans l'image de proportions
+/// `aspectRatio` (largeur sur hauteur), centrée sur le pivot. La boîte est enfermée dans une sphère
+/// et c'est son demi-champ le plus étroit, vertical ou horizontal, qui commande la distance : elle
+/// tient donc sous tous les angles, au prix d'un peu d'air autour d'une boîte allongée. Une boîte
+/// ou une proportion inutilisable (NaN, inversée, infinie) ne bouge rien.
+[[nodiscard]] EditorCamera framingOf(EditorCamera camera, const render::Box& box,
+                                     float aspectRatio);
 
 /// Le plan proche et le plan lointain d'une image.
 struct ClipPlanes
