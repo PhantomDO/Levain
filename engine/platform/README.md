@@ -16,8 +16,9 @@ clavier, de la souris et des manettes, avec la résolution des noms de SDL dont 
    `struct SDL_Window;`, et SDL3 est lié en `PRIVATE`. Seule exception : `engine/gpu` inclut `SDL_vulkan.h` pour
    créer la surface Vulkan à partir de `Window::handle`. C'est pour elle que la fenêtre est créée avec
    `SDL_WINDOW_VULKAN`, mais pour Vulkan seulement (`GraphicsSurface`, `gpu::surfaceFor`) : SDL charge la
-   bibliothèque Vulkan pour toute fenêtre qui l'annonce, et refuse de la créer sans elle. Direct3D 12 et WebGPU en
-   natif n'ont donc pas besoin d'un chargeur Vulkan (#19).
+   bibliothèque Vulkan pour toute fenêtre qui l'annonce, et refuse de la créer sans elle. La fenêtre de Direct3D 12 et
+   celle de WebGPU en natif n'en ont donc plus besoin ; Direct3D 12 seul se lance sans chargeur Vulkan, car Dawn
+   charge `vulkan-1.dll` lui-même pour son backend Vulkan (#19).
 2. **Une seule fenêtre à la fois.** La fenêtre possède SDL : la détruire appelle `SDL_Quit`. Une assertion le
    vérifie dans `createWindow`. À revoir quand l'éditeur ouvrira des fenêtres secondaires (M7.1).
 3. **Titres en ASCII**, vérifié par assertion. Voir « Pièges connus ».

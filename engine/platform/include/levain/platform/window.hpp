@@ -53,9 +53,11 @@ struct Window
 
 /// Ce que la fenêtre annonce à SDL pour la surface où le GPU dessinera. SDL charge la bibliothèque
 /// Vulkan (`vulkan-1.dll` sous Windows) dès qu'une fenêtre annonce Vulkan, et en refuse la création
-/// si elle manque (`SDL_video.c`, `SDL_CreateWindow`) : Direct3D 12 et WebGPU en natif n'annoncent
-/// rien, pour qu'une machine sans chargeur Vulkan les lance quand même. `gpu::surfaceFor` choisit
-/// d'après le backend. Ignoré dans le navigateur, où la fenêtre est le canvas de la page.
+/// si elle manque (`SDL_video.c`, `SDL_CreateWindow`) : la fenêtre de Direct3D 12 n'annonce rien,
+/// pour qu'une machine sans chargeur Vulkan le lance quand même. Celle de WebGPU en natif non plus,
+/// mais Dawn charge `vulkan-1.dll` lui-même pour son backend Vulkan : seul Direct3D 12 s'en passe.
+/// `gpu::surfaceFor` choisit d'après le backend. Ignoré dans le navigateur, où la fenêtre est le
+/// canvas de la page.
 enum class GraphicsSurface : std::uint8_t
 {
     Vulkan, ///< La fenêtre porte une surface Vulkan (`SDL_WINDOW_VULKAN`).
