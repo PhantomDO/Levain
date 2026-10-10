@@ -2,6 +2,28 @@
 
 Chaque entrée : symptôme, cause, parade, date. La plus récente en haut.
 
+## `gh pr merge --delete-branch` supprime aussi la branche locale, qu'une vérification lisait (2026-10-10)
+
+- **Symptôme** : les morceaux de #19 étaient empilés, chacun écrit sur le précédent pendant sa relecture
+  (`m1.4/warp-smoke-window`, puis `-adapter`, puis `-tests` : `git log --graph 41db6c4`). Un `tools/verify.sh`
+  tournait sur un morceau avec pour `BASE` la branche du précédent, que `gh pr merge N --merge --delete-branch` venait
+  de fusionner dans `m1.4/warp-smoke` : la branche locale avait disparu avec la distante, et la session a recréé sa ref.
+  La branche de la fonctionnalité n'est jamais en cause : c'est celle du morceau fusionné qui disparaît.
+- **Cause** : `--delete-branch` supprime « the local and remote branch after merge » (`gh pr merge --help`, `gh`
+  2.46.0) ; SKILL.md le prescrivait pour chaque morceau.
+- **Parade** : `gh pr merge N --merge`, puis `git push origin --delete <branche>` ; les branches locales ne se
+  suppriment (`git branch -d`) qu'une fois qu'aucune vérification ne s'en sert, à la fin de la fonctionnalité
+  (SKILL.md § 2 et § 6).
+
+## `gh pr edit` échoue dans la distro WSL : le texte d'une PR passe par l'API REST (2026-10-10)
+
+- **Symptôme** : `gh pr edit N --body-file …`, comme `--base`, échoue sur une erreur GraphQL (« Projects (classic) is
+  being deprecated », `projectCards`) avec le `gh` 2.46.0 d'Ubuntu 26.04, celui de la distro WSL (vu le 2026-10-08 :
+  l'entrée de `merge-stack.sh`, plus bas, où la parade restait enfouie).
+- **Cause** : cette version interroge encore les anciens Projects, que GitHub a retirés de son API.
+- **Parade** : l'API REST, `gh api -X PATCH repos/PhantomDO/Levain/pulls/N -F body=@fichier` (le `-F` majuscule lit le
+  fichier ; `-f` enverrait la chaîne « @fichier ») ; la base, `-f base=<branche>`. SKILL.md § 6 le dit.
+
 ## `/tmp` est un tmpfs de 24 Go, de la mémoire : un clone d'essai y a fait échouer l'édition de liens (2026-10-09)
 
 - **Symptôme** : un clone d'essai du sommet de la pile, construit sous le scratchpad de la session

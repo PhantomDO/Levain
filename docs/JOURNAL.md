@@ -22,6 +22,7 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 |---|---:|---:|---:|
 | 0 | 6,0 | **5,0** | **0,83** |
 | 1 | 4,5 | **3,0** | **0,67** |
+| 1 (M1.4) | 1,5 | **5,0** | **3,33** |
 | 2 | 3,75 | **4,25** | **1,13** |
 | 3 | 4,5 | **5,25** | **1,17** |
 | 4 | 8,25 | **6,0** | **0,73** |
@@ -30,6 +31,93 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 | 6 | 9,65 | **11,25** | **1,17** |
 
 ---
+
+## 2026-10-10 — M1.4 — Clôture : Windows compilé depuis Linux, en Vulkan et en Direct3D 12, sur la RTX 4070 et sous WARP
+
+- **Temps Donnovan : 5,0 h** (estimé 1,5 h), **ratio 3,33** (`awk 'BEGIN { printf "%.2f\n", 5 / 1.5 }'`) : 4 h en
+  tout jusqu'au matin du 09/10 (sa réponse de ce jour-là, l'entrée du 2026-10-09), puis 1 h jusqu'au 10/10 (« ≈ 1 h »,
+  l'entrée de #19), retenues à la clôture. Au board, « Passé (h) » : #344 1,8, #18 1,1, #345 0,55, #346 0,55, #19 1,0,
+  soit 5,0 pour 1,5 estimées (`gh project item-list 1 --owner @me --format json --limit 400`). La relecture de la pile
+  après coup (mode autonome ; 6,40 h estimées par les textes des PR, l'entrée du 2026-10-09) n'y est pas : elle
+  s'ajoutera si Donnovan la fait.
+- Sessions Claude Code : 2 (estimé 4) : celle de la distro WSL du portable, du 08 au 09/10, puis sa reprise à
+  distance du 10/10, qui clôt.
+- Définition de « terminé » (SPECS §9) : le sandbox se lance sous Windows comme sous Linux ; les critères mesurés
+  ci-dessous, sous Windows sur le portable (SPECS §10, point 3 : aucune mesure de performance n'en vient) ; CI verte,
+  zéro erreur de validation ; les README de `core`, `gpu`, `platform`, `app`, `render` et `tools/wsl` mis à jour par
+  les PR du milestone (`git diff --stat 932c2c1^ 41db6c4 -- '*README.md'`, sauf `scene`, de #384) ; pas d'étude
+  (celle de la phase 1, E1, est écrite) ; le board renseigné ; le tag `m1.4` sur 41db6c4, la
+  [release](https://github.com/PhantomDO/Levain/releases/tag/m1.4), le milestone fermé : 8 issues et 34 PR, toutes
+  fermées (`gh api 'repos/PhantomDO/Levain/issues?milestone=7&state=all&per_page=100'`).
+- Fait, du 08 au 10/10, en mode autonome :
+  - **l'ADR-0035** (#348) et la ROADMAP v0.15 : clang-cl depuis Linux, Vulkan puis Direct3D 12, la CI qui compile sous
+    Linux et teste sous Windows ;
+  - **le portage et la chaîne** (#344, #345), #349 à #358 (#354 est une issue) : le code portable, la toolchain, le
+    triplet et les presets, `verify.sh` qui compile `windows-debug`, l'exe Debug sur la RTX 4070, les tests sous Windows
+    sans rien couper, la BRDF sans NaN sur un vrai GPU (#347), les tests `dxil.*` enregistrés (#354), le rechargement
+    des shaders par `wsl.exe` ;
+  - **la pile Windows**, #359 à #381 (19 PR ; #360, #361, #363 et #376 sont des issues) : la CI Windows (#362, #359,
+    #364, #365, ferme #346), clang-tidy aux options de Windows (#366, #367, ferme #360), la CRT en Debug (#368, #369)
+    puis en Release (#377 à #380), le backend Direct3D 12 (#370 à #375, pour #18), l'entrée du journal (#381) ;
+  - **la CI une fois par fonctionnalité** (#383, ferme #382 ; AGENTS.md, règle n°1) ;
+  - **Direct3D 12 sous WARP en CI** (#19) : trois morceaux sur `m1.4/warp-smoke` (#385 à #387), puis sa PR vers `main`
+    (#388), la première fusion du nouveau mode ;
+  - **#18 fermée** sur sa preuve : le sandbox en Direct3D 12, Debug, fenêtré sur la 4070, 796 images en 20 s,
+    redimensionné trois fois, réduit puis restauré, sans un message des couches
+    (`tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`).
+- Mesures, critère par critère (ROADMAP, M1.4) :
+
+  | Critère | Mesuré | Commande |
+  |---|---|---|
+  | Le sandbox sur le PC de Donnovan, en Vulkan puis en D3D12, sans erreur de validation ni de la couche de debug | Vulkan : 913 images en 10 s, aucune erreur (08/10). D3D12, Debug : 812, 982 et 965 images en 10 s, 0 message `d3d12`, `dxgi` ou `nvrhi` (09/10) ; fenêtré, 796 images en 20 s, redimensionné, réduit, restauré, sans message (10/10) | `levain_sandbox.exe --seconds 10 --model …/CesiumMilkTruck.gltf` ; `levain_sandbox.exe --gpu d3d12 --seconds 10` ; `tools/wsl/resize-sandbox.sh … --gpu d3d12 --seconds 20` |
+  | Les tests GPU sur la RTX 4070 comme sous lavapipe (#347) | D3D12 : les 5 tests de fumée à 0 pixel sur 4 096 de la référence, les 3 autres tests GPU verts ; 345/345 pour la cible (09/10) | `levain_smoke_render.exe <scène> d3d12` ; `ctest --test-dir build/windows-debug -LE host -j8 --timeout 120` |
+  | Le même triangle sous les deux backends | le test de fumée `triangle` vert contre la même référence : en Vulkan (CI, sur lavapipe), et à 0 pixel différent en D3D12 sur la 4070 (09/10) et sous WARP (10/10) | `ctest -R smoke` ; `levain_smoke_render.exe triangle d3d12` ; `ctest --test-dir build/windows-debug -R d3d12-warp -V` |
+  | CI Windows verte | run 38060152671 (#388) vert en 21 min 25 s ; `windows-debug` 361/361 en 39,98 s, `windows-release` 357/357 en 32,90 s, les 8 tests `d3d12-warp` verts dans chacun | `gh run view 38060152671 --json conclusion,createdAt,updatedAt` ; `gh api repos/PhantomDO/Levain/actions/jobs/<id>/logs` |
+  | Le binaire de la CI sous Proton, sur la machine de référence | remplacé par les lancements natifs sur la 4070 et par WARP en CI (décision ci-dessous) | — |
+
+- **Le ratio, et ce qui s'applique** : 3,33 pour M1.4 ; la phase 1 entière, M1.4 compris, 8,0 h pour 6,0, **1,33**
+  (`awk 'BEGIN { printf "%.2f\n", (3 + 5) / (4.5 + 1.5) }'`), au-dessus de la fourchette 0,8–1,25 ; le cumul des
+  phases 0 à 6, M1.4 compris, (49,25 + 5,0) / (51,15 + 1,5) = 54,25 / 52,65 = **1,03**, dedans. La règle (ROADMAP,
+  « Recalibrage » ; cloture/SKILL.md) juge une phase à sa clôture, pas un milestone seul : ni M4.6 (1,29) ni M7.2
+  (0,60) ne l'ont déclenchée. Comme M4.6, jugé avec la phase 4 (0,89), M1.4 se juge avec la phase 1 : à 1,33, la règle
+  multiplierait par 1,33 les milestones restants des phases 7 et 8 : 15,85 h → 21,1 h (+5,3 h) avec la ROADMAP v0.16,
+  acceptée le même jour (ci-dessous), 13,6 h → 18,1 h (+4,5 h) avec la v0.15 de `main`
+  (`awk 'BEGIN { printf "%.1f %.1f\n", 15.85 * 4 / 3, 13.6 * 4 / 3 }'`). Hors de la fourchette, la phase 4 (v0.7) a
+  été tranchée par Donnovan, par sondage : même chemin ici, avec une proposition, **aucun recalibrage** (le cumul à
+  1,03 ; la phase 7 à 0,74, 1,75 h pour 2,35 ; un dépassement propre à Windows et à la CI d'avant la règle n°1). La
+  ROADMAP a sa section « M1.4 — ratio 3,33 » ; le « Cumul » a sa ligne « 1 (M1.4) », comme « 4 (M4.6) ».
+- Décisions de Donnovan :
+  - l'ADR-0035 (le 08/10, deux sondages) ; le 09/10, les écritures sur GitHub, la CRT de Release comme les autres
+    moteurs, la règle n°2 pour Direct3D 12, puis la règle n°1 (la CI une fois par fonctionnalité) : leurs mots sont
+    dans l'entrée du 2026-10-09 et dans AGENTS.md ;
+  - le 10/10, au sondage « Je clôture M1.4 comment ? », sur le critère « binaire Windows de la CI lancé sous Proton
+    sur la machine de référence en --gpu d3d12 » : « Remplacer Proton, clore maintenant (Recommandé) ». Le critère
+    datait d'avant le portable ; le binaire tourne maintenant nativement sur sa 4070, et sous WARP en CI. La ROADMAP
+    remplace la clause en citant sa réponse ;
+  - la release `m1.4` : « Notes + mesures (Recommandé) » ;
+  - le même jour, pour M7.7 : « J'accepte l'ADR-0036 et la ROADMAP v0.16 ? » : « Accepter (Recommandé) » ; « Quand
+    l'éditeur passera en anglais (M7.8), les messages du moteur (console, erreurs, journaux) doivent-ils aussi se
+    traduire ? » : « Traduits aussi ». Chaque message passera par le catalogue, sous un nom stable que lit la CI, et
+    M7.8 passe de 0,25 à 0,5 h. L'ADR et la v0.16 vivent sur la branche `m7.7/atelier` jusqu'à la fin de M7.7 (règle
+    n°1).
+- Écarts et problèmes :
+  - **3,33 fois l'estimation** : 1,5 h et 4 sessions ne comptaient ni la CI de chaque PR d'une pile, que Donnovan a
+    arrêtée le 09/10 (« ça fait 3 jours qu'on attend parfois 3h juste pour savoir si un commit passe »), ni la CRT de
+    Windows, en Debug puis en Release (six PR), ni ce que la couche de debug de Direct3D 12 a trouvé (#372) : 34 PR et
+    8 issues au milestone ;
+  - **le critère Proton est remplacé, pas tenu** ; SPECS §10 (point 2) prévoit encore Proton « à chaque milestone de
+    rendu » : la réponse ne vise que M1.4, le reste est à trancher ;
+  - **ouvertes, hors milestone** : #361 (`PoolAllocator`), #363 (`SDL_assert` ouvre encore sa fenêtre sous Windows),
+    #376 (l'indication de `shell.html` effacée) ; aucune ne touche un critère de M1.4. Les causes à trouver de l'entrée
+    du 2026-10-09 (l'écart d'images par seconde entre Vulkan et Direct3D 12 sur la 4070, deux plantages de Release
+    lents sous WER) n'ont pas d'issue.
+- Prochaine étape :
+  - **un sondage pour Donnovan**, deux questions : le recalibrage proposé ci-dessus (aucun, ou les phases 7 et 8 par
+    1,33) ; et SPECS §10, point 2, « Proton sur la machine de référence (à chaque milestone de rendu) », que sa réponse
+    de clôture ne touche pas : le morceau 7 de M7.7 rend la scène dans une texture, et M7.7 se clôturerait contre lui ;
+  - cette clôture et les corrections de `pr-autonome` vont à `main` par leur PR, hors de M7.7 (règle n°1), puis `main`
+    rejoint `m7.7/atelier` ; M7.7 « L'atelier » reprend par son morceau 0 (#389), puis les bancs d'essai et le mode
+    Édition (#390).
 
 ## 2026-10-10 — M1.4 — #19 : Direct3D 12 sur WARP, en CI sans GPU ; le programme de l'éditeur décidé
 

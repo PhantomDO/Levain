@@ -5,7 +5,8 @@
 > v0.15 : **Windows revient** ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)) : Donnovan a un PC Windows.
 > M1.4 est rouvert, compilé depuis Linux par clang-cl, en deux étapes : Windows en Vulkan, puis le backend
 > Direct3D 12. Il passe maintenant, avant la fin de M7.2 (choix de Donnovan), et en reprend l'échéance. M1.4 :
-> **1,5 h**, 4 sessions. Total : **65,2 h → 66,7 h** ; les autres échéances ne bougent pas.
+> **1,5 h**, 4 sessions. Total : **65,2 h → 66,7 h** ; les autres échéances ne bougent pas. **M1.4 est clos le
+> 10/10/2026** à son temps réel, 5,0 h pour 1,5 estimées (ratio 3,33, voir « Recalibrage ») : total **66,7 h → 70,2 h**.
 >
 > v0.14 : **l'ADR-0034**, accepté par sondage. M7.2 ouvre la bibliothèque éditeur (`editor/`, choix de
 > Donnovan) ; M7.3 écrit l'enveloppe et le chargeur de ses scènes, le JSON de flecs ne servant qu'aux valeurs, et
@@ -83,7 +84,7 @@
 | Phase | Contenu | Heures Donnovan | Sessions | Fin visée (1,5 h/sem.) |
 |---|---|---:|---:|---|
 | 0 | Fondations | 5,0 (réel) | 4 | fini le 20/09/2026 |
-| 1 | Fenêtre et premier triangle, puis Windows (M1.4, rouvert) | 3,0 (réel, 4,5 estimées) + 1,5 | 3 + 4 | fini le 21/09/2026 ; M1.4 : 14/03/2027 |
+| 1 | Fenêtre et premier triangle, puis Windows (M1.4, rouvert) | 3,0 (réel, 4,5 estimées) + 5,0 (réel, 1,5 estimées) | 3 + 4 | fini le 21/09/2026 ; M1.4 fini le 10/10/2026 |
 | 2 | 3D de base | 4,25 (réel, 3,75 estimées) | 4 | fini le 22/09/2026 |
 | 3 | Scène et ECS | 5,25 (réel, 4,5 estimées) | 5 | fini le 23/09/2026 |
 | 4 | Assets, puis la cible web (M4.6) | 6,0 (réel, 8,25 estimées) + 4,5 (réel, 3,5 estimées) | 14 | M4.6 fini le 27/09/2026 |
@@ -91,12 +92,12 @@
 | 6 | Physique et traversée | 11,25 (réel, 9,65 estimées) | 6 | fini le 07/10/2026 |
 | 7 | Éditeur | 7,6 | 8 | 04/04/2027 |
 | 8 | Audio et le jeu | 8,35 | 8 | 16/05/2027 |
-| **Total** | | **66,7** | **69** | |
+| **Total** | | **70,2** | **69** | |
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante après la phase 6, M1.4 compris (17,45 h), selon le rythme : **2 h/sem. → 9 semaines** (décembre
-2026) · **1,5 h/sem. → 12 semaines** (fin décembre 2026) · **1 h/sem. → 18 semaines** (février 2027).
+Durée restante au 10/10/2026 (13,6 h, M7.3 à M8.3), selon le rythme : **2 h/sem. → 7 semaines** (28/11/2026) ·
+**1,5 h/sem. → 10 semaines** (19/12/2026) · **1 h/sem. → 14 semaines** (16/01/2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 09/05/2027.
@@ -150,7 +151,7 @@ dans une capture Tracy.
 | M1.1 Fenêtre et boucle | 1,5 | 1 | 18/10/2026 |
 | M1.2 Device NVRHI (Vulkan) et swapchain | 1,5 | 1 | 25/10/2026 |
 | M1.3 Premier triangle | 1,5 | 1 | 01/11/2026 |
-| M1.4 Windows depuis Linux, puis Direct3D 12 (rouvert, ADR-0035) | 1,5 | 4 | 14/03/2027 |
+| M1.4 Windows depuis Linux, puis Direct3D 12 (rouvert, ADR-0035) | 5,0 (réel, 1,5 estimées) | 4 | fini le 10/10/2026 |
 
 **M1.1 — Fenêtre et boucle.** Fenêtre SDL3, boucle principale, événements, redimensionnement, mesure du
 frame time ; ASan et UBSan en CI Linux.
@@ -178,9 +179,12 @@ de M7.2, dont il reprend l'échéance. Deux étapes :
    (`--gpu vulkan|d3d12`) ; test de fumée sous WARP (D3D12 logiciel) en CI Windows.
 
 *Critères* : le sandbox tourne sur le PC Windows de Donnovan, en Vulkan puis en D3D12, sans erreur de validation
-ni de la couche de debug D3D12 ; les tests GPU passent sur sa RTX 4070 comme sous lavapipe (#347) ; le même triangle sous les deux backends ; CI Windows verte ; binaire Windows de la
-CI lancé sous Proton sur la machine de référence en `--gpu d3d12` (voir SPECS §10, « Vérification sous
-Windows »).
+ni de la couche de debug D3D12 ; les tests GPU passent sur sa RTX 4070 comme sous lavapipe (#347) ; le même
+triangle sous les deux backends ; CI Windows verte, Direct3D 12 compris, sous WARP (#19). Le binaire Windows de la
+CI lancé sous Proton sur la machine de référence, prévu avant que Donnovan ait le portable, est remplacé par ces
+lancements natifs sur sa RTX 4070 et sous WARP en CI (SPECS §10, « Vérification sous Windows », points 1 et 3) ;
+son choix au sondage de clôture, le 10/10 : « Remplacer Proton, clore maintenant (Recommandé) ». *Fini le
+10/10/2026* : 5,0 h pour 1,5 estimées (journal, clôture de M1.4).
 
 **Étude E1 — Les couches RHI** : déjà écrite ([E1-rhi.md](etudes/E1-rhi.md)), à relire pendant la phase.
 
@@ -493,6 +497,22 @@ dans le journal, puis :
 décisions en font partie (voir la définition des « Heures Donnovan » plus haut). La phase 0 l'a appris à ses
 dépens — mesurée d'abord à 3,0 h en ne comptant que les relectures, contre **4,9 h réelles**. Le ratio erroné de
 0,50 aurait amputé la roadmap de 30 % sans raison.
+
+### M1.4 — ratio 3,33, rouvert après la clôture de la phase 1 : recalibrage à trancher
+
+| Milestone | Estimé | Passé |
+|---|---:|---:|
+| M1.4 Windows depuis Linux, puis Direct3D 12 | 1,5 h | 5,0 h — ratio **3,33** |
+| **Phase 1, M1.4 compris** | **6,0 h** | **8,0 h** — ratio **1,33** |
+
+La règle juge une phase, à sa clôture, et non un milestone seul. Comme M4.6 (1,29), ajouté après la clôture de la
+phase 4 et jugé avec elle (0,89), M1.4 se juge avec la phase 1 : 8,0 h pour 6,0, **1,33**, au-dessus de la
+fourchette. La règle multiplierait par 1,33 les milestones restants des phases 7 et 8 : 13,6 h → 18,1 h (+4,5 h).
+Contre : le ratio cumulé des phases 0 à 6, M1.4 compris, 54,25 / 52,65 = **1,03**, est dans la fourchette ; la phase
+7 en est à 0,74 (1,75 h pour 2,35 : M7.1 et M7.2) ; et le dépassement tient à ce que M1.4 seul a rencontré : une CI
+qui tournait pour chaque PR d'une pile (la règle n°1 du 09/10 l'a changée), la CRT de Windows, la couche de debug de
+Direct3D 12, 34 PR pour un milestone estimé à 1,5 h. **Proposition : aucun recalibrage**, que Donnovan tranche par
+sondage, comme pour la phase 4 (v0.7) ; d'ici là, les estimations ne changent pas.
 
 ### Phase 6 — ratio 1,17, aucun recalibrage
 
