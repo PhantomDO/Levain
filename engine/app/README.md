@@ -24,7 +24,9 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 - **l'interface** (M7.1, ADR-0032) : ImGui, par le module `ui`, chaque image ; les panneaux de debug du moteur
   (Image, Passes, Scène, en fenêtres ancrées), que F1 ou `--ui on` ouvrent ; le point d'accroche `ui`, où le
   programme ajoute ses fenêtres ; et la capture de la souris, que `App` possède. La disposition des panneaux
-  garde ses nœuds (`UiLayer::dock`), où l'éditeur ancre les siens (ADR-0034).
+  garde ses nœuds (`UiLayer::dock`), où l'éditeur ancre les siens (ADR-0034) ;
+- **le banc d'essai** (ADR-0036) : `AppSettings::inputScript`, pour un test, rejoue les
+  `platform::Events` d'un script dans la vraie boucle, hors écran. Voir l'invariant 12.
 
 ## Invariants
 
@@ -59,6 +61,15 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    des conteneurs et que `app` repose à chaque image. Son plan lointain a un plancher (0,02), et `cameraFrom`
    le ramène à deux fois le proche s'il ne le passe pas (`farBeyondNear`) : l'inspecteur laisse taper n'importe
    quel couple, et `far = near` donnerait un viewport d'une seule couleur, sans un mot.
+
+12. **Un script d'input s'ajoute aux vrais événements, juste après `pollEvents`** : tout ce qui suit (ImGui,
+   `gameInputOf`, `PlayerInput`, `frame`) ne sait pas d'où ils viennent. Sans `--steps` ni `--seconds`, le script
+   mène la boucle, qui s'arrête après son dernier événement ; avec l'un d'eux, la première fin gagne, et un script
+   que la boucle n'a pas fini de jouer fait échouer le programme (règle n°7) : un test ne passe pas sans avoir rejoué
+   ce qu'il dit. **Pour un résultat qui se reproduise**, `--steps N` avec N au moins la longueur du script : sans lui,
+   le monde avance du temps réel de chaque image. `inputScriptOf` vérifie le script avant la fenêtre ; un script
+   vide arrête `runApp`. Sans script, rien n'est touché. `tests/app_script_gpu.cpp` est le banc :
+   un appui atteint `PlayerInput` par sa position, ImGui par sa lettre.
 
 ## Pièges connus
 

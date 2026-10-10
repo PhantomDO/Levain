@@ -21,8 +21,8 @@ debug de Direct3D 12 et de DXGI : le sandbox (10 s, puis redimensionné, réduit
 `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`), les cinq
 tests de fumée à 0 pixel près, les trois tests GPU (`levain_light_clusters.exe d3d12`, `levain_environment.exe
 d3d12`, `levain_ui_gpu.exe d3d12`). Reste un écart de cadence, observé et pas encore expliqué : en Release, à 165 Hz,
-145 images/s contre 160 sous Vulkan, au même temps GPU (build/GOTCHA.md). **État en #19** : les huit tests
-(cinq de fumée, trois programmes GPU) tournent aussi sur **WARP**, le rendu logiciel de Windows (`DeviceOptions::adapter =
+145 images/s contre 160 sous Vulkan, au même temps GPU (build/GOTCHA.md). **État en #19** : les neuf tests
+(cinq de fumée, quatre programmes GPU) tournent aussi sur **WARP**, le rendu logiciel de Windows (`DeviceOptions::adapter =
 Adapter::Software`, `ctest -R d3d12-warp`) : un runner de CI n'a pas de GPU, WARP est son seul adaptateur Direct3D 12.
 `highPerformanceAdapter` l'écarte toujours, c'est `warpAdapter` qui le choisit, et il refuse tout adaptateur que DXGI
 ne marque pas logiciel (un GPU ne doit jamais passer pour WARP). `requireAdapterChoosable` refuse `Software` hors de
