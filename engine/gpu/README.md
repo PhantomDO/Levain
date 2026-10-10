@@ -21,14 +21,21 @@ debug de Direct3D 12 et de DXGI : le sandbox (10 s, puis redimensionné, réduit
 `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`), les cinq
 tests de fumée à 0 pixel près, les trois tests GPU (`levain_light_clusters.exe d3d12`, `levain_environment.exe
 d3d12`, `levain_ui_gpu.exe d3d12`). Reste un écart de cadence, observé et pas encore expliqué : en Release, à 165 Hz,
-145 images/s contre 160 sous Vulkan, au même temps GPU (build/GOTCHA.md). Les tests ne sont pas déclarés à ctest en
-`d3d12` : un runner sans GPU n'a que WARP, que choisira #19, avec deux prérequis relevés ici :
+145 images/s contre 160 sous Vulkan, au même temps GPU (build/GOTCHA.md). **État en #19** : les huit tests
+(cinq de fumée, trois programmes GPU) tournent aussi sur **WARP**, le rendu logiciel de Windows (`DeviceOptions::adapter =
+Adapter::Software`, `ctest -R d3d12-warp`) : un runner de CI n'a pas de GPU, WARP est son seul adaptateur Direct3D 12.
+`highPerformanceAdapter` l'écarte toujours, c'est `warpAdapter` qui le choisit, et il refuse tout adaptateur que DXGI
+ne marque pas logiciel (un GPU ne doit jamais passer pour WARP). `requireAdapterChoosable` refuse `Software` hors de
+Direct3D 12, en disant que le chargeur Vulkan (`VK_DRIVER_FILES` pour lavapipe) ou Dawn choisit seul. Sous le pilote
+vidéo `offscreen` de SDL, qui n'a pas de HWND, `createD3d12Device` rend un device sans swapchain, dessinant hors écran
+comme WebGPU en natif ; tout autre pilote sans HWND reste une erreur. Les prérequis de la CI :
 
 - la fenêtre n'annonce `SDL_WINDOW_VULKAN`, qui charge `vulkan-1.dll`, que pour Vulkan (`surfaceFor`,
   `engine/platform/src/window.cpp`) : Direct3D 12 se lance sans chargeur Vulkan ;
-- en Debug, Direct3D 12 exige `ID3D12InfoQueue1` (Windows 11, Windows Server 2025) et la fonctionnalité facultative
-  « Outils graphiques » de Windows (`d3d12SDKLayers.dll`, `dxgidebug.dll`) : sans elles, le Debug refuse de
-  démarrer (règle n°7).
+- Direct3D 12 exige `ID3D12InfoQueue1` (Windows 11, Windows Server 2025) et la fonctionnalité facultative « Outils
+  graphiques » de Windows (`d3d12SDKLayers.dll`, `dxgidebug.dll`) en Debug **et** en Release (les programmes de test
+  demandent toujours la validation) : sans elles, le device refuse de démarrer (règle n°7), et l'étape « Vérifier le
+  runner » de `ci.yml` nomme le fichier absent avant les tests.
 
 ## Invariants
 
@@ -54,9 +61,9 @@ d3d12`, `levain_ui_gpu.exe d3d12`). Reste un écart de cadence, observé et pas 
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/gpu/device.hpp`](include/levain/gpu/device.hpp) | `createGpuDevice`, `GpuDevice`, `DeviceOptions`, `swapchainFormat`, `beginFrame`, `presentFrame` ; `graphicsApiNamed` (`--gpu vulkan\|d3d12\|webgpu`), `DefaultBackend` (Vulkan en natif, WebGPU dans le navigateur) et `requireBackendBuilt`, qui refuse en le disant Direct3D 12 hors de Windows et tout sauf WebGPU dans le navigateur, où `requestGpuDevice` l'appelle aussi |
+| [`include/levain/gpu/device.hpp`](include/levain/gpu/device.hpp) | `createGpuDevice`, `GpuDevice`, `DeviceOptions` (dont `Adapter`, GPU ou WARP), `surfaceFor` (la surface que la fenêtre annonce), `requireAdapterChoosable`, `swapchainFormat`, `beginFrame`, `presentFrame` ; `graphicsApiNamed` (`--gpu vulkan\|d3d12\|webgpu`), `DefaultBackend` (Vulkan en natif, WebGPU dans le navigateur) et `requireBackendBuilt`, qui refuse en le disant Direct3D 12 hors de Windows et tout sauf WebGPU dans le navigateur, où `requestGpuDevice` l'appelle aussi |
 | [`src/device.cpp`](src/device.cpp), [`src/native_device.hpp`](src/native_device.hpp) | Le choix du backend au lancement, la frame hors écran de WebGPU, la cadence des frames (`limitFramesInFlight`) ; les interfaces `NativeDevice` et `Swapchain` que chaque backend implémente |
-| [`src/device_d3d12.cpp`](src/device_d3d12.cpp), [`src/swapchain_d3d12.cpp`](src/swapchain_d3d12.cpp), [`src/d3d12_context.hpp`](src/d3d12_context.hpp) | Direct3D 12, Windows seulement : couches de debug de Direct3D 12 et de DXGI, factory DXGI, adaptateur le plus performant, device, queue, puis `nvrhi::d3d12::createDevice` ; la swapchain DXGI. Adapté de Donut (`DeviceManager_DX12.cpp`, MIT) |
+| [`src/device_d3d12.cpp`](src/device_d3d12.cpp), [`src/swapchain_d3d12.cpp`](src/swapchain_d3d12.cpp), [`src/d3d12_context.hpp`](src/d3d12_context.hpp) | Direct3D 12, Windows seulement : couches de debug de Direct3D 12 et de DXGI, factory DXGI, adaptateur le plus performant ou WARP, device, queue, puis `nvrhi::d3d12::createDevice` ; la swapchain DXGI. Adapté de Donut (`DeviceManager_DX12.cpp`, MIT) |
 | [`include/levain/gpu/webgpu.hpp`](include/levain/gpu/webgpu.hpp) | `requestWebGpuDevice` (asynchrone dans le navigateur), `createWebGpuDevice` (natif), le canvas HTML (web) |
 | [`src/webgpu/`](src/webgpu/) | Le backend : `device.cpp` (ressources), `bindings.cpp`, `pipelines.cpp`, `commandlist.cpp`, `canvas.cpp` |
 
@@ -108,7 +115,7 @@ Debug, puis signale une *fence* sur la queue, et cadence le CPU par les mêmes *
 |---|---|
 | Sous Direct3D 12, `nvrhi::IDevice::waitForIdle` attend la dernière command list de NVRHI, pas la présentation qui la suit sur la queue : une image de la swapchain relâchée alors est une corruption pour la couche de debug (D3D12_MESSAGE_ID 921, à la fermeture) | Une *fence* signalée après chaque présentation (`signalQueue`), attendue avant de relâcher les images (`waitForQueue`, `swapchain_d3d12.cpp`) |
 | DXGI refuse une swapchain sRGB en *flip model* | Images en BGRA8 linéaire, que NVRHI dessine par une vue sRGB : le moteur voit `SBGRA8_UNORM`, comme sous Vulkan (Donut fait de même) |
-| La couche de debug DXGI ne rappelle pas le moteur : un `ResizeBuffers` refusé n'y laisse qu'un message, que personne ne lit | La swapchain relit sa file après chaque présentation, à chaque redimensionnement et avant chaque refus de sa création (`drainDxgiMessages`), par le chemin des erreurs de Direct3D 12 ; pas à sa destruction, où DXGI n'a rien à dire sans plein écran exclusif |
+| La couche de debug DXGI ne rappelle pas le moteur : un `ResizeBuffers` refusé n'y laisse qu'un message, que personne ne lit | La swapchain relit sa file après chaque présentation, à chaque redimensionnement et avant chaque refus de sa création (`drainDxgiMessages`), par le chemin des erreurs de Direct3D 12 ; pas à sa destruction, où DXGI n'a rien à dire sans plein écran exclusif. Sans swapchain (pilote `offscreen` de SDL, les tests `d3d12-warp`), `createD3d12Device` la relit une fois, à la création du device |
 | Un redimensionnement raté laissait la taille nouvelle et des images absentes : la frame suivante lisait une image qui n'existait pas | Plus aucune image ni taille après un échec (`forgetImages`) ; `acquireImage` reconstruit tant qu'il manque une image, même à l'ancienne taille |
 | `IID_PPV_ARGS` passe par `__uuidof`, une extension de Microsoft que `-pedantic-errors` refuse | Les IID nommés, de dxguid et DirectX-Guids (`interfaceId`, `iidOf`, `outPointer` dans `d3d12_context.hpp`) |
 | Le `&` de `nvrhi::RefCountPtr`, à la différence de celui de `ComPtr`, ne relâche pas l'objet tenu, que l'appel COM écrase : il fuit | `outPointer` passe par `ReleaseAndGetAddressOf`, qui relâche d'abord l'objet tenu (`d3d12_context.hpp`) |
