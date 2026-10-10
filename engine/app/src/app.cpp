@@ -555,6 +555,8 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .frameTimer = render::createGpuTimer(*gpu.nvrhi),
             .totalGpu = {},
             .frameCount = 0,
+            .inputRoute = InputRoute::Ui,
+            .sceneRect = {},
             .mouseCaptureWanted = false,
             .mouseCaptured = false,
             .ui = UiLayer{.context = ui::createUiContext(platform::displayScale(window)),
@@ -597,6 +599,11 @@ void beginUiFrame(App& app, const platform::Events& events, double frameSeconds)
 /// puis `ImGui::Render`. Le rendu de l'image la dessinera.
 void endUiFrame(App& app)
 {
+    // La scène remplit la fenêtre, sauf si les panneaux la découpent ou si `ui` en dispose
+    // autrement (la Vue, ADR-0036) : le rectangle est refait à chaque image.
+    const platform::PixelSize window = platform::windowPixelSize(app.window);
+    app.sceneRect = {0.0f, 0.0f, static_cast<float>(window.width),
+                     static_cast<float>(window.height)};
     if (app.ui.panelsOpen)
     {
         drawEnginePanels(app);
@@ -922,12 +929,20 @@ bool runFrame(Loop& loop)
             applyWindowEvent(loop.state, event);
             forgetHiddenTime(loop.previousFrameEnd, event, frameStart);
         }
-        // ImGui d'abord : ce qu'il garde de l'input, le jeu ne le voit pas (`gameInputOf`).
+        // ImGui d'abord : ce qu'il garde de l'input, le jeu ne le voit pas (`gameInputOf`). La
+        // route est celle que l'éditeur a posée à la fin de l'image d'avant (ADR-0036).
         const Clock::time_point uiStart = Clock::now();
-        beginUiFrame(app, events, loop.lastFrameSeconds);
+        const InputRoute route = app.inputRoute;
+        const std::optional<platform::Events> uiEvents = uiEventsOf(route, events);
+        beginUiFrame(app, uiEvents ? *uiEvents : events, loop.lastFrameSeconds);
         const ImGuiIO& io = ImGui::GetIO();
-        const std::vector<platform::InputEvent> gameEvents =
-            gameInputOf(events.input, app.input.raw, io.WantCaptureMouse, io.WantCaptureKeyboard);
+        const std::vector<platform::InputEvent> gameEvents = gameInputOf(
+            events.input, app.input.raw,
+            devicesTakenBy(
+                route, {.imguiWantsMouse = io.WantCaptureMouse,
+                        .imguiWantsKeyboard = io.WantCaptureKeyboard,
+                        .mouseInScene = rectContains(app.sceneRect, io.MousePos.x, io.MousePos.y),
+                        .mouseCaptured = app.mouseCaptured}));
         app.ui.frameCpuMs += secondsBetween(uiStart, Clock::now()) * 1000.0;
         input::updateInput(app.input, app.bindings, gameEvents,
                            static_cast<float>(loop.lastFrameSeconds));

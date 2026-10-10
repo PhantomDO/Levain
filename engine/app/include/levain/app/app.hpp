@@ -296,6 +296,18 @@ struct App
     render::GpuTimeAverage totalGpu; ///< Depuis le début de la boucle, journalisé à la fin.
     int frameCount = 0;
 
+    /// **Qui reçoit l'input** (ADR-0036, décision 4), lu par la boucle au début de chaque image
+    /// (`devicesTakenBy`, `uiEventsOf`) : l'éditeur la pose à la fin de l'image N pour l'image N+1,
+    /// car le survol et le focus ne se savent que dans `hooks.ui`. Un programme qui n'est pas un
+    /// éditeur (le sandbox, *Rando*) garde `Ui`, le filtre de M7.1.
+    InputRoute inputRoute = InputRoute::Ui;
+    /// **Où se voit la scène**, en pixels de l'image (ADR-0036) : sous la route *jeu*, la souris ne
+    /// va au jeu que dedans, ou capturée. La boucle le pose à chaque image avant `ui` : la fenêtre
+    /// entière, les panneaux fermés ; le trou du nœud central de la disposition, panneaux ouverts
+    /// (`drawEnginePanels`). **La Vue n'existe pas encore** (morceaux 7 et 8) : elle posera ici le
+    /// rectangle de sa fenêtre, et `ui` peut déjà le remplacer. Lu à l'image suivante, il est
+    /// celui de l'image d'avant.
+    ScreenRect sceneRect;
     /// **`App` possède la capture de la souris** (ADR-0032) : le programme pose ce qu'il veut,
     /// et la boucle seule capture, sauf quand les panneaux de debug sont ouverts. Le programme lit
     /// l'état réel dans `mouseCaptured`, celui de la fin de l'image précédente : la boucle capture

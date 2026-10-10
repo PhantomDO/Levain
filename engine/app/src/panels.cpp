@@ -41,6 +41,24 @@ DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
     return {.left = leftTop, .inspector = rightBottom};
 }
 
+ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole)
+{
+    // Le trou du nœud central est ce qu'on voit de la scène (`PassthruCentralNode`) ; sans nœud
+    // (une disposition dont on a retiré le centre), toute la fenêtre.
+    if (central == nullptr)
+    {
+        return whole;
+    }
+    // Une fenêtre ancrée dans le centre n'y laisse plus de trou : ImGui la dessine et la prend.
+    // Rectangle vide, gardé à l'origine du nœud (la barre de mode s'y accrochera) : la souris n'est
+    // pas au jeu, et `WantCaptureMouse` ne l'aurait pas dit, la route *jeu* l'ignorant.
+    if (!central->IsEmpty())
+    {
+        return {central->Pos.x, central->Pos.y, 0.0f, 0.0f};
+    }
+    return {central->Pos.x, central->Pos.y, central->Size.x, central->Size.y};
+}
+
 namespace
 {
 
@@ -146,6 +164,7 @@ void drawEnginePanels(App& app)
     }
     // Le centre laisse passer la souris et l'image : on y voit la scène, et on y vise.
     ImGui::DockSpaceOverViewport(dockspace, viewport, ImGuiDockNodeFlags_PassthruCentralNode);
+    app.sceneRect = sceneRectOf(ImGui::DockBuilderGetCentralNode(dockspace), app.sceneRect);
     drawImageWindow(app);
     drawPassesWindow(app);
     drawSceneWindow(app);
