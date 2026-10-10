@@ -120,8 +120,13 @@ M couverts par un test ».
   rotation et la rotation de ces angles ; `entityFieldOf` et `entityLabelOf` : l'entité d'un champ, et son
   texte ; `assetNameOf` : le texte d'un asset.
 - `flyCamera(camera, input, seconds)`, `orbitCamera(camera, pixels)`, `panCamera(camera, pixels, hauteur)`,
-  `scaleFlySpeed(camera, crans)` : les gestes de la caméra, chacun rend la caméra suivante. `clampEditorPitch`,
-  `wrapYawDegrees` et `clampFlySpeed` nomment les bornes.
+  `scaleFlySpeed(camera, crans)` : les gestes de la caméra, chacun rend la caméra suivante.
+  `clipPlanesFor(camera, box)` rend les plans proche et lointain qui contiennent une boîte, et
+  `toRenderCamera(camera, plans)` la `render::Camera` que prend
+  `App::cameraOverride`. `editorCameraFrom(render::Camera)` en est l'inverse, pour partir de la caméra du jeu : le lacet
+  et le tangage se retrouvent par `atan2` (jamais NaN, tangage borné), mais pas la distance du pivot, la cible d'une
+  caméra du jeu étant à une unité devant elle. `clampEditorPitch`, `wrapYawDegrees` et `clampFlySpeed` nomment les
+  bornes.
 
 ## Pièges connus
 
@@ -181,6 +186,15 @@ M couverts par un test ».
   sous la souris à toute distance, mais un point plus proche ou plus loin glisse (la parallaxe). Le haut du glissé est
   le haut de l'**écran** (incliné par le tangage), les touches Monter et Descendre de `flyCamera` la verticale du
   **monde**.
+- **`toRenderCamera` vise loin** : `lookAtRH` retrouve le regard par `cible - position`, en `float`. Une cible à une
+  unité d'un œil à 600 unités de l'origine hérite de l'arrondi de la position : au tangage de 89° (0,017 d'horizontale),
+  la vue tourne autour de son axe d'un dixième de degré, et le bord de l'image tremble à chaque coup de souris. La
+  cible est donc au moins aussi loin de l'œil que la position l'est de l'origine, et que le pivot.
+- **`clipPlanesFor` borne le rapport** : lointain sur proche entre 2 et 10 000. Caméra dans la boîte (ou scène de 10⁶
+  unités de profondeur), le plan proche monte au plancher du rapport et rogne le premier plan, sans quoi le
+  tampon de profondeur perdrait sa précision. Les plans ne contiennent donc la boîte que si l'œil est dehors et
+  la profondeur raisonnable. `near` et `far` sont des macros de `minwindef.h` (SDK de Windows) : jamais de variable
+  de ce nom.
 - **Les options vont par paires** : `takeEditorOptions` lit nom et valeur comme `app::parseCommonOption`. Un
   « --select » en valeur d'une autre option n'est pas pris ; seul, sans valeur, il reste dans la ligne de
   commande, et le programme la refuse.
@@ -202,4 +216,5 @@ M couverts par un test ».
 | **Unity**, les dessinateurs | `PropertyDrawer` | Il fixe l'aspect d'un champ dans l'Inspector (**documenté**, *PropertyDrawer*). L'Inspector garde un indice d'angles à côté du quaternion, `m_LocalEulerAnglesHint` dans les scènes YAML (**supposé**, vu dans des fichiers `.unity`, non documenté) : le nom `eulerHint` en vient. |
 | **Godot**, les dessinateurs | `EditorInspectorPlugin` | La rotation d'un `Node3D` est « edited in degrees in the inspector », en angles d'Euler ou en quaternion selon `rotation_edit_mode` (**documenté**, *Node3D*) ; le dessinateur de propriété d'un plugin est `EditorProperty` (**supposé**). |
 | **Unreal**, la caméra | La caméra de la vue de niveau | Ses gestes (clic droit tenu, Alt+clic gauche, bouton du milieu, molette, F) : **documenté** (*Viewport Controls*, ADR-0036 [1]). Elle n'est pas un acteur : **supposé** (`FEditorViewportClient`). Levain en prend les gestes, mais **le sens du pan est un choix, pas une copie** : le contenu suit le curseur (la vue va à l'opposé), comme la main d'Unity et de Godot (**supposé**, non relu). Unreal a, je crois, un réglage pour l'inverser (*Invert Middle Mouse Pan*, **supposé**, non relu) : le morceau 11 le lit avant de le retourner. |
+| **Unity**, la caméra | La caméra de la vue Scène | Une vitesse bornée et le *Dynamic Clipping*, qui « calculate the Camera's near and far clipping planes relative to the viewport size of the Scene » (**documenté**, ADR-0036 [4]). Cette « viewport size » est, je crois, `SceneView.size`, le zoom autour du pivot, et non la taille de la fenêtre en pixels (**supposé**, UnityCsReference, non relu) : Levain fait donc de même, ses plans suivent la vue sans réglage, mais ils se mesurent sur la profondeur de la scène (`clipPlanesFor`) et non sur le zoom. |
 | **Godot**, la caméra | La vue 3D de l'éditeur | Clic droit tenu pour regarder et voler en WASD, E et Q, la molette pour la vitesse, le **bouton du milieu pour l'orbite** (**documenté**, ADR-0036 [7]) : Levain suit Unreal, où le bouton du milieu fait glisser et Alt+clic gauche tourne. |
