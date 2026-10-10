@@ -115,6 +115,20 @@ void appendPendingEvents(Events& events, SDL_WindowID windowId)
     }
 }
 
+/// Le drapeau de SDL qui dépend du système et du backend. VULKAN : SDL refuse de créer une surface
+/// Vulkan pour une fenêtre qui ne l'a pas annoncé (engine/gpu), mais le drapeau lui fait aussi
+/// charger la bibliothèque Vulkan : on ne le pose que pour Vulkan (`GraphicsSurface`). Dans le
+/// navigateur, la fenêtre est le canvas de la page, où WebGPU dessine sans rien demander à SDL ;
+/// FILL_DOCUMENT lui donne toute la page, quelle que soit la taille demandée (une tablette).
+SDL_WindowFlags surfaceFlagFor([[maybe_unused]] GraphicsSurface surface)
+{
+#ifdef __EMSCRIPTEN__
+    return SDL_WINDOW_FILL_DOCUMENT;
+#else
+    return surface == GraphicsSurface::Vulkan ? SDL_WINDOW_VULKAN : SDL_WindowFlags{0};
+#endif
+}
+
 } // namespace
 
 void WindowDeleter::operator()(SDL_Window* window) const noexcept
@@ -124,7 +138,8 @@ void WindowDeleter::operator()(SDL_Window* window) const noexcept
     SDL_Quit();
 }
 
-core::Result<Window> createWindow(const std::string& title, int width, int height)
+core::Result<Window> createWindow(const std::string& title, int width, int height,
+                                  GraphicsSurface surface)
 {
     // Chaque fenêtre arrête SDL en se détruisant. Une deuxième fenêtre vivante serait donc
     // privée de SDL à la destruction de la première.
@@ -137,18 +152,10 @@ core::Result<Window> createWindow(const std::string& title, int width, int heigh
     }
 
     // HIGH_PIXEL_DENSITY : sans ce drapeau, sur un écran à 200 %, SDL demande une surface en
-    // basse résolution que le compositeur agrandit, et l'image est floue. VULKAN : SDL refuse de
-    // créer une surface Vulkan pour une fenêtre qui ne l'a pas annoncé (engine/gpu). Dans le
-    // navigateur, la fenêtre est le canvas de la page, où WebGPU dessine sans rien demander à SDL ;
-    // FILL_DOCUMENT lui donne toute la page, quelle que soit la taille demandée (une tablette).
-#ifdef __EMSCRIPTEN__
-    constexpr SDL_WindowFlags PlatformFlag = SDL_WINDOW_FILL_DOCUMENT;
-#else
-    constexpr SDL_WindowFlags PlatformFlag = SDL_WINDOW_VULKAN;
-#endif
-    SDL_Window* handle =
-        SDL_CreateWindow(title.c_str(), width, height,
-                         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | PlatformFlag);
+    // basse résolution que le compositeur agrandit, et l'image est floue.
+    SDL_Window* handle = SDL_CreateWindow(title.c_str(), width, height,
+                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+                                              surfaceFlagFor(surface));
     if (handle == nullptr)
     {
         std::string message = std::format("SDL_CreateWindow : {}", SDL_GetError());

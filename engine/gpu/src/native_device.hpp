@@ -55,7 +55,7 @@ struct Swapchain
 #ifdef _WIN32
 /// Le device Direct3D 12 et sa swapchain DXGI (device_d3d12.cpp, swapchain_d3d12.cpp).
 [[nodiscard]] core::Result<GpuDevice> createD3d12Device(const platform::Window& window,
-                                                        bool enableValidation);
+                                                        const DeviceOptions& options);
 #endif
 
 /// Au-delà, le CPU attend le GPU. Sans limite, il empilerait des frames que l'écran afficherait

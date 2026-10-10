@@ -1231,7 +1231,8 @@ OptionUse parseCommonOption(AppSettings& settings, std::string_view name, std::s
 
 int runApp(const AppSettings& settings, const StartFunction& start)
 {
-    auto window = platform::createWindow(settings.title, settings.width, settings.height);
+    auto window = platform::createWindow(settings.title, settings.width, settings.height,
+                                         gpu::surfaceFor(settings.api));
     if (!window)
     {
         core::log("app", core::LogLevel::Critical, "{}", window.error().message);

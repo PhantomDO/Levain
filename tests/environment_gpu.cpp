@@ -22,6 +22,8 @@
 
 #include <glm/gtc/packing.hpp>
 
+#include "gpu_test_backend.hpp"
+
 #include "levain/gpu/device.hpp"
 #include "levain/gpu/webgpu.hpp"
 #include "levain/platform/window.hpp"
@@ -222,9 +224,9 @@ int checkConvolutions(nvrhi::IDevice& device)
     return failures;
 }
 
-int run(std::string_view backend)
+int run(const levain::tests::TestBackend& backend)
 {
-    if (backend == "webgpu")
+    if (backend.api == nvrhi::GraphicsAPI::WEBGPU)
     {
         auto device = levain::gpu::createWebGpuDevice({.enableValidation = true});
         if (!device)
@@ -234,16 +236,14 @@ int run(std::string_view backend)
         }
         return compareWithDirections(**device) == 0 && checkConvolutions(**device) == 0 ? 0 : 1;
     }
-    auto window = levain::platform::createWindow("Levain - environnement", 64, 64);
+    auto window = levain::platform::createWindow("Levain - environnement", 64, 64,
+                                                 levain::gpu::surfaceFor(backend.api));
     if (!window)
     {
         std::println(stderr, "{}", window.error().message);
         return 1;
     }
-    auto gpu = levain::gpu::createGpuDevice(
-        *window,
-        {.enableValidation = true,
-         .api = levain::gpu::graphicsApiNamed(backend).value_or(nvrhi::GraphicsAPI::VULKAN)});
+    auto gpu = levain::gpu::createGpuDevice(*window, levain::tests::testDeviceOptions(backend));
     if (!gpu)
     {
         std::println(stderr, "{}", gpu.error().message);
@@ -259,13 +259,14 @@ int main(int argc, char** argv)
     try
     {
         const std::span arguments{argv, static_cast<std::size_t>(argc)};
-        const std::string_view backend = arguments.size() == 2 ? arguments[1] : "vulkan";
-        if (arguments.size() > 2 || !levain::gpu::graphicsApiNamed(backend))
+        const auto backend =
+            levain::tests::testBackendNamed(arguments.size() == 2 ? arguments[1] : "vulkan");
+        if (arguments.size() > 2 || !backend)
         {
-            std::println(stderr, "usage : levain_environment [vulkan|d3d12|webgpu]");
+            std::println(stderr, "usage : levain_environment [vulkan|d3d12|d3d12-warp|webgpu]");
             return 2;
         }
-        return run(backend);
+        return run(*backend);
     }
     catch (const std::exception& e)
     {

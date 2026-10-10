@@ -12,7 +12,9 @@
 // GPU.
 
 using levain::core::ErrorCode;
+using levain::gpu::Adapter;
 using levain::gpu::DefaultBackend;
+using levain::gpu::requireAdapterChoosable;
 using levain::gpu::requireBackendBuilt;
 
 TEST_CASE("sans --gpu, le backend est celui de la cible, et la cible le construit")
@@ -42,6 +44,32 @@ TEST_CASE("un backend que la cible ne construit pas est refusé, en disant pourq
         CHECK(refused.error().message.contains("le seul backend est WebGPU"));
     }
 #endif
+}
+
+TEST_CASE(
+    "le rendu logiciel (WARP) ne se choisit que sous Direct3D 12, et les autres refus le disent")
+{
+    // Par défaut, le GPU matériel : tout lancement sans option reste accepté.
+    CHECK(levain::gpu::DeviceOptions{}.adapter == Adapter::HighPerformance);
+    for (const nvrhi::GraphicsAPI api :
+         {nvrhi::GraphicsAPI::VULKAN, nvrhi::GraphicsAPI::D3D12, nvrhi::GraphicsAPI::WEBGPU})
+    {
+        CAPTURE(static_cast<int>(api));
+        CHECK(requireAdapterChoosable(api, Adapter::HighPerformance).has_value());
+    }
+    // Direct3D 12 l'accepte sur toutes les cibles : c'est requireBackendBuilt qui refuse le backend
+    // hors de Windows, avec son propre message.
+    CHECK(requireAdapterChoosable(nvrhi::GraphicsAPI::D3D12, Adapter::Software).has_value());
+    // Sous Vulkan et WebGPU, le pilote n'est pas au moteur : le refus dit qui le choisit.
+    for (const nvrhi::GraphicsAPI api : {nvrhi::GraphicsAPI::VULKAN, nvrhi::GraphicsAPI::WEBGPU})
+    {
+        CAPTURE(static_cast<int>(api));
+        const auto refused = requireAdapterChoosable(api, Adapter::Software);
+        REQUIRE_FALSE(refused.has_value());
+        CHECK(refused.error().code == ErrorCode::Unsupported);
+        CHECK(refused.error().message.contains("n'existe que sous Direct3D 12"));
+        CHECK(refused.error().message.contains("VK_DRIVER_FILES"));
+    }
 }
 
 namespace

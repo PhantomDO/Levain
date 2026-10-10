@@ -440,6 +440,23 @@ foreach(scene triangle cube cube-instance lines shadow)
     add_test(NAME smoke.webgpu.${scene} COMMAND levain_smoke_render ${scene} webgpu)
 endforeach()
 
+# Direct3D 12 sur WARP, le rendu logiciel de Windows (#19) : le runner de la CI n'a pas de GPU, WARP est son seul
+# adaptateur. Les mêmes scènes et les mêmes références que Vulkan, et les trois programmes GPU. Le pilote offscreen de
+# SDL, et non testVideo : sans HWND, Direct3D 12 n'a ni swapchain ni bureau à attendre (device_d3d12.cpp). Lancé de la
+# distro, l'exe ne reçoit cette variable que par WSLENV (build/GOTCHA.md). Windows seulement : ces tests n'existent pas
+# ailleurs, et windows-build les liste pour windows-test (ci.yml).
+if(WIN32)
+    foreach(scene triangle cube cube-instance lines shadow)
+        add_test(NAME smoke.d3d12-warp.${scene} COMMAND levain_smoke_render ${scene} d3d12-warp)
+        set_tests_properties(smoke.d3d12-warp.${scene} PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+    endforeach()
+    add_test(NAME gpu.light-clusters.d3d12-warp COMMAND levain_light_clusters d3d12-warp)
+    add_test(NAME gpu.environment.d3d12-warp COMMAND levain_environment d3d12-warp)
+    add_test(NAME gpu.ui.d3d12-warp COMMAND levain_ui_gpu d3d12-warp)
+    set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
+        PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+endif()
+
 # ADR-0018 et ADR-0034 : le moteur vu d'un jeu. La frontière des plugins et de l'éditeur, sur un
 # moteur miniature qu'on configure une fois par scénario ; les scénarios interdits doivent échouer
 # avec le bon message, et non pour une autre raison.
