@@ -2,8 +2,12 @@
 // monde. Chaque propriété a son cas, et chacun rougit quand sa règle disparaît (les contre-tests
 // sont listés dans la PR du morceau).
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <limits>
+#include <utility>
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
@@ -13,7 +17,10 @@
 
 using levain::editor::clampEditorPitch;
 using levain::editor::clampFlySpeed;
+using levain::editor::ClipPlanes;
+using levain::editor::clipPlanesFor;
 using levain::editor::EditorCamera;
+using levain::editor::editorCameraFrom;
 using levain::editor::flyCamera;
 using levain::editor::FlyInput;
 using levain::editor::orbitCamera;
@@ -21,9 +28,11 @@ using levain::editor::panCamera;
 using levain::editor::pivotOf;
 using levain::editor::rightOf;
 using levain::editor::scaleFlySpeed;
+using levain::editor::toRenderCamera;
 using levain::editor::upOf;
 using levain::editor::viewDirectionOf;
 using levain::editor::wrapYawDegrees;
+using levain::render::Box;
 
 namespace
 {
@@ -56,6 +65,31 @@ levain::render::Camera renderCameraBy(const EditorCamera& camera)
             .verticalFovRadians = glm::radians(camera.verticalFovDegrees),
             .nearPlane = 0.1f,
             .farPlane = 1000.0f};
+}
+
+std::array<glm::vec3, 8> cornersOf(const Box& box)
+{
+    std::array<glm::vec3, 8> corners{};
+    for (std::size_t i = 0; i < corners.size(); ++i)
+    {
+        corners[i] = {(i & 1U) != 0 ? box.max.x : box.min.x, (i & 2U) != 0 ? box.max.y : box.min.y,
+                      (i & 4U) != 0 ? box.max.z : box.min.z};
+    }
+    return corners;
+}
+
+/// Les profondeurs extrêmes de la boîte devant l'œil, mesurées le long du regard.
+std::pair<float, float> depthRangeOf(const Box& box, const EditorCamera& camera)
+{
+    float nearest = std::numeric_limits<float>::max();
+    float farthest = std::numeric_limits<float>::lowest();
+    for (const glm::vec3& corner : cornersOf(box))
+    {
+        const float depth = glm::dot(corner - camera.position, viewDirectionOf(camera));
+        nearest = std::min(nearest, depth);
+        farthest = std::max(farthest, depth);
+    }
+    return {nearest, farthest};
 }
 
 glm::vec3 movedBy(const EditorCamera& camera, const FlyInput& input, float seconds = 1.0f)
@@ -111,6 +145,7 @@ TEST_CASE("caméra de l'éditeur : un lacet qui n'est pas un nombre ne donne jam
         CHECK(isFinite(rightOf(camera)));
         CHECK(isFinite(upOf(camera)));
         CHECK(glm::distance(viewDirectionOf(camera), viewDirectionOf(EditorCamera{})) < 1.0e-6f);
+        CHECK(isFinite(toRenderCamera(camera, {}).target));
         CHECK(isFinite(orbitCamera(camera, {10.0f, 0.0f}).position));
     }
     // Un lacet de plusieurs tours regarde comme le même lacet replié.
@@ -368,4 +403,164 @@ TEST_CASE("caméra de l'éditeur : le pan suit la droite et le haut de l'écran,
     CHECK(panCamera(camera, {10.0f, 10.0f}, 0.0f).position == camera.position);
     CHECK(panCamera(camera, {10.0f, 10.0f}, NaN).position == camera.position);
     CHECK(panCamera(camera, {NaN, Infinity}, 720.0f).position == camera.position);
+}
+
+TEST_CASE("caméra de l'éditeur : les plans de découpe suivent la scène, avec un rapport sain")
+{
+    // Une vallée de 512 m vue de 300 m : le lointain par défaut de 100 la couperait en deux.
+    const Box valley{{-256.0f, -5.0f, -256.0f}, {256.0f, 60.0f, 256.0f}};
+    const EditorCamera camera{.position = {0.0f, 100.0f, 300.0f}, .pitchDegrees = -10.0f};
+    const ClipPlanes planes = clipPlanesFor(camera, valley);
+    const auto [nearest, farthest] = depthRangeOf(valley, camera);
+    CHECK(planes.nearPlane <= nearest);
+    CHECK(planes.farPlane >= farthest);
+    CHECK(planes.farPlane > 500.0f);
+    CHECK(planes.farPlane / planes.nearPlane >= levain::editor::MinClipRatio);
+    CHECK(planes.farPlane / planes.nearPlane <= levain::editor::MaxClipRatio);
+
+    // Une boîte plate de face : proche et lointain presque égaux, le lointain recule à deux fois le
+    // proche.
+    const Box flat{{-1.0f, -1.0f, -10.01f}, {1.0f, 1.0f, -10.0f}};
+    const ClipPlanes thin = clipPlanesFor(EditorCamera{.position = {0.0f, 0.0f, 0.0f}}, flat);
+    CHECK(thin.nearPlane <= 10.0f);
+    CHECK(thin.farPlane >= 10.01f);
+    CHECK(thin.farPlane >= thin.nearPlane * levain::editor::MinClipRatio);
+
+    // Dans la boîte : le premier plan est rogné, le rapport ne dépasse pas son plafond.
+    const Box around{{-50.0f, -50.0f, -50.0f}, {50.0f, 50.0f, 50.0f}};
+    const ClipPlanes inside = clipPlanesFor(EditorCamera{.position = {0.0f, 0.0f, 0.0f}}, around);
+    CHECK(inside.farPlane >=
+          depthRangeOf(around, EditorCamera{.position = {0.0f, 0.0f, 0.0f}}).second);
+    CHECK(inside.farPlane / inside.nearPlane <= levain::editor::MaxClipRatio * 1.0001f);
+    CHECK(inside.nearPlane >= levain::editor::MinNearPlane);
+
+    // Une scène très profonde : la précision de profondeur passe avant le premier plan.
+    const Box deep{{-1.0f, -1.0f, -1.0e6f}, {1.0f, 1.0f, -0.5f}};
+    const ClipPlanes deepPlanes = clipPlanesFor(EditorCamera{.position = {0.0f, 0.0f, 0.0f}}, deep);
+    CHECK(deepPlanes.farPlane >= 1.0e6f);
+    CHECK(deepPlanes.farPlane / deepPlanes.nearPlane <= levain::editor::MaxClipRatio * 1.0001f);
+}
+
+TEST_CASE("caméra de l'éditeur : des plans de découpe sans boîte utilisable sont ceux par défaut")
+{
+    const EditorCamera camera = tiltedCamera();
+    const Box notANumber{{NaN, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
+    const Box inverted{{2.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
+    const Box infinite{{-Infinity, 0.0f, 0.0f}, {Infinity, 1.0f, 1.0f}};
+    for (const Box& box : {notANumber, inverted, infinite})
+    {
+        CHECK(clipPlanesFor(camera, box).nearPlane == levain::editor::DefaultNearPlane);
+        CHECK(clipPlanesFor(camera, box).farPlane == levain::editor::DefaultFarPlane);
+    }
+
+    // Tout derrière l'œil : rien à contenir, les plans par défaut.
+    const Box behind{{-1.0f, -1.0f, 50.0f}, {1.0f, 1.0f, 60.0f}};
+    CHECK(clipPlanesFor(EditorCamera{.position = {0.0f, 0.0f, 0.0f}}, behind).farPlane ==
+          levain::editor::DefaultFarPlane);
+}
+
+TEST_CASE("caméra de l'éditeur : loin de l'origine, la caméra du rendu garde la droite du regard")
+{
+    // À 89° l'avant n'a que 0,017 d'horizontale. `lookAtRH` le retrouve par `cible - position`, en
+    // `float` : une cible à une unité d'un œil à 600 unités de l'origine hérite de l'arrondi de la
+    // position (6·10⁻⁵), soit un dixième de degré de vue de travers, et le bord de l'image tremble
+    // à chaque coup de souris.
+    EditorCamera camera{
+        .position = {600.0f, 250.0f, 600.0f}, .pitchDegrees = 89.0f, .pivotDistance = 6.0f};
+    for (int step = 0; step < 360; ++step)
+    {
+        camera.yawDegrees = static_cast<float>(step) + 0.37f;
+        const glm::mat4 view = levain::render::viewOf(toRenderCamera(camera, {}));
+        // Les lignes de la vue sont la droite, le haut et l'arrière de la caméra.
+        const glm::vec3 right{view[0][0], view[1][0], view[2][0]};
+        const glm::vec3 behind{view[0][2], view[1][2], view[2][2]};
+        CAPTURE(camera.yawDegrees);
+        CHECK(glm::distance(right, rightOf(camera)) < 1.0e-4f);
+        CHECK(glm::distance(-behind, viewDirectionOf(camera)) < 1.0e-4f);
+    }
+}
+
+TEST_CASE("caméra de l'éditeur : la caméra du rendu reprend la position, le regard, le champ et "
+          "les plans")
+{
+    const EditorCamera camera = tiltedCamera();
+    const levain::render::Camera render =
+        toRenderCamera(camera, {.nearPlane = 0.5f, .farPlane = 700.0f});
+    CHECK(render.position == camera.position);
+    // La cible est sur le regard, au moins aussi loin que le pivot (voir le cas précédent).
+    CHECK(glm::distance(glm::normalize(render.target - camera.position), viewDirectionOf(camera)) <
+          1.0e-5f);
+    CHECK(glm::distance(render.target, camera.position) >= camera.pivotDistance * 0.999f);
+    CHECK(render.verticalFovRadians == doctest::Approx(glm::radians(60.0f)));
+    CHECK(render.nearPlane == doctest::Approx(0.5f));
+    CHECK(render.farPlane == doctest::Approx(700.0f));
+
+    // Le champ que le pan et le rendu partagent reste dans l'intervalle de `CameraLens`.
+    EditorCamera extreme = camera;
+    extreme.verticalFovDegrees = 400.0f;
+    CHECK(glm::degrees(toRenderCamera(extreme, {}).verticalFovRadians) == doctest::Approx(179.0f));
+    extreme.verticalFovDegrees = NaN;
+    CHECK(glm::degrees(toRenderCamera(extreme, {}).verticalFovRadians) == doctest::Approx(60.0f));
+}
+
+TEST_CASE("caméra de l'éditeur : partir de la caméra du jeu retrouve l'œil, le regard et le champ")
+{
+    // Aller-retour : la caméra du rendu d'une caméra de l'éditeur redonne la même, sauf la distance
+    // du pivot, qui n'est pas dans la caméra du rendu.
+    for (const float yaw : {-179.5f, -130.0f, 0.0f, 35.0f, 90.0f, 179.5f})
+    {
+        for (const float pitch : {-89.0f, -60.0f, 0.0f, 20.0f, 89.0f})
+        {
+            CAPTURE(yaw);
+            CAPTURE(pitch);
+            EditorCamera camera = tiltedCamera();
+            camera.yawDegrees = yaw;
+            camera.pitchDegrees = pitch;
+            camera.verticalFovDegrees = 75.0f;
+            const EditorCamera back = editorCameraFrom(toRenderCamera(camera, {}));
+            CHECK(back.position == camera.position);
+            CHECK(std::abs(wrapYawDegrees(back.yawDegrees - yaw)) < 5.0e-3f);
+            CHECK(back.pitchDegrees == doctest::Approx(pitch).epsilon(1.0e-4));
+            CHECK(back.verticalFovDegrees == doctest::Approx(75.0f));
+            CHECK(glm::distance(viewDirectionOf(back), viewDirectionOf(camera)) < 1.0e-4f);
+        }
+    }
+
+    // Une caméra du jeu : la cible à une unité devant l'œil (`app::cameraFrom`), qui regarde −X.
+    const EditorCamera fromGame = editorCameraFrom(
+        {.position = {4.0f, 5.0f, 6.0f}, .target = {3.0f, 5.0f, 6.0f}, .verticalFovRadians = 1.0f});
+    CHECK(fromGame.yawDegrees == doctest::Approx(90.0f)); // lacet 90° : vers −X (`scene`)
+    CHECK(fromGame.pitchDegrees == doctest::Approx(0.0f).epsilon(1.0e-4));
+    CHECK(fromGame.verticalFovDegrees == doctest::Approx(glm::degrees(1.0f)));
+    CHECK(fromGame.pivotDistance == EditorCamera{}.pivotDistance);
+}
+
+TEST_CASE("caméra de l'éditeur : partir d'une caméra du jeu dégénérée ne rend jamais NaN")
+{
+    // À la verticale : le tangage est borné et le lacet reste celui par défaut, pas −180°.
+    for (const float sign : {1.0f, -1.0f})
+    {
+        const EditorCamera vertical =
+            editorCameraFrom({.position = {1.0f, 2.0f, 3.0f}, .target = {1.0f, 2.0f + sign, 3.0f}});
+        CHECK(vertical.pitchDegrees == doctest::Approx(sign * 89.0f));
+        CHECK(vertical.yawDegrees == doctest::Approx(0.0f));
+        CHECK(isFinite(viewDirectionOf(vertical)));
+    }
+
+    // Une cible sur l'œil, ou qui n'est pas un nombre, laisse le regard par défaut ; un œil qui
+    // n'est pas un nombre, la position par défaut.
+    const glm::vec3 eye{1.0f, 2.0f, 3.0f};
+    for (const glm::vec3 target :
+         {eye, glm::vec3{NaN, 0.0f, 0.0f}, glm::vec3{Infinity, 0.0f, 0.0f}})
+    {
+        const EditorCamera camera = editorCameraFrom({.position = eye, .target = target});
+        CHECK(camera.position == eye);
+        CHECK(camera.yawDegrees == doctest::Approx(0.0f));
+        CHECK(camera.pitchDegrees == doctest::Approx(0.0f));
+    }
+    const EditorCamera lost = editorCameraFrom({.position = {NaN, 0.0f, 0.0f}, .target = eye});
+    CHECK(isFinite(lost.position));
+    CHECK(isFinite(viewDirectionOf(lost)));
+    CHECK(editorCameraFrom({.verticalFovRadians = NaN}).verticalFovDegrees ==
+          doctest::Approx(levain::editor::DefaultFovDegrees));
 }

@@ -8,6 +8,9 @@
 
 #include <glm/glm.hpp>
 
+#include "levain/render/camera.hpp"
+#include "levain/render/culling.hpp"
+
 namespace levain::editor
 {
 
@@ -34,6 +37,18 @@ inline constexpr float MaxPivotDistance = 1.0e6f;
 inline constexpr float DefaultFovDegrees = 60.0f;
 inline constexpr float MinFovDegrees = 1.0f;
 inline constexpr float MaxFovDegrees = 179.0f;
+
+/// Les plans de découpe suivent le cadrage, comme le *Dynamic Clipping* d'Unity (documenté,
+/// ADR-0036 [4]) : le lointain par défaut de `render::Camera` est 100, pour une vallée de 512 m. Le
+/// rapport lointain sur proche est borné des deux côtés : trop grand, le tampon de profondeur (D32,
+/// profondeur standard : `mesh_pass.hpp`) n'a plus la précision de départager des surfaces voisines
+/// et lointaines, qui scintillent ; sous 2, `app::farBeyondNear` rehausserait le lointain de toute
+/// façon.
+inline constexpr float MinClipRatio = 2.0f;
+inline constexpr float MaxClipRatio = 10000.0f;
+inline constexpr float MinNearPlane = 0.01f;
+inline constexpr float DefaultNearPlane = 0.1f;
+inline constexpr float DefaultFarPlane = 1000.0f;
 
 /// Un pixel de souris, en degrés de regard.
 inline constexpr float LookDegreesPerPixel = 0.25f;
@@ -104,5 +119,38 @@ struct FlyInput
 /// hauteur de fenêtre nulle ou invalide ne déplace rien.
 [[nodiscard]] EditorCamera panCamera(EditorCamera camera, glm::vec2 pixels,
                                      float viewportHeightPixels);
+
+/// Le plan proche et le plan lointain d'une image.
+struct ClipPlanes
+{
+    float nearPlane = DefaultNearPlane;
+    float farPlane = DefaultFarPlane;
+};
+
+/// Les plans qui contiennent `box` vue de `camera` : le lointain passe le coin le plus profond, le
+/// proche reste devant le plus proche. `box` est ce qui doit **rester visible**, les bornes de la
+/// scène, et non la boîte que F vient de cadrer : le cadrage n'agit que par la position de l'œil,
+/// et les plans de la boîte cadrée mettraient le lointain à quelques mètres, la vallée derrière un
+/// cube de 1 m disparaîtrait. Le rapport reste dans
+/// [`MinClipRatio`, `MaxClipRatio`] : si la caméra est dans la boîte, ou si la scène est trop
+/// profonde, le plan proche monte au plancher du rapport et rogne le premier plan plutôt que la
+/// précision de profondeur. Une boîte entièrement derrière l'œil, ou inutilisable, donne les plans
+/// par défaut.
+[[nodiscard]] ClipPlanes clipPlanesFor(const EditorCamera& camera, const render::Box& box);
+
+/// La caméra de l'éditeur qui regarde comme `camera`, car elle part de la caméra du jeu s'il y en a
+/// une (ADR-0036, décision 6) : même œil, même regard (lacet et tangage tirés de `cible -
+/// position`, le tangage borné à ±89° et un regard à la verticale gardant le lacet par défaut),
+/// même champ.
+/// **Pas la distance du pivot**, qui reste celle par défaut : la cible d'une caméra du jeu est un
+/// point à une unité devant elle (`app::cameraFrom`), pas ce qu'elle regarde. Un œil ou une cible
+/// qui n'est pas un nombre, ou une cible sur l'œil, laisse la position ou le regard par défaut.
+[[nodiscard]] EditorCamera editorCameraFrom(const render::Camera& camera);
+
+/// La caméra du rendu de l'éditeur : ce que reçoit `App::cameraOverride`. Sa cible est sur le
+/// regard, **loin** : au moins aussi loin de l'œil que le pivot, que la position ne l'est de
+/// l'origine, et qu'une unité. `lookAtRH` retrouve le regard par `cible - position` en `float`, et
+/// une cible à une unité d'un œil lointain tournerait la vue de côté.
+[[nodiscard]] render::Camera toRenderCamera(const EditorCamera& camera, const ClipPlanes& planes);
 
 } // namespace levain::editor
