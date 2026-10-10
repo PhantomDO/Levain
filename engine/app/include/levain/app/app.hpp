@@ -119,8 +119,8 @@ struct AppSettings
     /// `--seconds N` : la durée de la boucle, sans limite par défaut. Comptée depuis la première
     /// image, pas depuis le lancement : en CI, le démarrage varie de 1 à plus de 10 s.
     double loopSeconds = std::numeric_limits<double>::infinity();
-    /// `--steps N` : exactement un pas de simulation par image, puis l'arrêt après N. Ce que fait
-    /// la simulation ne dépend plus de la machine.
+    /// `--steps N` : exactement un pas de simulation par image (aucun, à l'arrêt : `--steps` compte
+    /// des images), puis l'arrêt après N. Ce que fait la simulation ne dépend plus de la machine.
     std::optional<int> steps;
     /// `--time S` : le temps de la scène, figé. Deux captures au même temps se comparent pixel par
     /// pixel.
@@ -238,6 +238,12 @@ struct App
 
     flecs::world world;
     scene::FixedStep fixedStep; ///< L'horloge de la simulation, 60 Hz (ADR-0016).
+    /// **La simulation à l'arrêt** (ADR-0036, décision 1), que pose l'éditeur en mode Édition,
+    /// lue avant `advanceWorld` : aucun pas, `RenderAlpha` à 1 (l'image montre le `Transform`
+    /// tapé), l'accumulateur de `fixedStep` ne reçoit pas le temps de l'image, de sorte que le
+    /// retour au jeu ne rejoue pas de rafale. `progress` tourne encore, et `--steps` compte des
+    /// images : à l'arrêt, il ne joue aucun pas.
+    bool simulationPaused = false;
     /// La caméra du rendu de la dernière image, relue sur l'unique entité qui porte un
     /// `CameraLens` (camera.hpp) : le programme la lit, pour viser à la souris par exemple.
     render::Camera camera;

@@ -532,6 +532,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .sampler = render::createSampler(*gpu.nvrhi, sampler),
             .world = flecs::world{},
             .fixedStep = {},
+            .simulationPaused = false,
             .camera = {},
             .registry = std::move(registry),
             .modelCache = {},
@@ -890,7 +891,8 @@ bool runFrame(Loop& loop)
         LEVAIN_PROFILE_SCOPE_NAMED("monde");
         scene::advanceWorld(app.world, app.fixedStep,
                             settings.steps ? app.fixedStep.stepSeconds
-                                           : static_cast<float>(loop.lastFrameSeconds));
+                                           : static_cast<float>(loop.lastFrameSeconds),
+                            app.simulationPaused);
         auto camera = renderCameraOf(app.cameras);
         if (!camera)
         {
@@ -983,7 +985,7 @@ bool finishLoop(Loop& loop)
     // ce que la CI vérifie ensuite : elle échoue (règle n°7).
     if (app.settings.steps && app.frameCount < *app.settings.steps)
     {
-        core::log("app", core::LogLevel::Error, "--steps : {} pas simulés sur les {} demandés",
+        core::log("app", core::LogLevel::Error, "--steps : {} images jouées sur les {} demandées",
                   app.frameCount, *app.settings.steps);
         return false;
     }
@@ -1067,7 +1069,7 @@ core::Result<std::unique_ptr<App>> startApp(platform::Window& window, gpu::GpuDe
     }
     (*app)->hooks = std::move(*hooks);
     // Les matrices monde, avant la première image, et la caméra par laquelle elle se verra.
-    scene::advanceWorld((*app)->world, (*app)->fixedStep, 0.0f);
+    scene::advanceWorld((*app)->world, (*app)->fixedStep, 0.0f, (*app)->simulationPaused);
     auto camera = renderCameraOf((*app)->cameras);
     if (!camera)
     {
