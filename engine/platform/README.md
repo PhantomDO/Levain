@@ -72,11 +72,14 @@ nous : `SDL_GetKeyFromScancode` lit la disposition de la machine, et le même sc
 partout. Une ligne illisible, un script sans événement, une image au-delà de `MaxInputScriptFrame` sont refusés en
 nommant la ligne et le champ (règle n°7).
 
+**La position de la souris** s'écrit `mouse move <x> <y>` (en pixels de l'image, des nombres finis : `from_chars` lit
+aussi « nan »). Elle ne va qu'à l'interface (`UiEvent`) : le jeu lit un déplacement, jamais un lieu. Sous la route *jeu*
+(`app`), un clic scripté sans `mouse move` avant lui n'atteint pas le jeu : le curseur d'ImGui n'est encore nulle part.
+
 **Pas encore scriptés, et le morceau d'ADR-0036 qui les ajoute** (`addKey` et `addButton` montrent où) :
 
 | Événement | Morceau | Pour quel scénario |
 |---|---|---|
-| la position de la souris | 5, 8 | un clic dans la Vue ou hors d'elle |
 | le mouvement, la molette | 11 | l'orbite, le zoom, le vol |
 | le texte | 12 | un champ texte qui garde son Ctrl+Z |
 | la fermeture de la fenêtre | 13 | la modale de fermeture |
