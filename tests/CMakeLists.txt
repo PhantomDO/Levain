@@ -381,6 +381,17 @@ target_link_libraries(levain_ui_gpu PRIVATE levain::gpu levain::platform levain:
 add_test(NAME gpu.ui.vulkan COMMAND levain_ui_gpu vulkan)
 set_tests_properties(gpu.ui.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 add_test(NAME gpu.ui.webgpu COMMAND levain_ui_gpu webgpu)
+# Les fautes du programme avec ses images (ADR-0036, morceau 6) : dessiner une image libérée, la libérer deux fois. Le
+# programme se relance pour l'enfant qui commet la faute et juge sa sortie (tests/ui_gpu.cpp) : en Debug l'assertion
+# l'arrête, en Release il refuse ou saute et le dit au journal. Un signal ne se juge pas par PASS_REGULAR_EXPRESSION
+# (ctest l'appelle « Exception »). Pas de variante Direct3D 12 : le code est celui de recordUi et de releaseUiTexture, le
+# même pour les backends.
+add_test(NAME gpu.ui-released-id.vulkan COMMAND levain_ui_gpu vulkan released-id)
+set_tests_properties(gpu.ui-released-id.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+add_test(NAME gpu.ui-released-id.webgpu COMMAND levain_ui_gpu webgpu released-id)
+add_test(NAME gpu.ui-released-twice.vulkan COMMAND levain_ui_gpu vulkan released-twice)
+set_tests_properties(gpu.ui-released-twice.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+add_test(NAME gpu.ui-released-twice.webgpu COMMAND levain_ui_gpu webgpu released-twice)
 
 # Le banc d'essai de l'App (ADR-0036) : un script d'input rejoué dans la vraie boucle, hors écran. Une touche scriptée
 # atteint PlayerInput par sa position et ImGui par sa lettre (la paire AZERTY).

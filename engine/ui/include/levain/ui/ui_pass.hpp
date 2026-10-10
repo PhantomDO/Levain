@@ -61,6 +61,10 @@ struct UiDrawStats
     /// Les commandes non dessinées : leur découpe, bornée à l'image, est vide (une fenêtre hors de
     /// l'écran).
     std::uint32_t clipped = 0;
+    /// Les commandes sautées parce que leur texture n'est pas (ou plus) dans la table : une image
+    /// libérée avant d'être dessinée, ou un identifiant jamais enregistré. Un bug du programme :
+    /// l'assertion en Debug, et ici l'erreur au journal, jamais un silence (règle n°7).
+    std::uint32_t unknownTextures = 0;
 };
 
 /// La passe, pour une cible du format `target`.
@@ -133,9 +137,9 @@ void updateUiTextures(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, 
 /// (nvrhi.h, « Enables automatic liveness tracking… », vrai par défaut), que `registerUiTexture`
 /// pose explicitement. La texture n'est vraiment détruite qu'une fois la dernière terminée : la
 /// libérer après `recordUi` est sûr, et c'est ce que fait la Vue pour l'ancienne image.
-/// L'identifiant ne revient pas : dessiner un identifiant libéré est l'assertion de `recordUi` en
-/// Debug. Libérer deux fois, ou un identifiant d'ImGui (l'atlas des polices), est le même bug :
-/// l'assertion en Debug, une erreur au journal en Release.
+/// L'identifiant ne revient pas : dessiner un identifiant libéré est une assertion en Debug, une
+/// commande sautée et une erreur au journal en Release (`UiDrawStats::unknownTextures`). Libérer
+/// deux fois, ou un identifiant d'ImGui (l'atlas des polices), est le même bug, traité de même.
 void releaseUiTexture(UiPass& pass, ImTextureID id);
 
 /// Enregistre l'UI d'`drawData` dans `target` : les textures d'abord, puis les sommets, puis une

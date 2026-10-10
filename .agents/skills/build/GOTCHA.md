@@ -3,6 +3,32 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un contre-test restauré par `git checkout -- fichier` revient à l'index, pas au dernier commit (2026-10-10)
+
+M7.7, morceau 6.
+
+- **Symptôme** : un contre-test qui restaure le fichier muté par `git checkout -- fichier` a emporté les changements non
+  validés du même fichier. **Cause** : cette commande remet l'index, pas le dernier commit ; après un `git add -A`, un
+  `git stash` et un `git stash apply`, l'index valait HEAD. **Parade** : valider avant de muter (la restauration revient
+  alors au commit) ; ici, le fichier a été retrouvé dans le stash (2026-10-10).
+
+## Une assertion de Debug ne se teste pas par `PASS_REGULAR_EXPRESSION` : ctest classe le signal avant le motif (2026-10-10)
+
+M7.7, morceau 6 (`gpu.ui-released-id.*` et `gpu.ui-released-twice.*`, `tests/ui_gpu.cpp`).
+
+- **Symptôme** : un test dont l'assertion arrête le programme (`LEVAIN_ASSERT` : `__builtin_debugtrap`, SIGTRAP) et dont
+  la sortie contient bien le message attendu reste rouge sous ctest (« SIGTRAP***Exception »), avec un
+  `PASS_REGULAR_EXPRESSION` exact. **Cause** : ctest ne consulte les motifs que d'un processus sorti (`Exited`) ; un
+  signal est une « Exception », jugée avant eux. Les refus à la compilation (`scene.reflection-refuses-compile.*`) y
+  échappent parce que le compilateur sort en 1. **Parade** : le test est un parent qui relance le programme pour un enfant
+  (`runProcess`, `levain_ui_gpu released-id` → `released-id-child`, de même `released-twice`) et juge son code de sortie et sa
+  sortie (`checkChild`) : en Debug, code non nul et message de l'assertion ; en Release, code 0 et la ligne d'erreur du
+  journal, autant de fois que de fautes (l'assertion est compilée hors du binaire, et le test vérifie le repli, pas le
+  silence). Contre-tests (2026-10-10) : sans l'assertion, le parent sort en 1 (« code 0 », message absent) en Debug ; sans
+  la ligne d'erreur, en 1 en Release ; sans le comptage, l'enfant sort en 1. Pour `released-twice` : sans l'assertion de
+  `releaseUiTexture` (Debug), sans sa ligne d'erreur (Release) et avec la ligne pour la seule texture connue (Release, un
+  compte de 1 pour 2) : rouge dans les trois cas.
+
 ## Un drapeau que la boucle remet à faux : le test qui l'assigne ne voit pas la boucle l'oublier (2026-10-10)
 
 M7.7, morceau 4 (`gpu.app-loop.*`, `App::recomposeAfterUi`).

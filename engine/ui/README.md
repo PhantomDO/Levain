@@ -27,11 +27,12 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 - **Une texture que l'UI ne possède pas passe par `registerUiTexture`** (la scène de la Vue, ADR-0036) : un
   identifiant pour `ImGui::Image`, un binding set fait comme celui de l'atlas, et `releaseUiTexture` pour le
   retirer. La table ne rend **jamais** un identifiant, libéré ou non : un `ImDrawList` périmé ne montre jamais une
-  autre texture que la sienne. Dessiner un identifiant inconnu ou libéré est l'assertion de `recordUi` en Debug.
-  Libérer deux fois, ou un identifiant inconnu ou d'ImGui, est une assertion en Debug et une erreur au journal en
-  Release. Le shader lit un `Texture2D<float4>` par un échantillonneur qui filtre : `registerUiTexture` refuse, par
-  une erreur et non une assertion (`uiTextureRefusal`), une texture nulle, non 2D, multi-échantillon, sans usage de
-  shader, de profondeur, d'un format entier ou de flottants sur 32 bits (WebGPU ne les filtre pas).
+  autre texture que la sienne. Dessiner un identifiant inconnu ou libéré est une assertion en Debug, et en Release
+  une erreur au journal, la commande sautée et comptée (`UiDrawStats::unknownTextures`) : jamais un silence. Libérer
+  deux fois, ou un identifiant inconnu ou d'ImGui, est traité de même. Le shader lit un `Texture2D<float4>` par un
+  échantillonneur qui filtre : `registerUiTexture` refuse, par une erreur et non une assertion (`uiTextureRefusal`),
+  une texture nulle, non 2D, multi-échantillon, sans usage de shader, de profondeur, d'un format entier ou de
+  flottants sur 32 bits (WebGPU ne les filtre pas).
 - **Pas d'`imgui.ini`** : la disposition se reconstruit à chaque lancement.
 
 ## Points d'entrée
@@ -46,7 +47,10 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées), et
 `levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu]` (`gpu.ui.*` dans ctest, WARP compris), qui relit la couleur d'un rectangle
 dessiné dans une cible sRGB puis UNORM, puis un gris moyen montré par `ImGui::Image` dans chaque combinaison de formats,
-plusieurs textures dans la même image, une image libérée en vol, et la table des identifiants.
+plusieurs textures dans la même image, une image libérée en vol, et la table des identifiants. `gpu.ui-released-id.*`
+dessine un identifiant libéré dans un processus fils, et `gpu.ui-released-twice.*` libère deux fois la même texture, puis un
+identifiant inconnu (un signal ne se juge pas par un motif de ctest : build/GOTCHA.md) : l'assertion en Debug, les erreurs au
+journal en Release.
 
 ## Pièges connus
 
