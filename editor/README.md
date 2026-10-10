@@ -94,7 +94,7 @@ M couverts par un test ».
     noms de la réflexion (composants, champs), qui restent ceux du code. Un identifiant seul prend « ## » ; une fenêtre,
     un titre en `ui::labelOf`. `i18n.untranslated` le refuse, un texte construit à l'exécution lui échappe.
 15. **La caméra de l'éditeur est un état et des fonctions libres** (ADR-0036, décision 6, ADR-0011) : `EditorCamera`
-    (l'œil, le lacet, le tangage, la distance du pivot, la vitesse), que chaque fonction reçoit et rend
+    (l'œil, le lacet, le tangage, la distance du pivot, la vitesse, le champ), que chaque fonction reçoit et rend
     modifié. Ni entité, ni SDL, ni ImGui, ni flecs : un delta est en pixels, en crans de molette ou en unités, la durée
     est celle de l'image. **Les angles sont la source** (comme `scene::FpsController`), le pivot se déduit (`pivotOf`,
     à `pivotDistance` devant l'œil). **Tout nombre qui entre est fini ou ignoré** : un NaN dans un delta, une durée
@@ -119,7 +119,8 @@ M couverts par un test ».
   l'application nomme les assets, sans lui leur GUID. `eulerHint` et `rotationFromEuler` : les angles d'une
   rotation et la rotation de ces angles ; `entityFieldOf` et `entityLabelOf` : l'entité d'un champ, et son
   texte ; `assetNameOf` : le texte d'un asset.
-- `scaleFlySpeed(camera, crans)` : la molette en vol, qui rend la caméra suivante. `clampEditorPitch`,
+- `flyCamera(camera, input, seconds)`, `orbitCamera(camera, pixels)`, `panCamera(camera, pixels, hauteur)`,
+  `scaleFlySpeed(camera, crans)` : les gestes de la caméra, chacun rend la caméra suivante. `clampEditorPitch`,
   `wrapYawDegrees` et `clampFlySpeed` nomment les bornes.
 
 ## Pièges connus
@@ -176,6 +177,10 @@ M couverts par un test ».
   (render/src/camera.cpp:10) n'a plus de droite ; au-delà, l'avant passe de l'autre côté et l'image se retourne.
   `viewDirectionOf` borne aussi : un tangage lu dans un fichier ne retourne pas la vue. `std::clamp(NaN)` rend NaN,
   qui resterait dans la position : un NaN vaut 0.
+- **`panCamera` suit le curseur** : l'échelle est `2 · distance · tan(champ / 2) / hauteur`, donc le point au pivot reste
+  sous la souris à toute distance, mais un point plus proche ou plus loin glisse (la parallaxe). Le haut du glissé est
+  le haut de l'**écran** (incliné par le tangage), les touches Monter et Descendre de `flyCamera` la verticale du
+  **monde**.
 - **Les options vont par paires** : `takeEditorOptions` lit nom et valeur comme `app::parseCommonOption`. Un
   « --select » en valeur d'une autre option n'est pas pris ; seul, sans valeur, il reste dans la ligne de
   commande, et le programme la refuse.
@@ -196,3 +201,5 @@ M couverts par un test ».
 | **Unreal**, les dessinateurs | `IPropertyTypeCustomization` | La personnalisation du panneau Details « for structs » (d'après un résultat de recherche, **non relu** : la page d'Epic ne s'affiche pas sans JavaScript) ; la rotation d'un composant y est un `FRotator`, des angles, sans quaternion à relire (**supposé**). |
 | **Unity**, les dessinateurs | `PropertyDrawer` | Il fixe l'aspect d'un champ dans l'Inspector (**documenté**, *PropertyDrawer*). L'Inspector garde un indice d'angles à côté du quaternion, `m_LocalEulerAnglesHint` dans les scènes YAML (**supposé**, vu dans des fichiers `.unity`, non documenté) : le nom `eulerHint` en vient. |
 | **Godot**, les dessinateurs | `EditorInspectorPlugin` | La rotation d'un `Node3D` est « edited in degrees in the inspector », en angles d'Euler ou en quaternion selon `rotation_edit_mode` (**documenté**, *Node3D*) ; le dessinateur de propriété d'un plugin est `EditorProperty` (**supposé**). |
+| **Unreal**, la caméra | La caméra de la vue de niveau | Ses gestes (clic droit tenu, Alt+clic gauche, bouton du milieu, molette, F) : **documenté** (*Viewport Controls*, ADR-0036 [1]). Elle n'est pas un acteur : **supposé** (`FEditorViewportClient`). Levain en prend les gestes, mais **le sens du pan est un choix, pas une copie** : le contenu suit le curseur (la vue va à l'opposé), comme la main d'Unity et de Godot (**supposé**, non relu). Unreal a, je crois, un réglage pour l'inverser (*Invert Middle Mouse Pan*, **supposé**, non relu) : le morceau 11 le lit avant de le retourner. |
+| **Godot**, la caméra | La vue 3D de l'éditeur | Clic droit tenu pour regarder et voler en WASD, E et Q, la molette pour la vitesse, le **bouton du milieu pour l'orbite** (**documenté**, ADR-0036 [7]) : Levain suit Unreal, où le bouton du milieu fait glisser et Alt+clic gauche tourne. |

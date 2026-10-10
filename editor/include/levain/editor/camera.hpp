@@ -29,6 +29,15 @@ inline constexpr float FlySpeedPerNotch = 1.25f;
 inline constexpr float MinPivotDistance = 0.05f;
 inline constexpr float MaxPivotDistance = 1.0e6f;
 
+/// Le champ vertical se règle dans le même intervalle qu'un `CameraLens` (app/camera.hpp) : hors de
+/// lui, la projection et le pan divisent par zéro ou s'inversent.
+inline constexpr float DefaultFovDegrees = 60.0f;
+inline constexpr float MinFovDegrees = 1.0f;
+inline constexpr float MaxFovDegrees = 179.0f;
+
+/// Un pixel de souris, en degrés de regard.
+inline constexpr float LookDegreesPerPixel = 0.25f;
+
 /// Ce que la caméra de l'éditeur garde d'une image à l'autre. Les angles sont **la source**, comme
 /// `scene::FpsController` : retrouver un lacet et un tangage depuis une matrice serait ambigu.
 /// Le pivot, le point que l'orbite et le zoom gardent, n'est pas stocké : c'est le point à
@@ -40,6 +49,7 @@ struct EditorCamera
     float pitchDegrees = 0.0f;            ///< Positif vers le haut, dans ±`MaxEditorPitchDegrees`.
     float pivotDistance = 6.0f;
     float flySpeed = DefaultFlySpeed;
+    float verticalFovDegrees = DefaultFovDegrees;
 };
 
 /// Le tangage borné à ±89°. Un NaN ressort à 0, car `std::clamp` rend NaN pour NaN : il se
@@ -53,7 +63,7 @@ struct EditorCamera
 /// La vitesse de vol bornée à [`MinFlySpeed`, `MaxFlySpeed`] ; un NaN rend la vitesse par défaut.
 [[nodiscard]] float clampFlySpeed(float speed);
 
-/// L'avant unitaire de la caméra, tangage compris : vers où elle regarde.
+/// L'avant unitaire de la caméra, tangage compris : vers où elle regarde, et où `flyCamera` avance.
 [[nodiscard]] glm::vec3 viewDirectionOf(const EditorCamera& camera);
 
 /// La droite de la caméra, à plat : le regard n'a pas de roulis.
@@ -68,5 +78,31 @@ struct EditorCamera
 
 /// La vitesse après `notches` crans de molette (positifs : plus vite), la molette en vol.
 [[nodiscard]] EditorCamera scaleFlySpeed(EditorCamera camera, float notches);
+
+/// Ce que le vol lit en une image. `move.x` est celui de `FpsInput::move`, `move.z` son `move.y`
+/// (l'avant), `move.y` son `up`.
+struct FlyInput
+{
+    glm::vec2 lookPixels{0.0f};   ///< Le mouvement de la souris, en pixels d'écran : y vers le bas.
+    glm::vec3 move{0.0f};         ///< x : la droite, y : monter (verticale du monde), z : l'avant.
+    float speedMultiplier = 1.0f; ///< Maj : plus vite. Un négatif est ramené à 0.
+};
+
+/// Tourne le regard, puis avance de `seconds` à la vitesse de la caméra le long de l'avant (tangage
+/// compris : regarder en haut et avancer monte), de la droite et de la verticale du monde. Une
+/// diagonale ne va pas plus vite qu'une ligne droite. Aucune entrée : la caméra ne bouge pas, ni
+/// ne tourne.
+[[nodiscard]] EditorCamera flyCamera(EditorCamera camera, const FlyInput& input, float seconds);
+
+/// Alt+clic gauche : tourne autour du pivot, qui ne bouge pas, à la même distance. `pixels` comme
+/// `FlyInput::lookPixels`.
+[[nodiscard]] EditorCamera orbitCamera(EditorCamera camera, glm::vec2 pixels);
+
+/// Bouton du milieu : fait glisser la vue de `pixels` (y vers le bas) dans le plan de l'écran, sans
+/// la tourner, de sorte que le point visé au pivot suive exactement le curseur, quelle que soit la
+/// distance : une unité de monde par pixel vaut `2 · distance · tan(champ / 2) / hauteur`. Une
+/// hauteur de fenêtre nulle ou invalide ne déplace rien.
+[[nodiscard]] EditorCamera panCamera(EditorCamera camera, glm::vec2 pixels,
+                                     float viewportHeightPixels);
 
 } // namespace levain::editor
