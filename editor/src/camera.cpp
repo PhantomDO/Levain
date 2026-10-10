@@ -83,8 +83,8 @@ float lookTargetDistanceOf(const EditorCamera& camera)
 }
 
 /// L'avant et la droite à plat du lacet de la caméra, replié : l'état peut porter n'importe quel
-/// lacet (un fichier de préférences, un champ tapé), et un NaN deviendrait l'avant, puis la
-/// position du premier geste qui s'en sert.
+/// lacet (un fichier de préférences, un champ tapé), et un NaN deviendrait la cible du rendu, puis
+/// la position après le premier `orbitCamera` ou `framingOf`.
 scene::HorizontalBasis horizontalBasisOf(const EditorCamera& camera)
 {
     return scene::horizontalBasisFrom(wrapYawDegrees(camera.yawDegrees));
@@ -190,6 +190,44 @@ EditorCamera panCamera(EditorCamera camera, glm::vec2 pixels, float viewportHeig
     // Le contenu suit le curseur, donc l'œil va à l'opposé : à gauche quand la souris va à droite,
     // en haut quand elle descend (l'écran compte y vers le bas).
     camera.position += ((upOf(camera) * pixels.y) - (rightOf(camera) * pixels.x)) * unitsPerPixel;
+    return camera;
+}
+
+EditorCamera dollyCamera(EditorCamera camera, float notches)
+{
+    // Borné, car 1,25^n déborde d'un float vers l'infini, qui serait la position.
+    notches = std::clamp(finiteOrZero(notches), -MaxDollyNotches, MaxDollyNotches);
+    const float distance = clampPivotDistance(camera.pivotDistance);
+    // De `distance` à `distance / 1,25^notches` : la même chose qu'un zoom exponentiel, sauf sous
+    // `MinDollyStep`, où le pas garde sa taille d'une unité plutôt que de s'évanouir avec la
+    // distance.
+    float step =
+        std::max(distance, MinDollyStep) * (1.0f - std::pow(DollyFactorPerNotch, -notches));
+    // Le plafond arrête l'œil, il ne pousse pas le pivot : à `MaxPivotDistance` l'œil avançait du
+    // pas entier (négatif, il recule) et traînait le pivot avec lui, à 10⁷ unités après une
+    // molette libre ; revenu au plancher, il restait là, un pas de 0,2 s'y perdant dans l'ulp.
+    step = std::max(step, distance - MaxPivotDistance);
+    camera.position += viewDirectionOf(camera) * step;
+    camera.pivotDistance = clampPivotDistance(distance - step);
+    return camera;
+}
+
+EditorCamera framingOf(EditorCamera camera, const render::Box& box, float aspectRatio)
+{
+    if (!isUsableBox(box) || !std::isfinite(aspectRatio) || aspectRatio <= 0.0f)
+    {
+        return camera;
+    }
+    const glm::vec3 center = (box.min + box.max) * 0.5f;
+    const float radius =
+        std::max(glm::length(box.max - box.min) * 0.5f, MinFramedRadius) * FramingPadding;
+    const float halfVertical = glm::radians(clampVerticalFov(camera.verticalFovDegrees)) * 0.5f;
+    const float halfHorizontal = std::atan(std::tan(halfVertical) * aspectRatio);
+    // Une sphère de rayon r tient dans un cône de demi-angle a quand l'œil est à r / sin(a) de son
+    // centre ; le cône du plus étroit des deux demi-champs tient dans la pyramide de vue.
+    const float distance = radius / std::sin(std::min(halfVertical, halfHorizontal));
+    camera.pivotDistance = clampPivotDistance(distance);
+    camera.position = center - (viewDirectionOf(camera) * camera.pivotDistance);
     return camera;
 }
 

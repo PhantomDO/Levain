@@ -99,7 +99,8 @@ M couverts par un test ».
     est celle de l'image. **Les angles sont la source** (comme `scene::FpsController`), le pivot se déduit (`pivotOf`,
     à `pivotDistance` devant l'œil). **Tout nombre qui entre est fini ou ignoré** : un NaN dans un delta, une durée
     ou un axe ne change rien. Le tangage, le lacet et la vitesse ne sont **jamais utilisés** hors de leurs bornes (±89°,
-    replié à ±180°, 0,1 à 1000) : un état lu d'un fichier avec un tangage de 120° regarde comme à 89°.
+    replié à ±180°, 0,1 à 1000) : un état lu d'un fichier avec un tangage de 120° regarde comme à 89°. Le pan et le
+    dolly, qui ne les changent pas, les laissent tels quels dans l'état.
 
 ## Points d'entrée
 
@@ -120,9 +121,9 @@ M couverts par un test ».
   rotation et la rotation de ces angles ; `entityFieldOf` et `entityLabelOf` : l'entité d'un champ, et son
   texte ; `assetNameOf` : le texte d'un asset.
 - `flyCamera(camera, input, seconds)`, `orbitCamera(camera, pixels)`, `panCamera(camera, pixels, hauteur)`,
-  `scaleFlySpeed(camera, crans)` : les gestes de la caméra, chacun rend la caméra suivante.
-  `clipPlanesFor(camera, box)` rend les plans proche et lointain qui contiennent une boîte, et
-  `toRenderCamera(camera, plans)` la `render::Camera` que prend
+  `dollyCamera(camera, crans)`, `scaleFlySpeed(camera, crans)` : les gestes de la caméra, chacun rend la caméra
+  suivante. `framingOf(camera, box, aspect)` la place pour qu'une boîte tienne (F), `clipPlanesFor(camera, box)` rend
+  les plans proche et lointain qui la contiennent, `toRenderCamera(camera, plans)` la `render::Camera` que prend
   `App::cameraOverride`. `editorCameraFrom(render::Camera)` en est l'inverse, pour partir de la caméra du jeu : le lacet
   et le tangage se retrouvent par `atan2` (jamais NaN, tangage borné), mais pas la distance du pivot, la cible d'une
   caméra du jeu étant à une unité devant elle. `clampEditorPitch`, `wrapYawDegrees` et `clampFlySpeed` nomment les
@@ -182,14 +183,27 @@ M couverts par un test ».
   (render/src/camera.cpp:10) n'a plus de droite ; au-delà, l'avant passe de l'autre côté et l'image se retourne.
   `viewDirectionOf` borne aussi : un tangage lu dans un fichier ne retourne pas la vue. `std::clamp(NaN)` rend NaN,
   qui resterait dans la position : un NaN vaut 0.
+- **`dollyCamera` ne se coince pas** : la distance au pivot a un plancher (0,05) ; un zoom purement géométrique
+  s'y arrêterait, chaque cran n'avançant plus que de 20 % de rien. Le pas ne descend donc pas sous une unité : collé
+  au pivot, l'œil avance de 0,2 par cran et le pivot reste devant lui. Au-dessus d'une unité, un cran avant puis un
+  cran arrière ramènent où l'on était ; en dessous, non. Au plafond (10⁶) c'est l'inverse : l'œil s'arrête. Sinon
+  une molette libre l'enverrait à 10⁷ unités avec son pivot, et le pas de 0,2 du retour, perdu dans l'ulp d'un
+  `float` à cette distance, ne le ramènerait jamais.
 - **`panCamera` suit le curseur** : l'échelle est `2 · distance · tan(champ / 2) / hauteur`, donc le point au pivot reste
   sous la souris à toute distance, mais un point plus proche ou plus loin glisse (la parallaxe). Le haut du glissé est
   le haut de l'**écran** (incliné par le tangage), les touches Monter et Descendre de `flyCamera` la verticale du
   **monde**.
+- **`framingOf` entoure la boîte d'une sphère** : une boîte allongée (une dalle, une tour vue de bout) garde de
+  l'air autour d'elle, le prix d'un cadrage qui tient sous tous les angles sans tourner la vue. Au-delà de
+  `MaxPivotDistance` (10⁶), elle ne tient plus.
 - **`toRenderCamera` vise loin** : `lookAtRH` retrouve le regard par `cible - position`, en `float`. Une cible à une
   unité d'un œil à 600 unités de l'origine hérite de l'arrondi de la position : au tangage de 89° (0,017 d'horizontale),
   la vue tourne autour de son axe d'un dixième de degré, et le bord de l'image tremble à chaque coup de souris. La
   cible est donc au moins aussi loin de l'œil que la position l'est de l'origine, et que le pivot.
+- **`clipPlanesFor` prend la scène, pas la boîte cadrée** : la boîte est ce qui doit rester visible. F n'agit que par la
+  position de l'œil ; des plans calculés sur la boîte cadrée mettraient le lointain à quelques mètres, et la vallée
+  derrière un cube de 1 m disparaîtrait (testé : un cube de 1 m et un objet de 5 cm cadrés au milieu de la vallée de
+  512 m, plans de la vallée).
 - **`clipPlanesFor` borne le rapport** : lointain sur proche entre 2 et 10 000. Caméra dans la boîte (ou scène de 10⁶
   unités de profondeur), le plan proche monte au plancher du rapport et rogne le premier plan, sans quoi le
   tampon de profondeur perdrait sa précision. Les plans ne contiennent donc la boîte que si l'œil est dehors et
