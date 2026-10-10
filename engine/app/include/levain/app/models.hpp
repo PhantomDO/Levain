@@ -125,22 +125,45 @@ struct SkinningCost
 [[nodiscard]] float maxJointSpeedOf(const animation::Pose& before, const animation::Pose& after,
                                     float seconds);
 
-/// Le mouvement que joue un modèle skinné qui a un animateur, à `seconds`, le temps de la scène :
-/// celui d'un personnage, ou une vitesse de démonstration. L'appelant le choisit, modèle par
-/// modèle.
+/// Le mouvement que joue un modèle skinné qui a un animateur, à `seconds` (le temps des squelettes,
+/// non celui de la scène) : celui d'un personnage, ou une vitesse de démonstration. L'appelant le
+/// choisit, modèle par modèle.
 using MotionOf = std::function<animation::CharacterMotion(const assets::AssetId&, double seconds)>;
 
+/// L'horloge des squelettes (ADR-0036, décision 9) : le temps de la scène, moins celui qu'a duré
+/// l'arrêt de la simulation. Les squelettes suivent la simulation : arrêtée, le renard ne marche
+/// plus sur place ; l'eau, l'herbe et les matériaux gardent le temps de la scène.
+struct AnimationClock
+{
+    /// Le temps de la scène passé à l'arrêt, depuis le début.
+    double pausedSeconds = 0.0;
+    /// Le temps de la scène à l'image précédente ; vide avant la première image, qui n'a rien
+    /// avant elle à compter comme arrêté.
+    std::optional<double> lastSceneSeconds;
+};
+
+/// Le temps des squelettes pour cette image : `sceneSeconds` moins le temps passé à l'arrêt, qui
+/// ne s'allonge que d'une image où la simulation est arrêtée. Le temps de la scène que `--time`
+/// fige ne change pas d'une image à l'autre, arrêt ou non : le temps des squelettes non plus, et
+/// **aussi quand la première image est déjà à l'arrêt** (l'éditeur s'ouvre en Édition) : la
+/// première image ne fait que noter le temps de la scène, elle n'y compte pas d'arrêt. À la
+/// reprise, il repart d'où il s'était arrêté, sans saut.
+[[nodiscard]] double advanceAnimationClock(AnimationClock& clock, double sceneSeconds,
+                                           bool simulationPaused);
+
 /// Ce que l'animation des modèles garde d'une image à l'autre : le minuteur GPU du skinning, seul
-/// (le critère de coût de #117), et la mesure.
+/// (le critère de coût de #117), la mesure, et l'horloge des squelettes.
 struct SkinningState
 {
     render::GpuTimer timer;
     SkinningCost cost;
+    AnimationClock clock;
 };
 
 [[nodiscard]] SkinningState createSkinningState(nvrhi::IDevice& device);
 
-/// Anime les modèles skinnés (ADR-0022) : la pose de leur clip à `seconds`, ou celle de leur
+/// Anime les modèles skinnés (ADR-0022) : la pose de leur clip à `seconds` (le temps des
+/// squelettes, `advanceAnimationClock`, non celui de la scène), ou celle de leur
 /// animateur selon `motionOf`, ses matrices, puis un dispatch par mesh skinné. À enregistrer avant
 /// les dessins qui lisent les sommets déformés. Le minuteur s'enregistre dans `commandList`, et le
 /// coût de l'image s'ajoute à `state.cost`.

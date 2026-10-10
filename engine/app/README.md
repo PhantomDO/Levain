@@ -72,10 +72,14 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    un appui atteint `PlayerInput` par sa position, ImGui par sa lettre, du fichier comme de l'API.
 
 13. **La simulation s'arrête par `App::simulationPaused`** (ADR-0036), lu une fois par image, avant `advanceWorld`
-   (un arrêt posé dans `ui` vaut pour l'image suivante), `startApp` compris : aucun pas,
+   (un arrêt posé dans `ui` vaut pour l'image suivante, simulation et squelettes), `startApp` compris : aucun pas,
    `RenderAlpha` à 1, et l'accumulateur de `fixedStep` ne reçoit pas le temps de l'image, sinon le retour au jeu
-   jouerait une rafale. `progress` tourne encore, et `--steps` compte des images. `tests/app_loop_gpu.cpp` joue
-   l'arrêt dans la vraie boucle.
+   jouerait une rafale. `progress` tourne encore, et `--steps` compte des images. **Les squelettes s'arrêtent avec
+   elle** : `animateModels` et `motionOf` reçoivent le temps de la scène moins le temps passé à l'arrêt
+   (`advanceAnimationClock`), qui repart d'où il s'était arrêté ; `--time` le fige comme avant, à T même si le
+   programme démarre à l'arrêt. L'eau, l'herbe, les
+   matériaux et `record` gardent le temps de la scène. `tests/app_loop_gpu.cpp` joue l'arrêt et l'horloge dans la
+   vraie boucle.
 
 ## Pièges connus
 
@@ -118,7 +122,7 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 | [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf` : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
-| [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `SkinningState`, `createSkinningState`, `animateModels` |
+| [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `AnimationClock`, `advanceAnimationClock`, `SkinningState`, `createSkinningState`, `animateModels` |
 | [`include/levain/app/ui_layer.hpp`](include/levain/app/ui_layer.hpp) | `UiLayer`, `UiCost`, `FrameHistory`, `PanelsKey`, `gameInputOf`, `mouseShouldBeCaptured`, `recordHistory`, `recordUiCpu` : l'interface dans la boucle |
 | [`src/panels.hpp`](src/panels.hpp) | `drawEnginePanels` : les panneaux de debug du moteur, ancrés ; `buildLayout` et les clés de leurs fenêtres (`ImageWindow`…) pour `ui_i18n_test.cpp` ; interne |
 | [`include/levain/app/texture_reload.hpp`](include/levain/app/texture_reload.hpp) | `TextureReload`, `startTextureReload`, `reloadChangedTextures` : le hot-reload des textures |
@@ -136,5 +140,5 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 | **Unity** | `PlayerLoop` ; `MeshRenderer`, `SkinnedMeshRenderer` | La boucle du *Player*, que les scripts modifient (**documenté**, ADR-0029) ; un modèle se dessine par son renderer, skinné ou non. |
 | **Godot** | `MainLoop`, `SceneTree` ; `MeshInstance3D`, `Skeleton3D` | La boucle par défaut d'un projet (**documenté**, ADR-0029) ; un modèle est un nœud, son squelette un autre. |
 | **La caméra** | `CameraComponent` actif (Unreal), `Camera.main` (Unity), `Camera3D.current` (Godot) | Une caméra parmi d'autres est celle du rendu ; ici, il n'y en a qu'une, et deux sont une erreur. |
-| **L'arrêt** | `SetGamePaused` (Unreal), `Time.timeScale = 0` (Unity), `SceneTree.paused` (Godot) | Arrêter la simulation sans arrêter le rendu (**documenté**) ; ici un drapeau d'`App`. |
+| **L'arrêt** | `SetGamePaused` (Unreal), `Time.timeScale = 0` (Unity), `SceneTree.paused` (Godot) | Arrêter la simulation sans arrêter le rendu (**documenté**) ; ici un drapeau d'`App`, et les squelettes suivent la simulation, l'eau non. |
 | **L'input** | `Input.GetKeyDown` (Unity), `Input.is_action_just_pressed` (Godot) | Un appui ne vaut que pour l'image : Unity dit de le lire dans `Update`, pas dans `FixedUpdate` (**documenté**, `Input.GetKeyDown`). `PlayerInput` le garde jusqu'au pas suivant. |

@@ -390,11 +390,13 @@ target_compile_definitions(levain_app_script PRIVATE LEVAIN_DATA_DIR="${CMAKE_SO
 add_test(NAME gpu.app-script.vulkan COMMAND levain_app_script vulkan)
 set_tests_properties(gpu.app-script.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
-# La boucle de l'App par ses points nommés (ADR-0036, morceau 4) : la simulation à l'arrêt, dans la vraie boucle hors
-# écran.
+# La boucle de l'App par ses points nommés (ADR-0036, morceau 4) : la simulation à l'arrêt et l'horloge des squelettes,
+# dans la vraie boucle hors écran.
 add_executable(levain_app_loop app_loop_gpu.cpp)
-target_link_libraries(levain_app_loop PRIVATE levain::app levain::platform levain::scene)
-target_compile_definitions(levain_app_loop PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_link_libraries(levain_app_loop PRIVATE levain::app levain::assets levain::platform levain::scene)
+target_compile_definitions(levain_app_loop PRIVATE
+    LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 add_test(NAME gpu.app-loop.vulkan COMMAND levain_app_loop vulkan)
 set_tests_properties(gpu.app-loop.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 

@@ -3,6 +3,15 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un modèle de `tests/data` ne se charge pas depuis son dossier : le scan y écrit des `.meta` (2026-10-10)
+
+M7.7, morceau 4 (`gpu.app-loop.*`).
+
+- **Symptôme** : un test qui charge `tests/data/two-joints.gltf` par une racine d'assets laisse des fichiers `.meta`
+  non suivis dans le dépôt (`git status`). **Cause** : le scan des racines d'assets écrit le `.meta` de chaque asset
+  à côté du fichier (`scanAssets`, ADR-0019). **Parade** : le test copie le modèle dans un dossier temporaire à lui,
+  qui devient une racine de plus (`TempDir` et `copyModelInto`, `tests/app_loop_gpu.cpp`), effacé à la fin.
+
 ## Un depth buffer que NVRHI Vulkan ne retient pas, et un itérateur par valeur pour clang-tidy Windows (2026-10-10)
 
 M7.7, morceau 2 (`gpu.app-script.vulkan`).

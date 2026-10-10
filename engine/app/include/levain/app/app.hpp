@@ -242,7 +242,8 @@ struct App
     /// lue avant `advanceWorld` : aucun pas, `RenderAlpha` à 1 (l'image montre le `Transform`
     /// tapé), l'accumulateur de `fixedStep` ne reçoit pas le temps de l'image, de sorte que le
     /// retour au jeu ne rejoue pas de rafale. `progress` tourne encore, et `--steps` compte des
-    /// images : à l'arrêt, il ne joue aucun pas.
+    /// images : à l'arrêt, il ne joue aucun pas. Les squelettes s'arrêtent avec elle
+    /// (`skinningState.clock`) ; l'eau, l'herbe et les matériaux gardent le temps de la scène.
     bool simulationPaused = false;
     /// La caméra du rendu de la dernière image, relue sur l'unique entité qui porte un
     /// `CameraLens` (camera.hpp) : le programme la lit, pour viser à la souris par exemple.
