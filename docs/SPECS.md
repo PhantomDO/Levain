@@ -1,6 +1,6 @@
 # Spécifications — Levain
 
-> Version 0.7 — 10/10/2026 — statut : **validé par Donnovan** (Proton remplacé, sondage du 10/10/2026)
+> Version 0.8 — 10/10/2026 — statut : **validé par Donnovan** (polices sous OFL : ADR-0036, sondage du 10/10/2026)
 > Documents liés : [ROADMAP](ROADMAP.md) · [JOURNAL](JOURNAL.md) · [ADR](adr/) · [Études](etudes/) ·
 > [Lectures](LECTURES.md) · [Q&R](QA.md)
 >
@@ -13,6 +13,9 @@
 > v0.6 : **Windows revient** (ADR-0035), compilé depuis Linux par clang-cl : Vulkan d'abord, puis Direct3D 12.
 > v0.7 : à chaque milestone de rendu, le sandbox lancé nativement sur le PC Windows de Donnovan et Direct3D 12 sous
 > WARP en CI, à la place du binaire de la CI sous Proton (§10, point 2).
+> v0.8 : la SIL Open Font License admise pour les polices seules (§5), pour Inter et les icônes de l'éditeur ; au
+> sondage « Police », Donnovan a répondu « Accepter l'OFL pour les polices (Recommandé) »
+> ([ADR-0036](adr/0036-mode-edition-vue-et-camera-de-l-editeur.md)).
 
 ## 1. Vision
 
