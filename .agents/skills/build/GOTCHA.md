@@ -3,7 +3,7 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
-## Un depth buffer que NVRHI Vulkan ne retient pas (2026-10-10)
+## Un depth buffer que NVRHI Vulkan ne retient pas, et un itérateur par valeur pour clang-tidy Windows (2026-10-10)
 
 M7.7, morceau 2 (`gpu.app-script.vulkan`).
 
@@ -16,6 +16,12 @@ M7.7, morceau 2 (`gpu.app-script.vulkan`).
   meshes, dont le framebuffer le retient ; le chemin hors écran attend le GPU à chaque image (`device.cpp`). **Parade** :
   `runApp` attend le GPU (`waitForIdle`) entre la dernière image et la destruction de `App`. Contre-test, windows-debug :
   sans cette ligne, `gpu.app-script.vulkan` sort en 3 sur le message ci-dessus ; avec, en 0.
+- **Symptôme** : clang-tidy sur la base de `windows-debug` signale `performance-unnecessary-value-param` pour un
+  itérateur passé par valeur ; celle de Linux, rien. **Cause** : sous MSVC, un itérateur de la STL n'est pas trivialement
+  copiable. **Parade** : passer un `std::span` (`joined`, `input_script.cpp`). De même, `bugprone-exception-escape` sur
+  un destructeur qui appelle `std::filesystem::remove(path)` (la STL de Microsoft peut lever) : la surcharge à
+  `std::error_code&` (`ScriptFile`, `tests/app_script_gpu.cpp`). Et `bugprone-unchecked-optional-access` ne suit ni
+  `REQUIRE` ni `.value()` : un `read && *read ? … : 0` explicite.
 
 ## Direct3D 12 sur WARP : la fenêtre sans HWND, `SDL_WINDOW_VULKAN`, et un `-R` trop large (2026-10-10)
 

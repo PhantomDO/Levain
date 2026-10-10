@@ -145,6 +145,10 @@ struct AppSettings
     /// `--ui on|off` : les panneaux de debug ouverts dès le départ, pour la CI et les captures.
     /// F1 les ouvre et les ferme (ADR-0032).
     bool showUiPanels = false;
+    /// `--input-script f` : des événements écrits dans un fichier, rejoués image par image en plus
+    /// des vrais (ADR-0036). `runApp` le lit avant d'ouvrir la fenêtre (`inputScriptOf`), et un
+    /// script illisible ou vide l'arrête.
+    std::optional<std::filesystem::path> inputScriptFile;
     /// L'API des tests : le script lui-même, que la boucle rejoue (`platform::addScriptedEvents`).
     /// Sans `--steps` ni `--seconds`, il mène la boucle, qui s'arrête après sa dernière image ;
     /// avec l'un d'eux, la première fin gagne, et un script que la boucle n'a pas fini de jouer
@@ -154,9 +158,10 @@ struct AppSettings
     std::optional<platform::InputScript> inputScript;
 };
 
-/// Le script d'input des réglages : celui de l'API de test, vérifié ; rien sans lui. Un script
-/// vide (écrit à la main) est une erreur : `runApp` s'arrête avant d'ouvrir une fenêtre plutôt que
-/// de jouer sans ce que le test attend (règle n°7).
+/// Le script d'input des réglages : celui du fichier `--input-script`, qui l'emporte, lu ici ;
+/// sinon celui de l'API de test ; rien sans l'un ni l'autre. Un fichier illisible ou refusé, un
+/// script vide (écrit à la main ou lu) sont des erreurs : `runApp` s'arrête avant d'ouvrir une
+/// fenêtre plutôt que de jouer sans ce que le test attend (règle n°7).
 [[nodiscard]] core::Result<std::optional<platform::InputScript>>
 inputScriptOf(const AppSettings& settings);
 
@@ -183,7 +188,7 @@ inline constexpr std::string_view CommonOptionsUsage =
     "[--seconds N] [--steps N] [--time secondes] [--capture fichier.png] "
     "[--gpu vulkan|d3d12|webgpu] "
     "[--sky fichier.hdr|none] [--sun x,y,z] [--exposure N] [--tonemap clip|aces|agx|neutral] "
-    "[--anisotropy N] [--ui on|off]";
+    "[--anisotropy N] [--ui on|off] [--input-script fichier]";
 
 struct App;
 

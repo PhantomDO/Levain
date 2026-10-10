@@ -7,6 +7,8 @@
 
 #include <cstdio>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <print>
 #include <span>
 #include <stdexcept>
@@ -20,6 +22,7 @@
 
 #include "levain/app/app.hpp"
 #include "levain/app/player_input.hpp"
+#include "levain/assets/asset_ref.hpp"
 #include "levain/scene/components.hpp"
 
 namespace
@@ -128,6 +131,52 @@ int playKeys(const levain::tests::TestBackend& backend)
                   "PlayerInput et ImGui voient les touches de leurs images");
 }
 
+/// Un fichier à lui, effacé à la fin : deux worktrees lancent ctest en même temps sur cette
+/// machine.
+struct ScriptFile
+{
+    std::filesystem::path path;
+
+    explicit ScriptFile(std::string_view text)
+        : path{std::filesystem::temp_directory_path() /
+               ("levain-app-script-" + levain::assets::toString(levain::assets::generateAssetId()) +
+                ".txt")}
+    {
+        std::ofstream{path} << text;
+    }
+
+    ~ScriptFile()
+    {
+        std::error_code ignored; // un destructeur ne lève pas : le fichier reste dans /tmp
+        std::filesystem::remove(path, ignored);
+    }
+
+    ScriptFile(const ScriptFile&) = delete;
+    ScriptFile& operator=(const ScriptFile&) = delete;
+};
+
+/// `--input-script f` de bout en bout : `runApp` lit le fichier. Sans lui (la lecture oubliée), la
+/// boucle jouerait ses 8 images sans touche, et la comparaison le dirait ; `--steps` plutôt que la
+/// fin du script, pour qu'elle le dise au lieu de tourner sans fin. Un script refusé arrête
+/// `runApp` avant la fenêtre : le programme de test ne démarre pas, code 1.
+int playFile(const levain::tests::TestBackend& backend)
+{
+    levain::app::AppSettings settings;
+    settings.steps = 8;
+    const ScriptFile keys{KeysScript};
+    settings.inputScriptFile = keys.path;
+    const Run run = play(backend, settings);
+
+    const ScriptFile unknownKey{"0 key down W\n1 key down Wxyz\n"};
+    settings.inputScriptFile = unknownKey.path;
+    settings.steps = 2; // si le refus n'arrêtait pas, la boucle jouerait ces 2 images
+    const Run refused = play(backend, settings);
+    return expect(run.exitCode == 0 && run.seen == expectedKeys(),
+                  "--input-script f : les touches du fichier atteignent PlayerInput et ImGui") +
+           expect(refused.exitCode == 1 && refused.seen.empty(),
+                  "--input-script avec une touche inconnue : code 1, sans démarrer");
+}
+
 /// Le contre-test de la règle n°7 : `--steps` coupe la boucle avant la fin du script, et le
 /// programme échoue au lieu de passer sans avoir rejoué ce qui était écrit.
 int playCutShort(const levain::tests::TestBackend& backend)
@@ -153,7 +202,7 @@ int main(int argc, char** argv)
             std::println(stderr, "usage : levain_app_script [vulkan|d3d12|d3d12-warp]");
             return 2;
         }
-        const int failures = playKeys(*backend) + playCutShort(*backend);
+        const int failures = playKeys(*backend) + playFile(*backend) + playCutShort(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)
