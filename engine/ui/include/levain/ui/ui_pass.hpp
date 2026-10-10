@@ -104,7 +104,7 @@ void updateUiTextures(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, 
 /// texture au format de la cible est donc juste : une texture sRGB sur une cible sRGB (le matériel
 /// décode en lisant, la cible encode en écrivant), une texture UNORM qui garde des valeurs déjà
 /// encodées sur une cible UNORM. Une texture UNORM aux valeurs encodées sur une cible sRGB serait
-/// convertie deux fois, et délavée.
+/// convertie deux fois, et délavée (le test `levain_ui_gpu` le mesure).
 ///
 /// L'alpha : le mélange de la passe est celui d'ImGui (`SrcAlpha`, `InvSrcAlpha`), l'alpha du texel
 /// compris. Une image montrée doit être **opaque** (alpha 1) : la sortie du tonemap l'est

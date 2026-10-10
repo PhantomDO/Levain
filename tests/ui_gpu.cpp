@@ -4,19 +4,25 @@
 // (`linearOnSrgbTarget`). Le rectangle de découpe déborde de l'image : borné, il ne doit faire
 // aucune erreur de validation (`clampScissorToTarget`). L'atlas des polices passe par le chemin des
 // textures d'ImGui 1.92 : sans lui, le rectangle, qui lit son pixel blanc, ne se dessinerait pas.
-// Puis la table des textures que l'UI ne possède pas (`registerUiTexture`, ADR-0036 morceau 6) :
-// enregistrer, libérer, enregistrer encore, et refuser ce que l'UI ne sait pas lire.
+// Puis des textures que l'UI ne possède pas (`registerUiTexture`, ADR-0036 morceau 6), montrées par
+// `ImGui::Image` : un gris moyen (0,5 linéaire, 188 en sRGB) relu à ±2 près, qui ne doit pas être
+// converti deux fois, la table des identifiants, et une image libérée encore en vol.
 //   levain_ui_gpu [vulkan|webgpu]
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <initializer_list>
+#include <optional>
 #include <print>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <imgui.h>
 
@@ -131,6 +137,278 @@ int compareTargets(nvrhi::IDevice& device)
             std::println(stderr, "{} : écart de {} niveaux", nvrhi::getFormatInfo(format).name,
                          worst);
             ++failures;
+        }
+    }
+    return failures;
+}
+
+/// Le niveau sRGB de 8 bits d'une valeur linéaire : ce qu'écrit une cible sRGB, la fonction exacte
+/// de l'IEC 61966-2-1. Le test ne la prend pas du shader qu'il vérifie.
+int srgbLevel(float linear)
+{
+    const float encoded =
+        linear <= 0.0031308f ? linear * 12.92f : (1.055f * std::pow(linear, 1.0f / 2.4f)) - 0.055f;
+    return static_cast<int>(std::lround(encoded * 255.0f));
+}
+
+/// Le gris moyen de la spécification : 0,5 linéaire s'écrit 188 dans une cible sRGB.
+constexpr int GreyLevel = 188;
+
+/// Une image à montrer : une texture de `format`, effacée à `clear` **dans les valeurs du format**
+/// (un gris linéaire pour une texture sRGB, que l'effacement encode ; la valeur brute pour une
+/// UNORM).
+struct GreyImage
+{
+    nvrhi::Format format;
+    float clear;
+};
+
+/// Quand `releaseUiTexture` passe, dans la vie d'une image.
+enum class Release : std::uint8_t
+{
+    Never,          ///< À la fin, avec la passe (`destroyUiTextures`).
+    AfterRecording, ///< Après `recordUi`, avant la soumission : la Vue lâche l'ancienne image.
+};
+
+constexpr int ImageSize = 32;
+constexpr int ImageStep = 40;
+constexpr int ImageMargin = 8;
+
+/// Le rouge relu au centre de chaque image, et ce que la passe a dessiné.
+struct ImagesDrawn
+{
+    std::vector<int> levels;
+    levain::ui::UiDrawStats stats;
+};
+
+/// Des drapeaux de fenêtre d'ImGui réunis en non signé : leur `|` sur des `int` est refusé par
+/// `bugprone-signed-bitwise`.
+ImGuiWindowFlags windowFlags(std::initializer_list<ImGuiWindowFlags_> flags)
+{
+    unsigned combined = 0;
+    for (const ImGuiWindowFlags_ flag : flags)
+    {
+        combined |= static_cast<unsigned>(flag);
+    }
+    return static_cast<ImGuiWindowFlags>(combined);
+}
+
+/// Montre chaque texture par une `ImGui::Image` (32 × 32, côte à côte) dans une cible de
+/// `targetFormat`, et relit le centre de chacune. Rien si le GPU refuse quelque chose, ou si les
+/// trois canaux d'un centre diffèrent (une image grise reste grise).
+std::optional<ImagesDrawn> drawImages(nvrhi::IDevice& device, nvrhi::Format targetFormat,
+                                      std::span<const GreyImage> images, Release release)
+{
+    const nvrhi::TextureHandle target = createTarget(device, targetFormat);
+    const nvrhi::FramebufferHandle framebuffer =
+        device.createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(target));
+    auto pass = levain::ui::createUiPass(device, framebuffer->getFramebufferInfo());
+    if (!pass)
+    {
+        std::println(stderr, "{}", pass.error().message);
+        return std::nullopt;
+    }
+    // Des textures comme la Vue en aura : cible de rendu, lue ensuite par un shader, dans cet état
+    // au repos (`registerUiTexture`). La valeur d'effacement est exigée par Direct3D 12.
+    std::vector<nvrhi::TextureHandle> textures;
+    std::vector<ImTextureID> ids;
+    for (const GreyImage& image : images)
+    {
+        const nvrhi::Color clear(image.clear, image.clear, image.clear, 1.0f);
+        const nvrhi::TextureHandle& texture = textures.emplace_back(
+            device.createTexture(nvrhi::TextureDesc()
+                                     .setWidth(ImageSize)
+                                     .setHeight(ImageSize)
+                                     .setFormat(image.format)
+                                     .setIsRenderTarget(true)
+                                     .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                     .setKeepInitialState(true)
+                                     .setClearValue(clear)
+                                     .setUseClearValue(true)
+                                     .setDebugName("image grise")));
+        const auto id = levain::ui::registerUiTexture(device, *pass, texture);
+        if (!id)
+        {
+            std::println(stderr, "{}", id.error().message);
+            return std::nullopt;
+        }
+        ids.push_back(*id);
+    }
+
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = Width, .height = Height}, 1.0 / 60.0);
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(Width), static_cast<float>(Height)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin("images", nullptr,
+                 windowFlags({ImGuiWindowFlags_NoDecoration, ImGuiWindowFlags_NoBackground,
+                              ImGuiWindowFlags_NoSavedSettings, ImGuiWindowFlags_NoInputs}));
+    for (std::size_t index = 0; index < ids.size(); ++index)
+    {
+        ImGui::SetCursorPos(
+            ImVec2(static_cast<float>(ImageMargin + (static_cast<int>(index) * ImageStep)),
+                   static_cast<float>(ImageMargin)));
+        ImGui::Image(ids[index],
+                     ImVec2(static_cast<float>(ImageSize), static_cast<float>(ImageSize)));
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+    ImGui::Render();
+
+    // Les gris s'écrivent dans une command list à part, finie et retirée avant la suivante : le
+    // `clearTextureFloat` de Direct3D 12 garde la texture dans les ressources de sa command list
+    // (NVRHI, `d3d12-texture.cpp`), et ferait tenir l'image en vol sans le binding set que le cas
+    // `AfterRecording` veut isoler.
+    {
+        const nvrhi::CommandListHandle fill = device.createCommandList();
+        fill->open();
+        for (std::size_t index = 0; index < textures.size(); ++index)
+        {
+            const float grey = images[index].clear;
+            fill->clearTextureFloat(textures[index], nvrhi::AllSubresources,
+                                    nvrhi::Color(grey, grey, grey, 1.0f));
+        }
+        fill->close();
+        device.executeCommandList(fill);
+    }
+    device.waitForIdle();
+    device.runGarbageCollection();
+
+    const nvrhi::CommandListHandle commandList = device.createCommandList();
+    commandList->open();
+    commandList->clearTextureFloat(target, nvrhi::AllSubresources, nvrhi::Color(0.0f));
+    ImagesDrawn drawn;
+    drawn.stats =
+        levain::ui::recordUi(device, *commandList, *pass, *ImGui::GetDrawData(), *framebuffer);
+    const nvrhi::StagingTextureHandle staging =
+        levain::render::copyForReadback(device, *commandList, *target);
+    if (release == Release::AfterRecording)
+    {
+        // L'image est dans la command list, pas encore soumise : on lâche la table et le programme.
+        // Seul le binding set que la command list tient garde la texture (`releaseUiTexture`) : les
+        // gris sont écrits plus haut, par une command list déjà retirée.
+        for (const ImTextureID id : ids)
+        {
+            levain::ui::releaseUiTexture(*pass, id);
+        }
+        textures.clear();
+    }
+    commandList->close();
+    device.executeCommandList(commandList);
+    levain::ui::destroyUiTextures(*pass, ImGui::GetPlatformIO().Textures);
+
+    auto image = levain::render::readBack(device, *staging);
+    if (!image)
+    {
+        std::println(stderr, "{}", image.error().message);
+        return std::nullopt;
+    }
+    for (std::size_t index = 0; index < ids.size(); ++index)
+    {
+        const std::size_t x = ImageMargin + (index * ImageStep) + (ImageSize / 2);
+        const std::size_t pixel = (((ImageMargin + (ImageSize / 2)) * std::size_t{Width}) + x) * 4;
+        const int red = image->rgba[pixel];
+        if (std::abs(red - image->rgba[pixel + 1]) > 1 ||
+            std::abs(red - image->rgba[pixel + 2]) > 1)
+        {
+            std::println(stderr, "image {} : ({}, {}, {}) n'est pas grise", index, red,
+                         image->rgba[pixel + 1], image->rgba[pixel + 2]);
+            return std::nullopt;
+        }
+        drawn.levels.push_back(red);
+    }
+    return drawn;
+}
+
+/// Un gris moyen par `ImGui::Image`, dans chaque combinaison du format de la texture et de celui de
+/// la cible. La cible convertit une fois en écrivant (`linearOnSrgbTarget`) : la passe ne touche
+/// pas aux texels, et rien ne doit être converti deux fois.
+int checkGreyAcrossFormats(nvrhi::IDevice& device)
+{
+    struct Case
+    {
+        std::string_view name;
+        nvrhi::Format target;
+        GreyImage image;
+        bool convertedTwice; ///< Le témoin : le défaut qu'on veut voir, pas un cas juste.
+    };
+
+    constexpr float EncodedGrey = 188.0f / 255.0f;
+    const std::array<Case, 4> cases{{
+        {"sRGB sur sRGB : le matériel décode, la cible encode",
+         nvrhi::Format::SRGBA8_UNORM,
+         {nvrhi::Format::SRGBA8_UNORM, 0.5f},
+         false},
+        {"UNORM linéaire sur sRGB : la cible encode",
+         nvrhi::Format::SRGBA8_UNORM,
+         {nvrhi::Format::RGBA8_UNORM, 0.5f},
+         false},
+        {"UNORM encodée sur UNORM : rien ne convertit",
+         nvrhi::Format::RGBA8_UNORM,
+         {nvrhi::Format::RGBA8_UNORM, EncodedGrey},
+         false},
+        {"témoin, UNORM encodée sur sRGB : convertie deux fois",
+         nvrhi::Format::SRGBA8_UNORM,
+         {nvrhi::Format::RGBA8_UNORM, EncodedGrey},
+         true},
+    }};
+    // Le garde de l'attendu : si `srgbLevel` dérivait, tout le reste dériverait avec lui.
+    int failures = srgbLevel(0.5f) == GreyLevel ? 0 : 1;
+    for (const Case& test : cases)
+    {
+        const auto drawn =
+            drawImages(device, test.target, std::span{&test.image, 1}, Release::Never);
+        if (!drawn || drawn->stats.draws != 1)
+        {
+            std::println(stderr, "{} : rien de dessiné", test.name);
+            ++failures;
+            continue;
+        }
+        const int level = drawn->levels.front();
+        const int gap = std::abs(level - GreyLevel);
+        std::println("{} : {} relu pour {}", test.name, level, GreyLevel);
+        // Le témoin doit s'éloigner de 188 de plus de 20 niveaux : sans cela, le test ne verrait
+        // pas une double conversion (223 mesuré).
+        if (test.convertedTwice ? gap < 20 : gap > 2)
+        {
+            std::println(stderr, "{} : écart de {} niveaux", test.name, gap);
+            ++failures;
+        }
+    }
+    return failures;
+}
+
+/// Plusieurs textures dans la même image, de valeurs différentes : chaque commande lit la sienne.
+/// Puis l'image libérée alors que la command list qui la dessine n'est pas soumise (l'ancienne
+/// image de la Vue, libérée après `recordUi`) : elle se voit encore, et la validation ne dit rien.
+int checkSeveralAndInFlight(nvrhi::IDevice& device)
+{
+    int failures = 0;
+    const std::array<GreyImage, 3> images{{{nvrhi::Format::SRGBA8_UNORM, 0.5f},
+                                           {nvrhi::Format::SRGBA8_UNORM, 0.1f},
+                                           {nvrhi::Format::RGBA8_UNORM, 0.5f}}};
+    const std::array<int, 3> expected{GreyLevel, srgbLevel(0.1f), GreyLevel};
+    for (const Release release : {Release::Never, Release::AfterRecording})
+    {
+        const auto drawn = drawImages(device, nvrhi::Format::SRGBA8_UNORM, images, release);
+        if (!drawn || drawn->stats.draws != 3)
+        {
+            std::println(stderr, "plusieurs images : rien de dessiné");
+            ++failures;
+            continue;
+        }
+        for (std::size_t index = 0; index < images.size(); ++index)
+        {
+            std::println("image {} ({}) : {} relu pour {}", index,
+                         release == Release::Never ? "tenue" : "libérée en vol",
+                         drawn->levels[index], expected[index]);
+            if (std::abs(drawn->levels[index] - expected[index]) > 2)
+            {
+                std::println(stderr, "image {} : écart de {} niveaux", index,
+                             std::abs(drawn->levels[index] - expected[index]));
+                ++failures;
+            }
         }
     }
     return failures;
@@ -271,7 +549,8 @@ int checkIdTable(nvrhi::IDevice& device)
 
 int check(nvrhi::IDevice& device)
 {
-    return compareTargets(device) + checkIdTable(device);
+    return compareTargets(device) + checkGreyAcrossFormats(device) +
+           checkSeveralAndInFlight(device) + checkIdTable(device);
 }
 
 int run(const levain::tests::TestBackend& backend)
