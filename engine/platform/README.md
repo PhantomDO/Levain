@@ -15,7 +15,9 @@ clavier, de la souris et des manettes, avec la résolution des noms de SDL dont 
 1. **Aucun en-tête SDL dans l'API.** `window.hpp` ne connaît SDL que par la déclaration anticipée
    `struct SDL_Window;`, et SDL3 est lié en `PRIVATE`. Seule exception : `engine/gpu` inclut `SDL_vulkan.h` pour
    créer la surface Vulkan à partir de `Window::handle`. C'est pour elle que la fenêtre est créée avec
-   `SDL_WINDOW_VULKAN`.
+   `SDL_WINDOW_VULKAN`, mais pour Vulkan seulement (`GraphicsSurface`, `gpu::surfaceFor`) : SDL charge la
+   bibliothèque Vulkan pour toute fenêtre qui l'annonce, et refuse de la créer sans elle. Direct3D 12 et WebGPU en
+   natif n'ont donc pas besoin d'un chargeur Vulkan (#19).
 2. **Une seule fenêtre à la fois.** La fenêtre possède SDL : la détruire appelle `SDL_Quit`. Une assertion le
    vérifie dans `createWindow`. À revoir quand l'éditeur ouvrira des fenêtres secondaires (M7.1).
 3. **Titres en ASCII**, vérifié par assertion. Voir « Pièges connus ».
@@ -24,7 +26,7 @@ clavier, de la souris et des manettes, avec la résolution des noms de SDL dont 
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/platform/window.hpp`](include/levain/platform/window.hpp) | `createWindow`, `windowPixelSize`, `pollEvents`, `waitEvents`, `setWindowTitle` |
+| [`include/levain/platform/window.hpp`](include/levain/platform/window.hpp) | `createWindow` (et `GraphicsSurface`, la surface que la fenêtre annonce), `windowPixelSize`, `pollEvents`, `waitEvents`, `setWindowTitle` |
 | [`include/levain/platform/process.hpp`](include/levain/platform/process.hpp) | `runProcess` — lance un programme, attend sa fin, rend sa sortie (standard et erreur mêlées) et son code de retour |
 | [`include/levain/platform/input.hpp`](include/levain/platform/input.hpp) | `InputEvent` (appuis, axes, souris), `keyCodeFromName` et ses cousines, `setMouseCaptured`, `cursorPosition` (la souris en pixels de la swapchain, pour viser à l'écran) ; pour une interface (ADR-0032) : `UiEvent`, `startTextInput`, `stopTextInput`, `clipboardText`, `setClipboardText`, `displayScale` |
 
@@ -80,6 +82,7 @@ pixels, parce que c'est ce dont la swapchain aura besoin.
 
 | Piège | Symptôme | Parade |
 |---|---|---|
+| `SDL_WINDOW_VULKAN` charge la bibliothèque Vulkan (`SDL_video.c:2517`, `SDL_CreateWindow`) | Sur une machine sans chargeur Vulkan (`vulkan-1.dll` d'un runner Windows), `SDL_CreateWindow` rend `NULL` même pour un backend qui n'en veut pas. | `createWindow` ne pose le drapeau que pour `GraphicsSurface::Vulkan` ; `window_test.cpp` pointe `SDL_VULKAN_LIBRARY` sur un fichier absent et vérifie que seule la fenêtre Vulkan échoue. |
 | Titre non ASCII sous X11 (`SDL_x11window.c:2300`) | En locale C, SDL renonce **sans rien dire** à tout titre qu'il ne sait pas convertir, et fuit la mémoire de la conversion. « — » et « × » échouent, « é » passe. | Assertion ASCII dans `setWindowTitle`. Aussi présent sur la branche `main` de SDL. |
 | Deux signaux rapprochés (`SDL_quit.c:171`) | Une assertion du SDL compilé en Debug saute, et SDL ouvre une boîte de dialogue qui attend une réponse. | `timeout --foreground`, qui n'envoie qu'un signal. Ctrl+C n'en envoie qu'un par appui. |
 | LeakSanitizer sous X11 | 50 052 octets « perdus » en 913 allocations : la mémoire permanente de libX11, que SDL décharge par `dlclose` à la sortie. Une fois la bibliothèque déchargée, plus rien ne semble la retenir. | Faux positif : précharger libX11 (`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libX11.so.6:…`) le fait disparaître, **sans masquer les vraies fuites** (celle du titre restait signalée). Zéro fuite sous Wayland et en offscreen, là où tourne la CI. |

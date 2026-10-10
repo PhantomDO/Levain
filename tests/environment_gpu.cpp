@@ -234,16 +234,18 @@ int run(std::string_view backend)
         }
         return compareWithDirections(**device) == 0 && checkConvolutions(**device) == 0 ? 0 : 1;
     }
-    auto window = levain::platform::createWindow("Levain - environnement", 64, 64);
+    // Une surface Vulkan pour Vulkan seulement : Direct3D 12 ne doit pas dépendre du chargeur
+    // Vulkan.
+    const nvrhi::GraphicsAPI api =
+        levain::gpu::graphicsApiNamed(backend).value_or(nvrhi::GraphicsAPI::VULKAN);
+    auto window = levain::platform::createWindow("Levain - environnement", 64, 64,
+                                                 levain::gpu::surfaceFor(api));
     if (!window)
     {
         std::println(stderr, "{}", window.error().message);
         return 1;
     }
-    auto gpu = levain::gpu::createGpuDevice(
-        *window,
-        {.enableValidation = true,
-         .api = levain::gpu::graphicsApiNamed(backend).value_or(nvrhi::GraphicsAPI::VULKAN)});
+    auto gpu = levain::gpu::createGpuDevice(*window, {.enableValidation = true, .api = api});
     if (!gpu)
     {
         std::println(stderr, "{}", gpu.error().message);

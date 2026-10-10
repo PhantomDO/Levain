@@ -24,8 +24,8 @@ d3d12`, `levain_ui_gpu.exe d3d12`). Reste un écart de cadence, observé et pas 
 145 images/s contre 160 sous Vulkan, au même temps GPU (build/GOTCHA.md). Les tests ne sont pas déclarés à ctest en
 `d3d12` : un runner sans GPU n'a que WARP, que choisira #19, avec deux prérequis relevés ici :
 
-- la fenêtre est créée avec `SDL_WINDOW_VULKAN` (`engine/platform/src/window.cpp`), qui charge `vulkan-1.dll` même
-  en `--gpu d3d12` : sans chargeur Vulkan, Direct3D 12 ne se lancerait pas ;
+- la fenêtre n'annonce `SDL_WINDOW_VULKAN`, qui charge `vulkan-1.dll`, que pour Vulkan (`surfaceFor`,
+  `engine/platform/src/window.cpp`) : Direct3D 12 se lance sans chargeur Vulkan ;
 - en Debug, Direct3D 12 exige `ID3D12InfoQueue1` (Windows 11, Windows Server 2025) et la fonctionnalité facultative
   « Outils graphiques » de Windows (`d3d12SDKLayers.dll`, `dxgidebug.dll`) : sans elles, le Debug refuse de
   démarrer (règle n°7).
