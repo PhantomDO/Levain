@@ -87,6 +87,21 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    matériaux et `record` gardent le temps de la scène. `tests/app_loop_gpu.cpp` joue l'arrêt, l'horloge, la
    recomposition et la caméra imposée dans la vraie boucle.
 
+14. **L'input a une route** (`App::inputRoute`, ADR-0036, décision 4), lue au début de chaque image par
+   `devicesTakenBy` (les appareils que l'UI prend, donc que `gameInputOf` retire au jeu) et `uiEventsOf` (ce qu'ImGui
+   reçoit). `Ui`, par défaut : le filtre de M7.1, le sandbox et *Rando* n'y changent rien. `Editor` : rien n'arrive
+   au jeu (souris, clavier, manette), et ce qu'il tenait est relâché. `Game` : le clavier va au jeu, ImGui n'en
+   recevant que les relâchements et F1 ; la souris va au jeu **dans `App::sceneRect` ou capturée, qu'ImGui la veuille
+   ou non** (la Vue sera une fenêtre d'ImGui, que le survol met à `WantCaptureMouse`). **L'éditeur la pose à la fin de
+   l'image N pour l'image N+1** (survol et focus ne se savent que dans `ui`) : le clic qui donne le focus est lu sous
+   l'ancienne route. Avec la Vue, une fenêtre d'ImGui (morceaux 7 et 8), il n'atteindra pas le jeu ; avec le trou du
+   docking d'aujourd'hui, qui n'est pas une fenêtre, `WantCaptureMouse` est faux au-dessus de lui et la route *UI* le
+   laisse passer au jeu. `sceneRect` est refait à chaque image avant `ui` : la fenêtre entière, panneaux fermés ; le trou du nœud
+   central de la disposition, panneaux ouverts (un nœud central où une fenêtre est ancrée n'est pas un trou :
+   rectangle vide, la souris n'est pas au jeu) ; **la Vue (morceaux 7 et 8) y posera le rectangle de sa fenêtre**. La
+   position de la souris est celle d'ImGui : avant tout mouvement, nulle part, et sous la route *jeu* aucun clic
+   n'arrive.
+
 ## Pièges connus
 
 - **Les appuis entre deux pas** : `input::actionPressed` ne vaut que pour l'image de l'appui. À 144 images/s, la
@@ -114,7 +129,7 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
   enregistré : `open()` l'inscrit dans les ressources de son propre command buffer (NVRHI,
   `vulkan-commandlist.cpp`), un cycle que seule la file rompt. Un envoi abandonné se ferme et se soumet quand
   même (`submitAbandonedUpload`, `.agents/skills/build/GOTCHA.md`).
-- **Ce que l'UI garde, le jeu ne le voit pas** (`gameInputOf`) : un clic dans une fenêtre ne tire pas dans la
+- **Ce que l'UI garde, le jeu ne le voit pas** (`gameInputOf`, route `Ui`) : un clic dans une fenêtre ne tire pas dans la
   scène. Mais un relâchement passe toujours, et ce qui était tenu est relâché quand l'UI prend l'appareil :
   l'input garde l'état des touches, et un relâchement perdu laisserait une touche enfoncée pour toujours.
 - **Les données ne sont pas des couleurs** : la rugosité-métal et les normal maps se chargent en UNORM, les
@@ -124,12 +139,12 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `recomposeAfterUi`, `cameraOverride` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `recomposeAfterUi`, `cameraOverride`, `inputRoute`, `sceneRect` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
 | [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf`, `renderCameraOr` (la caméra imposée d'abord) : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
 | [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `AnimationClock`, `advanceAnimationClock`, `SkinningState`, `createSkinningState`, `animateModels` |
-| [`include/levain/app/ui_layer.hpp`](include/levain/app/ui_layer.hpp) | `UiLayer`, `UiCost`, `FrameHistory`, `PanelsKey`, `gameInputOf`, `mouseShouldBeCaptured`, `recordHistory`, `recordUiCpu` : l'interface dans la boucle |
+| [`include/levain/app/ui_layer.hpp`](include/levain/app/ui_layer.hpp) | `UiLayer`, `UiCost`, `FrameHistory`, `PanelsKey`, `InputRoute`, `ScreenRect`, `rectContains`, `DevicesTaken`, `RouteFacts`, `devicesTakenBy`, `gameInputOf`, `uiEventsOf`, `mouseShouldBeCaptured`, `recordHistory`, `recordUiCpu` : l'interface dans la boucle |
 | [`src/panels.hpp`](src/panels.hpp) | `drawEnginePanels` : les panneaux de debug du moteur, ancrés ; `buildLayout` et les clés de leurs fenêtres (`ImageWindow`…) pour `ui_i18n_test.cpp` ; interne |
 | [`include/levain/app/texture_reload.hpp`](include/levain/app/texture_reload.hpp) | `TextureReload`, `startTextureReload`, `reloadChangedTextures` : le hot-reload des textures |
 | [`src/model_textures.hpp`](src/model_textures.hpp) | `textureTargetOf`, `UploadedTexture`, `uploadTexture` : une texture au format que le GPU échantillonne ; interne, partagé par l'envoi et le hot-reload |

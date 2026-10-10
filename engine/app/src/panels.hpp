@@ -4,6 +4,8 @@
 
 #include <imgui.h>
 
+struct ImGuiDockNode;
+
 #include "levain/app/ui_layer.hpp"
 
 namespace levain::app
@@ -20,6 +22,11 @@ inline constexpr const char* SceneWindow = "Scène";
 /// gauche, l'une sur l'autre ; Scène à droite, sur un nœud encore vide, celui de l'inspecteur ; le
 /// centre libre.
 [[nodiscard]] DockNodes buildLayout(ImGuiID dockspace, ImVec2 size);
+
+/// Où se voit la scène (`App::sceneRect`) : le nœud central de la disposition, ou `whole` sans lui.
+/// Un nœud central où une fenêtre est ancrée n'est pas un trou : rectangle vide, à son origine.
+/// Interne à ImGui (`ImGuiDockNode`), donc ici et non dans `ui_layer.hpp`.
+[[nodiscard]] ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole);
 
 /// L'espace d'ancrage, qui couvre l'image et laisse voir la scène au centre, puis les trois
 /// fenêtres du moteur : Image, Passes, Scène. Le programme ajoute les siennes (`FrameHooks::ui`),

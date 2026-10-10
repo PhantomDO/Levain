@@ -78,15 +78,90 @@ struct UiLayer
     FrameHistory history{};
 };
 
-/// L'input que voit le jeu quand l'UI prend la souris ou le clavier (`gameInputOf`) : sans ça, un
-/// clic dans une fenêtre tirerait aussi dans la scène, et taper un nombre ferait marcher le renard.
+/// **Qui reçoit l'input** (ADR-0036, décision 4). Le programme qui n'est pas un éditeur garde `Ui`.
+/// L'éditeur la décide à la fin de l'image N pour l'image N+1 (le survol et le focus ne se savent
+/// que dans `FrameHooks::ui`), et la boucle la lit au début de la suivante (`devicesTakenBy`).
+enum class InputRoute : std::uint8_t
+{
+    /// Le filtre de M7.1 : l'UI garde ce que veut ImGui (`WantCaptureMouse` et `…Keyboard`).
+    Ui,
+    /// Le jeu joue : la souris lui va dans le rectangle de la scène (`App::sceneRect`) de l'image
+    /// d'avant, ou capturée ; le clavier lui va, et ImGui n'en reçoit que les relâchements et F1
+    /// (`uiEventsOf`) : Ctrl+S ne part pas en jouant.
+    Game,
+    /// L'éditeur travaille : rien n'arrive au jeu, et ce qu'il tenait est relâché.
+    Editor,
+};
+
+/// Un rectangle de l'image, en pixels depuis son coin haut gauche : le repère de la souris d'ImGui.
+struct ScreenRect
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+/// Le point est dans le rectangle ; le bord haut gauche en est, le bas droit non, comme un pixel.
+[[nodiscard]] constexpr bool rectContains(const ScreenRect& rect, float pointX, float pointY)
+{
+    return pointX >= rect.x && pointX < rect.x + rect.width && pointY >= rect.y &&
+           pointY < rect.y + rect.height;
+}
+
+/// Les appareils que l'UI garde pour elle à cette image : le jeu n'en voit ni appui ni mouvement.
+struct DevicesTaken
+{
+    bool mouse = false;
+    bool keyboard = false;
+    bool gamepad = false;
+};
+
+/// Ce que `devicesTakenBy` lit de l'image : ce que veut ImGui, et où est la souris.
+struct RouteFacts
+{
+    bool imguiWantsMouse = false;
+    bool imguiWantsKeyboard = false;
+    bool mouseInScene = false; ///< Le curseur est dans `App::sceneRect`.
+    bool mouseCaptured = false;
+};
+
+/// Les appareils que l'UI prend selon la route. *Jeu* ne regarde pas `imguiWantsMouse` : la Vue
+/// sera une fenêtre d'ImGui, que le survol met à `WantCaptureMouse`, et le jeu ne verrait plus un
+/// clic (ADR-0036, option 3B, rejetée pour cela).
+[[nodiscard]] constexpr DevicesTaken devicesTakenBy(InputRoute route, const RouteFacts& facts)
+{
+    switch (route)
+    {
+    case InputRoute::Game:
+        return {.mouse = !facts.mouseInScene && !facts.mouseCaptured,
+                .keyboard = false,
+                .gamepad = false};
+    case InputRoute::Editor:
+        return {.mouse = true, .keyboard = true, .gamepad = true};
+    case InputRoute::Ui:
+        break;
+    }
+    return {.mouse = facts.imguiWantsMouse, .keyboard = facts.imguiWantsKeyboard, .gamepad = false};
+}
+
+/// L'input que voit le jeu quand l'UI prend un appareil (`gameInputOf`) : sans ça, un clic dans une
+/// fenêtre tirerait aussi dans la scène, et taper un nombre ferait marcher le renard.
 /// - les appuis et les mouvements que l'UI garde sont retirés, **jamais un relâchement** : l'input
 ///   garde l'état des touches tenues, et un relâchement perdu laisserait une touche enfoncée ;
 /// - ce qui était tenu de l'appareil que l'UI prend est relâché ;
 /// - F1 (`PanelsKey`) est toujours retirée : c'est la touche de l'UI.
 [[nodiscard]] std::vector<platform::InputEvent>
 gameInputOf(std::span<const platform::InputEvent> events, const input::RawInput& held,
-            bool uiTakesMouse, bool uiTakesKeyboard);
+            DevicesTaken taken);
+
+/// Ce qu'ImGui reçoit des événements de l'image, quand ce n'est pas tous. Sous la route *jeu*, du
+/// clavier il n'a que les relâchements et F1 (un relâchement perdu laisserait une touche enfoncée
+/// pour lui aussi), et pas le texte tapé : une touche du jeu n'ouvre pas un menu, un Ctrl+S ne
+/// part pas. Sous toute autre route, **rien** (`nullopt`) : ImGui reçoit `events` tels quels, sans
+/// copie, ce que le sandbox et *Rando* font à chaque image.
+[[nodiscard]] std::optional<platform::Events> uiEventsOf(InputRoute route,
+                                                         const platform::Events& events);
 
 /// La souris capturée : le programme la veut, et les panneaux ne sont pas ouverts. `App` possède
 /// la capture (ADR-0032) ; le programme pose `mouseCaptureWanted` et lit `mouseCaptured`.
