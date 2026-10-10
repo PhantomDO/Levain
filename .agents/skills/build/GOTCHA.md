@@ -33,16 +33,18 @@ n'a que « Microsoft Hyper-V Video » : WARP y est le seul adaptateur Direct3D 1
   pas : ce que DXGI disait à la création de la factory ou de l'adaptateur était perdu, les huit tests restant verts.
   Parade : `createD3d12Device` relit la file (`drainDxgiMessages`) avant de rendre un device sans swapchain.
   Contre-test, dans une copie de `device_d3d12.cpp` : un message d'erreur ajouté à la file avant la relecture
-  (`AddMessage(DXGI_DEBUG_DXGI, …, ERROR, …)`) arrête `smoke_render.exe triangle d3d12-warp` sur l'assertion (code 3) ;
+  (`AddMessage(DXGI_DEBUG_DXGI, …, ERROR, …)`) arrête `levain_smoke_render.exe triangle d3d12-warp` sur l'assertion (code 3) ;
   avec la relecture retirée et le même message, le programme sort en 0 : c'est elle qui protège. De même, un
   `GetDesc1` refusé dans `warpAdapter` (copie, `E_FAIL`) sort en 1 sur « IDXGIAdapter1::GetDesc1 : HRESULT 0x80004005 »,
-  plutôt que d'accuser un adaptateur sans nom.
+  plutôt que d'accuser un adaptateur sans nom ; et dans `highPerformanceAdapter`, où WARP passerait sinon pour un GPU
+  (`Flags` à zéro), « IDXGIAdapter1::GetDesc1 : HRESULT 0x80004005 » sur la 4070 (`… triangle d3d12`, hors écran).
 - **Hors écran aussi sur la 4070** : `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER levain_smoke_render.exe
   triangle d3d12` (puis `shadow`) rend 0 pixel différent, sans fenêtre (« Direct3D 12 sous le pilote offscreen de SDL »).
 - **Les mêmes références que lavapipe, sans tolérance de plus** : triangle, cube et cube-instance à 0 pixel, lines à 0
   (4 admis), shadow à 3 (16 admis), light-clusters « 0 différents du CPU », en Debug comme en Release
   (`SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER ctest --test-dir build/windows-debug -R d3d12-warp -V`, puis
-  `windows-release`) ; 0,1 à 0,7 s par test, les huit en 2,6 s en Debug et 2,2 s en Release (somme des durées de ctest).
+  `windows-release`) ; sur le portable, 0,1 à 0,7 s par test, les huit en 2,6 s en Debug et 2,2 s en Release (somme des durées de
+  ctest ; pas un chiffre de la machine de référence). Sur le runner : 0,4 à 1,0 s par test (run 38057942834).
 - **Piège de la commande, vu en session** : `-R 'smoke.d3d12-warp.triangle|smoke.triangle'` a lancé aussi le test
   **Vulkan** `smoke.triangle`. Avec `WSLENV=SDL_VIDEO_DRIVER`, la propriété `ENVIRONMENT` de ce test
   (`SDL_VIDEO_DRIVER=windows`, `testVideo`) passe devant le `offscreen` de l'appelant et atteint l'exe, qui a ouvert

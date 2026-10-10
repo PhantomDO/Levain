@@ -740,7 +740,7 @@ jobs:
       # Debug comprise, sans quoi un exe s'arrêterait au chargement, ou plus loin, sur une fonction qui manque. Puis
       # Direct3D 12 sur WARP (les tests d3d12-warp, #19) : le rendu logiciel est dans le système (d3d10warp.dll), et les
       # tests exigent les couches de debug de Direct3D 12 et de DXGI, aussi en Release (d3d12SDKLayers.dll, de la
-      # fonctionnalité facultative « Outils graphiques » de Windows ; dxgidebug.dll, build/GOTCHA.md). Une absence arrête
+      # fonctionnalité facultative « Outils graphiques » de Windows ; dxgidebug.dll, celle de DXGI). Une absence arrête
       # le job ici en nommant le fichier, plutôt que dans huit tests rouges (règle n°7). Enfin lavapipe et les couches de
       # validation, que le chargeur doit trouver : vulkaninfo les nomme.
       - name: Vérifier le runner
@@ -760,7 +760,7 @@ jobs:
           $direct3d = [ordered]@{
             'd3d10warp.dll'      = 'WARP, qui fait partie de Windows'
             'd3d12SDKLayers.dll' = 'fonctionnalité « Outils graphiques » de Windows'
-            'dxgidebug.dll'      = 'fonctionnalité « Outils graphiques » de Windows'
+            'dxgidebug.dll'      = 'couche de debug de DXGI, livrée avec Windows ou les « Outils graphiques »'
           }
           foreach ($dll in $direct3d.Keys) {
             $path = "$env:SystemRoot\System32\$dll"

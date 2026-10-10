@@ -52,7 +52,9 @@ de l'appelant) : le `offscreen` du shell ne les protège pas (build/GOTCHA.md). 
 `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER levain_smoke_render.exe <scène> d3d12` et ses trois cousins
 (`levain_light_clusters.exe`, `levain_environment.exe`, `levain_ui_gpu.exe`), le sandbox par
 `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER levain_sandbox.exe --gpu d3d12 --capture x.png` ; sans le
-`offscreen`, `levain_sandbox.exe --gpu d3d12` ouvre une fenêtre.
+`offscreen`, `levain_sandbox.exe --gpu d3d12` ouvre une fenêtre. C'est elle qu'il faut pour un changement de la
+swapchain ou de la présentation (`swapchain_d3d12.cpp`) : ni WARP ni le hors-écran ne les exercent. Donnovan permet ces
+fenêtres courtes sur le portable (sondage du 2026-10-10).
 
 Un exe Windows n'ouvre ni la fenêtre de la CRT ni celle d'une exception quand il échoue (assertion, STL, `abort()`,
 paramètre invalide, plantage) : le message va sur stderr, puis le programme s'arrête en Debug (code non nul), ou, en

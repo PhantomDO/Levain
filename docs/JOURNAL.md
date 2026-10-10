@@ -31,27 +31,50 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
-## 2026-10-10 — M1.4 — #19 : Direct3D 12 sur WARP, en CI sans GPU
+## 2026-10-10 — M1.4 — #19 : Direct3D 12 sur WARP, en CI sans GPU ; le programme de l'éditeur décidé
 
-- Temps Donnovan : non déclaré (session autonome)
-- Sessions Claude Code : 1 de plus (l'investigation, puis cette PR)
-- Fait, en trois commits sur `m1.4/warp-smoke` (les deux morceaux, puis les corrections de la relecture) :
+- **Temps Donnovan : 1 h** depuis le sondage du 09/10 au matin (sa réponse au sondage du 10/10 : « ≈ 1 h ») : la
+  soirée du 09/10 (le mode de CI, M7.2, les minidumps) et la reprise du 10/10. Mise sur M1.4, à titre provisoire : 5 h
+  pour M1.4 en tout. Les sondages de M7.7 ne sont pas comptés ici.
+- Sessions Claude Code : 1 de plus (reprise à distance ; Donnovan : « je ne regarderais pas donc fait tout les test
+  nécessaire pour que ça fonctionne »)
+- Fait, en trois morceaux sur la branche `m1.4/warp-smoke`, puis une PR vers `main` :
   - **la fenêtre n'annonce Vulkan que pour Vulkan** (`GraphicsSurface`, `gpu::surfaceFor`) : SDL charge `vulkan-1.dll`
-    pour toute fenêtre qui annonce `SDL_WINDOW_VULKAN`, et Direct3D 12 ne devait pas en dépendre ;
-  - **WARP** : `DeviceOptions::adapter` (`Adapter::Software`), `warpAdapter` qui refuse tout adaptateur non logiciel,
-    `requireAdapterChoosable` ; Direct3D 12 sans swapchain sous le pilote `offscreen` de SDL, dont la file de la couche
-    de debug DXGI est relue à la création ; `tests/gpu_test_backend.hpp` (`d3d12-warp` à côté de `vulkan`, `d3d12`,
-    `webgpu`, pour les quatre programmes) ; huit tests `d3d12-warp` par configuration Windows ; la CI vérifie sur le
-    runner `d3d10warp.dll`, `d3d12SDKLayers.dll` et `dxgidebug.dll`.
-- Mesures (`SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER ctest --test-dir build/windows-debug -R d3d12-warp -V`,
-  puis `windows-release`) : les huit tests verts dans les deux configurations, triangle, cube et cube-instance à 0
-  pixel, lines à 0 (4 admis), shadow à 3 (16 admis), light-clusters à 0 différent du CPU, 2,6 s au total en Debug et
-  2,2 s en Release (somme des durées de ctest, dernier passage). Détail et contre-tests : build/GOTCHA.md.
-- Écarts et problèmes : la couche de debug du runner (`d3d12SDKLayers.dll`) n'est pas prouvée présente ; le premier
-  passage de la CI à la main (`gh workflow run ci.yml --ref m1.4/warp-smoke`) le dira, et décidera s'il faut
-  l'installer dans le job. Un `-R` trop large, lancé de la distro avec `WSLENV`, a ouvert une fenêtre de 1,4 s sur le
-  bureau du portable (build/GOTCHA.md).
-- Prochaine étape : le passage de la CI à la main, puis #18, et la clôture de M1.4.
+    pour toute fenêtre `SDL_WINDOW_VULKAN`, et Direct3D 12 ne doit pas en dépendre (Dawn, lui, le charge encore) ;
+  - **WARP sur demande** : `DeviceOptions::adapter` (`Adapter::Software`), `warpAdapter`, qui refuse tout adaptateur
+    non logiciel, `requireAdapterChoosable` sur toutes les cibles ; Direct3D 12 sans swapchain sous le pilote
+    `offscreen` de SDL, sa file DXGI relue à la création ; `GetDesc1` vérifié, pour que WARP ne passe jamais pour un GPU ;
+  - **les tests** : `tests/gpu_test_backend.hpp` (`d3d12-warp` à côté de `vulkan`, `d3d12`, `webgpu`), huit tests
+    `d3d12-warp` par configuration Windows, et la CI qui vérifie `d3d10warp.dll`, `d3d12SDKLayers.dll` et `dxgidebug.dll`
+    sur le runner.
+- Mesures :
+  - **le runner a la couche de debug** : `d3d12SDKLayers.dll` 10.0.26100.33438, `d3d10warp.dll` 10.0.26100.33438,
+    `dxgidebug.dll` 10.0.26100.1882 (run 38057942834, lancé à la main sur `m1.4/warp-smoke-all`, étape « Vérifier le
+    runner ») : rien à installer, aucune décision à demander ;
+  - les huit tests verts sur le runner en Release, 0,4 à 1,0 s chacun, et en Debug, couches de debug actives, 0,3 à
+    4,3 s (`gpu.environment` le plus long ; même run) ;
+  - sur le portable (Debug et Release) : triangle, cube et cube-instance à 0 pixel, lines à 0 (4 admis), shadow à 3
+    (16 admis), light-clusters à 0 différent du CPU, aux références de lavapipe (`SDL_VIDEO_DRIVER=offscreen
+    WSLENV=SDL_VIDEO_DRIVER ctest --test-dir build/windows-debug -R d3d12-warp -V`) ;
+  - `tools/verify.sh` vert sur chaque morceau (389 tests Linux par preset, 191 web).
+- **Le programme de la phase 7**, décidé par sondage le 10/10 après une étude de l'éditeur (cinq lectures du code,
+  Unity, Unreal et Godot comparés, un plan relu par un critique) :
+  - « M7.7 « L'atelier » d'abord, puis Play/Stop » : un milestone de plus, M7.7 (mode Édition, Vue, caméra d'éditeur,
+    menus, raccourcis, console), puis M7.5, M7.3, M7.4, M7.6 ; son temps pour le reste de la phase : 5,25 → 7,0 h ;
+  - « Unreal et il faudra faire un menu ou on peut régler les raccourcis pour ceux qui veulent les changers. » ;
+  - les touches d'outil par position (Z, E, R sur son AZERTY) ;
+  - « Français mais il faudrait faire une passe de traduction à la fin pour qu'on puisse changer la langue du moteur
+    pour l'anglais pour le reste des gens. » ;
+  - des fenêtres permises sur le portable ; les polices sous OFL acceptées (SPECS §5 à amender).
+- Écarts et problèmes :
+  - **une fenêtre de 64×64 ouverte 1,4 s sur le bureau du portable**, avant que Donnovan ne les permette : un `-R` trop
+    large, lancé de la distro, a pris un test Vulkan (build/GOTCHA.md) ;
+  - la première version faisait 605 lignes en une PR (règle n°2) : redécoupée en trois morceaux de 190, 199 et 303 lignes ;
+  - les relectures (trois, dont celle des corrections) : la file DXGI jamais relue sans swapchain (corrigé, contre-testé),
+    un `GetDesc1` non vérifié qui laissait WARP passer pour un GPU (corrigé, contre-testé), la doc qui disait WebGPU
+    natif sans chargeur Vulkan (faux : Dawn le charge).
+- Prochaine étape : la PR de #19 vers `main`, puis M7.7 (l'ADR-0036 et la ROADMAP v0.16 d'abord). #18 et la clôture de
+  M1.4 se feront avec Donnovan.
 
 ## 2026-10-10 — M7.2 — Clôture : un composant devient éditable en une ligne, et ses refus sont testés
 
