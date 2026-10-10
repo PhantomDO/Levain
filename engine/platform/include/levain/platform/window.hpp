@@ -51,12 +51,27 @@ struct Window
     std::unique_ptr<SDL_Window, WindowDeleter> handle;
 };
 
+/// Ce que la fenêtre annonce à SDL pour la surface où le GPU dessinera. SDL charge la bibliothèque
+/// Vulkan (`vulkan-1.dll` sous Windows) dès qu'une fenêtre annonce Vulkan, et en refuse la création
+/// si elle manque (`SDL_video.c`, `SDL_CreateWindow`) : la fenêtre de Direct3D 12 n'annonce rien,
+/// pour qu'une machine sans chargeur Vulkan le lance quand même. Celle de WebGPU en natif non plus,
+/// mais Dawn charge `vulkan-1.dll` lui-même pour son backend Vulkan : seul Direct3D 12 s'en passe.
+/// `gpu::surfaceFor` choisit d'après le backend. Ignoré dans le navigateur, où la fenêtre est le
+/// canvas de la page.
+enum class GraphicsSurface : std::uint8_t
+{
+    Vulkan, ///< La fenêtre porte une surface Vulkan (`SDL_WINDOW_VULKAN`).
+    None,   ///< Aucune surface : le backend présente autrement, ou ne présente pas.
+};
+
 /// Démarre SDL et ouvre une fenêtre redimensionnable. La taille demandée est en **points** :
 /// c'est le compositeur qui applique l'échelle de l'écran, et `Resized` donnera les pixels.
 ///
 /// Échoue si aucun serveur d'affichage n'est joignable (ni Wayland, ni X11) : c'est une cause
-/// extérieure, pas un bug (ADR-0008).
-[[nodiscard]] core::Result<Window> createWindow(const std::string& title, int width, int height);
+/// extérieure, pas un bug (ADR-0008). Échoue aussi pour `GraphicsSurface::Vulkan` sans chargeur
+/// Vulkan.
+[[nodiscard]] core::Result<Window> createWindow(const std::string& title, int width, int height,
+                                                GraphicsSurface surface);
 
 /// Taille actuelle de la zone de dessin, en pixels. Sous Wayland, c'est la seule source fiable : la
 /// surface Vulkan n'y connaît pas sa propre taille, et c'est à l'application de la donner.

@@ -66,6 +66,11 @@ struct DeviceOptions
 /// le refuse hors de Windows, avec un message qui le dit.
 [[nodiscard]] std::optional<nvrhi::GraphicsAPI> graphicsApiNamed(std::string_view name);
 
+/// Ce que la fenêtre doit annoncer à SDL pour ce backend : une surface Vulkan pour Vulkan, rien
+/// pour les autres. Une fenêtre qui annonce Vulkan fait charger `vulkan-1.dll` à SDL, et sa
+/// création échoue sur une machine qui n'en a pas : Direct3D 12 ne doit pas en dépendre.
+[[nodiscard]] platform::GraphicsSurface surfaceFor(nvrhi::GraphicsAPI api);
+
 /// Refuse un backend que ce build ne contient pas : Direct3D 12 hors de Windows, tout sauf WebGPU
 /// dans le navigateur. Un refus de l'option n'afficherait que l'usage du programme, sans dire
 /// pourquoi « d3d12 » n'est pas pris.

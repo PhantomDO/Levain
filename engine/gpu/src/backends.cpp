@@ -27,6 +27,12 @@ std::optional<nvrhi::GraphicsAPI> graphicsApiNamed(std::string_view name)
     return std::nullopt;
 }
 
+platform::GraphicsSurface surfaceFor(nvrhi::GraphicsAPI api)
+{
+    return api == nvrhi::GraphicsAPI::VULKAN ? platform::GraphicsSurface::Vulkan
+                                             : platform::GraphicsSurface::None;
+}
+
 namespace
 {
 
