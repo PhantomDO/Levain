@@ -173,31 +173,38 @@ SceneModule::SceneModule(flecs::world& world)
     // Le pointeur du monde est capturé une fois : it.world() le reconstruit à chaque entité.
     const flecs::world_t* worldPtr = world.c_ptr();
     const flecs::entity_t worldTransformId = world.id<WorldTransform>();
-    world
-        .system<const Transform, const PreviousTransform*, const flecs::Parent*, const RenderAlpha,
-                WorldTransform>("ComputeWorldTransforms")
-        .term_at(3)
-        .src<RenderAlpha>() // un singleton : lu une fois par table, et non par entité
-        .kind(flecs::PostUpdate)
-        .group_by(flecs::ParentDepth)
-        .query_flags(EcsQueryGroupByOrdered)
-        .each(
-            [worldPtr, worldTransformId](const Transform& local, const PreviousTransform* previous,
-                                         const flecs::Parent* parent, const RenderAlpha& alpha,
-                                         WorldTransform& transform)
-            {
-                // Sans état précédent, l'entité est rendue telle quelle : c'est le cas du décor.
-                const Transform displayed =
-                    previous != nullptr ? interpolate(previous->transform, local, alpha.value)
-                                        : local;
-                transform.matrix = worldMatrix(
-                    parentWorldMatrix(worldPtr, parent, worldTransformId), localMatrix(displayed));
-            });
+    // `each` rend le système lui-même : son identifiant sert à `composeWorldTransforms`, sans le
+    // chercher par son nom (qui dépend de la portée du module).
+    const flecs::system computeWorldTransforms =
+        world
+            .system<const Transform, const PreviousTransform*, const flecs::Parent*,
+                    const RenderAlpha, WorldTransform>("ComputeWorldTransforms")
+            .term_at(3)
+            .src<RenderAlpha>() // un singleton : lu une fois par table, et non par entité
+            .kind(flecs::PostUpdate)
+            .group_by(flecs::ParentDepth)
+            .query_flags(EcsQueryGroupByOrdered)
+            .each(
+                [worldPtr, worldTransformId](const Transform& local,
+                                             const PreviousTransform* previous,
+                                             const flecs::Parent* parent, const RenderAlpha& alpha,
+                                             WorldTransform& transform)
+                {
+                    // Sans état précédent, l'entité est rendue telle quelle : c'est le cas du
+                    // décor.
+                    const Transform displayed =
+                        previous != nullptr ? interpolate(previous->transform, local, alpha.value)
+                                            : local;
+                    transform.matrix =
+                        worldMatrix(parentWorldMatrix(worldPtr, parent, worldTransformId),
+                                    localMatrix(displayed));
+                });
+    world.set<WorldTransformSystem>({.system = computeWorldTransforms.id()});
 }
 
-int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds)
+int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds, bool simulationPaused)
 {
-    const StepPlan plan = planSteps(step, frameSeconds);
+    const StepPlan plan = planFrame(step, frameSeconds, simulationPaused);
     const flecs::entity_t simulation = world.get<SimulationPipeline>().pipeline;
     for (int i = 0; i < plan.steps; ++i)
     {
@@ -209,6 +216,14 @@ int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds)
     LEVAIN_PROFILE_SCOPE_NAMED("interpolation et matrices monde");
     world.progress(frameSeconds); // le pipeline par défaut
     return plan.steps;
+}
+
+void composeWorldTransforms(flecs::world& world)
+{
+    // Un système se lance à la main hors de tout pipeline, une fois, avec `system::run()`
+    // (https://www.flecs.dev/flecs/md_docs_2Systems.html, section « Running systems manually ») :
+    // les autres systèmes de la passe de rendu ne tournent pas.
+    flecs::system{world, world.get<WorldTransformSystem>().system}.run();
 }
 
 } // namespace levain::scene
