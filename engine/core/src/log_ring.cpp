@@ -60,4 +60,20 @@ std::uint64_t generationOf(const LogRing& ring)
     return ring.generation;
 }
 
+LogCapture captureLog(std::size_t capacity)
+{
+    LogCapture capture;
+    capture.ring = std::make_unique<LogRing>(capacity);
+    LogRing* const ring = capture.ring.get();
+    capture.sink = addLogSink(
+        [ring](const LogRecord& record)
+        {
+            pushLogEntry(*ring, {.level = record.level,
+                                 .category = std::string{record.category},
+                                 .text = std::string{record.message},
+                                 .seconds = record.seconds});
+        });
+    return capture;
+}
+
 } // namespace levain::core

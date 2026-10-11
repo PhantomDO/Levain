@@ -2,11 +2,13 @@
 
 // L'anneau du journal (ADR-0036, décision 16) : les derniers messages, en nombre borné, avec le
 // compte de tous ceux qui sont passés. Il alimente la fenêtre « Console » de l'éditeur ; il ne sait
-// rien d'ImGui. Écrit de n'importe quel fil, lu par celui de l'interface.
+// rien d'ImGui. Écrit de n'importe quel fil (le récepteur de `captureLog`), lu par celui de
+// l'interface.
 
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -76,7 +78,7 @@ struct LogCounts
 }
 
 /// L'anneau. Ses champs ne se touchent que sous `mutex` : les fonctions ci-dessous le font. Jamais
-/// copié ni déplacé (le mutex).
+/// copié ni déplacé (le mutex) : `LogCapture` le tient sur le tas.
 struct LogRing
 {
     explicit LogRing(std::size_t maxEntries) : capacity(maxEntries) {}
@@ -107,5 +109,28 @@ struct LogSnapshot
 [[nodiscard]] LogSnapshot snapshotOf(const LogRing& ring);
 
 [[nodiscard]] std::uint64_t generationOf(const LogRing& ring);
+
+/// Un anneau qui reçoit le journal tant qu'il vit. Le destructeur retire le récepteur *avant* que
+/// les membres ne partent : aucun appel ne peut plus atteindre l'anneau une fois libéré, quel que
+/// soit l'ordre des déclarations. Le piège est de déplacer *sur* une capture : l'affectation par
+/// défaut libérerait l'ancien anneau pendant que l'ancien récepteur est encore inscrit, et un fil
+/// qui journalise écrirait dans de la mémoire libérée. Elle est donc interdite ; remplacer une
+/// capture se fait en la détruisant (`std::optional::emplace`, ou un `shared_ptr` neuf).
+struct LogCapture
+{
+    LogCapture() = default;
+    LogCapture(const LogCapture&) = delete;
+    LogCapture& operator=(const LogCapture&) = delete;
+    /// L'anneau reste à la même adresse (sur le tas) : le récepteur déplacé le vise encore.
+    LogCapture(LogCapture&&) noexcept = default;
+    LogCapture& operator=(LogCapture&&) = delete;
+
+    ~LogCapture() { sink.reset(); }
+
+    std::unique_ptr<LogRing> ring;
+    LogSinkHandle sink;
+};
+
+[[nodiscard]] LogCapture captureLog(std::size_t capacity);
 
 } // namespace levain::core

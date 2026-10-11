@@ -62,7 +62,8 @@ using LogSink = std::function<void(const LogRecord&)>;
 
 /// L'inscription d'un récepteur, retirée à la destruction : un récepteur qui vise un objet ne
 /// survit pas à son propriétaire, tant que le propriétaire déclare la poignée **après** l'objet
-/// (destruction en sens inverse), ou la retire lui-même en premier dans son destructeur.
+/// (destruction en sens inverse), ou la retire lui-même en premier dans son destructeur, comme
+/// `LogCapture` (log_ring.hpp), que l'ordre de ses membres ne peut plus piéger.
 class LogSinkHandle
 {
 public:

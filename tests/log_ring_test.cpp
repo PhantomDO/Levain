@@ -2,8 +2,10 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -132,4 +134,107 @@ TEST_CASE("deux fils poussent ensemble dans un anneau qui déborde : aucun compt
         CHECK(number > last.at(thread));
         last.at(thread) = number;
     }
+}
+
+TEST_CASE("une capture reçoit le journal du processus, et libérée, plus rien ne l'atteint (ASan)")
+{
+    levain::core::setLogLevel("test.capture", LogLevel::Info);
+    {
+        levain::core::LogCapture capture = levain::core::captureLog(16);
+        levain::core::log("test.capture", LogLevel::Warning, "valeur {}", 42);
+        levain::core::log("test.capture", LogLevel::Error, "panne");
+        const levain::core::LogSnapshot snapshot = levain::core::snapshotOf(*capture.ring);
+        REQUIRE(snapshot.entries.size() == 2);
+        CHECK(snapshot.entries[0].category == "test.capture");
+        CHECK(snapshot.entries[0].text == "valeur 42");
+        CHECK(snapshot.entries[1].level == LogLevel::Error);
+        CHECK(snapshot.counts.warnings == 1);
+        CHECK(snapshot.counts.errors == 1);
+    }
+    // L'anneau est libéré avec sa capture : ce message ne doit toucher rien (ASan le verrait).
+    levain::core::log("test.capture", LogLevel::Error, "personne ne l'écoute");
+}
+
+TEST_CASE("deux fils écrivent ensemble dans une capture : ni entrée perdue, ni texte mélangé, ni "
+          "compte faux")
+{
+    levain::core::setLogLevel("test.anneau-fils", LogLevel::Info);
+    constexpr int PerThread = 400;
+    const levain::core::LogCapture capture =
+        levain::core::captureLog(2 * static_cast<std::size_t>(PerThread));
+    const auto write = [](int thread)
+    {
+        for (int i = 0; i < PerThread; ++i)
+        {
+            // Une erreur sur trois : les comptes par niveau passent aussi par les deux fils.
+            levain::core::log("test.anneau-fils", i % 3 == 0 ? LogLevel::Error : LogLevel::Info,
+                              "fil {} numéro {}", thread, i);
+        }
+    };
+    std::thread first{write, 0};
+    std::thread second{write, 1};
+    first.join();
+    second.join();
+
+    const levain::core::LogSnapshot snapshot = levain::core::snapshotOf(*capture.ring);
+    REQUIRE(snapshot.entries.size() == 2 * PerThread);
+    std::vector<int> next(2, 0);
+    for (const LogEntry& entry : snapshot.entries)
+    {
+        const int thread = entry.text.starts_with("fil 0 ") ? 0 : 1;
+        CHECK(entry.text == "fil " + std::to_string(thread) + " numéro " +
+                                std::to_string(next[static_cast<std::size_t>(thread)]++));
+    }
+    CHECK(next == std::vector<int>{PerThread, PerThread});
+    CHECK(snapshot.counts.errors == 2 * ((PerThread + 2) / 3));
+    CHECK(snapshot.counts.infos ==
+          static_cast<std::uint64_t>(2 * PerThread) - snapshot.counts.errors);
+}
+
+// Le piège de `LogCapture`, nommé : remplacer une capture par une autre ne se fait pas par
+// affectation (elle libérerait l'ancien anneau pendant que l'ancien récepteur est encore inscrit).
+static_assert(!std::is_move_assignable_v<levain::core::LogCapture>);
+static_assert(!std::is_copy_constructible_v<levain::core::LogCapture>);
+static_assert(std::is_nothrow_move_constructible_v<levain::core::LogCapture>);
+
+TEST_CASE("des captures créées et détruites pendant qu'un fil journalise ne reçoivent rien "
+          "après leur fin (ASan)")
+{
+    levain::core::setLogLevel("test.capture-course", LogLevel::Info);
+    std::atomic<bool> stop = false;
+    std::thread writer{[&stop]
+                       {
+                           while (!stop)
+                           {
+                               levain::core::log("test.capture-course", LogLevel::Info, "course");
+                           }
+                       }};
+    std::optional<levain::core::LogCapture> held;
+    for (int round = 0; round < 200; ++round)
+    {
+        // `emplace` détruit l'ancienne capture avant de construire la neuve : son anneau est libéré
+        // pendant que le fil écrit, ce que seul un récepteur déjà retiré supporte. Le déplacement
+        // (la capture rendue par `captureLog`, puis celle de `emplace`) garde le récepteur vivant.
+        held.emplace(levain::core::captureLog(8));
+        std::this_thread::yield();
+        if (round % 20 == 19)
+        {
+            held.reset(); // une pause sans capture du tout
+            std::this_thread::yield();
+        }
+    }
+    stop = true;
+    writer.join();
+
+    // Une capture déplacée reçoit toujours : l'anneau n'a pas changé d'adresse.
+    levain::core::LogCapture first = levain::core::captureLog(8);
+    const levain::core::LogCapture second = std::move(first);
+    // L'état d'une capture déplacée est défini : ni anneau, ni récepteur.
+    // NOLINTBEGIN(bugprone-use-after-move)
+    CHECK(first.ring == nullptr);
+    CHECK_FALSE(first.sink.active());
+    // NOLINTEND(bugprone-use-after-move)
+    levain::core::log("test.capture-course", LogLevel::Warning, "après le déplacement");
+    REQUIRE(second.ring != nullptr);
+    CHECK(levain::core::snapshotOf(*second.ring).counts.warnings == 1);
 }
