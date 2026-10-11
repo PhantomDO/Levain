@@ -16,29 +16,43 @@
 namespace levain::app
 {
 
-DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
+DockNodes buildLayout(ImGuiID dockspace, ImVec2 size, bool editor)
 {
     ImGui::DockBuilderRemoveNode(dockspace);
     ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockspace, size);
     ImGuiID center = dockspace;
+    if (!editor)
+    {
+        const ImGuiID leftColumn =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.24f, nullptr, &center);
+        const ImGuiID rightColumn =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
+        ImGuiID leftBottom = 0;
+        const ImGuiID leftTop =
+            ImGui::DockBuilderSplitNode(leftColumn, ImGuiDir_Up, 0.5f, nullptr, &leftBottom);
+        ImGuiID rightBottom = 0;
+        const ImGuiID rightTop =
+            ImGui::DockBuilderSplitNode(rightColumn, ImGuiDir_Up, 0.4f, nullptr, &rightBottom);
+        ImGui::DockBuilderDockWindow(ImageWindow, leftTop);
+        ImGui::DockBuilderDockWindow(PassesWindow, leftBottom);
+        ImGui::DockBuilderDockWindow(SceneWindow, rightTop);
+        ImGui::DockBuilderFinish(dockspace);
+        return {.left = leftTop, .center = center, .inspector = rightBottom, .bottom = 0};
+    }
     const ImGuiID left =
-        ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.24f, nullptr, &center);
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, nullptr, &center);
     const ImGuiID right =
-        ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
-    ImGuiID leftBottom = 0;
-    const ImGuiID leftTop =
-        ImGui::DockBuilderSplitNode(left, ImGuiDir_Up, 0.5f, nullptr, &leftBottom);
-    ImGuiID rightBottom = 0;
-    const ImGuiID rightTop =
-        ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.4f, nullptr, &rightBottom);
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.26f, nullptr, &center);
+    const ImGuiID bottom =
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
     // Par la clé : ImHashStr (imgui.cpp) ne hache que ce qui suit « ### », donc « Image » est
     // l'identifiant de « Picture###Image ».
-    ImGui::DockBuilderDockWindow(ImageWindow, leftTop);
-    ImGui::DockBuilderDockWindow(PassesWindow, leftBottom);
-    ImGui::DockBuilderDockWindow(SceneWindow, rightTop);
+    ImGui::DockBuilderDockWindow(ImageWindow, bottom);
+    ImGui::DockBuilderDockWindow(PassesWindow, bottom);
+    ImGui::DockBuilderDockWindow(SceneWindow, bottom);
     ImGui::DockBuilderFinish(dockspace);
-    return {.left = leftTop, .inspector = rightBottom};
+    return {.left = left, .center = center, .inspector = right, .bottom = bottom};
 }
 
 ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole)
@@ -160,7 +174,7 @@ void drawEnginePanels(App& app)
     const ImGuiID dockspace = ImHashStr("levain");
     if (ImGui::DockBuilderGetNode(dockspace) == nullptr)
     {
-        app.ui.dock = buildLayout(dockspace, viewport->Size);
+        app.ui.dock = buildLayout(dockspace, viewport->Size, app.ui.editorLayout);
     }
     // Le centre laisse passer la souris et l'image : on y voit la scène, et on y vise. Seulement
     // tant que la scène est dans la fenêtre : dans la texture de la Vue, il n'y a rien à voir à

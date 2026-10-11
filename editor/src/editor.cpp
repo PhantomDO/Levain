@@ -98,6 +98,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         {
             return hooks;
         }
+        // Avant la première image de panneaux : la disposition se construit à ce moment-là.
+        app.ui.editorLayout = true;
         const auto editor =
             std::make_shared<Editor>(Editor{.selected = 0,
                                             .hierarchy = createHierarchy(app.world),
@@ -141,11 +143,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             if (app.ui.panelsOpen)
             {
                 // Avant la hiérarchie : dessinée après elle, la console prendrait l'onglet visible
-                // du nœud qu'elles se partagent (ImGui montre le dernier venu,
-                // `DockNodeUpdateTabBar` dans imgui.cpp) et cacherait ce qu'on voit à l'ouverture
-                // (mesuré par gpu.editor-console). Elle n'écrit pas dans le monde : hors du
-                // `defer`.
-                drawConsole(editor->console, *editor->log->ring, app.ui.dock.left);
+                // de son nœud (ImGui montre le dernier venu, `DockNodeUpdateTabBar` dans
+                // imgui.cpp) ; elle ne partage plus de nœud avec elle, mais garde l'ordre. Elle
+                // n'écrit pas dans le monde : hors du `defer`.
+                drawConsole(editor->console, *editor->log->ring, app.ui.dock.bottom);
                 // Les écritures de l'inspecteur et leurs observateurs passent après le parcours.
                 app.world.defer_begin();
                 drawHierarchy(app.world, editor->hierarchy, editor->selected, app.ui.dock.left);

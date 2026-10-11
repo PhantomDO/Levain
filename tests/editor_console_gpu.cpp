@@ -183,9 +183,9 @@ int playOpening(const levain::tests::TestBackend& backend, ImVec2& errorBoxAt)
     const Seen& before = run.seen.at(FocusFrame - 1);
     const Seen& last = run.seen.back();
     errorBoxAt = last.errorBoxAt;
-    // Dans le nœud qu'elle partage avec la hiérarchie et la fenêtre « Image », ImGui montre le
-    // dernier onglet venu quand la console est dessinée après la hiérarchie : elle prendrait la
-    // place de ce qu'on voyait à l'ouverture (`withEditor`).
+    // Dans le nœud du bas, avec Image, Passes et Scène, ImGui montre le dernier onglet venu : une
+    // console dessinée après les fenêtres du moteur prendrait la place de ce qu'on voyait à
+    // l'ouverture (`withEditor` la dessine avant).
     return expect(!before.consoleVisible,
                   "à l'ouverture, la console ne prend pas l'onglet qu'on voyait") +
            expect(last.consoleVisible, "la console mise en avant est dessinée") +

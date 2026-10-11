@@ -18,10 +18,13 @@ inline constexpr const char* ImageWindow = "Image";
 inline constexpr const char* PassesWindow = "Passes";
 inline constexpr const char* SceneWindow = "Scène";
 
-/// La disposition de départ, recréée à chaque lancement (pas d'`imgui.ini`) : Image et Passes à
-/// gauche, l'une sur l'autre ; Scène à droite, sur un nœud encore vide, celui de l'inspecteur ; le
-/// centre libre.
-[[nodiscard]] DockNodes buildLayout(ImGuiID dockspace, ImVec2 size);
+/// La disposition de départ, recréée à chaque lancement (pas d'`imgui.ini`). **Éditeur**
+/// (`editor`, `UiLayer::editorLayout`) : à gauche un nœud vide (la hiérarchie), à droite un nœud
+/// vide (l'inspecteur, seul), en bas Image, Passes et Scène en onglets, le centre libre (la Vue).
+/// **Sinon** (le sandbox, *Rando*) celle d'avant l'éditeur : Image et Passes à gauche, l'une sur
+/// l'autre, Scène à droite sur un nœud sans autre fenêtre, le centre libre (`bottom` reste nul) ;
+/// aucun nœud vide qui prendrait des clics.
+[[nodiscard]] DockNodes buildLayout(ImGuiID dockspace, ImVec2 size, bool editor);
 
 /// Où se voit la scène (`App::sceneRect`) : le nœud central de la disposition, ou `whole` sans lui.
 /// Un nœud central où une fenêtre est ancrée n'est pas un trou : rectangle vide, à son origine.

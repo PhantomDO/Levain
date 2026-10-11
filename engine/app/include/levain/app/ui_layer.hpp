@@ -46,12 +46,15 @@ struct FrameHistory
 };
 
 /// Les nœuds de la disposition des panneaux (`drawEnginePanels`), où l'éditeur ancre ses fenêtres
-/// (ADR-0034) : à gauche celui d'« Image », à droite, sous « Scène », celui de l'inspecteur : à lui
-/// seul, il est toujours visible. Nuls tant que les panneaux n'ont jamais été ouverts.
+/// (ADR-0034, ADR-0036 décision 10) : à gauche la hiérarchie, au centre la Vue, à droite
+/// l'inspecteur, **seul sur son nœud, donc toujours visible**, en bas la console, « Image »,
+/// « Passes » et « Scène », en onglets. Nuls tant que les panneaux n'ont jamais été ouverts.
 struct DockNodes
 {
     ImGuiID left = 0;
+    ImGuiID center = 0;
     ImGuiID inspector = 0;
+    ImGuiID bottom = 0;
 };
 
 /// L'UI d'un programme. Elle tient des ressources du GPU : `App` la déclare avant ses points
@@ -65,6 +68,10 @@ struct UiLayer
     /// Les panneaux de debug du moteur, ouverts par F1 ou `--ui on`.
     bool panelsOpen = false;
     DockNodes dock{};
+    /// **Un éditeur enveloppe ce programme** (`withEditor`) : la disposition à colonnes
+    /// (hiérarchie, Vue, inspecteur, onglets du bas). Faux (le sandbox, *Rando*) : la disposition
+    /// d'avant.
+    bool editorLayout = false;
     bool textInputActive = false;
     /// Les touches d'ImGui envoyées à l'appui, à relâcher à l'identique (`feedInput`).
     ui::PressedKeys pressedKeys{};

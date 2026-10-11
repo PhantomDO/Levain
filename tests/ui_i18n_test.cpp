@@ -47,7 +47,7 @@ TEST_CASE("une disposition faite en français retrouve ses fenêtres sous un tit
     const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
     levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 640, .height = 480}, 1.0 / 60.0);
     ImGui::NewFrame();
-    const DockNodes nodes = buildLayout(ImHashStr("test"), {640.0f, 480.0f}); // le français
+    const DockNodes nodes = buildLayout(ImHashStr("test"), {640.0f, 480.0f}, true); // le français
     const ScopedEnglish english; // la langue change : les titres, pas les identifiants
     // Ouvrir une fenêtre comme les panneaux du moteur, et lire où elle s'est posée.
     const auto dockOf = [](const char* key)
@@ -61,7 +61,35 @@ TEST_CASE("une disposition faite en français retrouve ses fenêtres sous un tit
     const ImGuiID passes = dockOf(PassesWindow);
     const ImGuiID scene = dockOf(SceneWindow);
     ImGui::EndFrame();
-    CHECK(image == nodes.left);
-    CHECK((passes != 0 && passes != image)); // chacune sur son nœud, aucune flottante
+    // Les trois en onglets du nœud du bas, aucune flottante ni sur un autre nœud.
+    CHECK((image != 0 && image == nodes.bottom));
+    CHECK(passes == nodes.bottom);
+    CHECK(scene == nodes.bottom);
+}
+
+TEST_CASE("le programme sans éditeur garde la disposition d'avant : Image et Passes à gauche, "
+          "Scène à droite")
+{
+    using namespace levain::app;
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 640, .height = 480}, 1.0 / 60.0);
+    ImGui::NewFrame();
+    const DockNodes nodes = buildLayout(ImHashStr("plain"), {640.0f, 480.0f}, false);
+    const auto dockOf = [](const char* key)
+    {
+        ImGui::Begin(levain::ui::labelOf(key).c_str());
+        const ImGuiID dock = ImGui::GetCurrentWindow()->DockId;
+        ImGui::End();
+        return dock;
+    };
+    const ImGuiID image = dockOf(ImageWindow);
+    const ImGuiID passes = dockOf(PassesWindow);
+    const ImGuiID scene = dockOf(SceneWindow);
+    ImGui::EndFrame();
+    CHECK((image != 0 && image == nodes.left));
+    CHECK((passes != 0 && passes != image));
     CHECK((scene != 0 && scene != image && scene != passes));
+    // Le nœud de l'inspecteur, sous Scène, n'a aucune fenêtre ; il n'y a pas de nœud du bas.
+    CHECK((nodes.inspector != 0 && nodes.inspector != scene));
+    CHECK(nodes.bottom == 0);
 }
