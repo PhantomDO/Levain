@@ -20,6 +20,20 @@ M7.7, morceau 14 (la console, `gpu.editor-console.*`).
   que la doc de `LogSink` disait qu'un récepteur pouvait journaliser. **Parade** : un message écrit depuis un récepteur
   ne va qu'à la console (`SinkCallScope`, log.cpp) ; test `deux récepteurs qui journalisent…`, qui quitte en erreur au
   bout de 30 s plutôt que de figer la suite.
+## Un refus posé dans `withEditor` vient après le device : le test passe sans avoir rien refusé (2026-10-11)
+
+M7.7, morceau 7 (`--gpu webgpu`, `editor.refuses-webgpu`).
+
+- **Symptôme** : un test qui lançait `runApp(withEditor(...))` sous WebGPU et attendait le code 1 (« le démarrage n'est jamais
+  appelé ») restait vert sans que `requireEditorBackend` ait servi, et ouvrait un device Dawn sur la vraie carte dans un test
+  réservé à WARP (`gpu.editor-modes.d3d12-warp`, journal « [gpu] WebGPU : NVIDIA GeForce RTX 4070 Laptop GPU »). **Cause** :
+  `withEditor` n'enveloppe que la fonction de démarrage, que `runApp` n'appelle qu'après la fenêtre, le device, le scan des assets
+  et le ciel ; et sur une machine où Dawn ne crée pas de device, `runApp` rend 1 de toute façon, avant le démarrage : le code 1
+  ne prouve pas le refus (règle n°7). **Parade** : le refus est dans le `main` de l'exécutable éditeur, avant `runApp`, et le
+  test lance l'exécutable et lit son message (`PASS_REGULAR_EXPRESSION` sur « l'éditeur n'a pas de WebGPU »,
+  `FAIL_REGULAR_EXPRESSION` sur « device créé »). Contre-tests : l'appel retiré du `main`, ou `requireEditorBackend` qui ne
+  refuse plus : `editor.refuses-webgpu` rouge.
+
 ## Un contre-test restauré par `cp -p` laisse ninja sur l'objet fauté ; une image jamais écrite ne se présente pas (2026-10-11)
 
 M7.7, morceau 7 (`gpu.scene-view.*`, `engine/app/src/scene_view.cpp`).

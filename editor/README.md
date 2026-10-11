@@ -139,8 +139,16 @@ M couverts par un test ».
     `Inspector::wrote` (remis à faux à chaque `drawInspector`), et `withEditor` pose alors
     `App::recomposeAfterUi` (ADR-0036, décision 2). Le scénario de bout en bout attend le texte scripté (morceau 12).
 
+18. **L'éditeur refuse `--gpu webgpu`, bruyamment** (`requireEditorBackend`, ADR-0036, décision 7), dans le `main` de
+    l'exécutable éditeur, une fois les options lues et **avant `runApp`** : ni fenêtre ni device Dawn pour rien, et le
+    message est celui de l'éditeur, pas celui d'un adaptateur absent. La page web n'a pas d'éditeur, et la Vue de
+    l'éditeur natif n'a pas été éprouvée sur Dawn. Le programme sort en 1 (`editor.refuses-webgpu`, qui lance
+    l'exécutable et lit le message, sans « device créé »).
+
 ## Points d'entrée
 
+- `requireEditorBackend(api)` : le refus de WebGPU, une fonction pure testée (`tests/editor_test.cpp`), que le `main` de
+  l'exécutable éditeur appelle avant `runApp` (sandbox/src/main.cpp).
 - `withEditor(start, options)` : la fonction de démarrage du programme, enveloppée. Elle choisit l'entité de
   `--select`, en ouvre les ancêtres, ajoute la hiérarchie et l'inspecteur aux fenêtres, et écrit à la fin le
   bilan que lit la CI, « éditeur : N entités, M champs dessinés ; sélection : chemin », N étant les lignes de la
