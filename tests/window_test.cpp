@@ -126,3 +126,38 @@ TEST_CASE("une fenêtre n'annonce Vulkan qu'à la demande : sans chargeur, seule
     CHECK(levain::platform::createWindow("Levain", 64, 64, levain::platform::GraphicsSurface::None)
               .has_value());
 }
+
+TEST_CASE("asciiTitleOf : l'ASCII passe, chaque caractère hors ASCII devient un seul « ? »")
+{
+    using levain::platform::asciiTitleOf;
+    CHECK(asciiTitleOf("Levain - 3.2 ms (min 3.0)") == "Levain - 3.2 ms (min 3.0)");
+    CHECK(asciiTitleOf("") == "");
+    CHECK(asciiTitleOf("Sc\xC3\xA8ne") == "Sc?ne");               // « è », deux octets
+    CHECK(asciiTitleOf("A \xE2\x80\x94 B") == "A ? B");           // « — », trois octets
+    CHECK(asciiTitleOf("\xF0\x9F\xA6\x8A renard") == "? renard"); // un émoji, quatre octets
+    CHECK(asciiTitleOf("\xA9x") == "x");                          // une suite isolée est perdue
+    // Ce que setWindowTitle accepte : le résultat est toujours de l'ASCII.
+    for (const unsigned char byte : {0x80, 0xC3, 0xFF})
+    {
+        const std::string raw{static_cast<char>(byte)};
+        for (const char c : asciiTitleOf(raw))
+        {
+            CHECK(static_cast<unsigned char>(c) < 0x80);
+        }
+    }
+}
+
+TEST_CASE(
+    "la croix d'une fenêtre ne quitte pas : l'indice de SDL est posé, même contre l'environnement")
+{
+    // Sans lui, la croix enverrait CLOSE_REQUESTED puis QUIT, et l'éditeur quitterait sans modale
+    // : aucun test de la boucle ne le voit, la croix y est scriptée.
+    const ScopedOffscreenDriver offscreen;
+    // Une variable d'environnement SDL_QUIT_ON_LAST_WINDOW_CLOSE ferait échouer un SDL_SetHint
+    // ordinaire, en silence : l'indice est posé avec la priorité OVERRIDE.
+    const ScopedVariable environment("SDL_QUIT_ON_LAST_WINDOW_CLOSE", "1");
+    auto window =
+        levain::platform::createWindow("Levain", 64, 64, levain::platform::GraphicsSurface::None);
+    REQUIRE(window.has_value());
+    CHECK_FALSE(levain::platform::closeSendsQuit());
+}

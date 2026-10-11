@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "levain/core/error.hpp"
@@ -25,10 +26,13 @@ struct PixelSize
 
 enum class WindowEventType : std::uint8_t
 {
-    CloseRequested, ///< Croix, Alt+F4, Ctrl+C ou SIGTERM.
-    Resized,        ///< Nouvelle taille dans `WindowEvent::pixelSize`.
-    Hidden,         ///< Minimisée ou entièrement recouverte : plus rien à dessiner.
-    Shown,          ///< De nouveau visible.
+    CloseRequested, ///< Croix ou Alt+F4 : le programme peut demander avant de quitter.
+    /// Ctrl+C ou SIGTERM (`SDL_EVENT_QUIT`) : on quitte sans demander, comme tout programme que
+    /// l'on arrête de l'extérieur (ADR-0036, décision 11).
+    QuitSignal,
+    Resized, ///< Nouvelle taille dans `WindowEvent::pixelSize`.
+    Hidden,  ///< Minimisée ou entièrement recouverte : plus rien à dessiner.
+    Shown,   ///< De nouveau visible.
 };
 
 struct WindowEvent
@@ -69,7 +73,7 @@ enum class GraphicsSurface : std::uint8_t
 ///
 /// Échoue si aucun serveur d'affichage n'est joignable (ni Wayland, ni X11) : c'est une cause
 /// extérieure, pas un bug (ADR-0008). Échoue aussi pour `GraphicsSurface::Vulkan` sans chargeur
-/// Vulkan.
+/// Vulkan. **Le titre est ASCII** (`asciiTitleOf`) : assertion en Debug.
 [[nodiscard]] core::Result<Window> createWindow(const std::string& title, int width, int height,
                                                 GraphicsSurface surface);
 
@@ -102,5 +106,27 @@ struct Events
 /// (`SDL_x11window.c:2300`). « — » et « × » y échouent, « é » passe : trop imprévisible pour
 /// autoriser quoi que ce soit hors ASCII tant que ce n'est pas corrigé en amont.
 void setWindowTitle(Window& window, const std::string& title);
+
+/// Une fermeture de la dernière fenêtre enverrait-elle aussi `SDL_EVENT_QUIT` ? Faux tant qu'une
+/// fenêtre créée par `createWindow` vit (SDL_Quit efface l'indice à sa destruction). **Piège** :
+/// vrai, la croix quitterait l'éditeur sans modale, et aucun autre test ne le verrait (la croix
+/// scriptée n'en passe pas par SDL).
+[[nodiscard]] bool closeSendsQuit();
+
+/// Sort la fenêtre de la minimisation et la met devant : un programme qui répond à la croix par une
+/// question ne doit pas la poser à une fenêtre que personne ne voit.
+void restoreAndRaise(Window& window);
+
+/// Le titre que la fenêtre porte (celui de SDL) : ce que le banc d'essai relit pour prouver
+/// qu'aucun texte hors ASCII n'y est arrivé.
+[[nodiscard]] std::string windowTitle(const Window& window);
+
+/// Le texte, rendu acceptable par `setWindowTitle` : chaque caractère hors ASCII (un caractère
+/// UTF-8 entier, pas chacun de ses octets) devient « ? ». **Tout texte qui n'est pas écrit à la
+/// main dans le code passe par elle avant d'atteindre le titre** (un nom de scène, un nom de
+/// fichier) : l'assertion de `setWindowTitle` n'est qu'un filet, absent en Release. Le nom de la
+/// scène et son « * » vont dans la barre de menus d'ImGui, qui sait l'UTF-8 (ADR-0036, décision
+/// 11).
+[[nodiscard]] std::string asciiTitleOf(std::string_view text);
 
 } // namespace levain::platform

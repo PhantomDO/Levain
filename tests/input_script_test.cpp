@@ -187,6 +187,20 @@ TEST_CASE("keymap changed : l'événement de disposition, sans rien d'autre")
     refused("0 keymap change\n", "ligne 1", "champs");
 }
 
+TEST_CASE("window close : la croix de la fenêtre, un événement de fenêtre et rien d'autre")
+{
+    const Events events = eventsAt(parsed("4 window close\n"), 4);
+    CHECK(events.input.empty());
+    CHECK(events.ui.empty());
+    REQUIRE(events.window.size() == 1);
+    CHECK(events.window[0].type == levain::platform::WindowEventType::CloseRequested);
+    CHECK(eventsAt(parsed("4 window close\n"), 3).window.empty()); // pas aux autres images
+    refused("0 window\n", "ligne 1", "champs");
+    refused("0 window quit\n", "ligne 1",
+            "champs"); // pas de signal scripté : il se lève pour de vrai
+    refused("0 window close now\n", "ligne 1", "champs");
+}
+
 TEST_CASE(
     "la disposition du banc d'essai est un QWERTY, et keyAtPosition refuse une position inconnue")
 {

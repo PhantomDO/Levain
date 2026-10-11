@@ -157,7 +157,21 @@ struct AppSettings
     /// résultat qui se reproduise**, `--steps N` avec N au moins la longueur du script : sans lui,
     /// le monde avance du temps réel de chaque image, qui change d'une machine à l'autre.
     std::optional<platform::InputScript> inputScript;
+    /// **Pour les tests seulement** : fait passer pour interactive (`isScriptedRun` faux) une
+    /// exécution que `inputScript` rend scriptée, afin qu'un test du banc d'essai éprouve ce que
+    /// seul un humain déclenche (la modale « Quitter ? », les préférences). Aucune option de la
+    /// ligne de commande ne le pose.
+    /// **TODO morceau 15** : il débloquera aussi les préférences (`isScriptedRun` les coupe) : un
+    /// test qui s'en sert écrirait celles du développeur. Injecter un chemin de test d'abord.
+    bool testInteractive = false;
 };
+
+/// **Une exécution scriptée** (ADR-0036, décisions 10 et 11) : `--seconds`, `--steps`, `--time`,
+/// `--capture` ou `--input-script`. Elle ne lit ni n'écrit les préférences (les réglages d'un
+/// développeur fausseraient les clics des tests, et une session changerait la suivante), et elle se
+/// ferme sans demander (`FrameHooks::closeRequested`). Une exécution sans aucune de ces options est
+/// un humain devant sa fenêtre.
+[[nodiscard]] bool isScriptedRun(const AppSettings& settings);
 
 /// Le script d'input des réglages : celui du fichier `--input-script`, qui l'emporte, lu ici ;
 /// sinon celui de l'API de test ; rien sans l'un ni l'autre. Un fichier illisible ou refusé, un
@@ -221,6 +235,13 @@ struct FrameHooks
     /// ImGui du programme (ADR-0032), son HUD comme ses panneaux. Les panneaux du moteur, ouverts
     /// par F1, passent juste avant.
     std::function<void(App&)> ui{};
+    /// **La croix de la fenêtre** (ou Alt+F4) : `true` quand le programme répond « demandons
+    /// d'abord » (une modale, qu'il dessine dans `ui`) ; la boucle ne s'arrête alors pas, et c'est
+    /// à lui de poser `App::quitRequested` si on quitte. Sans lui, ou s'il rend `false`, la
+    /// boucle s'arrête. **Jamais appelé sous `isScriptedRun`** (une exécution scriptée se ferme
+    /// tout de suite), ni pour un signal (Ctrl+C, SIGTERM) : on arrête de l'extérieur sans
+    /// demander.
+    std::function<bool(App&)> closeRequested{};
 };
 
 /// Ce que la boucle anime, et que le programme lit ou remplit. Ses champs ne bougent pas en
@@ -256,6 +277,9 @@ struct App
     /// (`scene::composeWorldTransforms`), relit la caméra, puis rend : une écriture de l'éditeur
     /// se voit dans son image, non dans la suivante. Sans elle, rien ne change.
     bool recomposeAfterUi = false;
+    /// **Quitter**, posé par le programme qui avait répondu « demandons d'abord » à
+    /// `FrameHooks::closeRequested` : la boucle s'arrête à l'image suivante.
+    bool quitRequested = false;
     /// **La caméra imposée** (ADR-0036, décision 6) : celle de l'éditeur, un état qui n'est pas
     /// une entité. Posée, la boucle ne consulte pas `renderCameraOf`, même avant la première image
     /// (`startApp` la respecte) : zéro ou plusieurs `CameraLens` ne l'arrêtent plus. Elle est relue

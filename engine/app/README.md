@@ -142,6 +142,17 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    après que la scène a quitté la fenêtre, comme la route de l'input (invariant 14). `tests/scene_view_gpu.cpp`
    est le banc (`gpu.scene-view.*`).
 
+## Fermer, et `isScriptedRun` (ADR-0036, décisions 10 et 11)
+
+`isScriptedRun(settings)` est vrai sous `--seconds`, `--steps`, `--time`, `--capture` ou `--input-script` : ni préférences
+lues ni écrites (morceau 15), et la croix ferme tout de suite. `AppSettings::testInteractive` le rend faux pour un test
+du banc d'essai qui éprouve ce qu'un humain déclenche (aucune option de ligne de commande ne le pose). **La croix**
+(`CloseRequested`) passe par `FrameHooks::closeRequested` : `true` veut dire « je demande d'abord » (la boucle ne
+s'arrête pas, le programme pose `App::quitRequested` s'il quitte) ; il n'est jamais appelé sous `isScriptedRun`. **Un
+signal** (`QuitSignal`) arrête toujours, sans demander. Le titre de la fenêtre passe par `platform::asciiTitleOf`.
+Une boucle fermée avant la fin de ses `--steps` ou de son script sort en erreur (règle n°7) : un test qui ferme en
+attend le code 1.
+
 ## Pièges connus
 
 - **Les appuis entre deux pas** : `input::actionPressed` ne vaut que pour l'image de l'appui. À 144 images/s, la

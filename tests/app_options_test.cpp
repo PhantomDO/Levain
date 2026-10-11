@@ -117,3 +117,52 @@ TEST_CASE("inputScriptOf : le fichier est lu, un script refusé, absent ou vide 
     settings.inputScript = levain::platform::InputScript{.frames = {{3, {}}}};
     CHECK(inputScriptOf(settings).has_value());
 }
+
+TEST_CASE("isScriptedRun : chacune des cinq options scriptées, et elle seule")
+{
+    using levain::app::AppSettings;
+    using levain::app::isScriptedRun;
+    // Un humain devant sa fenêtre : aucune option.
+    CHECK_FALSE(isScriptedRun(AppSettings{}));
+    {
+        AppSettings settings;
+        settings.loopSeconds = 2.0; // --seconds
+        CHECK(isScriptedRun(settings));
+    }
+    {
+        AppSettings settings;
+        settings.steps = 3; // --steps
+        CHECK(isScriptedRun(settings));
+    }
+    {
+        AppSettings settings;
+        settings.frozenSeconds = 0.5; // --time
+        CHECK(isScriptedRun(settings));
+    }
+    {
+        AppSettings settings;
+        settings.capturePath = "x.png"; // --capture
+        CHECK(isScriptedRun(settings));
+    }
+    {
+        AppSettings settings;
+        settings.inputScriptFile = "gestes.txt"; // --input-script
+        CHECK(isScriptedRun(settings));
+    }
+    {
+        AppSettings settings;
+        settings.inputScript = levain::platform::InputScript{.frames = {{3, {}}}}; // l'API de test
+        CHECK(isScriptedRun(settings));
+        settings.testInteractive =
+            true; // le crochet des tests, et lui seul, y change quelque chose
+        CHECK_FALSE(isScriptedRun(settings));
+    }
+    // Les options lues sur une ligne de commande, de bout en bout : celles qui ne scriptent rien
+    // (--ui, --gpu, --sky) ne comptent pas.
+    AppSettings parsed;
+    CHECK(levain::app::parseCommonOption(parsed, "--ui", "on") == levain::app::OptionUse::Taken);
+    CHECK(levain::app::parseCommonOption(parsed, "--sky", "none") == levain::app::OptionUse::Taken);
+    CHECK_FALSE(isScriptedRun(parsed));
+    CHECK(levain::app::parseCommonOption(parsed, "--time", "1") == levain::app::OptionUse::Taken);
+    CHECK(isScriptedRun(parsed));
+}
