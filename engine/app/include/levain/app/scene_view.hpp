@@ -1,8 +1,9 @@
 #pragma once
 
 // La scène rendue dans une texture, que l'UI montre (ADR-0036, décision 7) : la matière de la
-// fenêtre « Vue » de l'éditeur (morceau 8). Ici, la texture, sa taille qui ne se recrée qu'une fois
-// stable, et où va la scène à chaque image ; la fenêtre qui la montre n'y est pas.
+// fenêtre « Vue » de l'éditeur (morceau 8, editor/view.hpp). Ici, la texture, sa taille qui ne se
+// recrée qu'une fois stable, où va la scène à chaque image, et où un curseur la vise ; la fenêtre
+// qui la montre n'y est pas.
 
 #include <cstdint>
 #include <optional>
@@ -11,6 +12,7 @@
 #include <imgui.h>
 #include <nvrhi/nvrhi.h>
 
+#include "levain/app/ui_layer.hpp"
 #include "levain/ui/ui_pass.hpp"
 
 namespace levain::app
@@ -90,6 +92,41 @@ struct SizeSettling
     return output == SceneOutput::Window ? ImGuiDockNodeFlags_PassthruCentralNode
                                          : ImGuiDockNodeFlags_None;
 }
+
+/// Un point de la scène : sa position en pixels depuis le coin haut gauche de la scène, et la
+/// taille de la scène où elle se lit (ce que le rayon de la caméra demande : `ndcOfPixel`).
+struct ScenePixel
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+/// La taille de la scène où se lit un pixel (`ndcOfPixel`) : la fenêtre pour la scène dans la
+/// fenêtre, le rectangle de la Vue pour la scène dans sa texture (étirée), 0 × 0 quand la scène
+/// n'est nulle part ou que la taille est nulle. Ce que `scenePixelAt` rend, sans le curseur.
+struct SceneExtent
+{
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+[[nodiscard]] SceneExtent sceneExtentOf(SceneOutput output, const ScreenRect& scene,
+                                        float windowWidth, float windowHeight);
+
+/// **Où le curseur vise dans la scène** (le picking du sandbox, ADR-0036 décision 7), `cursor`
+/// étant en pixels de l'image comme `sceneRect`. La scène dans la fenêtre (`Window`) : le curseur
+/// et la fenêtre, comme avant la Vue. Dans la texture de la Vue : le curseur ramené au coin de
+/// `sceneRect`, et la taille de ce rectangle, car la scène y est étirée (le rapport suffit au
+/// rayon, une fois la texture à la taille du rectangle : pendant les deux ou trois images d'un
+/// glissé qui précèdent sa recréation, elle garde l'ancien rapport et le rayon est faussé d'autant,
+/// ce que le picking accepte). Rien si le curseur est
+/// hors du rectangle (un clic sur un autre panneau ne vise rien), si la scène n'est nulle part
+/// (`Nothing`) ou si la taille est nulle : jamais un pixel hors de la scène.
+[[nodiscard]] std::optional<ScenePixel> scenePixelAt(SceneOutput output, const ScreenRect& scene,
+                                                     float windowWidth, float windowHeight,
+                                                     float cursorX, float cursorY);
 
 /// L'état de la scène dans une texture, que garde `App`. Le test de recréation, `created`, compte
 /// les textures nées depuis le début de la boucle.

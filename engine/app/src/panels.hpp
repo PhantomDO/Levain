@@ -27,9 +27,12 @@ inline constexpr const char* SceneWindow = "Scène";
 [[nodiscard]] DockNodes buildLayout(ImGuiID dockspace, ImVec2 size, bool editor);
 
 /// Où se voit la scène (`App::sceneRect`) : le nœud central de la disposition, ou `whole` sans lui.
-/// Un nœud central où une fenêtre est ancrée n'est pas un trou : rectangle vide, à son origine.
+/// Un nœud central où une fenêtre est ancrée n'est pas un trou : rectangle vide, à son origine ;
+/// de même quand la scène n'est pas derrière lui (`sceneBehind` faux : elle est dans la texture de
+/// la Vue, ou nulle part).
 /// Interne à ImGui (`ImGuiDockNode`), donc ici et non dans `ui_layer.hpp`.
-[[nodiscard]] ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole);
+[[nodiscard]] ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole,
+                                     bool sceneBehind);
 
 /// L'espace d'ancrage, qui couvre l'image et laisse voir la scène au centre, puis les trois
 /// fenêtres du moteur : Image, Passes, Scène. Le programme ajoute les siennes (`FrameHooks::ui`),

@@ -321,6 +321,11 @@ struct App
     /// rectangle de sa fenêtre, et `ui` peut déjà le remplacer. Lu à l'image suivante, il est
     /// celui de l'image d'avant.
     ScreenRect sceneRect;
+    /// **Le curseur**, en pixels de l'image comme `sceneRect` : la position que les événements de
+    /// cette image ont portée (ImGui la suit, un script d'input la déplace), et non celle que SDL
+    /// donne (`platform::cursorPosition`), qu'un script ne change pas. Posé avant `frame` : le
+    /// picking du sandbox le lit, avec `scenePixelAt`.
+    platform::CursorPosition cursor;
     /// **La scène dans une texture** (ADR-0036, décision 7) : la texture de la Vue, sa taille qui
     /// ne se recrée qu'une fois stable, et où va la scène à cette image (`SceneOutput`). Le
     /// programme n'y touche que par `requestScene`, dans `hooks.ui`. Sans demande, la scène remplit

@@ -126,4 +126,35 @@ void clearSwapchain(nvrhi::ICommandList& commandList, nvrhi::ITexture& swapchain
         nvrhi::Color{gpu::PresentClearLevel, gpu::PresentClearLevel, gpu::PresentClearLevel, 1.0f});
 }
 
+SceneExtent sceneExtentOf(SceneOutput output, const ScreenRect& scene, float windowWidth,
+                          float windowHeight)
+{
+    if (output == SceneOutput::Window)
+    {
+        return windowWidth > 0.0f && windowHeight > 0.0f ? SceneExtent{windowWidth, windowHeight}
+                                                         : SceneExtent{};
+    }
+    return output == SceneOutput::Nothing || scene.width <= 0.0f || scene.height <= 0.0f
+               ? SceneExtent{}
+               : SceneExtent{scene.width, scene.height};
+}
+
+std::optional<ScenePixel> scenePixelAt(SceneOutput output, const ScreenRect& scene,
+                                       float windowWidth, float windowHeight, float cursorX,
+                                       float cursorY)
+{
+    if (output == SceneOutput::Window)
+    {
+        return windowWidth > 0.0f && windowHeight > 0.0f
+                   ? std::optional<ScenePixel>{{cursorX, cursorY, windowWidth, windowHeight}}
+                   : std::nullopt;
+    }
+    if (output == SceneOutput::Nothing || scene.width <= 0.0f || scene.height <= 0.0f ||
+        !rectContains(scene, cursorX, cursorY))
+    {
+        return std::nullopt;
+    }
+    return ScenePixel{cursorX - scene.x, cursorY - scene.y, scene.width, scene.height};
+}
+
 } // namespace levain::app

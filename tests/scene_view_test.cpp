@@ -91,3 +91,47 @@ TEST_CASE("le centre du docking ne laisse passer l'image que tant que la scène 
     CHECK(dockspaceFlagsFor(SceneOutput::Texture) == ImGuiDockNodeFlags_None);
     CHECK(dockspaceFlagsFor(SceneOutput::Nothing) == ImGuiDockNodeFlags_None);
 }
+
+TEST_CASE("où le curseur vise dans la scène : la fenêtre, ou le rectangle de la Vue, jamais dehors")
+{
+    using levain::app::scenePixelAt;
+    using levain::app::ScreenRect;
+    constexpr ScreenRect View{.x = 200.0f, .y = 30.0f, .width = 800.0f, .height = 450.0f};
+    // La scène dans la fenêtre : le curseur et la fenêtre, comme avant la Vue.
+    constexpr levain::app::ScenePixel None{-1.0f, -1.0f, -1.0f,
+                                           -1.0f}; // vu seulement si rien n'est visé
+    const auto inWindow =
+        scenePixelAt(SceneOutput::Window, View, 1920.0f, 1080.0f, 50.0f, 60.0f).value_or(None);
+    CHECK((inWindow.x == 50.0f && inWindow.y == 60.0f));
+    CHECK((inWindow.width == 1920.0f && inWindow.height == 1080.0f));
+    // Dans la Vue : ramené au coin du rectangle, et la taille du rectangle.
+    const auto inView =
+        scenePixelAt(SceneOutput::Texture, View, 1920.0f, 1080.0f, 600.0f, 255.0f).value_or(None);
+    CHECK((inView.x == 400.0f && inView.y == 225.0f));
+    CHECK((inView.width == 800.0f && inView.height == 450.0f));
+    // Le coin haut gauche en est ; hors du rectangle, ou sans scène, rien n'est visé.
+    CHECK(scenePixelAt(SceneOutput::Texture, View, 1920.0f, 1080.0f, 200.0f, 30.0f));
+    CHECK_FALSE(scenePixelAt(SceneOutput::Texture, View, 1920.0f, 1080.0f, 100.0f, 255.0f));
+    CHECK_FALSE(scenePixelAt(SceneOutput::Texture, View, 1920.0f, 1080.0f, 1000.0f, 255.0f));
+    CHECK_FALSE(scenePixelAt(SceneOutput::Nothing, View, 1920.0f, 1080.0f, 600.0f, 255.0f));
+    CHECK_FALSE(scenePixelAt(SceneOutput::Texture, ScreenRect{}, 1920.0f, 1080.0f, 0.0f, 0.0f));
+    CHECK_FALSE(scenePixelAt(SceneOutput::Window, View, 0.0f, 0.0f, 5.0f, 5.0f));
+}
+
+TEST_CASE("la taille où se lit un pixel : la fenêtre, le rectangle de la Vue, ou rien")
+{
+    using levain::app::sceneExtentOf;
+    using levain::app::ScreenRect;
+    constexpr ScreenRect View{.x = 200.0f, .y = 30.0f, .width = 800.0f, .height = 450.0f};
+    const auto window = sceneExtentOf(SceneOutput::Window, View, 1920.0f, 1080.0f);
+    CHECK((window.width == 1920.0f && window.height == 1080.0f));
+    const auto view = sceneExtentOf(SceneOutput::Texture, View, 1920.0f, 1080.0f);
+    CHECK((view.width == 800.0f && view.height == 450.0f));
+    // Nulle part, rectangle vide ou fenêtre sans taille : 0 x 0, jamais une taille inventée.
+    const auto nothing = sceneExtentOf(SceneOutput::Nothing, View, 1920.0f, 1080.0f);
+    CHECK((nothing.width == 0.0f && nothing.height == 0.0f));
+    const auto empty = sceneExtentOf(SceneOutput::Texture, ScreenRect{}, 1920.0f, 1080.0f);
+    CHECK((empty.width == 0.0f && empty.height == 0.0f));
+    const auto noWindow = sceneExtentOf(SceneOutput::Window, View, 0.0f, 0.0f);
+    CHECK((noWindow.width == 0.0f && noWindow.height == 0.0f));
+}
