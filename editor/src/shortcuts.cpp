@@ -1,7 +1,12 @@
 #include "levain/editor/shortcuts.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cstddef>
+#include <string>
+#include <utility>
+
+#include "levain/ui/tr.hpp"
 
 namespace levain::editor
 {
@@ -9,10 +14,16 @@ namespace levain::editor
 namespace
 {
 
-// Les scancodes d'USB HID des défauts : ils sont les mêmes partout.
+// Les scancodes d'USB HID des défauts, plus F1 et F12 qui bornent les touches de fonction que
+// `displayNameOf` nomme (F1 à F12). Ils sont les mêmes partout, et le test des défauts les relit
+// par la disposition du banc d'essai.
 constexpr std::uint16_t ScanA = 4, ScanD = 7, ScanE = 8, ScanF = 9, ScanG = 10, ScanQ = 20,
                         ScanR = 21, ScanS = 22, ScanW = 26, ScanEscape = 41, ScanSpace = 44,
-                        ScanF1 = 58;
+                        ScanF1 = 58, ScanF12 = 69;
+// Left Ctrl à Right GUI : les modificateurs seuls, que ni Ctrl ni Maj ne lient (USB HID 0xE0-0xE7).
+constexpr std::uint32_t FirstModifierScancode = 224, LastModifierScancode = 231;
+constexpr std::uint32_t ScancodeMask = 1U
+                                       << 30U; // SDLK_SCANCODE_MASK : une touche qui ne tape rien
 
 constexpr platform::KeyModifiers Ctrl{.ctrl = true};
 constexpr platform::KeyModifiers Shift{.shift = true};
@@ -22,6 +33,37 @@ constexpr platform::KeyModifiers CtrlShift{.ctrl = true, .shift = true};
 Binding bind(Action action, Context context, Chord first, Chord second = {})
 {
     return {.action = action, .context = context, .chords = {first, second}};
+}
+
+char upperOf(std::uint32_t letter)
+{
+    return static_cast<char>(letter >= 'a' && letter <= 'z' ? letter - 'a' + 'A' : letter);
+}
+
+/// La lettre en minuscule, sans la locale de `std::tolower` (un nom d'accord est le même partout).
+std::uint32_t lowerOf(std::uint32_t letter)
+{
+    return letter >= 'A' && letter <= 'Z' ? letter - 'A' + 'a' : letter;
+}
+
+/// Une position que le moteur se réserve : un modificateur seul ne se lie pas, et F1 sans
+/// modificateur ouvre les panneaux (`togglesPanels`).
+bool reservedPosition(std::uint32_t scancode, const platform::KeyModifiers& modifiers)
+{
+    const bool modifierOnly = scancode >= FirstModifierScancode && scancode <= LastModifierScancode;
+    const bool panelsKey = scancode == ScanF1 && modifiers == platform::KeyModifiers{};
+    return modifierOnly || panelsKey;
+}
+
+std::string modifiersPrefix(const platform::KeyModifiers& modifiers, std::string_view ctrl,
+                            std::string_view shift, std::string_view alt, std::string_view super)
+{
+    std::string prefix;
+    prefix += modifiers.ctrl ? std::string{ctrl} + "+" : "";
+    prefix += modifiers.shift ? std::string{shift} + "+" : "";
+    prefix += modifiers.alt ? std::string{alt} + "+" : "";
+    prefix += modifiers.super ? std::string{super} + "+" : "";
+    return prefix;
 }
 
 } // namespace
@@ -115,6 +157,89 @@ const Binding* bindingOf(const ShortcutTable& table, Action action)
 {
     const auto found = std::ranges::find(table.bindings, action, &Binding::action);
     return found == table.bindings.end() ? nullptr : &*found;
+}
+
+std::string tokenOf(const Chord& chord)
+{
+    if (!isBound(chord))
+    {
+        return {};
+    }
+    std::string token = modifiersPrefix(chord.modifiers, "Ctrl", "Shift", "Alt", "Super");
+    token += chord.kind == ChordKind::Position ? "pos:" + std::to_string(chord.key)
+                                               : std::string{upperOf(chord.key)};
+    return token;
+}
+
+std::optional<Chord> chordFromToken(std::string_view token)
+{
+    const std::string_view whole = token;
+    std::optional<Chord> found;
+    Chord chord;
+    for (const auto& [prefix, flag] :
+         {std::pair{std::string_view{"Ctrl+"}, &platform::KeyModifiers::ctrl},
+          std::pair{std::string_view{"Shift+"}, &platform::KeyModifiers::shift},
+          std::pair{std::string_view{"Alt+"}, &platform::KeyModifiers::alt},
+          std::pair{std::string_view{"Super+"}, &platform::KeyModifiers::super}})
+    {
+        if (token.starts_with(prefix))
+        {
+            chord.modifiers.*flag = true;
+            token.remove_prefix(prefix.size());
+        }
+    }
+    if (token.starts_with("pos:"))
+    {
+        token.remove_prefix(4);
+        std::uint32_t scancode = 0;
+        const auto [end, error] =
+            std::from_chars(token.data(), token.data() + token.size(), scancode);
+        const bool numeric = error == std::errc{} && end == token.data() + token.size();
+        const bool bindable = numeric && scancode > 0 && scancode < platform::KeyCodeCount &&
+                              !reservedPosition(scancode, chord.modifiers);
+        found = bindable ? std::optional{positionChord(static_cast<std::uint16_t>(scancode),
+                                                       chord.modifiers)}
+                         : std::nullopt;
+    }
+    else
+    {
+        const bool letter = token.size() == 1 && ((token[0] >= 'A' && token[0] <= 'Z') ||
+                                                  (token[0] >= '0' && token[0] <= '9'));
+        found =
+            letter
+                ? std::optional{letterChord(static_cast<char>(lowerOf(token[0])), chord.modifiers)}
+                : std::nullopt;
+    }
+    // Un seul nom par accord : « pos:026 » se relit, mais ne se réécrirait pas pareil.
+    return found && tokenOf(*found) == whole ? found : std::nullopt;
+}
+
+std::string displayNameOf(const Chord& chord, const platform::KeyAtPosition& keyAtPosition)
+{
+    std::string name = modifiersPrefix(chord.modifiers, "Ctrl", ui::tr("Maj"), "Alt", "Super");
+    if (chord.kind == ChordKind::Letter)
+    {
+        return name + upperOf(chord.key);
+    }
+    const std::uint32_t keycode = keyAtPosition(static_cast<std::uint16_t>(chord.key));
+    if (keycode == ' ')
+    {
+        return name + ui::tr("Espace");
+    }
+    if (keycode == 0x1B)
+    {
+        return name + ui::tr("Échap");
+    }
+    if (keycode > ' ' && keycode < 0x7F)
+    {
+        return name + upperOf(keycode);
+    }
+    const std::uint32_t scancode = keycode & ~ScancodeMask;
+    if ((keycode & ScancodeMask) != 0 && scancode >= ScanF1 && scancode <= ScanF12)
+    {
+        return name + "F" + std::to_string(scancode - ScanF1 + 1);
+    }
+    return name + tokenOf(positionChord(static_cast<std::uint16_t>(chord.key))); // « pos:N »
 }
 
 } // namespace levain::editor
