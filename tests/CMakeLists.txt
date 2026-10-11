@@ -474,6 +474,14 @@ target_compile_definitions(levain_editor_shortcuts PRIVATE LEVAIN_DATA_DIR="${CM
 add_test(NAME gpu.editor-shortcuts.vulkan COMMAND levain_editor_shortcuts vulkan)
 set_tests_properties(gpu.editor-shortcuts.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# Fermer l'éditeur (ADR-0036, morceau 13) : la croix ouvre la modale « Quitter ? » (jamais sous un lancement scripté),
+# Annuler garde l'éditeur, Quitter l'arrête, SIGTERM quitte sans demander, le titre reste en ASCII.
+add_executable(levain_editor_close editor_close_gpu.cpp)
+target_link_libraries(levain_editor_close PRIVATE levain::editor levain::app levain::platform levain::scene)
+target_compile_definitions(levain_editor_close PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.editor-close.vulkan COMMAND levain_editor_close vulkan)
+set_tests_properties(gpu.editor-close.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # La console de l'éditeur (ADR-0036, morceau 14) dans la vraie boucle : la capture du journal posée avant runApp, la fenêtre
 # dessinée par withEditor sans cacher la hiérarchie, la case « Erreurs » cochée à la souris scriptée.
 add_executable(levain_editor_console editor_console_gpu.cpp)
@@ -594,9 +602,10 @@ if(WIN32)
     add_test(NAME gpu.editor-view.d3d12-warp COMMAND levain_editor_view d3d12-warp)
     add_test(NAME gpu.scene-view.d3d12-warp COMMAND levain_scene_view d3d12-warp)
     add_test(NAME gpu.editor-shortcuts.d3d12-warp COMMAND levain_editor_shortcuts d3d12-warp)
+    add_test(NAME gpu.editor-close.d3d12-warp COMMAND levain_editor_close d3d12-warp)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
         gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp gpu.editor-console.d3d12-warp
-        gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp
+        gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp gpu.editor-close.d3d12-warp
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 
