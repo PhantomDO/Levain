@@ -452,6 +452,14 @@ target_compile_definitions(levain_editor_console PRIVATE LEVAIN_DATA_DIR="${CMAK
 add_test(NAME gpu.editor-console.vulkan COMMAND levain_editor_console vulkan)
 set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# La disposition de l'éditeur (ADR-0036, morceau 8) : chaque fenêtre sur son nœud et l'inspecteur seul sur le sien, donc
+# visible.
+add_executable(levain_editor_view editor_view_gpu.cpp)
+target_link_libraries(levain_editor_view PRIVATE levain::editor levain::app levain::core levain::platform levain::scene levain::ui)
+target_compile_definitions(levain_editor_view PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.editor-view.vulkan COMMAND levain_editor_view vulkan)
+set_tests_properties(gpu.editor-view.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # La scène dans une texture (ADR-0036, morceau 7) : la Vue demande une taille, le renderer rend à cette taille, la texture
 # ne se recrée qu'une fois la taille stable, une Vue fermée ne rend rien et F1 rend la scène à la fenêtre, dans la vraie
 # boucle hors écran.
@@ -553,11 +561,12 @@ if(WIN32)
     add_test(NAME gpu.app-loop.d3d12-warp COMMAND levain_app_loop d3d12-warp)
     add_test(NAME gpu.editor-modes.d3d12-warp COMMAND levain_editor_modes d3d12-warp)
     add_test(NAME gpu.editor-console.d3d12-warp COMMAND levain_editor_console d3d12-warp)
+    add_test(NAME gpu.editor-view.d3d12-warp COMMAND levain_editor_view d3d12-warp)
     add_test(NAME gpu.scene-view.d3d12-warp COMMAND levain_scene_view d3d12-warp)
     add_test(NAME gpu.editor-shortcuts.d3d12-warp COMMAND levain_editor_shortcuts d3d12-warp)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
         gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp gpu.editor-console.d3d12-warp
-        gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp
+        gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 
