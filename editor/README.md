@@ -181,6 +181,20 @@ M couverts par un test ».
     panneaux ouverts ; **`StableFramesBeforeResize` n'est pas mesuré sur un vrai glissé de séparateur à 144 Hz** (cette
     machine n'a pas d'écran à 144 Hz), à faire quand un écran rapide est sous la main.
 
+## Fermer l'éditeur (ADR-0036, décision 11)
+
+`withEditor` répond « demandons d'abord » à `FrameHooks::closeRequested` : la croix (`askToQuit`) arme la modale
+« Quitter l'éditeur ? » (`drawQuitModal`, dans `ui`, au centre de la fenêtre), Quitter pose `App::quitRequested`, Annuler
+garde l'éditeur. **Une seule modale** : une croix reçue modale ouverte n'en empile pas, et n'en prépare pas pour après.
+`app` ne consulte jamais le programme sous `isScriptedRun` (`--seconds`, `--input-script`…) ni pour un signal. M7.3 y
+ajoutera « Enregistrer ». **Sous la modale**, la route est celle de l'UI (`inputRouteWhileQuit` : ni clic ni touche n'atteint le jeu derrière)
+et Alt+P ne joue pas (`globalChordsAllowed`). **Échap annule** (en Édition il n'a rien d'autre à faire ; en jeu l'UI
+garde le clavier, il n'arrête pas le jeu). Une croix reçue **fenêtre masquée** remet la fenêtre devant
+(`platform::restoreAndRaise`), pour que la modale se voie (aucun test : le banc d'essai n'a pas d'événement
+« masquée »). En jeu, souris capturée, Alt+F4 ouvre une modale qu'on ne clique qu'après Échap ou Maj+F1. `withEditor`
+**remplace** le `closeRequested` du programme enveloppé. `QuitState` garde les rectangles
+des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
+
 ## Points d'entrée
 
 - `requireEditorBackend(api)` : le refus de WebGPU, une fonction pure testée (`tests/editor_test.cpp`), que le `main` de
@@ -189,6 +203,7 @@ M couverts par un test ».
   `--select`, en ouvre les ancêtres, ajoute la hiérarchie et l'inspecteur aux fenêtres, et écrit à la fin le
   bilan que lit la CI, « éditeur : N entités, M champs dessinés ; sélection : chemin », N étant les lignes de la
   hiérarchie et M les champs de la sélection à la dernière image.
+- `QuitState`, `askToQuit`, `shouldOpenQuitModal`, `drawQuitModal` (`quit.hpp`) : la modale de fermeture.
 - `Mode`, `ModeState`, `ModeRequests`, `modeRequested`, `enterMode`, `stopPressed`, `inputRouteFor`,
   `simulationPausedIn`, `programFrameRunsIn`, `otherMode`, `modeNameOf`, `modeHintOf`, `modeTokenOf`, `drawModeBar`,
   `playShortcutPressed`, `sceneHasFocus` (`mode.hpp`) : les modes, en fonctions libres. À la fin, `withEditor` écrit aussi `editor.mode mode=edit steps=0 -- mode : Édition ; pas : 0`,

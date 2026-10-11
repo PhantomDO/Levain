@@ -138,7 +138,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                                             .console = {},
                                             .windows = {},
                                             .view = {},
-                                            .menu = {}});
+                                            .menu = {},
+                                            .quit = {}});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -197,27 +198,43 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 // La Vue en dernier : elle pose `App::sceneRect`, et sa barre de mode en calque.
                 requested = drawView(editor->view, app, editor->mode.current);
             }
+            // Avant les raccourcis et la route, qui lisent si elle est ouverte.
+            if (drawQuitModal(editor->quit) == QuitAnswer::Quit)
+            {
+                app.quitRequested = true;
+            }
             // La barre de mode : en calque de la Vue panneaux ouverts, bandeau flottant sinon (le
             // bandeau de « Jouer » et le rappel de la touche valent panneaux fermés aussi).
-            // `modeRequested` décide, avec Alt+P.
+            // `modeRequested` décide, avec Alt+P, qui ne joue pas sous la modale.
             if (!app.ui.panelsOpen)
             {
                 drawModeBar(editor->mode.current, app.sceneRect);
             }
-            if (const auto next =
-                    modeRequested(editor->mode.current,
-                                  {.toolbar = requested, .playShortcut = playShortcutPressed()}))
+            if (const auto next = modeRequested(
+                    editor->mode.current,
+                    {.toolbar = requested,
+                     .playShortcut = globalChordsAllowed(editor->quit) && playShortcutPressed()}))
             {
                 changeMode(app, *editor, *next);
             }
             // La route de l'image suivante : le focus ne se sait que maintenant (ADR-0036, 4).
-            app.inputRoute = inputRouteFor(
-                editor->mode.current, sceneFocusedIn(app.ui.panelsOpen, viewHasFocus(editor->view),
-                                                     !sceneHasFocus(), editor->view.barHovered));
+            app.inputRoute = inputRouteWhileQuit(
+                editor->quit,
+                inputRouteFor(editor->mode.current,
+                              sceneFocusedIn(app.ui.panelsOpen, viewHasFocus(editor->view),
+                                             !sceneHasFocus(), editor->view.barHovered)));
             if (afterUi)
             {
                 afterUi(*editor);
             }
+        };
+        // La croix : on demande d'abord (la modale s'ouvre dans `ui`). **Remplace** le
+        // `closeRequested` du programme enveloppé, s'il en avait un : une fermeture que
+        // l'éditeur intercepte n'est pas à lui d'arbitrer, et `app` n'appelle qu'un crochet.
+        hooks->closeRequested = [editor](app::App&)
+        {
+            askToQuit(editor->quit);
+            return true;
         };
         hooks->finish = [finish = std::move(hooks->finish), editor](app::App& app)
         {

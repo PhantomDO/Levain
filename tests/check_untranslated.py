@@ -18,7 +18,8 @@ BeginPopupContextWindow IsPopupOpen InvisibleButton ArrowButton TreePush""".spli
 STRING = r'"(?:[^"\\]|\\.)*"'
 SOURCE_TOKEN = re.compile(rf"{STRING}|'(?:[^'\\]|\\.)'|//[^\n]*|/\*.*?\*/", re.S)
 CALL = re.compile(r"\bImGui::(\w+)\s*\(")
-CATALOGUED = re.compile(rf"\b(?:ui::)?(?:tr|trf|textf|labelOf)\(\s*{STRING}")
+# Le contexte facultatif (`labelOf("Annuler", "refuser")`) est une clé, pas un texte affiché.
+CATALOGUED = re.compile(rf"\b(?:ui::)?(?:tr|trf|textf|labelOf)\(\s*{STRING}(?:\s*,\s*{STRING})?")
 PRINTF_FIELD = re.compile(r"\\.|%[-+ #0]*\d*(?:\.\d+)?(?:ll|l|z|h)?[a-zA-Z]")
 # (extrait, refus attendus) : le contrôle se prouve avant de lire le dépôt (règle n°7), chaque cas est un contre-test.
 SELF_TEST = (
@@ -28,6 +29,7 @@ SELF_TEST = (
     ('ImGui::Text(str("Bonjour"));', 1), ('ImGui::Begin(ui::tr("Console"));', 1), ("ImGui::Begin(name);", 1),
     ('ImGui::Text("a"); // ImGui::Text("Bonjour")', 1), ('// ImGui::Text("Bonjour")\nint x;', 0),
     ('ImGui::TextDisabled("%s", ui::tr("ok (fin)"));', 0), ('ImGui::Begin(ui::labelOf("Console").c_str());', 0),
+    ('ImGui::Button(ui::labelOf("Annuler", "refuser").c_str());', 0), ('ImGui::Text(ui::tr("b", "c"), "Zut");', 1),
     ('ImGui::BeginTable("passes", 2);', 0), ('ImGui::TreeNodeEx("##entité", 0, "%s", s);', 0),
 )
 
