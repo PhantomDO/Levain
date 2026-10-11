@@ -2,7 +2,7 @@
 
 // La Vue de l'éditeur (ADR-0036, décision 7) : la fenêtre qui montre la scène rendue dans une
 // texture (`App::requestScene`, morceau 7). Elle demande sa taille de contenu à chaque image, et 0
-// × 0 à chaque image où elle n'est pas montrée (repliée, derrière un onglet) : « rien
+// × 0 à chaque image où elle n'est pas montrée (fermée, repliée, derrière un onglet) : « rien
 // demandé » est la scène dans la fenêtre, que la Vue ne doit jamais provoquer. Elle publie aussi le
 // rectangle de son image (`App::sceneRect`), que la route de l'input et le picking du sandbox
 // lisent. Équivalents : la Scene View d'Unity, le Viewport d'Unreal, le Viewport 3D de Godot.
@@ -25,6 +25,7 @@ inline constexpr const char* ViewWindow = "Vue";
 /// Ce que la Vue garde d'une image à l'autre, et ce qu'elle a fait à la dernière.
 struct View
 {
+    bool open = true; ///< Le drapeau que la croix et le menu « Fenêtre » partagent.
     /// Mettre la Vue en avant à sa prochaine image : Play lui donne le focus, ainsi le jeu reçoit
     /// le clavier sans clic préalable (la route *jeu* demande la Vue focalisée).
     bool focusRequested = false;
@@ -64,11 +65,12 @@ struct View
     return panelsOpen ? viewFocused && !barHovered : !anyWindowFocused;
 }
 
-/// La Vue a le focus, ou l'aura à sa prochaine image : Play le lui a demandé (`focusRequested`).
-/// Ainsi le clic qui suit Alt+P va au jeu sans image perdue à attendre que le focus soit pris.
+/// La Vue a le focus, ou l'aura à sa prochaine image : Play le lui a demandé (`focusRequested`)
+/// et elle est ouverte. Ainsi le clic qui suit Alt+P va au jeu sans image perdue à attendre
+/// que le focus soit pris.
 [[nodiscard]] constexpr bool viewHasFocus(const View& view)
 {
-    return view.focused || view.focusRequested;
+    return view.focused || (view.open && view.focusRequested);
 }
 
 /// Dessine la Vue, ancrée au premier affichage au nœud central de la disposition d'`app`. À appeler

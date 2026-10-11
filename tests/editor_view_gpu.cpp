@@ -1,8 +1,9 @@
 // La Vue de l'éditeur dans la vraie boucle (ADR-0036, morceau 8) : `withEditor` autour d'un
 // programme minimal, un script d'input rejoué hors écran (le banc d'essai de l'App). Chaque fenêtre
 // est sur son nœud de la disposition et l'inspecteur est seul sur le sien, donc visible ; la Vue
-// demande la taille de son contenu et la scène est rendue à cette taille ; cachée derrière un
-// onglet ou repliée, elle demande 0 x 0. Il faut un device, comme `levain_app_script`.
+// demande la taille de son contenu et la scène est rendue à cette taille ; le menu « Fenêtre »,
+// cliqué à la souris scriptée, ferme la Vue (elle demande 0 x 0, aucune scène n'est rendue) puis la
+// rouvre. Il faut un device, comme `levain_app_script`.
 //   levain_editor_view [vulkan|d3d12|d3d12-warp]
 
 #include <array>
@@ -39,7 +40,7 @@ using levain::app::SceneOutput;
 
 constexpr int WindowWidth = 1280;
 constexpr int WindowHeight = 720;
-/// La Vue parmi les fenêtres relevées : Hiérarchie, Inspecteur, Console, Vue, Image, Passes, Scène.
+/// Dans l'ordre du menu : Hiérarchie, Inspecteur, Console, Vue, Image, Passes, Scène.
 constexpr std::size_t ViewEntry = 3;
 constexpr std::array<const char*, 7> Titles = {"Hiérarchie", "Inspecteur", "Console", "Vue",
                                                "Image",      "Passes",     "Scène"};
@@ -58,6 +59,7 @@ struct Seen
 {
     std::array<Placed, 7> windows{};
     levain::app::DockNodes nodes{};
+    bool viewOpen = false;
     bool viewShown = false;
     levain::app::SceneSize requested{};
     levain::app::ScreenRect image{};
@@ -65,6 +67,7 @@ struct Seen
     std::uint32_t textureWidth = 0;
     std::uint32_t textureHeight = 0;
     levain::app::ScreenRect sceneRect{};
+    levain::editor::WindowMenuLayout menu{};
 };
 
 Placed placedOf(const char* french)
@@ -83,11 +86,13 @@ Placed placedOf(const char* french)
 Seen seenOf(const App& app, const levain::editor::Editor& editor)
 {
     Seen seen{.nodes = app.ui.dock,
+              .viewOpen = editor.view.open,
               .viewShown = editor.view.shown,
               .requested = editor.view.requested,
               .image = editor.view.image,
               .output = app.sceneView.output,
-              .sceneRect = app.sceneRect};
+              .sceneRect = app.sceneRect,
+              .menu = editor.menu};
     for (std::size_t i = 0; i < Titles.size(); ++i)
     {
         seen.windows.at(i) = placedOf(Titles.at(i));
@@ -226,10 +231,72 @@ int playLayout(const levain::tests::TestBackend& backend)
     return failures;
 }
 
+constexpr int MenuFrames = 28;
+
+/// Le script qui ferme la Vue par le menu « Fenêtre », puis la rouvre : le titre du menu à
+/// `title`, la case de la Vue à `item`.
+std::string menuScript(ImVec2 title, ImVec2 item)
+{
+    return std::format("2 mouse move {0} {1}\n3 button down left\n4 button up left\n"
+                       "7 mouse move {2} {3}\n8 button down left\n9 button up left\n"
+                       "13 mouse move {0} {1}\n14 button down left\n15 button up left\n"
+                       "18 mouse move {2} {3}\n19 button down left\n20 button up left\n",
+                       title.x, title.y, item.x, item.y);
+}
+
+/// Le menu « Fenêtre » à la souris : la case de la Vue ferme la fenêtre, la scène n'est plus rendue
+/// et la Vue demande 0 x 0 ; la même case la rouvre.
+int playMenu(const levain::tests::TestBackend& backend)
+{
+    // Deux passages pour lire la disposition : le titre du menu, puis les cases du menu ouvert.
+    const Run first = play(backend, Idle, 4);
+    if (first.seen.empty())
+    {
+        return expect(false, "le menu : le premier passage n'a rien relevé");
+    }
+    const ImVec2 title = first.seen.back().menu.title;
+    const Run second = play(
+        backend,
+        std::format("2 mouse move {} {}\n3 button down left\n4 button up left\n", title.x, title.y),
+        9);
+    if (second.seen.size() != 9 || !second.seen.back().menu.itemsShown)
+    {
+        return expect(false, "le menu : cliqué, le menu « Fenêtre » s'ouvre et montre ses cases");
+    }
+    const ImVec2 item = second.seen.back().menu.items.at(ViewEntry);
+
+    const Run run = play(backend, menuScript(title, item), MenuFrames);
+    if (run.exitCode != 0 || run.seen.size() != MenuFrames)
+    {
+        return expect(false, "le menu : code 0 et une image relevée par image");
+    }
+    const Seen& before = run.seen.at(6);
+    const Seen& closed = run.seen.at(12);
+    const Seen& reopened = run.seen.at(MenuFrames - 1);
+    return expect(before.menu.itemsShown, "le menu est ouvert avant le clic sur la case") +
+           expect(before.viewOpen && before.viewShown && !before.requested.empty() &&
+                      before.output == SceneOutput::Texture,
+                  "avant : la Vue demande sa taille, la scène est dans la texture") +
+           expect(!closed.viewOpen && !closed.viewShown, "la case ferme la Vue") +
+           expect(sameSize(closed.requested, 0, 0),
+                  "la Vue fermée demande 0 x 0, elle ne se tait pas") +
+           expect(closed.output == SceneOutput::Nothing,
+                  "Vue fermée : aucune scène n'est rendue, la fenêtre n'est pas pleine de scène") +
+           expect(closed.sceneRect.width == 0.0f && closed.sceneRect.height == 0.0f,
+                  "Vue fermée : la souris n'est pas au jeu (rectangle vide)") +
+           expect(reopened.viewOpen && reopened.viewShown && !reopened.requested.empty() &&
+                      reopened.output == SceneOutput::Texture,
+                  "la case rouvre la Vue : elle redemande sa taille, la scène revient") +
+           expect(sameSize(reopened.requested, reopened.textureWidth, reopened.textureHeight),
+                  "rouverte, la texture a la taille demandée") +
+           expect(reopened.windows.at(ViewEntry).dock == reopened.nodes.center,
+                  "rouverte, la Vue retrouve son nœud");
+}
+
 /// La Vue cachée derrière un onglet, ou repliée, demande 0 x 0 : « rien demandé » rendrait la scène
-/// à la fenêtre derrière les panneaux (`drawView`). Le contrôle : une Vue qui ne demande plus
-/// 0 x 0 quand elle n'est pas montrée (sans le bloc `!asked`) garde la taille de l'image d'avant,
-/// et ce test rougit.
+/// à la fenêtre derrière les panneaux (`drawView`). Le contrôle : une Vue qui ne demande 0 x 0
+/// que lorsqu'elle est fermée (`!asked && !view.open`) garde la taille de l'image d'avant, et
+/// ce test rougit.
 int playHidden(const levain::tests::TestBackend& backend)
 {
     constexpr int Frames = 40;
@@ -305,7 +372,7 @@ int main(int argc, char** argv)
             std::println(stderr, "usage : levain_editor_view [vulkan|d3d12|d3d12-warp]");
             return 2;
         }
-        const int failures = playLayout(*backend) + playHidden(*backend);
+        const int failures = playLayout(*backend) + playMenu(*backend) + playHidden(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

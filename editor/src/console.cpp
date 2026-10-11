@@ -128,8 +128,6 @@ std::string lineOf(const core::LogEntry& entry, std::size_t repeats)
 namespace
 {
 
-constexpr const char* ConsoleWindow = "Console";
-
 ImVec2 centerOfLastItem()
 {
     const ImVec2 low = ImGui::GetItemRectMin();
@@ -265,10 +263,14 @@ void drawRows(Console& console)
 
 } // namespace
 
-void drawConsole(Console& console, core::LogRing& ring, ImGuiID dock)
+void drawConsole(Console& console, core::LogRing& ring, ImGuiID dock, bool* open)
 {
+    if (open != nullptr && !*open)
+    {
+        return; // fermée par le menu « Fenêtre » : ni fenêtre ni onglet
+    }
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(ui::labelOf(ConsoleWindow).c_str()))
+    if (ImGui::Begin(ui::labelOf(ConsoleWindow).c_str(), open))
     {
         refreshSnapshot(console, ring);
         drawToolbar(console, ring);

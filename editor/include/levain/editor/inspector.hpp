@@ -19,6 +19,9 @@
 namespace levain::editor
 {
 
+/// La clé de catalogue du titre de la fenêtre.
+inline constexpr const char* InspectorWindow = "Inspecteur";
+
 /// Ce que l'inspecteur garde d'une image à l'autre.
 struct Inspector
 {
@@ -100,7 +103,8 @@ int inspectComponent(flecs::world& world, Inspector& inspector, flecs::entity en
 /// d'`app` : chaque composant de l'entité choisie, si elle vit encore (`selectedIfAlive`). Le monde
 /// doit être différé (`defer_begin`) : les écritures passent, et leurs observateurs, après le
 /// parcours des composants de l'entité.
+/// `open` : comme `drawHierarchy`.
 void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t selected,
-                   ImGuiID dock);
+                   ImGuiID dock, bool* open = nullptr);
 
 } // namespace levain::editor

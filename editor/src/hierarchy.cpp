@@ -15,8 +15,6 @@ namespace levain::editor
 namespace
 {
 
-constexpr const char* HierarchyWindow = "Hiérarchie";
-
 /// Les drapeaux d'ImGui sont des `int` : les combiner en non signé, comme des bits qu'ils sont
 /// (comme `withFlags` d'engine/ui/src/context.cpp).
 int withFlags(int flags, int added)
@@ -231,11 +229,15 @@ void pushEntityId(flecs::entity_t entity)
 }
 
 void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entity_t& selected,
-                   ImGuiID dock)
+                   ImGuiID dock, bool* open)
 {
     listHierarchyRows(hierarchy, hierarchy.rows);
+    if (open != nullptr && !*open)
+    {
+        return;
+    }
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(ui::labelOf(HierarchyWindow).c_str()))
+    if (ImGui::Begin(ui::labelOf(HierarchyWindow).c_str(), open))
     {
         drawSingletons(world, selected);
         // Ses lignes ont le retrait des racines qui suivent : le trait marque où le nœud s'arrête.

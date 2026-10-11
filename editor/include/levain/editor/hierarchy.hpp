@@ -15,6 +15,9 @@
 namespace levain::editor
 {
 
+/// La clé de catalogue du titre de la fenêtre.
+inline constexpr const char* HierarchyWindow = "Hiérarchie";
+
 /// Une ligne de la hiérarchie : une entité, à sa profondeur dans l'arbre.
 struct HierarchyRow
 {
@@ -63,7 +66,10 @@ void pushEntityId(flecs::entity_t entity);
 
 /// La fenêtre « Hiérarchie », ancrée au premier affichage au nœud `dock` de la disposition d'`app`.
 /// Un clic choisit l'entité (`selected`), la flèche ouvre ou ferme son nœud.
+///
+/// `open` : le drapeau que la croix de la fenêtre et le menu « Fenêtre » partagent ; faux, rien
+/// n'est dessiné (les lignes sont tout de même listées, la CI compte les entités).
 void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entity_t& selected,
-                   ImGuiID dock);
+                   ImGuiID dock, bool* open = nullptr);
 
 } // namespace levain::editor
