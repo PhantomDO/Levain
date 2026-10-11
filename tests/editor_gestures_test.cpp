@@ -1,7 +1,9 @@
-// Les boîtes que la caméra de l'éditeur cadre et les plans de découpe de la scène (ADR-0036,
-// décision 6, morceau 11) : de la logique pure, sans fenêtre. Chaque règle a son cas (les
+// Les gestes de la caméra de l'éditeur, les boîtes qu'elle cadre et ses plans de découpe (ADR-0036,
+// décisions 6, 8 et 13, morceau 11) : de la logique pure, sans fenêtre. Chaque règle a son cas (les
 // contre-tests sont listés dans la PR du morceau).
 
+#include <cmath>
+#include <cstdint>
 #include <map>
 
 #include <doctest/doctest.h>
@@ -9,13 +11,26 @@
 #include <glm/glm.hpp>
 
 #include "levain/editor/camera.hpp"
+#include "levain/editor/gestures.hpp"
 #include "levain/editor/scene_bounds.hpp"
+#include "levain/editor/shortcuts.hpp"
 #include "levain/scene/components.hpp"
 
 using levain::editor::EditorCamera;
+using levain::editor::Gesture;
 
 namespace
 {
+
+constexpr std::uint16_t ScanW = 26, ScanZ = 29, ScanS = 22, ScanA = 4, ScanD = 7, ScanE = 8,
+                        ScanQ = 20;
+constexpr float Dt = 1.0f / 60.0f;
+
+const levain::editor::ShortcutTable& table()
+{
+    static const auto shortcuts = levain::editor::defaultShortcuts();
+    return shortcuts;
+}
 
 EditorCamera tilted()
 {
@@ -27,6 +42,40 @@ EditorCamera tilted()
 }
 
 } // namespace
+
+TEST_CASE("un bouton commence le geste de la décision 6, selon Alt")
+{
+    using levain::editor::gestureStartedBy;
+    CHECK(gestureStartedBy(levain::editor::RightButton, false) == Gesture::Fly);
+    CHECK(gestureStartedBy(levain::editor::RightButton, true) == Gesture::DollyDrag);
+    CHECK(gestureStartedBy(levain::editor::LeftButton, true) == Gesture::Orbit);
+    CHECK(gestureStartedBy(levain::editor::MiddleButton, false) == Gesture::Pan);
+    CHECK(gestureStartedBy(levain::editor::MiddleButton, true) == Gesture::Pan);
+    // Le clic gauche seul choisit (M7.4), il ne bouge pas la caméra.
+    CHECK(gestureStartedBy(levain::editor::LeftButton, false) == Gesture::None);
+    CHECK(gestureStartedBy(9, false) == Gesture::None);
+}
+
+TEST_CASE("les touches de vol se lisent par position : W, A, S, D, E, Q")
+{
+    using levain::editor::flightMoveOf;
+    std::bitset<levain::platform::KeyCodeCount> keys;
+    CHECK(flightMoveOf(table(), keys) == glm::vec3{0.0f});
+    keys.set(ScanW);
+    CHECK(flightMoveOf(table(), keys) == glm::vec3{0.0f, 0.0f, 1.0f});
+    keys.set(ScanD);
+    keys.set(ScanE);
+    CHECK(flightMoveOf(table(), keys) == glm::vec3{1.0f, 1.0f, 1.0f});
+    keys.reset();
+    keys.set(ScanS);
+    keys.set(ScanA);
+    keys.set(ScanQ);
+    CHECK(flightMoveOf(table(), keys) == glm::vec3{-1.0f, -1.0f, -1.0f});
+    // La touche marquée W d'un AZERTY est à la place du Z d'un QWERTY : elle ne vole pas.
+    keys.reset();
+    keys.set(ScanZ);
+    CHECK(flightMoveOf(table(), keys) == glm::vec3{0.0f});
+}
 
 TEST_CASE("les boîtes : celle d'une entité, celle de la scène, les plans de découpe")
 {
@@ -92,6 +141,16 @@ TEST_CASE("les plans de découpe de l'éditeur : le lointain d'abord, le proche 
     const auto capped = levain::editor::editorClipPlanes(camera, huge);
     CHECK(capped.farPlane == levain::editor::MaxEditorFarPlane);
     CHECK(capped.nearPlane <= 10.0f);
+}
+
+TEST_CASE("la durée d'un vol est bornée : une image longue ne lance pas la caméra")
+{
+    using levain::editor::clampFlightSeconds;
+    using levain::editor::MaxFlightSeconds;
+    CHECK(clampFlightSeconds(Dt) == Dt);
+    CHECK(clampFlightSeconds(2.0f) == MaxFlightSeconds);
+    CHECK(clampFlightSeconds(-1.0f) == 0.0f);
+    CHECK(clampFlightSeconds(std::nanf("")) == 0.0f);
 }
 
 TEST_CASE("la boîte de la scène se garde : refaite quand quelque chose a changé, sinon non")

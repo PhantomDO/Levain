@@ -1,5 +1,6 @@
 #include "levain/editor/mode.hpp"
 
+#include <algorithm>
 #include <tuple>
 
 #include <imgui.h>
@@ -33,9 +34,10 @@ int modeBarFlags()
 
 } // namespace
 
-bool stopPressed(ModeState& state, const input::RawInput& raw)
+bool stopPressed(ModeState& state, const input::RawInput& raw, const ShortcutTable& table)
 {
-    const bool held = raw.keys.test(StopScancode);
+    const Binding* stop = bindingOf(table, Action::Stop);
+    const bool held = stop != nullptr && positionHeld(*stop, raw.keys);
     const bool rose = held && !state.stopHeld;
     state.stopHeld = held;
     return rose;
@@ -118,12 +120,22 @@ std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovere
     return requested;
 }
 
-bool playShortcutPressed()
+bool playShortcutPressed(const ShortcutTable& table)
 {
-    // Route globale : Alt+P marche quelle que soit la fenêtre qui a le focus (imgui.h, `Shortcut`).
-    return ImGui::Shortcut(static_cast<ImGuiKeyChord>(static_cast<unsigned>(ImGuiMod_Alt) |
-                                                      static_cast<unsigned>(ImGuiKey_P)),
-                           ImGuiInputFlags_RouteGlobal);
+    const Binding* play = bindingOf(table, Action::Play);
+    if (play == nullptr)
+    {
+        return false;
+    }
+    // Route globale : l'accord marche quelle que soit la fenêtre qui a le focus (imgui.h,
+    // `Shortcut`). Les deux accords de l'action, ceux de lettre seulement (`imguiChordOf`).
+    return std::ranges::any_of(play->chords,
+                               [](const Chord& chord)
+                               {
+                                   const auto imgui = imguiChordOf(chord);
+                                   return imgui &&
+                                          ImGui::Shortcut(*imgui, ImGuiInputFlags_RouteGlobal);
+                               });
 }
 
 bool sceneHasFocus()

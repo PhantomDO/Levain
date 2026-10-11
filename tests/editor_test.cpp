@@ -713,14 +713,32 @@ TEST_CASE("Échap ramène à l'Édition à son appui, pas tant qu'elle est tenue
 {
     levain::editor::ModeState state{.current = levain::editor::Mode::PlayWithoutReturn};
     levain::input::RawInput raw;
-    CHECK_FALSE(levain::editor::stopPressed(state, raw));
+    const auto table = levain::editor::defaultShortcuts();
+    CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
     raw.keys.set(levain::editor::StopScancode);
-    CHECK(levain::editor::stopPressed(state, raw));
-    CHECK_FALSE(levain::editor::stopPressed(state, raw)); // toujours tenue : le front est passé
+    CHECK(levain::editor::stopPressed(state, raw, table));
+    CHECK_FALSE(
+        levain::editor::stopPressed(state, raw, table)); // toujours tenue : le front est passé
     raw.keys.reset(levain::editor::StopScancode);
-    CHECK_FALSE(levain::editor::stopPressed(state, raw));
+    CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
     raw.keys.set(levain::editor::StopScancode);
-    CHECK(levain::editor::stopPressed(state, raw)); // un nouvel appui
+    CHECK(levain::editor::stopPressed(state, raw, table)); // un nouvel appui
+}
+
+TEST_CASE("l'arrêt lit la position que la table donne à « Arrêter », non Échap en dur")
+{
+    levain::editor::ModeState state{.current = levain::editor::Mode::PlayWithoutReturn};
+    levain::input::RawInput raw;
+    levain::editor::ShortcutTable table;
+    table.bindings.push_back({.action = levain::editor::Action::Stop,
+                              .context = levain::editor::Context::Game,
+                              .chords = {levain::editor::positionChord(20), {}}});
+    raw.keys.set(levain::editor::StopScancode);
+    CHECK_FALSE(levain::editor::stopPressed(state, raw, table)); // Échap n'est plus l'arrêt
+    raw.keys.set(20);
+    CHECK(levain::editor::stopPressed(state, raw, table));
+    // Sans aucune action « Arrêter », jamais.
+    CHECK_FALSE(levain::editor::stopPressed(state, raw, levain::editor::ShortcutTable{}));
 }
 
 TEST_CASE("Alt+P joue, Échap arrête, seul le bouton va dans les deux sens")
