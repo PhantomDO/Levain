@@ -21,6 +21,7 @@
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
 #include "levain/editor/mode.hpp"
+#include "levain/editor/view.hpp"
 
 namespace levain::editor
 {
@@ -59,6 +60,8 @@ struct Editor
     /// le device y ont écrit), partagé avec la fonction de démarrage qui le garde en vie.
     std::shared_ptr<core::LogCapture> log;
     Console console;
+    /// La Vue (ADR-0036, décision 7) : la scène dans une fenêtre, son rectangle et sa taille.
+    View view;
 };
 
 /// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web

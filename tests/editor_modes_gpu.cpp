@@ -139,8 +139,24 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
     settings.api = backend.api;
     settings.adapter = backend.adapter;
     Run run;
+    // Le programme relève dans `ui`, avant l'éditeur : ce que la Vue a posé à cette image
+    // (`App::sceneRect`, la barre en calque) n'est connu qu'à la fin de `ui`, et complète la
+    // dernière image relevée.
+    levain::editor::EditorOptions options;
+    options.afterUi = [&run](const levain::editor::Editor& editor)
+    {
+        if (editor.view.shown && !run.seen.empty())
+        {
+            Seen& seen = run.seen.back();
+            seen.rect = editor.view.image;
+            seen.barDrawn = editor.view.barDrawn;
+            seen.barX = editor.view.barAt.x;
+            seen.barY = editor.view.barAt.y;
+        }
+    };
     run.exitCode = levain::app::runApp(
-        settings, levain::editor::withEditor(programOf(run.seen, run.programFrames, pinRect), {}));
+        settings, levain::editor::withEditor(programOf(run.seen, run.programFrames, pinRect),
+                                             std::move(options)));
     return run;
 }
 
@@ -238,11 +254,11 @@ int playModes(const levain::tests::TestBackend& backend)
     return failures;
 }
 
-/// Panneaux ouverts : la barre de mode se dessine sans que la validation d'ImGui ne proteste, dans
-/// le trou du centre de la disposition et non sur les onglets des colonnes ; `sceneRect` est ce
-/// trou, plus étroit que la fenêtre. Alt+P joue ; une seconde Alt+P, que le panneau qui a le
-/// focus (la route UI) laisse arriver à ImGui, ne ramène pas à l'Édition : seuls Échap et le bouton
-/// le font.
+/// Panneaux ouverts : la barre de mode se dessine en calque de la Vue sans que la validation
+/// d'ImGui ne proteste, dans l'image de la Vue et non sur les colonnes ; `sceneRect` est cette
+/// image, plus étroite que la fenêtre. Alt+P joue et met la Vue en avant : la route est *jeu*, une
+/// seconde Alt+P n'arrive pas à ImGui et ne ramène pas à l'Édition : seuls Échap et le bouton le
+/// font.
 int playPanels(const levain::tests::TestBackend& backend)
 {
     const Run run = play(backend,
@@ -257,13 +273,13 @@ int playPanels(const levain::tests::TestBackend& backend)
     const Seen& second = run.seen.at(5);
     return expect(last.steps == 5 && last.programFrames == 5,
                   "panneaux ouverts : le jeu joue de l'image 3 à la 7, Alt+P ne le rend pas") +
-           expect(second.route == levain::app::InputRoute::Ui && second.imguiP,
-                  "panneaux ouverts : un panneau a le focus, la seconde Alt+P arrive à ImGui") +
+           expect(second.route == levain::app::InputRoute::Game && !second.imguiP,
+                  "panneaux ouverts : Jouer met la Vue en avant, la route est jeu") +
            expect(last.rect.x > 0.0f && last.rect.width > 0.0f &&
                       last.rect.x + last.rect.width < 320.0f,
-                  "panneaux ouverts : la scène est le trou du centre, entre les colonnes") +
+                  "panneaux ouverts : la scène est l'image de la Vue, entre les colonnes") +
            expect(last.barDrawn && last.barX >= last.rect.x && last.barY >= last.rect.y,
-                  "panneaux ouverts : la barre est dans le trou, pas sur les colonnes");
+                  "panneaux ouverts : la barre est dans l'image de la Vue, pas sur les colonnes");
 }
 
 /// Panneaux fermés, rien d'épinglé : la scène est la fenêtre entière (320 × 180), et un clic à

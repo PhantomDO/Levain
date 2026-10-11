@@ -42,6 +42,14 @@ void logMode(const app::App& app, const Editor& editor)
               ui::trf("mode : {} ; pas : {}", ui::tr(modeNameOf(mode)), app.stepsPlayed));
 }
 
+/// Passe de mode. Jouer met la Vue en avant : le jeu reçoit le clavier sans qu'il faille cliquer
+/// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`).
+void changeMode(app::App& app, Editor& editor, Mode mode)
+{
+    enterMode(app, editor.mode, mode);
+    editor.view.focusRequested = mode == Mode::PlayWithoutReturn;
+}
+
 } // namespace
 
 std::vector<char*> takeEditorOptions(std::span<char* const> arguments, EditorOptions& options)
@@ -106,7 +114,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                                             .inspector = createInspector(app.world, &app.registry),
                                             .mode = {},
                                             .log = capture,
-                                            .console = {}});
+                                            .console = {},
+                                            .view = {}});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -127,7 +136,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             if (const auto requested = modeRequested(
                     editor->mode.current, {.stop = stopPressed(editor->mode, app.input.raw)}))
             {
-                enterMode(app, editor->mode, *requested);
+                changeMode(app, *editor, *requested);
             }
             if (programFrameRunsIn(editor->mode.current) && frame)
             {
@@ -140,6 +149,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             {
                 ui(app);
             }
+            std::optional<Mode> requested;
             if (app.ui.panelsOpen)
             {
                 // Avant la hiérarchie : dessinée après elle, la console prendrait l'onglet visible
@@ -157,18 +167,26 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 {
                     app.recomposeAfterUi = true; // la valeur tapée se voit dans l'image même
                 }
+                // La Vue en dernier : elle pose `App::sceneRect`, et sa barre de mode en calque.
+                requested = drawView(editor->view, app, editor->mode.current);
             }
-            // Le bouton, Alt+P : `modeRequested` décide, la barre est dessinée panneaux fermés
-            // aussi.
-            if (const auto requested = modeRequested(
-                    editor->mode.current,
-                    {.toolbar = drawModeBar(editor->mode.current, app.sceneRect, app.ui.panelsOpen),
-                     .playShortcut = playShortcutPressed()}))
+            // La barre de mode : en calque de la Vue panneaux ouverts, bandeau flottant sinon (le
+            // bandeau de « Jouer » et le rappel de la touche valent panneaux fermés aussi).
+            // `modeRequested` décide, avec Alt+P.
+            if (!app.ui.panelsOpen)
             {
-                enterMode(app, editor->mode, *requested);
+                drawModeBar(editor->mode.current, app.sceneRect);
+            }
+            if (const auto next =
+                    modeRequested(editor->mode.current,
+                                  {.toolbar = requested, .playShortcut = playShortcutPressed()}))
+            {
+                changeMode(app, *editor, *next);
             }
             // La route de l'image suivante : le focus ne se sait que maintenant (ADR-0036, 4).
-            app.inputRoute = inputRouteFor(editor->mode.current, sceneHasFocus());
+            app.inputRoute = inputRouteFor(
+                editor->mode.current, sceneFocusedIn(app.ui.panelsOpen, viewHasFocus(editor->view),
+                                                     !sceneHasFocus(), editor->view.barHovered));
             if (afterUi)
             {
                 afterUi(*editor);

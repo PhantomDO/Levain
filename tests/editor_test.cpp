@@ -957,3 +957,24 @@ TEST_CASE("la console suit le bout de la liste tant qu'on y est, et laisse en pa
     bench.settle();
     CHECK(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
 }
+
+TEST_CASE("la Vue : la taille demandée est l'entier du contenu, vide sous un pixel")
+{
+    using levain::editor::sceneSizeOfContent;
+    CHECK(sceneSizeOfContent(640.7f, 360.2f) == levain::app::SceneSize{640, 360});
+    CHECK(sceneSizeOfContent(1.0f, 1.0f) == levain::app::SceneSize{1, 1});
+    // Un côté sous un pixel : 0 x 0, jamais une texture de 0 x 1.
+    CHECK(sceneSizeOfContent(0.6f, 300.0f).empty());
+    CHECK(sceneSizeOfContent(300.0f, 0.0f) == levain::app::SceneSize{});
+    CHECK(sceneSizeOfContent(-5.0f, 10.0f) == levain::app::SceneSize{});
+}
+
+TEST_CASE("la scène a le focus : la Vue panneaux ouverts, aucune fenêtre panneaux fermés")
+{
+    using levain::editor::sceneFocusedIn;
+    CHECK(sceneFocusedIn(true, true, true, false));
+    CHECK_FALSE(sceneFocusedIn(true, false, false, false)); // une autre fenêtre ne le donne pas
+    CHECK_FALSE(sceneFocusedIn(true, true, true, true));    // la souris sur la barre de mode
+    CHECK(sceneFocusedIn(false, false, false, false));
+    CHECK_FALSE(sceneFocusedIn(false, true, true, false));
+}

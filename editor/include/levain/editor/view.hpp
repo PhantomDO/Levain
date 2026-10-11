@@ -1,0 +1,80 @@
+#pragma once
+
+// La Vue de l'éditeur (ADR-0036, décision 7) : la fenêtre qui montre la scène rendue dans une
+// texture (`App::requestScene`, morceau 7). Elle demande sa taille de contenu à chaque image, et 0
+// × 0 à chaque image où elle n'est pas montrée (repliée, derrière un onglet) : « rien
+// demandé » est la scène dans la fenêtre, que la Vue ne doit jamais provoquer. Elle publie aussi le
+// rectangle de son image (`App::sceneRect`), que la route de l'input et le picking du sandbox
+// lisent. Équivalents : la Scene View d'Unity, le Viewport d'Unreal, le Viewport 3D de Godot.
+
+#include <cmath>
+#include <cstdint>
+#include <optional>
+
+#include <imgui.h>
+
+#include "levain/app/app.hpp"
+#include "levain/editor/mode.hpp"
+
+namespace levain::editor
+{
+
+/// La clé de catalogue du titre de la fenêtre.
+inline constexpr const char* ViewWindow = "Vue";
+
+/// Ce que la Vue garde d'une image à l'autre, et ce qu'elle a fait à la dernière.
+struct View
+{
+    /// Mettre la Vue en avant à sa prochaine image : Play lui donne le focus, ainsi le jeu reçoit
+    /// le clavier sans clic préalable (la route *jeu* demande la Vue focalisée).
+    bool focusRequested = false;
+    bool shown = false; ///< `ImGui::Begin` a rendu vrai à la dernière image : l'onglet se voit.
+    /// La Vue a le focus à la dernière image, sa barre de mode comprise : cliquer le bouton de la
+    /// barre n'en retire pas le focus (`ImGuiFocusedFlags_ChildWindows`).
+    bool focused = false;
+    /// La souris est sur la barre de mode à la dernière image : la route de l'image suivante est
+    /// *UI*, le clic sur le bouton n'atteint pas le jeu.
+    bool barHovered = false;
+    /// La taille demandée à la dernière image : celle du contenu de la fenêtre si elle est montrée,
+    /// 0 × 0 sinon.
+    app::SceneSize requested{};
+    app::ScreenRect image{}; ///< Où la dernière image a mis la scène.
+    bool barDrawn = false;   ///< La barre de mode en calque a été dessinée à la dernière image.
+    ImVec2 barAt{};          ///< Son coin haut gauche.
+};
+
+/// La taille en pixels que la Vue demande pour un contenu de `width` × `height` : l'entier en
+/// dessous (une texture n'a pas de demi-pixel), vide dès qu'un côté fait moins d'un pixel. Nommé :
+/// un contenu de 0,6 pixel ne doit pas demander une texture de 0 × 1.
+[[nodiscard]] inline app::SceneSize sceneSizeOfContent(float width, float height)
+{
+    const auto whole = [](float side)
+    { return side >= 1.0f ? static_cast<std::uint32_t>(std::floor(side)) : 0u; };
+    const app::SceneSize size{whole(width), whole(height)};
+    return size.empty() ? app::SceneSize{} : size;
+}
+
+/// Qui a le focus pour la route de l'input (ADR-0036, décision 4) : panneaux ouverts, la Vue
+/// seule, et pas quand la souris est sur sa barre de mode (`barHovered` : le clic va au bouton,
+/// non au jeu) ; panneaux fermés, la scène remplit la fenêtre et l'a tant qu'aucune fenêtre ne
+/// l'a.
+[[nodiscard]] constexpr bool sceneFocusedIn(bool panelsOpen, bool viewFocused,
+                                            bool anyWindowFocused, bool barHovered)
+{
+    return panelsOpen ? viewFocused && !barHovered : !anyWindowFocused;
+}
+
+/// La Vue a le focus, ou l'aura à sa prochaine image : Play le lui a demandé (`focusRequested`).
+/// Ainsi le clic qui suit Alt+P va au jeu sans image perdue à attendre que le focus soit pris.
+[[nodiscard]] constexpr bool viewHasFocus(const View& view)
+{
+    return view.focused || view.focusRequested;
+}
+
+/// Dessine la Vue, ancrée au premier affichage au nœud central de la disposition d'`app`. À appeler
+/// une fois par image, panneaux ouverts : elle appelle `requestScene` (une fois), montre la
+/// texture sur tout son contenu, pose `App::sceneRect` et dessine la barre de mode en calque.
+/// Rend le mode que le bouton de la barre a demandé.
+[[nodiscard]] std::optional<Mode> drawView(View& view, app::App& app, Mode mode);
+
+} // namespace levain::editor
