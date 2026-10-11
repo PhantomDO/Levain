@@ -317,9 +317,8 @@ struct App
     /// **Où se voit la scène**, en pixels de l'image (ADR-0036) : sous la route *jeu*, la souris ne
     /// va au jeu que dedans, ou capturée. La boucle le pose à chaque image avant `ui` : la fenêtre
     /// entière, les panneaux fermés ; le trou du nœud central de la disposition, panneaux ouverts
-    /// (`drawEnginePanels`). **La Vue n'existe pas encore** (morceaux 7 et 8) : elle posera ici le
-    /// rectangle de sa fenêtre, et `ui` peut déjà le remplacer. Lu à l'image suivante, il est
-    /// celui de l'image d'avant.
+    /// (`drawEnginePanels`) ; la Vue de l'éditeur le remplace dans `ui` par le rectangle de son
+    /// image. Lu à l'image suivante, il est celui de l'image d'avant.
     ScreenRect sceneRect;
     /// **Le curseur**, en pixels de l'image comme `sceneRect` : la position que les événements de
     /// cette image ont portée (ImGui la suit, un script d'input la déplace), et non celle que SDL

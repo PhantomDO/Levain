@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <optional>
 
+#include <imgui.h>
+
 #include "levain/app/app.hpp"
 #include "levain/input/state.hpp"
 
@@ -132,18 +134,24 @@ void enterMode(app::App& app, ModeState& state, Mode mode);
 /// La barre de mode, accrochée au coin haut gauche de la scène (`scene`, `App::sceneRect`) : dans
 /// le trou du centre, jamais sur les onglets des colonnes. **Dessinée toujours** : le bandeau de
 /// « Jouer (sans retour) » et le rappel de la touche valent aussi panneaux fermés, où le bouton
-/// manque (`interactive`) : la fenêtre est alors un bandeau que rien ne vise ni ne focalise, et la
-/// route *jeu* reste. Rend le mode demandé par un clic sur le bouton.
-[[nodiscard]] std::optional<Mode> drawModeBar(Mode current, const app::ScreenRect& scene,
-                                              bool interactive);
+/// manque : la fenêtre est un bandeau que rien ne vise ni ne focalise, et la route *jeu* reste.
+/// Panneaux ouverts, la barre est celle de la Vue (`drawModeBarOverlay`).
+void drawModeBar(Mode current, const app::ScreenRect& scene);
+
+/// La même barre en calque de la fenêtre courante (la Vue), dans son coin haut gauche (`corner`) :
+/// un enfant de cette fenêtre, que le focus de la Vue ne passe jamais derrière. Toujours avec son
+/// bouton : la Vue n'existe que panneaux ouverts. Fond semi-opaque, pour que le rappel de la touche
+/// se lise sur un ciel clair. `hovered` dit si la souris est sur la barre : la Vue en tire la
+/// route *UI* de l'image suivante, sans quoi un clic sur le bouton atteindrait aussi le jeu (la
+/// barre est dans le rectangle de la scène).
+[[nodiscard]] std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered);
 
 /// Alt+P est pressée, par la lettre (ADR-0036, décision 13) : le raccourci d'Unreal pour jouer.
 /// ImGui doit recevoir le clavier : sous la route *jeu*, il n'en a que les relâchements.
 [[nodiscard]] bool playShortcutPressed();
 
-/// Aucune fenêtre d'ImGui n'a le focus : la scène l'a (le trou du docking, ou la fenêtre entière
-/// panneaux fermés). **Tant que la Vue n'existe pas** (morceaux 7 et 8) ; elle prendra le focus à
-/// sa place.
+/// Aucune fenêtre d'ImGui n'a le focus : la scène l'a, la fenêtre entière, panneaux fermés.
+/// Panneaux ouverts, c'est la Vue qui a le focus ou non (`View::focused`, `sceneFocusedIn`).
 [[nodiscard]] bool sceneHasFocus();
 
 } // namespace levain::editor

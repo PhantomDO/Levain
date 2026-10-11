@@ -1,5 +1,7 @@
 #include "levain/editor/mode.hpp"
 
+#include <tuple>
+
 #include <imgui.h>
 
 #include "levain/app/player_input.hpp"
@@ -18,16 +20,15 @@ int withFlags(int flags, int added)
     return static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(added));
 }
 
-/// Les drapeaux de la fenêtre de la barre de mode. Sans bouton (panneaux fermés), un bandeau que
-/// rien ne vise, ne navigue ni ne focalise : `sceneHasFocus` reste vrai et la route *jeu* aussi.
-/// Avec le bouton, elle ne prend pas non plus le focus à son apparition, seulement à un clic.
-int modeBarFlags(bool interactive)
+/// Les drapeaux de la fenêtre de la barre de mode, panneaux fermés : un bandeau que rien ne vise,
+/// ne navigue ni ne focalise (`NoInputs`) : `sceneHasFocus` reste vrai et la route *jeu* aussi.
+int modeBarFlags()
 {
-    const int base = withFlags(
+    return withFlags(
         withFlags(withFlags(ImGuiWindowFlags_NoDecoration, ImGuiWindowFlags_NoMove),
                   withFlags(ImGuiWindowFlags_NoSavedSettings, ImGuiWindowFlags_NoDocking)),
-        withFlags(ImGuiWindowFlags_AlwaysAutoResize, ImGuiWindowFlags_NoFocusOnAppearing));
-    return interactive ? base : withFlags(base, ImGuiWindowFlags_NoInputs);
+        withFlags(withFlags(ImGuiWindowFlags_AlwaysAutoResize, ImGuiWindowFlags_NoFocusOnAppearing),
+                  ImGuiWindowFlags_NoInputs));
 }
 
 } // namespace
@@ -56,32 +57,64 @@ void enterMode(app::App& app, ModeState& state, Mode mode)
     app.inputRoute = inputRouteFor(mode, false);
 }
 
-std::optional<Mode> drawModeBar(Mode current, const app::ScreenRect& scene, bool interactive)
+namespace
+{
+
+/// Le contenu de la barre, dans la fenêtre ou le calque courant : le bouton qui montre où l'on va
+/// (seul il va dans les deux sens, `modeRequested`), le bandeau de « Jouer (sans retour) » et le
+/// rappel de la touche.
+std::optional<Mode> drawModeBarContents(Mode current, bool interactive)
 {
     std::optional<Mode> requested;
-    ImGui::SetNextWindowPos({scene.x + 8.0f, scene.y + 8.0f});
-    if (ImGui::Begin(ui::labelOf("Mode").c_str(), nullptr, modeBarFlags(interactive)))
+    if (interactive)
     {
-        if (interactive)
+        const Mode target = otherMode(current);
+        const char* action = target == Mode::Edit ? "Revenir à l'édition" : "Jouer (sans retour)";
+        if (ImGui::Button(ui::labelOf(action).c_str()))
         {
-            // Le bouton montre où l'on va ; seul il va dans les deux sens (`modeRequested`).
-            const Mode target = otherMode(current);
-            const char* action =
-                target == Mode::Edit ? "Revenir à l'édition" : "Jouer (sans retour)";
-            if (ImGui::Button(ui::labelOf(action).c_str()))
-            {
-                requested = target;
-            }
+            requested = target;
         }
-        if (current == Mode::PlayWithoutReturn)
-        {
-            ImGui::TextColored(
-                {1.0f, 0.75f, 0.2f, 1.0f}, "%s",
-                ui::tr("Jouer (sans retour) : la scène n'est pas restaurée à l'arrêt"));
-        }
-        ImGui::TextDisabled("%s", ui::tr(modeHintOf(current)));
+    }
+    if (current == Mode::PlayWithoutReturn)
+    {
+        ImGui::TextColored({1.0f, 0.75f, 0.2f, 1.0f}, "%s",
+                           ui::tr("Jouer (sans retour) : la scène n'est pas restaurée à l'arrêt"));
+    }
+    ImGui::TextDisabled("%s", ui::tr(modeHintOf(current)));
+    return requested;
+}
+
+} // namespace
+
+void drawModeBar(Mode current, const app::ScreenRect& scene)
+{
+    ImGui::SetNextWindowPos({scene.x + 8.0f, scene.y + 8.0f});
+    if (ImGui::Begin(ui::labelOf("Mode").c_str(), nullptr, modeBarFlags()))
+    {
+        std::ignore = drawModeBarContents(current, false);
     }
     ImGui::End();
+}
+
+std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered)
+{
+    std::optional<Mode> requested;
+    // Un enfant de la fenêtre de la Vue, non une fenêtre flottante : une fenêtre flottante passe
+    // derrière la Vue dès que celle-ci prend le focus (`BringWindowToDisplayFront`), et la barre
+    // disparaîtrait au premier clic sur la scène.
+    ImGui::SetCursorScreenPos({corner.x + 8.0f, corner.y + 8.0f});
+    const int childFlags = withFlags(ImGuiChildFlags_AutoResizeX, ImGuiChildFlags_AutoResizeY);
+    // Un fond presque opaque : le rappel de la touche est en gris, illisible sur un ciel clair.
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.09f, 0.11f, 0.78f));
+    if (ImGui::BeginChild(ui::labelOf("Mode").c_str(), {0.0f, 0.0f},
+                          withFlags(childFlags, ImGuiChildFlags_Borders),
+                          ImGuiWindowFlags_NoScrollbar))
+    {
+        requested = drawModeBarContents(current, true);
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    hovered = ImGui::IsItemHovered();
     return requested;
 }
 
