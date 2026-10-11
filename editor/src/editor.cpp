@@ -75,8 +75,11 @@ flecs::entity selectedIfAlive(const flecs::world& world, flecs::entity_t selecte
 
 app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
 {
-    return [start = std::move(start),
-            options = std::move(options)](app::App& app) -> core::Result<app::FrameHooks>
+    // Captée ici, avant `runApp` : ce que la fenêtre et le device ont écrit en s'ouvrant est dans
+    // la console.
+    auto capture = std::make_shared<core::LogCapture>(core::captureLog(ConsoleCapacity));
+    return [start = std::move(start), options = std::move(options),
+            capture = std::move(capture)](app::App& app) -> core::Result<app::FrameHooks>
     {
         auto hooks = start(app);
         if (!hooks)
@@ -87,7 +90,9 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             std::make_shared<Editor>(Editor{.selected = 0,
                                             .hierarchy = createHierarchy(app.world),
                                             .inspector = createInspector(app.world, &app.registry),
-                                            .mode = {}});
+                                            .mode = {},
+                                            .log = capture,
+                                            .console = {}});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -115,7 +120,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 frame(app);
             }
         };
-        hooks->ui = [ui = std::move(hooks->ui), editor](app::App& app)
+        hooks->ui = [ui = std::move(hooks->ui), editor, afterUi = options.afterUi](app::App& app)
         {
             if (ui)
             {
@@ -123,6 +128,12 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             }
             if (app.ui.panelsOpen)
             {
+                // Avant la hiérarchie : dessinée après elle, la console prendrait l'onglet visible
+                // du nœud qu'elles se partagent (ImGui montre le dernier venu,
+                // `DockNodeUpdateTabBar` dans imgui.cpp) et cacherait ce qu'on voit à l'ouverture
+                // (mesuré par gpu.editor-console). Elle n'écrit pas dans le monde : hors du
+                // `defer`.
+                drawConsole(editor->console, *editor->log->ring, app.ui.dock.left);
                 // Les écritures de l'inspecteur et leurs observateurs passent après le parcours.
                 app.world.defer_begin();
                 drawHierarchy(app.world, editor->hierarchy, editor->selected, app.ui.dock.left);
@@ -145,6 +156,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             }
             // La route de l'image suivante : le focus ne se sait que maintenant (ADR-0036, 4).
             app.inputRoute = inputRouteFor(editor->mode.current, sceneHasFocus());
+            if (afterUi)
+            {
+                afterUi(*editor);
+            }
         };
         hooks->finish = [finish = std::move(hooks->finish), editor](app::App& app)
         {

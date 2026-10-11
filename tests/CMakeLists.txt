@@ -423,6 +423,14 @@ target_compile_definitions(levain_editor_modes PRIVATE LEVAIN_DATA_DIR="${CMAKE_
 add_test(NAME gpu.editor-modes.vulkan COMMAND levain_editor_modes vulkan)
 set_tests_properties(gpu.editor-modes.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# La console de l'éditeur (ADR-0036, morceau 14) dans la vraie boucle : la capture du journal posée avant runApp, la fenêtre
+# dessinée par withEditor sans cacher la hiérarchie, la case « Erreurs » cochée à la souris scriptée.
+add_executable(levain_editor_console editor_console_gpu.cpp)
+target_link_libraries(levain_editor_console PRIVATE levain::editor levain::app levain::core levain::platform levain::scene levain::ui)
+target_compile_definitions(levain_editor_console PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.editor-console.vulkan COMMAND levain_editor_console vulkan)
+set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # Le coût de la recomposition après ui, sur les 10 000 cubes de la démo : un banc, hors de ctest, comme levain_scene_bench
 # (tools/recompose-cost.sh le lance en Release ; le chiffre dépend de la machine).
 add_executable(levain_recompose_bench recompose_bench.cpp)
@@ -514,8 +522,10 @@ if(WIN32)
     add_test(NAME gpu.app-script.d3d12-warp COMMAND levain_app_script d3d12-warp)
     add_test(NAME gpu.app-loop.d3d12-warp COMMAND levain_app_loop d3d12-warp)
     add_test(NAME gpu.editor-modes.d3d12-warp COMMAND levain_editor_modes d3d12-warp)
+    add_test(NAME gpu.editor-console.d3d12-warp COMMAND levain_editor_console d3d12-warp)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
         gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp
+        gpu.editor-console.d3d12-warp
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 

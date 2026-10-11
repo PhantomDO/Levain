@@ -3,6 +3,24 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Deux fenêtres dans un nœud d'ancrage : l'ordre des `Begin` choisit l'onglet visible (2026-10-11)
+
+M7.7, morceau 14 (la console, `gpu.editor-console.*`).
+
+- **Symptôme** : la console, dessinée après la hiérarchie et l'inspecteur dans le nœud gauche (`dock.left`), est l'onglet
+  visible dès la deuxième image et cache ce qu'on y voyait ; dessinée avant la hiérarchie, c'est l'onglet de la fenêtre
+  « Image » (celle de l'`app`) qui reste visible. Une relecture avait annoncé que la console cachait la hiérarchie : la
+  hiérarchie est aussi derrière l'onglet « Image » sans la console (mesuré en retirant l'appel, `DockTabIsVisible`
+  faux à toutes les images). **Cause** : `DockNodeUpdateTabBar` (imgui.cpp, 1.92.8) sélectionne le dernier onglet
+  ajouté, dans l'ordre des `Begin`. **Parade** : tester la visibilité réelle (`ImGuiWindow::DockTabIsVisible`, relevée
+  dans `EditorOptions::afterUi`) plutôt que de la déduire du code, et dessiner la fenêtre qui ne doit pas prendre
+  l'onglet avant les autres ; la disposition du morceau 15 règle le fond.
+- **Un récepteur de journal qui journalise** : deux récepteurs qui journalisent, appelés par deux fils, s'attendaient
+  l'un l'autre (chacun tient son verrou en attendant celui de l'autre ; reproduit par la relecture, 10 s sans fin) alors
+  que la doc de `LogSink` disait qu'un récepteur pouvait journaliser. **Parade** : un message écrit depuis un récepteur
+  ne va qu'à la console (`SinkCallScope`, log.cpp) ; test `deux récepteurs qui journalisent…`, qui quitte en erreur au
+  bout de 30 s plutôt que de figer la suite.
+
 ## Un test de « ne prend pas le focus » qui lit une touche ne voit rien : lire la route (2026-10-10)
 
 M7.7, morceau 5 (`gpu.editor-modes.*`, le bandeau de la barre de mode, panneaux fermés).

@@ -4,6 +4,8 @@
 // exécutables éditeur lient (`levain_sandbox_editor`, plus tard `rando_editor`). Le jeu livré et
 // la page web n'en embarquent rien.
 
+#include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -12,6 +14,8 @@
 #include <flecs.h>
 
 #include "levain/app/app.hpp"
+#include "levain/core/log_ring.hpp"
+#include "levain/editor/console.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
 #include "levain/editor/mode.hpp"
@@ -19,12 +23,18 @@
 namespace levain::editor
 {
 
+struct Editor;
+
 /// Ce que la ligne de commande demande à l'éditeur.
 struct EditorOptions
 {
     /// `--select chemin` : l'entité choisie au démarrage, par son chemin (`grid::cube_0_0`) ; le
     /// nom seul ne trouve qu'une racine. Pour la CI et les captures.
     std::optional<std::string> select;
+    /// Appelé à la fin de chaque `ui`, avec l'éditeur tel que cette image l'a laissé : le banc
+    /// d'essai de l'App (ADR-0036, morceau 2) y lit ce que les fenêtres ont dessiné, que la boucle
+    /// ne montre pas de l'extérieur. Vide hors des tests.
+    std::function<void(const Editor&)> afterUi;
 };
 
 /// Retire de la ligne de commande les options de l'éditeur, que le programme refuserait, avant
@@ -43,6 +53,10 @@ struct Editor
     Inspector inspector;
     /// Le mode (ADR-0036) : l'éditeur s'ouvre en Édition.
     ModeState mode;
+    /// Le journal du processus depuis `withEditor` (et non depuis la première image : la fenêtre et
+    /// le device y ont écrit), partagé avec la fonction de démarrage qui le garde en vie.
+    std::shared_ptr<core::LogCapture> log;
+    Console console;
 };
 
 /// L'entité choisie si elle vit encore ; l'entité nulle sinon, ou sans choix. Une sélection

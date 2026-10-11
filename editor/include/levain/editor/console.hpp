@@ -20,6 +20,10 @@
 namespace levain::editor
 {
 
+/// Combien de messages la fenêtre garde : de quoi remonter un chargement, sans que l'éditeur lise
+/// un journal sans fin.
+inline constexpr std::size_t ConsoleCapacity = 2000;
+
 /// Ce que la console montre : un niveau coché ou non, et un texte cherché (vide : tout).
 struct ConsoleFilter
 {
