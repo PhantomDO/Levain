@@ -1033,6 +1033,19 @@ TEST_CASE("sous la modale, la route est celle de l'UI et les raccourcis globaux 
     CHECK_FALSE(levain::editor::globalChordsAllowed(state));
 }
 
+TEST_CASE("croix reçue ou modale ouverte : aucun geste de la caméra")
+{
+    levain::editor::QuitState state;
+    CHECK(levain::editor::cameraGesturesAllowed(state));
+    levain::editor::askToQuit(state); // la croix, avant que `ui` n'ouvre la modale
+    CHECK_FALSE(levain::editor::cameraGesturesAllowed(state));
+    state.asked = false; // ce que `drawQuitModal` fait en l'ouvrant
+    state.open = true;
+    CHECK_FALSE(levain::editor::cameraGesturesAllowed(state));
+    state.open = false; // Annuler
+    CHECK(levain::editor::cameraGesturesAllowed(state));
+}
+
 namespace
 {
 

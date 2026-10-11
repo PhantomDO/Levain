@@ -18,14 +18,18 @@
 #include "levain/app/app.hpp"
 #include "levain/core/error.hpp"
 #include "levain/core/log_ring.hpp"
+#include "levain/editor/camera.hpp"
 #include "levain/editor/console.hpp"
+#include "levain/editor/gestures.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
 #include "levain/editor/mode.hpp"
 #include "levain/editor/quit.hpp"
+#include "levain/editor/scene_bounds.hpp"
 #include "levain/editor/shortcuts.hpp"
 #include "levain/editor/view.hpp"
 #include "levain/editor/window_menu.hpp"
+#include "levain/scene/components.hpp"
 
 namespace levain::editor
 {
@@ -91,8 +95,18 @@ struct Editor
     WindowMenuLayout menu;
     /// La modale « Quitter l'éditeur ? » (ADR-0036, décision 11).
     QuitState quit;
+    /// **La caméra de l'éditeur** (ADR-0036, décision 6) : un état, pas une entité. Elle part de
+    /// celle du jeu s'il y en a une, les gestes la bougent en Édition, et `App::cameraOverride` la
+    /// pose chaque image ; en jeu, l'imposition est levée et la caméra du jeu reprend.
+    EditorCamera camera;
+    /// Les gestes en cours (clic droit tenu, orbite, pan, dolly) et les touches tenues.
+    GestureState gestures;
     /// La table des raccourcis : les défauts de la décision 13 (les changer est le morceau 16).
     ShortcutTable shortcuts;
+    /// Toute entité placée dans le monde : de quoi bornes de la scène et plans de découpe.
+    flecs::query<const scene::WorldTransform> everything;
+    /// La boîte de la scène de la dernière image où elle a été refaite (`cachedSceneBoxOf`).
+    SceneBoundsCache sceneBounds;
 };
 
 /// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web

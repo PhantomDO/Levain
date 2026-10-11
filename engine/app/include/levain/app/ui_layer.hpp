@@ -178,11 +178,10 @@ gameInputOf(std::span<const platform::InputEvent> events, const input::RawInput&
 /// le bouton droit qui a pris la capture ; après un vol, son menu contextuel ne s'ouvrirait plus
 /// (ADR-0036, décision 13 ; même règle que `gameInputOf` pour le jeu).
 ///
-/// **TODO morceau 11** : le relâchement du vol atteint ImGui sans les mouvements qui l'ont
-/// précédé, donc ImGui y voit un *clic* (appui et relâchement au même point). Le menu contextuel
-/// d'un clic droit sur la Vue s'ouvrirait à la fin de chaque vol. Unreal ne l'ouvre que pour un
-/// clic droit sans glissé : la Vue ne devra l'ouvrir que si aucun vol n'a eu lieu depuis l'appui.
-/// `gpu.editor-shortcuts.*` épingle le comportement d'aujourd'hui.
+/// Le relâchement du vol atteint ImGui sans les mouvements qui l'ont précédé, donc ImGui y voit
+/// un *clic* (appui et relâchement au même point) : c'est la Vue de l'éditeur qui n'ouvre son menu
+/// que si le clic droit n'a pas volé (`GestureState::flew`, morceau 11 ; Unreal ne l'ouvre que sans
+/// glissé). `gpu.editor-shortcuts.*` épingle le comportement d'`app` seul.
 [[nodiscard]] constexpr bool mouseTakenByCapture(const platform::UiEvent& event, bool captured)
 {
     switch (event.type)

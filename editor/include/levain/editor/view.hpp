@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <optional>
+#include <string>
 
 #include <imgui.h>
 
@@ -42,6 +43,18 @@ struct View
     app::ScreenRect image{}; ///< Où la dernière image a mis la scène.
     bool barDrawn = false;   ///< La barre de mode en calque a été dessinée à la dernière image.
     ImVec2 barAt{};          ///< Son coin haut gauche.
+    /// L'image de la scène est la fenêtre sous la souris à la dernière image : ni cachée par une
+    /// autre fenêtre ou un menu, ni sa barre de mode survolée. Là où un geste de caméra commence
+    /// (`GestureContext::sceneHovered`) ; lu à l'image suivante, avant que `ui` ne le refasse.
+    bool hovered = false;
+    /// **Le menu du clic droit** (ADR-0036, décision 8) : ImGui voit la fin d'un vol comme un clic
+    /// (il reçoit le relâchement sans les mouvements), le menu ne s'ouvre donc que si le clic droit
+    /// n'a pas volé (`GestureState::flew`). Posé par l'éditeur avant de dessiner.
+    bool menuAllowed = true;
+    bool canFrame = false;       ///< Il y a une sélection à cadrer : l'entrée du menu est active.
+    std::string frameShortcut;   ///< L'accord affiché dans l'entrée (« F »), selon le clavier.
+    bool menuOpen = false;       ///< Le menu est ouvert à la dernière image.
+    bool frameRequested = false; ///< L'entrée « Cadrer la sélection » du menu a été choisie.
 };
 
 /// La taille en pixels que la Vue demande pour un contenu de `width` × `height` : l'entier en

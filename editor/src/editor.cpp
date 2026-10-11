@@ -7,8 +7,15 @@
 #include <string_view>
 #include <utility>
 
+#include <imgui.h>
+// `ClearActiveID` : l'API interne d'ImGui, que le vol appelle en commençant (voir `frameGestures`).
+#include <imgui_internal.h>
+
+#include "levain/app/camera.hpp"
 #include "levain/core/error.hpp"
 #include "levain/core/log.hpp"
+#include "levain/editor/scene_bounds.hpp"
+#include "levain/scene/scene.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -52,12 +59,132 @@ void logView(const View& view)
               ui::trf("vue : {}×{}", view.requested.width, view.requested.height));
 }
 
+/// **Impose la caméra de l'éditeur** à l'App : son rendu, avec les plans de découpe de la scène.
+/// Une ligne dans `withEditor` ; la boucle la relit après `ui` (`settleAfterUi`). `edited` : cette
+/// image a écrit dans le monde ou changé de mode, la boîte de la scène est à refaire.
+void imposeCamera(app::App& app, Editor& editor, bool edited = false)
+{
+    const render::Box scene =
+        cachedSceneBoxOf(editor.sceneBounds,
+                         {.entityCount = static_cast<std::size_t>(editor.everything.count()),
+                          .modelCount = app.models.size(),
+                          .edited = edited},
+                         editor.everything, app.models, app.modelInstance);
+    app.cameraOverride = toRenderCamera(editor.camera, editorClipPlanes(editor.camera, scene));
+}
+
+/// L'accord affiché dans l'entrée « Cadrer la sélection » du menu, selon le clavier d'aujourd'hui.
+std::string frameShortcutOf(const Editor& editor, const app::App& app)
+{
+    const Binding* binding = bindingOf(editor.shortcuts, Action::FrameSelection);
+    return binding != nullptr ? displayNameOf(binding->chords.at(0), app.keyAtPosition)
+                              : std::string{};
+}
+
+/// Où un geste de caméra peut commencer : l'image de la Vue panneaux ouverts (vide si elle n'est
+/// pas montrée), la scène entière panneaux fermés (« les gestes s'y font partout », décision 7).
+app::ScreenRect gestureRegionOf(const app::App& app, const Editor& editor)
+{
+    return app.ui.panelsOpen ? editor.view.image : app.sceneRect;
+}
+
+/// F et le double-clic : place l'œil pour que la sélection tienne dans la Vue. Rien sans sélection.
+void frameSelection(const app::App& app, Editor& editor)
+{
+    // Jouer ne bouge pas la caméra de l'éditeur : un double-clic dans la hiérarchie, ouverte en
+    // jeu, la cadrerait pour le retour en Édition.
+    const flecs::entity selected = selectedIfAlive(app.world, editor.selected);
+    if (editor.mode.current != Mode::Edit || !canFrameEntity(selected))
+    {
+        return;
+    }
+    const app::ScreenRect region = gestureRegionOf(app, editor);
+    const float aspect = region.height > 0.0f ? region.width / region.height : 1.0f;
+    editor.camera =
+        framingOf(editor.camera, entityBoxOf(selected, app.models, app.modelInstance), aspect);
+}
+
+/// La scène est la fenêtre sous la souris, selon ce qu'ImGui a dit à l'image d'avant. Panneaux
+/// ouverts, c'est la Vue (`View::hovered`). Fermés, la scène remplit la fenêtre : elle l'est sauf
+/// sous une fenêtre d'ImGui (la barre de mode flottante, une fenêtre du programme), que
+/// `WantCaptureMouse` désigne.
+bool sceneHoveredIn(const app::App& app, const Editor& editor)
+{
+    return app.ui.panelsOpen ? editor.view.hovered : !ImGui::GetIO().WantCaptureMouse;
+}
+
+/// Le contexte des gestes de cette image : ce qu'ImGui a dit de la Vue à l'image d'avant.
+GestureContext gestureContextOf(const app::App& app, const Editor& editor)
+{
+    return {.region = gestureRegionOf(app, editor),
+            .sceneHovered = sceneHoveredIn(app, editor),
+            .sceneFocused = app.ui.panelsOpen && editor.view.focused,
+            .textInput = ImGui::GetIO().WantTextInput};
+}
+
+/// **Les gestes de l'image**, en Édition, dans `frame` : avant `ui`, pour que la capture de la
+/// souris soit celle de la même image (`applyMouseCapture` suit `frame`). Hors Édition, rien ne
+/// se tient : un vol commencé ne survit pas au changement de mode, ni à la croix (`quit.hpp`).
+void frameGestures(app::App& app, Editor& editor)
+{
+    if (editor.mode.current != Mode::Edit)
+    {
+        editor.gestures = idleGestures(editor.gestures);
+        // Jouer : le clic droit est au jeu (le bac à sable regarde à la souris), pas de menu.
+        editor.view.menuAllowed = false;
+        return;
+    }
+    if (!cameraGesturesAllowed(editor.quit))
+    {
+        // Sous la modale « Quitter ? » : un vol en cours s'arrête et rend la souris, qu'on puisse
+        // cliquer ses boutons (Alt+F4 en vol).
+        editor.gestures = idleGestures(editor.gestures);
+        editor.view.menuAllowed = false;
+        app.mouseCaptureWanted = false;
+        app.mouseCaptureOverPanels = false;
+        return;
+    }
+    const GestureContext context = gestureContextOf(app, editor);
+    const bool wasFlying = capturesMouse(editor.gestures);
+    const GestureStep step = stepGestures(editor.gestures, app.rawFrameEvents, context,
+                                          editor.shortcuts, app.frameSeconds);
+    editor.gestures = step.state;
+    editor.camera = applyGesture(editor.camera, step.frame, context.region.height);
+    if (step.frameSelection)
+    {
+        frameSelection(app, editor);
+    }
+    const bool flying = capturesMouse(editor.gestures);
+    if (flying && !wasFlying)
+    {
+        // Un champ de texte actif garderait Retour arrière et les flèches pendant le vol (la
+        // capture ne retire à ImGui que la souris et le texte, `uiEventsOf`).
+        ImGui::ClearActiveID();
+        // Le curseur y revient à la fin du vol (`App::mouseReturnTo`).
+        app.mouseReturnTo =
+            platform::CursorPosition{editor.gestures.cursor.x, editor.gestures.cursor.y};
+    }
+    app.mouseCaptureWanted = flying;
+    app.mouseCaptureOverPanels = flying;
+    // Le menu du clic droit : pas à la fin d'un vol, ImGui y voit un clic (`View::menuAllowed`).
+    editor.view.menuAllowed = !editor.gestures.flew && editor.gestures.rightPressInScene;
+}
+
 /// Passe de mode. Jouer met la Vue en avant : le jeu reçoit le clavier sans qu'il faille cliquer
 /// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`).
 void changeMode(app::App& app, Editor& editor, Mode mode)
 {
     enterMode(app, editor.mode, mode);
     editor.view.focusRequested = mode == Mode::PlayWithoutReturn;
+    // Le jeu voit par sa caméra ; l'édition, par la sienne.
+    if (mode == Mode::Edit)
+    {
+        imposeCamera(app, editor, true); // le jeu a pu tout déplacer
+    }
+    else
+    {
+        app.cameraOverride.reset();
+    }
 }
 
 } // namespace
@@ -129,18 +256,22 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         }
         // Avant la première image de panneaux : la disposition se construit à ce moment-là.
         app.ui.editorLayout = true;
-        const auto editor =
-            std::make_shared<Editor>(Editor{.selected = 0,
-                                            .hierarchy = createHierarchy(app.world),
-                                            .inspector = createInspector(app.world, &app.registry),
-                                            .mode = {},
-                                            .log = capture,
-                                            .console = {},
-                                            .windows = {},
-                                            .view = {},
-                                            .menu = {},
-                                            .quit = {},
-                                            .shortcuts = defaultShortcuts()});
+        const auto editor = std::make_shared<Editor>(
+            Editor{.selected = 0,
+                   .hierarchy = createHierarchy(app.world),
+                   .inspector = createInspector(app.world, &app.registry),
+                   .mode = {},
+                   .log = capture,
+                   .console = {},
+                   .windows = {},
+                   .view = {},
+                   .menu = {},
+                   .quit = {},
+                   .camera = {},
+                   .gestures = {},
+                   .shortcuts = defaultShortcuts(),
+                   .everything = app.world.query<const scene::WorldTransform>(),
+                   .sceneBounds = {}});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -155,6 +286,14 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         }
         // L'éditeur s'ouvre en Édition : rien ne tourne, le jeu ne reçoit rien (ADR-0036).
         enterMode(app, editor->mode, Mode::Edit);
+        // La caméra de l'éditeur part de celle du jeu s'il y en a une (décision 6), et s'impose
+        // avant la première image : `startApp` ne consulte alors pas les entités.
+        scene::composeWorldTransforms(app.world);
+        if (const auto game = app::renderCameraOf(app.cameras))
+        {
+            editor->camera = editorCameraFrom(*game);
+        }
+        imposeCamera(app, *editor, true);
         hooks->frame = [frame = std::move(hooks->frame), editor](app::App& app)
         {
             // Échap ramène à l'Édition ; le `frame` du programme ne tourne qu'en jeu.
@@ -164,6 +303,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             {
                 changeMode(app, *editor, *requested);
             }
+            frameGestures(app, *editor);
             if (programFrameRunsIn(editor->mode.current) && frame)
             {
                 frame(app);
@@ -176,6 +316,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 ui(app);
             }
             std::optional<Mode> requested;
+            // L'écriture de cette image seulement : `inspector.wrote` survit, panneaux fermés.
+            bool wroteWorld = false;
             if (app.ui.panelsOpen)
             {
                 // Le menu d'abord : la barre retire sa hauteur à l'espace d'ancrage.
@@ -193,12 +335,20 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 drawInspector(app.world, editor->inspector, editor->selected, app.ui.dock.inspector,
                               &editor->windows.inspector);
                 app.world.defer_end();
-                if (editor->inspector.wrote)
+                wroteWorld = editor->inspector.wrote;
+                if (wroteWorld)
                 {
                     app.recomposeAfterUi = true; // la valeur tapée se voit dans l'image même
                 }
                 // La Vue en dernier : elle pose `App::sceneRect`, et sa barre de mode en calque.
+                editor->view.canFrame =
+                    canFrameEntity(selectedIfAlive(app.world, editor->selected));
+                editor->view.frameShortcut = frameShortcutOf(*editor, app);
                 requested = drawView(editor->view, app, editor->mode.current);
+                if (editor->view.frameRequested || editor->hierarchy.frameRequested)
+                {
+                    frameSelection(app, *editor);
+                }
             }
             // Avant les raccourcis et la route, qui lisent si elle est ouverte.
             if (drawQuitModal(editor->quit) == QuitAnswer::Quit)
@@ -218,6 +368,11 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                                                            playShortcutPressed(editor->shortcuts)}))
             {
                 changeMode(app, *editor, *next);
+            }
+            if (editor->mode.current == Mode::Edit)
+            {
+                // Après les gestes, le cadrage et les écritures de l'image.
+                imposeCamera(app, *editor, wroteWorld);
             }
             // La route de l'image suivante : le focus ne se sait que maintenant (ADR-0036, 4).
             app.inputRoute = inputRouteWhileQuit(

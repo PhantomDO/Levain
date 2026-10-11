@@ -63,6 +63,15 @@ void askToQuit(QuitState& state);
     return !state.open;
 }
 
+/// **Piège : les gestes de la caméra lisent l'input brut** (`App::rawFrameEvents`), avant la route
+/// : `inputRouteWhileQuit` ne les arrête pas. Croix reçue ou modale ouverte, aucun geste : un vol
+/// en cours (Alt+F4 en vol) s'arrête et rend la souris, F ne cadre pas. La croix reçue compte
+/// déjà : les gestes passent dans `frame`, avant que `ui` n'ouvre la modale.
+[[nodiscard]] constexpr bool cameraGesturesAllowed(const QuitState& state)
+{
+    return !state.asked && !state.open;
+}
+
 /// Dessine la modale quand elle est demandée ou ouverte, dans `FrameHooks::ui`. Rend la réponse de
 /// l'image : `Quit` pour quitter, `Cancel` pour garder l'éditeur (le bouton, ou Échap). À appeler
 /// **avant** la route et les raccourcis de l'image, qui lisent `open`.
