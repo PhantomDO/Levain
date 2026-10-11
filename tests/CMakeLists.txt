@@ -475,6 +475,14 @@ target_compile_definitions(levain_editor_shortcuts PRIVATE LEVAIN_DATA_DIR="${CM
 add_test(NAME gpu.editor-shortcuts.vulkan COMMAND levain_editor_shortcuts vulkan)
 set_tests_properties(gpu.editor-shortcuts.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# Les gestes de la caméra de l'éditeur (ADR-0036, morceau 11) dans la vraie boucle : clic droit tenu et la touche à la place du W
+# (QWERTY et AZERTY), la capture de la souris pendant le vol seulement, rien hors de la Vue, le menu du clic droit sans vol.
+add_executable(levain_editor_gestures editor_gestures_gpu.cpp)
+target_link_libraries(levain_editor_gestures PRIVATE levain::editor levain::app levain::core levain::platform levain::render levain::scene)
+target_compile_definitions(levain_editor_gestures PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.editor-gestures.vulkan COMMAND levain_editor_gestures vulkan)
+set_tests_properties(gpu.editor-gestures.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # Fermer l'éditeur (ADR-0036, morceau 13) : la croix ouvre la modale « Quitter ? » (jamais sous un lancement scripté),
 # Annuler garde l'éditeur, Quitter l'arrête, SIGTERM quitte sans demander, le titre reste en ASCII.
 add_executable(levain_editor_close editor_close_gpu.cpp)
@@ -603,10 +611,12 @@ if(WIN32)
     add_test(NAME gpu.editor-view.d3d12-warp COMMAND levain_editor_view d3d12-warp)
     add_test(NAME gpu.scene-view.d3d12-warp COMMAND levain_scene_view d3d12-warp)
     add_test(NAME gpu.editor-shortcuts.d3d12-warp COMMAND levain_editor_shortcuts d3d12-warp)
+    add_test(NAME gpu.editor-gestures.d3d12-warp COMMAND levain_editor_gestures d3d12-warp)
     add_test(NAME gpu.editor-close.d3d12-warp COMMAND levain_editor_close d3d12-warp)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
         gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp gpu.editor-console.d3d12-warp
-        gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp gpu.editor-close.d3d12-warp
+        gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp gpu.editor-gestures.d3d12-warp
+        gpu.editor-close.d3d12-warp
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 
