@@ -103,7 +103,7 @@ struct KeyModifiers
     bool alt = false;
     bool super = false; ///< La touche Windows, ou Commande sur un Mac.
     /// Alt-Gr (`SDL_KMOD_MODE`, ce que SDL envoie sous Linux). AltGr+E d'un AZERTY tape « € » : ce
-    /// n'est pas la touche E nue, et les accords de l'éditeur devront le refuser. Sous
+    /// n'est pas la touche E nue, et les accords de l'éditeur le refusent (`chordMatches`). Sous
     /// Windows, SDL rend Alt-Gr comme un Alt droit : indiscernable d'un Alt, il n'y est pas posé.
     bool altGr = false;
 

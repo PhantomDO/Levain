@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 
+#include "levain/ui/input.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -240,6 +241,79 @@ std::string displayNameOf(const Chord& chord, const platform::KeyAtPosition& key
         return name + "F" + std::to_string(scancode - ScanF1 + 1);
     }
     return name + tokenOf(positionChord(static_cast<std::uint16_t>(chord.key))); // « pos:N »
+}
+
+bool chordMatches(const Chord& chord, const KeyPress& press)
+{
+    if (!isBound(chord) || !exactModifiers(chord.modifiers, press.modifiers))
+    {
+        return false;
+    }
+    if (chord.kind == ChordKind::Position)
+    {
+        return chord.key == press.scancode;
+    }
+    return chord.key == lowerOf(press.keycode);
+}
+
+std::optional<Action> actionFor(const ShortcutTable& table, const KeyPress& press,
+                                const ActiveContexts& active)
+{
+    // Le premier contexte qui reconnaît l'appui l'emporte : l'ordre de la liste est la précédence.
+    // Sous la route jeu, le jeu seul : Ctrl+S ne part pas en jouant.
+    // Un champ de texte actif ne laisse rien aux contextes de l'éditeur (`textInput`).
+    const auto contexts = active.game ? std::vector{Context::Game}
+                          : active.textInput
+                              ? std::vector<Context>{}
+                              : std::vector{Context::Flight, Context::View, Context::Global};
+    for (const Context context : contexts)
+    {
+        const bool inactive = (context == Context::Flight && !active.flight) ||
+                              (context == Context::View && !active.view);
+        if (inactive)
+        {
+            continue;
+        }
+        for (const Binding& binding : table.bindings)
+        {
+            if (binding.context == context &&
+                std::ranges::any_of(binding.chords,
+                                    [&](const Chord& chord) { return chordMatches(chord, press); }))
+            {
+                return binding.action;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+bool positionHeld(const Binding& binding, const std::bitset<platform::KeyCodeCount>& keys)
+{
+    return std::ranges::any_of(binding.chords,
+                               [&keys](const Chord& chord)
+                               {
+                                   return chord.kind == ChordKind::Position && isBound(chord) &&
+                                          chord.key < keys.size() && keys.test(chord.key);
+                               });
+}
+
+std::optional<ImGuiKeyChord> imguiChordOf(const Chord& chord)
+{
+    if (chord.kind != ChordKind::Letter || !isBound(chord))
+    {
+        return std::nullopt;
+    }
+    const ImGuiKey key = ui::imguiKeyOf(chord.key, 0);
+    if (key == ImGuiKey_None)
+    {
+        return std::nullopt;
+    }
+    unsigned bits = static_cast<unsigned>(key);
+    bits |= chord.modifiers.ctrl ? static_cast<unsigned>(ImGuiMod_Ctrl) : 0U;
+    bits |= chord.modifiers.shift ? static_cast<unsigned>(ImGuiMod_Shift) : 0U;
+    bits |= chord.modifiers.alt ? static_cast<unsigned>(ImGuiMod_Alt) : 0U;
+    bits |= chord.modifiers.super ? static_cast<unsigned>(ImGuiMod_Super) : 0U;
+    return static_cast<ImGuiKeyChord>(bits);
 }
 
 } // namespace levain::editor

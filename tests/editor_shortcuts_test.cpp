@@ -2,6 +2,7 @@
 // du clavier est un paramètre : le QWERTY du banc d'essai, puis un AZERTY qui en échange quelques
 // lettres, sans lire SDL.
 
+#include <bitset>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -12,11 +13,13 @@
 #include "levain/platform/input_script.hpp"
 
 using namespace levain::editor;
+using levain::platform::KeyModifiers;
 
 namespace
 {
 
-constexpr std::uint16_t ScanA = 4, ScanQ = 20, ScanW = 26, ScanZ = 29, ScanF1 = 58;
+constexpr std::uint16_t ScanA = 4, ScanQ = 20, ScanW = 26, ScanZ = 29, ScanS = 22, ScanE = 8,
+                        ScanF1 = 58, ScanEscape = 41, ScanSpace = 44;
 
 /// Un AZERTY français pour ce qui change des lettres d'un QWERTY : A et Q, W et Z (le reste
 /// est celui du QWERTY).
@@ -43,6 +46,12 @@ std::string displayOf(Action action, std::size_t chord, const levain::platform::
     const Binding* binding = bindingOf(table, action);
     REQUIRE(binding != nullptr);
     return displayNameOf(binding->chords.at(chord), at);
+}
+
+KeyPress pressOf(std::uint16_t scancode, const levain::platform::KeyAtPosition& at,
+                 KeyModifiers modifiers = {})
+{
+    return {.scancode = scancode, .keycode = at(scancode), .modifiers = modifiers};
 }
 
 } // namespace
@@ -171,4 +180,108 @@ TEST_CASE("le nom stable d'un accord : la position par son scancode, la lettre p
     CHECK(chordFromToken("pos:232").has_value()); // juste après les modificateurs
     // Pas d'accord : pas de nom (la seconde place d'une action qui n'a qu'un accord).
     CHECK(tokenOf(Chord{}).empty());
+}
+
+TEST_CASE("un appui trouve son accord : modificateurs égaux, position ou lettre")
+{
+    const auto at = azertyAt;
+    // La touche à la place du W (lettre Z) : par position, le Z d'un AZERTY est le W d'un QWERTY.
+    CHECK(chordMatches(positionChord(ScanW), pressOf(ScanW, at)));
+    CHECK_FALSE(chordMatches(positionChord(ScanW), pressOf(ScanZ, at)));
+    // Ctrl+W n'est pas la touche d'outil W (`exactModifiers`).
+    CHECK_FALSE(chordMatches(positionChord(ScanW), pressOf(ScanW, at, {.ctrl = true})));
+    // Une lettre se lit par keycode : Ctrl+Z est la touche qui tape Z, à la place du W en AZERTY.
+    const Chord undo = letterChord('z', {.ctrl = true});
+    CHECK(chordMatches(undo, pressOf(ScanW, at, {.ctrl = true})));
+    CHECK_FALSE(chordMatches(undo, pressOf(ScanZ, at, {.ctrl = true})));
+    CHECK_FALSE(chordMatches(undo, pressOf(ScanW, at, {.ctrl = true, .shift = true})));
+    CHECK_FALSE(chordMatches(Chord{}, KeyPress{})); // pas d'accord : rien ne le reconnaît
+}
+
+TEST_CASE("Alt-Gr tenu ne vaut aucun accord : AltGr+E d'un AZERTY tape « € », pas la touche E")
+{
+    const auto qwerty = levain::platform::qwertyKeyAtPosition;
+    const KeyModifiers altGr{.altGr = true};
+    CHECK(chordMatches(positionChord(ScanE), pressOf(ScanE, qwerty))); // sans lui, la touche vaut
+    CHECK_FALSE(chordMatches(positionChord(ScanE), pressOf(ScanE, qwerty, altGr)));
+    CHECK_FALSE(chordMatches(letterChord('p', {.alt = true}),
+                             pressOf(ScanE, qwerty, {.alt = true, .altGr = true})));
+    // Et par la table entière : la touche E nue tourne, avec Alt-Gr elle ne fait rien.
+    const ShortcutTable table = defaultShortcuts();
+    CHECK_FALSE(actionFor(table, pressOf(ScanE, qwerty, altGr), {.view = true}).has_value());
+    CHECK(actionFor(table, pressOf(ScanE, qwerty), {.view = true}) == Action::ToolRotate);
+}
+
+TEST_CASE("la précédence : le vol avant la Vue avant le global, le jeu seul sous la route jeu")
+{
+    const ShortcutTable table = defaultShortcuts();
+    const auto at = azertyAt;
+    const KeyPress w = pressOf(ScanW, at); // la touche Z d'un AZERTY
+    // Clic droit tenu dans la Vue : la touche vole, elle ne prend pas l'outil Déplacer.
+    CHECK(actionFor(table, w, {.flight = true, .view = true}) == Action::MoveForward);
+    CHECK(actionFor(table, w, {.view = true}) == Action::ToolMove);
+    CHECK_FALSE(actionFor(table, w, {}).has_value()); // hors de la Vue : rien
+    // Le global vaut partout, le vol compris.
+    const KeyPress save = pressOf(ScanS, levain::platform::qwertyKeyAtPosition, {.ctrl = true});
+    CHECK(actionFor(table, save, {}) == Action::Save);
+    CHECK(actionFor(table, save, {.flight = true, .view = true}) == Action::Save);
+    // Ctrl+W (Ctrl avec la touche d'outil) ne prend aucun outil ; en AZERTY, la même position est
+    // Ctrl+Z, qui annule : la lettre l'emporte pour les accords à Ctrl.
+    const auto qwerty = levain::platform::qwertyKeyAtPosition;
+    CHECK_FALSE(actionFor(table, pressOf(ScanW, qwerty, {.ctrl = true}), {.view = true}));
+    CHECK(actionFor(table, pressOf(ScanW, at, {.ctrl = true}), {.view = true}) == Action::Undo);
+    // Sous la route jeu : Échap arrête, Maj+F1 rend la souris, Ctrl+S ne part pas, W ne vole pas.
+    const ActiveContexts game{.flight = true, .view = true, .game = true};
+    CHECK(actionFor(table, pressOf(ScanEscape, at), game) == Action::Stop);
+    CHECK(actionFor(table, pressOf(ScanF1, at, {.shift = true}), game) == Action::GiveMouseBack);
+    CHECK_FALSE(actionFor(table, save, game).has_value());
+    CHECK_FALSE(actionFor(table, w, game).has_value());
+    // Le jeu n'a pas Échap hors de la route jeu (la table la réserve à ce contexte).
+    CHECK_FALSE(actionFor(table, pressOf(ScanEscape, at), {.view = true}).has_value());
+    // F1 seule n'est à aucune action : c'est la touche des panneaux, réservée.
+    CHECK_FALSE(actionFor(table, pressOf(ScanF1, at), game).has_value());
+    CHECK(actionFor(table, pressOf(ScanSpace, at), {.view = true}) == Action::NextTool);
+}
+
+TEST_CASE("un champ de texte actif ne laisse rien au vol, à la Vue ni au global")
+{
+    const ShortcutTable table = defaultShortcuts();
+    const auto at = azertyAt;
+    const KeyPress w = pressOf(ScanW, at); // taper « z » dans un champ n'est pas l'outil Déplacer
+    CHECK(actionFor(table, w, {.view = true}) == Action::ToolMove);
+    CHECK_FALSE(actionFor(table, w, {.view = true, .textInput = true}).has_value());
+    CHECK_FALSE(actionFor(table, w, {.flight = true, .view = true, .textInput = true}).has_value());
+    const KeyPress save = pressOf(ScanS, levain::platform::qwertyKeyAtPosition, {.ctrl = true});
+    CHECK(actionFor(table, save, {}) == Action::Save);
+    CHECK_FALSE(actionFor(table, save, {.textInput = true}).has_value());
+    // Le jeu n'a pas de champ de texte : sa précédence ne bouge pas.
+    CHECK(actionFor(table, pressOf(ScanEscape, at), {.game = true, .textInput = true}) ==
+          Action::Stop);
+}
+
+TEST_CASE("une touche de position tenue : Maj ne coupe pas le vol, une lettre ne se lit pas ainsi")
+{
+    const ShortcutTable table = defaultShortcuts();
+    std::bitset<levain::platform::KeyCodeCount> keys;
+    CHECK_FALSE(positionHeld(*bindingOf(table, Action::MoveForward), keys));
+    keys.set(ScanW);
+    CHECK(positionHeld(*bindingOf(table, Action::MoveForward), keys));
+    CHECK_FALSE(positionHeld(*bindingOf(table, Action::MoveBackward), keys));
+    keys.set(ScanE);
+    CHECK(positionHeld(*bindingOf(table, Action::MoveUp), keys));
+    CHECK_FALSE(positionHeld(*bindingOf(table, Action::Save), keys)); // un accord de lettre
+}
+
+TEST_CASE("un accord de lettre pour ImGui::Shortcut : Ctrl+Z, par la touche marquée Z")
+{
+    const auto chord = imguiChordOf(letterChord('z', {.ctrl = true, .shift = true}));
+    REQUIRE(chord.has_value());
+    const auto bits = static_cast<unsigned>(chord ? *chord : 0);
+    CHECK((bits & static_cast<unsigned>(ImGuiMod_Ctrl)) != 0U);
+    CHECK((bits & static_cast<unsigned>(ImGuiMod_Shift)) != 0U);
+    CHECK((bits & static_cast<unsigned>(ImGuiMod_Alt)) == 0U);
+    CHECK((bits & ~static_cast<unsigned>(ImGuiMod_Mask_)) == static_cast<unsigned>(ImGuiKey_Z));
+    CHECK_FALSE(
+        imguiChordOf(positionChord(ScanW)).has_value()); // une position n'est pas pour ImGui
+    CHECK_FALSE(imguiChordOf(Chord{}).has_value());
 }

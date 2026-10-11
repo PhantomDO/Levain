@@ -12,11 +12,14 @@
 // Editor Settings > Shortcuts » de Godot.
 
 #include <array>
+#include <bitset>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <imgui.h>
 
 #include "levain/platform/input.hpp"
 
@@ -140,5 +143,60 @@ struct ShortcutTable
 /// Les clés « Espace » et « Échap » sont celles du catalogue.
 [[nodiscard]] std::string displayNameOf(const Chord& chord,
                                         const platform::KeyAtPosition& keyAtPosition);
+
+/// Une touche qui vient d'être appuyée, avec les modificateurs tenus.
+struct KeyPress
+{
+    std::uint16_t scancode = 0;
+    std::uint32_t keycode = 0; ///< La lettre selon la disposition, comme `UiEvent::keycode`.
+    platform::KeyModifiers modifiers{};
+};
+
+/// Les modificateurs tenus sont **exactement** ceux de l'accord : Ctrl+W n'est pas la touche
+/// d'outil W (décision 13), et Alt-Gr tenu ne vaut jamais (AltGr+E d'un AZERTY tape « € », ce n'est
+/// pas la touche E nue qui tournerait l'outil).
+[[nodiscard]] constexpr bool exactModifiers(const platform::KeyModifiers& wanted,
+                                            const platform::KeyModifiers& held)
+{
+    return !held.altGr && wanted == held;
+}
+
+/// L'appui est cet accord, **modificateurs exacts** (`exactModifiers`). Une lettre se compare en
+/// minuscule.
+[[nodiscard]] bool chordMatches(const Chord& chord, const KeyPress& press);
+
+/// Les contextes actifs à cette image. Le global l'est toujours.
+struct ActiveContexts
+{
+    bool flight = false; ///< Clic droit tenu dans la Vue.
+    bool view = false;   ///< La Vue est survolée ou a le focus.
+    bool game = false;   ///< La route est *jeu* : seul le contexte *jeu* vaut alors.
+    /// Un champ de texte est actif (`io.WantTextInput`) : taper « w » dedans n'est pas l'outil
+    /// Déplacer. Ni le vol, ni la Vue, ni le global ne valent alors ; le contexte *jeu* n'a pas
+    /// de champ de texte, il n'est pas touché.
+    bool textInput = false;
+};
+
+/// L'action qu'un appui déclenche, ou rien. **La précédence** : sous la route *jeu*, le contexte
+/// *jeu* seul ; sinon le vol, puis la Vue, puis le global, le premier contexte qui reconnaît
+/// l'appui l'emporte (clic droit tenu, W avance et ne prend pas l'outil Déplacer).
+///
+/// **Le contrat avec ImGui** : `actionFor` sert les accords de **position** (le vol, les outils)
+/// et le contexte *jeu*. Les accords de **lettre** (Ctrl+S, Ctrl+Z, Alt+P...) passent par
+/// `ImGui::Shortcut(imguiChordOf(...))`, qui connaît le focus et les champs de texte : les
+/// demander aussi à `actionFor` les ferait partir deux fois. Le champ de texte actif se dit par
+/// `ActiveContexts::textInput` (`io.WantTextInput`).
+[[nodiscard]] std::optional<Action> actionFor(const ShortcutTable& table, const KeyPress& press,
+                                              const ActiveContexts& active);
+
+/// Une touche de position de l'action est tenue, **modificateurs ignorés** : Maj tenu accélère le
+/// vol sans le couper. Les accords de lettre ne comptent pas ici (ImGui les décide).
+[[nodiscard]] bool positionHeld(const Binding& binding,
+                                const std::bitset<platform::KeyCodeCount>& keys);
+
+/// La touche d'ImGui d'un accord de lettre, pour `ImGui::Shortcut` (route globale pour Fichier, du
+/// focus pour les outils) ; rien pour un accord de position. **ImGui reste traduit par keycode** :
+/// Ctrl+Z est la touche marquée Z.
+[[nodiscard]] std::optional<ImGuiKeyChord> imguiChordOf(const Chord& chord);
 
 } // namespace levain::editor
