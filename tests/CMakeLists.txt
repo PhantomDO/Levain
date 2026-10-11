@@ -362,6 +362,36 @@ if(NOT EMSCRIPTEN)
     levain_add_symbol_check(build.no-editor levain_sandbox FORBID "levain::editor::" REQUIRE "levain::app::")
     levain_add_symbol_check(build.editor-symbols levain_sandbox_editor REQUIRE "levain::editor::")
 
+    # Le picking du sandbox dans la Vue (ADR-0036, morceau 8), l'exécutable éditeur de bout en bout : en jeu (Alt+P), un
+    # clic dans la Vue choisit le corps visé, avec le curseur des événements et le rectangle de la Vue
+    # (`scenePixelAt`) ; le même clic sur la hiérarchie, hors de la Vue, ne vise rien. Les deux exigent que le jeu ait
+    # joué (`mode=play`), sans quoi « rien visé » serait aussi un éditeur qui n'a pas joué (règle n°7). Le pixel est pris
+    # au pas fixe de `--steps` (le tas de caisses de la vue physique, déterministe) : une caisse, pas le sol.
+    # **Toute modification de la disposition (largeur des colonnes, marges de la Vue) déplace le rectangle de la Vue
+    # et donc le pixel visé : remesurer le point de vue_pick_inside.txt** (la distance n'est pas dans le motif, qui
+    # ne veut que la caisse). Le motif de passage laisse ctest ignorer le code de sortie, d'où le script de sortie et
+    # le refus d'un rapport de sanitizer ou d'une erreur d'exécution (règle n°4). Sous Linux seulement, comme les
+    # autres lancements de fenêtre de l'exécutable éditeur.
+    if(NOT WIN32)
+        set(pickFailure "Sanitizer|runtime error")
+        add_test(NAME editor.vue-pick-inside
+            COMMAND ${CMAKE_COMMAND}
+                    "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;40;--input-script;${CMAKE_CURRENT_SOURCE_DIR}/data/editor/vue_pick_inside.txt"
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
+        set_tests_properties(editor.vue-pick-inside PROPERTIES
+            ENVIRONMENT "${testVideo}"
+            PASS_REGULAR_EXPRESSION "[[]sandbox[]] sélection : ::crate_3_0_7 à [0-9.]+ m.*editor.mode mode=play"
+            FAIL_REGULAR_EXPRESSION "${pickFailure}")
+        add_test(NAME editor.vue-pick-outside
+            COMMAND ${CMAKE_COMMAND}
+                    "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;40;--input-script;${CMAKE_CURRENT_SOURCE_DIR}/data/editor/vue_pick_outside.txt"
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
+        set_tests_properties(editor.vue-pick-outside PROPERTIES
+            ENVIRONMENT "${testVideo}"
+            PASS_REGULAR_EXPRESSION "editor.mode mode=play steps=[1-9]"
+            FAIL_REGULAR_EXPRESSION "[[]sandbox[]] sélection :|${pickFailure}")
+    endif()
+
     # L'exécutable éditeur refuse `--gpu webgpu` avant d'ouvrir fenêtre ni device (ADR-0036, décision 7) : le message de
     # l'éditeur doit être celui qui sort (un adaptateur Dawn absent en dirait un autre, règle n°7), et aucun device ne
     # doit être né. Le programme sort en 1, ctest ne juge que la sortie ; sans le refus, le sandbox démarre ou échoue

@@ -282,6 +282,7 @@ runUi() {
 # Sa ligne `editor.mode` (M7.7, ADR-0036, décision 14) naît sous un nom stable, que la traduction du
 # message ne changera pas : l'éditeur lancé sans script s'ouvre en Édition (`mode=edit`) et ne joue
 # aucun pas en trois secondes (`steps=0`). Un éditeur qui jouerait, ou dont la ligne manque, échoue.
+# Sa ligne `editor.view` (morceau 8) donne la taille de la Vue, qui ne doit pas être nulle.
 runEditor() {
     timeout --foreground --preserve-status -k 10 120 \
         "$editor" --select grid::cube_1_2 \
@@ -298,6 +299,15 @@ runEditor() {
         || { echo "::error::l'éditeur n'a pas rendu compte de son mode (editor.mode)"; exit 1; }
     [ "$mode" = "editor.mode mode=edit steps=0" ] \
         || { echo "::error::l'éditeur lancé sans script devrait être en Édition à zéro pas : $mode"; exit 1; }
+    # La Vue (M7.7, morceau 8) : `editor.view width=W height=H -- vue : W×H`. L'éditeur s'ouvre panneaux ouverts, la Vue
+    # est montrée et la scène y est rendue : une taille nulle, ou une ligne qui manque, c'est une Vue fermée ou une
+    # scène qui n'y est pas (la fenêtre pleine de scène, ou rien).
+    view=$(grep -o "editor.view width=[0-9]* height=[0-9]*" editor.log) \
+        || { echo "::error::l'éditeur n'a pas rendu compte de sa Vue (editor.view)"; exit 1; }
+    viewWidth=$(echo "$view" | grep -o "width=[0-9]*" | grep -o "[0-9]*$")
+    viewHeight=$(echo "$view" | grep -o "height=[0-9]*" | grep -o "[0-9]*$")
+    { [ "$viewWidth" -gt 0 ] && [ "$viewHeight" -gt 0 ]; } \
+        || { echo "::error::la Vue de l'éditeur n'a aucune taille : $view"; exit 1; }
 }
 
 # Sponza cuite, après levain_cook : aucun asset chargé depuis sa source (ADR-0020).

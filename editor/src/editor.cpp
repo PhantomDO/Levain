@@ -42,6 +42,16 @@ void logMode(const app::App& app, const Editor& editor)
               ui::trf("mode : {} ; pas : {}", ui::tr(modeNameOf(mode)), app.stepsPlayed));
 }
 
+/// La taille de la Vue, la ligne que lit la CI sous son nom stable (`editor.view`, ADR-0036,
+/// décision 14) : `editor.view width=640 height=360 -- vue : 640×360`. La CI échoue si la ligne
+/// manque ou si la Vue n'a aucune taille à la fin d'une exécution panneaux ouverts.
+void logView(const View& view)
+{
+    core::log("editor", core::LogLevel::Info, "editor.view width={} height={} -- {}",
+              view.requested.width, view.requested.height,
+              ui::trf("vue : {}×{}", view.requested.width, view.requested.height));
+}
+
 /// Passe de mode. Jouer met la Vue en avant : le jeu reçoit le clavier sans qu'il faille cliquer
 /// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`).
 void changeMode(app::App& app, Editor& editor, Mode mode)
@@ -213,6 +223,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         {
             logEditor(app.world, *editor);
             logMode(app, *editor);
+            logView(editor->view);
             return !finish || finish(app);
         };
         return hooks;

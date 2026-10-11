@@ -24,7 +24,9 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 - **l'interface** (M7.1, ADR-0032) : ImGui, par le module `ui`, chaque image ; les panneaux de debug du moteur
   (Image, Passes, Scène, en fenêtres ancrées), que F1 ou `--ui on` ouvrent ; le point d'accroche `ui`, où le
   programme ajoute ses fenêtres ; et la capture de la souris, que `App` possède. La disposition des panneaux
-  garde ses nœuds (`UiLayer::dock`), où l'éditeur ancre les siens (ADR-0034) ;
+  garde ses nœuds (`UiLayer::dock`), où l'éditeur ancre les siens (ADR-0034). Sous un éditeur
+  (`UiLayer::editorLayout`, posé par `withEditor`) la disposition est celle des colonnes et les fenêtres du moteur
+  ont une croix (son menu « Fenêtre » les rouvre) ; sinon (le sandbox, *Rando*) c'est celle d'avant, sans croix ;
 - **la scène dans une texture** (M7.7, morceau 7, ADR-0036 décision 7) : `requestScene(app, taille)`, que la Vue appellera dans
   `ui`, rend l'identifiant de l'image à montrer par `ImGui::Image` ; la scène se rend alors dans cette texture, la
   swapchain est effacée et seule l'UI y est dessinée (`scene_view.hpp`). Voir l'invariant 15 ;
