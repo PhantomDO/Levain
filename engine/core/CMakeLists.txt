@@ -9,6 +9,7 @@ add_library(levain_core STATIC
     src/i18n.cpp
     src/linear_allocator.cpp
     src/log.cpp
+    src/log_ring.cpp
     src/pool_allocator.cpp
     src/version.cpp)
 add_library(levain::core ALIAS levain_core)
