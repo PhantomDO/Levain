@@ -82,6 +82,15 @@ struct SizeSettling
     return requested->empty() || !hasTexture ? SceneOutput::Nothing : SceneOutput::Texture;
 }
 
+/// Les drapeaux de l'espace d'ancrage des panneaux. Le centre laisse passer l'image et la souris
+/// (`PassthruCentralNode`) tant que la scène est derrière, dans la fenêtre ; avec la scène dans
+/// une texture, il n'y a plus rien derrière à laisser voir, et c'est la Vue qui l'occupera.
+[[nodiscard]] constexpr ImGuiDockNodeFlags dockspaceFlagsFor(SceneOutput output)
+{
+    return output == SceneOutput::Window ? ImGuiDockNodeFlags_PassthruCentralNode
+                                         : ImGuiDockNodeFlags_None;
+}
+
 /// L'état de la scène dans une texture, que garde `App`. Le test de recréation, `created`, compte
 /// les textures nées depuis le début de la boucle.
 struct SceneView
@@ -93,7 +102,8 @@ struct SceneView
     /// chaque `ui` (`beginSceneRequest`).
     std::optional<SceneSize> requested;
     /// Ce que fait l'image en cours, décidé après `ui` (`settleSceneOutput`). Lue avant `ui` à
-    /// l'image suivante, elle est donc celle de l'image d'avant.
+    /// l'image suivante, elle est donc celle de l'image d'avant : c'est ainsi que le docking sait,
+    /// avant que la Vue ne demande, si la scène était dans la texture.
     SceneOutput output = SceneOutput::Window;
     /// Les images remplacées, que la table de l'UI tient encore : libérées après l'image, quand
     /// plus aucun dessin de cette image ne les montre (`releaseRetiredScenes`).

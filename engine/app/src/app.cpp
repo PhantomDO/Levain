@@ -606,6 +606,8 @@ void endUiFrame(App& app)
     const platform::PixelSize window = platform::windowPixelSize(app.window);
     app.sceneRect = {0.0f, 0.0f, static_cast<float>(window.width),
                      static_cast<float>(window.height)};
+    // Les panneaux lisent encore où allait la scène à l'image d'avant (`SceneView::output`), la
+    // demande de la Vue de cette image ne se faisant que dans `ui`, après eux.
     beginSceneRequest(app.sceneView);
     if (app.ui.panelsOpen)
     {
