@@ -35,6 +35,7 @@ set(nativeTests
     app_ui_test.cpp
     camera_control_test.cpp
     camera_test.cpp
+    console_test.cpp
     culling_test.cpp
     editor_camera_test.cpp
     editor_test.cpp

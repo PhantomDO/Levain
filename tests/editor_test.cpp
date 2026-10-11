@@ -17,6 +17,7 @@
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/registry.hpp"
 #include "levain/core/i18n.hpp"
+#include "levain/editor/console.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
@@ -745,4 +746,12 @@ TEST_CASE("le rappel de la barre de mode ne promet pas d'Alt+P pour revenir")
     const std::string_view inPlay = levain::editor::modeHintOf(Mode::PlayWithoutReturn);
     CHECK(inPlay.contains("Échap"));
     CHECK_FALSE(inPlay.contains("Alt+P"));
+}
+
+TEST_CASE("fitsOnLine : un élément qui dépasse le bord droit va à la ligne")
+{
+    CHECK(levain::editor::fitsOnLine(100.0f, 8.0f, 50.0f, 200.0f));
+    CHECK(levain::editor::fitsOnLine(100.0f, 8.0f, 92.0f, 200.0f)); // pile au bord : il tient
+    CHECK_FALSE(levain::editor::fitsOnLine(100.0f, 8.0f, 93.0f, 200.0f));
+    CHECK_FALSE(levain::editor::fitsOnLine(100.0f, 8.0f, 50.0f, 150.0f));
 }
