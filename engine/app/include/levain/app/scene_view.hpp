@@ -88,7 +88,7 @@ struct SceneView
     nvrhi::TextureHandle texture; ///< La scène rendue ; nulle tant qu'aucune Vue n'a rien demandé.
     ImTextureID imageId = 0;      ///< Celui de `texture` pour `ImGui::Image` ; 0 : aucun.
     SizeSettling settling{};
-    /// Ce que `ui` a demandé cette image ; la boucle le vide avant
+    /// Ce que `ui` a demandé cette image, par `requestSceneTexture` ; la boucle le vide avant
     /// chaque `ui` (`beginSceneRequest`).
     std::optional<SceneSize> requested;
     /// Ce que fait l'image en cours, décidé après `ui` (`settleSceneOutput`). Lue avant `ui` à
@@ -99,6 +99,30 @@ struct SceneView
     std::vector<ImTextureID> retired;
     int created = 0; ///< Les textures créées depuis le début, la première comprise.
 };
+
+/// La texture de la scène à `size`, au format de la swapchain : on y rend, puis un shader la lit
+/// (`ImGui::Image`). La même qu'ailleurs dans le moteur pour une cible lue ensuite
+/// (`ensureHdrTarget`) : au repos en `ShaderResource`, que NVRHI quitte et retrouve toute seule. Au
+/// format de la swapchain, la conversion sRGB de l'UI (`linearOnSrgbTarget`) ne se fait qu'une
+/// fois, en écrivant l'image finale. Nulle si NVRHI la refuse.
+[[nodiscard]] nvrhi::TextureHandle createSceneTexture(nvrhi::IDevice& device, nvrhi::Format format,
+                                                      const SceneSize& size);
+
+/// **La demande de la Vue**, à appeler dans `FrameHooks::ui`, avant `ImGui::Image` : la taille que
+/// la Vue montre cette image. Rend l'identifiant à donner à `ImGui::Image`, ou rien si la Vue n'a
+/// rien à montrer (taille nulle, texture impossible). La texture n'est recréée qu'une fois la
+/// taille stable (`shouldRecreateScene`) ; en attendant, c'est l'ancienne qui est rendue, étirée
+/// par `ImGui::Image`. Une nouvelle texture existe donc déjà quand `ImGui::Image` la reçoit, et
+/// l'ancienne n'est libérée qu'après l'image (`releaseRetiredScenes`).
+///
+/// Une Vue fermée demande 0 × 0 plutôt que de ne rien demander : rien demandé, c'est la scène dans
+/// la fenêtre, comme avant la Vue. Il en va de même chaque image où la Vue n'est pas montrée
+/// (cachée derrière un onglet, repliée : `ImGui::Begin` rend faux). Une fois par image : un second
+/// appel ferait avancer deux fois l'attente de la taille stable.
+[[nodiscard]] std::optional<ImTextureID> requestSceneTexture(SceneView& view,
+                                                             nvrhi::IDevice& device,
+                                                             ui::UiPass& pass, nvrhi::Format format,
+                                                             const SceneSize& size);
 
 /// Début de `ui` : la demande de l'image d'avant ne vaut plus.
 void beginSceneRequest(SceneView& view);

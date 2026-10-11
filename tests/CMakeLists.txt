@@ -432,6 +432,14 @@ target_compile_definitions(levain_editor_console PRIVATE LEVAIN_DATA_DIR="${CMAK
 add_test(NAME gpu.editor-console.vulkan COMMAND levain_editor_console vulkan)
 set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# La scène dans une texture (ADR-0036, morceau 7) : la Vue demande une taille, le renderer rend à cette taille, dans la
+# vraie boucle hors écran.
+add_executable(levain_scene_view scene_view_gpu.cpp)
+target_link_libraries(levain_scene_view PRIVATE levain::app levain::assets levain::gpu levain::platform levain::render levain::scene)
+target_compile_definitions(levain_scene_view PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.scene-view.vulkan COMMAND levain_scene_view vulkan)
+set_tests_properties(gpu.scene-view.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # Le coût de la recomposition après ui, sur les 10 000 cubes de la démo : un banc, hors de ctest, comme levain_scene_bench
 # (tools/recompose-cost.sh le lance en Release ; le chiffre dépend de la machine).
 add_executable(levain_recompose_bench recompose_bench.cpp)
@@ -524,9 +532,10 @@ if(WIN32)
     add_test(NAME gpu.app-loop.d3d12-warp COMMAND levain_app_loop d3d12-warp)
     add_test(NAME gpu.editor-modes.d3d12-warp COMMAND levain_editor_modes d3d12-warp)
     add_test(NAME gpu.editor-console.d3d12-warp COMMAND levain_editor_console d3d12-warp)
+    add_test(NAME gpu.scene-view.d3d12-warp COMMAND levain_scene_view d3d12-warp)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
-        gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp
-        gpu.editor-console.d3d12-warp
+        gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp gpu.editor-console.d3d12-warp
+        gpu.scene-view.d3d12-warp
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 

@@ -206,6 +206,16 @@ nvrhi::ITexture* ensureDepthTexture(nvrhi::IDevice& device, nvrhi::TextureHandle
     {
         return depth;
     }
+    // Une profondeur qu'on remplace (la Vue qui change de taille, ADR-0036) attend le GPU : NVRHI
+    // Vulkan ne retient pas une texture que sa command list ne fait qu'effacer
+    // (`clearDepthStencilTexture`, vulkan-texture.cpp), et une scène sans dessin ne la lie jamais à
+    // un framebuffer. Libérée avec la dernière image encore en vol, elle ferait refuser
+    // `vkDestroyImage`. Un seul arrêt par changement de taille, que la Vue ne
+    // fait qu'une fois la taille stable.
+    if (depth)
+    {
+        device.waitForIdle();
+    }
 
     nvrhi::TextureDesc desc;
     desc.width = width;

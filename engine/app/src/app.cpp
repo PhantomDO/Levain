@@ -1251,6 +1251,12 @@ void startWebApp(core::Result<gpu::GpuDevice> gpu)
 
 } // namespace
 
+std::optional<ImTextureID> requestScene(App& app, const SceneSize& size)
+{
+    return requestSceneTexture(app.sceneView, *app.gpu.nvrhi, app.ui.pass,
+                               gpu::swapchainFormat(app.gpu), size);
+}
+
 void prepareAppWorld(flecs::world& world)
 {
     world.import<scene::SceneModule>();

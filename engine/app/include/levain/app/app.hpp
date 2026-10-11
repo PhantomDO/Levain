@@ -315,7 +315,7 @@ struct App
     ScreenRect sceneRect;
     /// **La scène dans une texture** (ADR-0036, décision 7) : la texture de la Vue, sa taille qui
     /// ne se recrée qu'une fois stable, et où va la scène à cette image (`SceneOutput`). Le
-    /// programme n'y touche pas encore. Sans demande, la scène remplit
+    /// programme n'y touche que par `requestScene`, dans `hooks.ui`. Sans demande, la scène remplit
     /// la fenêtre comme avant : le sandbox et *Rando* n'en savent rien.
     SceneView sceneView;
     /// **`App` possède la capture de la souris** (ADR-0032) : le programme pose ce qu'il veut,
@@ -331,6 +331,20 @@ struct App
     /// Le dernier champ, donc le premier détruit : l'état du programme part avant le reste.
     FrameHooks hooks;
 };
+
+/// **La Vue demande sa taille** (ADR-0036, décision 7), dans `hooks.ui`, avant `ImGui::Image` :
+/// la scène de cette image est rendue dans une texture de cette taille, que l'on montre avec
+/// l'identifiant rendu ; la swapchain est effacée et seule l'UI y est dessinée. Rien si la Vue n'a
+/// rien à montrer (`size.empty()`) : la scène n'est pas rendue du tout, et la swapchain est
+/// effacée. **Ne rien demander** de l'image, c'est la scène dans la fenêtre, comme avant la Vue
+/// (F1, le sandbox, *Rando*) : une Vue fermée demande donc 0 × 0, et ne se tait pas. **Chaque image
+/// où la Vue n'est pas montrée**, fermée, cachée derrière un autre onglet ou repliée
+/// (`ImGui::Begin` rend faux), demande 0 × 0 : le panneau ouvert sans demande, la scène repart dans
+/// la fenêtre derrière les panneaux, et l'image HDR et la profondeur changent de taille à chaque
+/// bascule (un arrêt du GPU chacune). Le moteur ne peut pas le deviner : « rien demandé » est le
+/// sandbox. La texture ne se recrée qu'une fois la taille stable (`StableFramesBeforeResize`),
+/// l'ancienne est étirée en attendant et libérée après l'image (`requestSceneTexture`).
+[[nodiscard]] std::optional<ImTextureID> requestScene(App& app, const SceneSize& size);
 
 /// Le monde d'une application, sans fenêtre ni GPU : la scène, les assets, les composants d'`app`
 /// décrits (ADR-0034), et `PlayerInput` enregistré (`createApp` le pose ensuite). Appelée par
