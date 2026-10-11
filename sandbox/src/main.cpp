@@ -351,8 +351,9 @@ struct SandboxOptions
     /// l'horizontale. Pour cadrer une capture sans bouger la souris.
     std::optional<glm::vec2> cameraLook;
     /// `--pick x,y` : à la fin de la boucle, avant la capture, sélectionne ce que vise ce pixel,
-    /// compté depuis le coin haut gauche. Le clic de la souris, sans souris : pour la CI et les
-    /// captures à distance (critère de M6.2).
+    /// compté depuis le coin haut gauche de la scène (celui de la fenêtre, ou de la Vue dans
+    /// l'éditeur ; la Vue fermée ou cachée n'a rien à viser : la boucle échoue). Le clic de la
+    /// souris, sans souris : pour la CI et les captures à distance (critère de M6.2).
     std::optional<glm::vec2> pickPixel;
     /// `--walk x,z` : la direction que suit le personnage de `--view character` ou `hike`, au lieu
     /// du clavier.
@@ -861,19 +862,30 @@ void forEachDraw(DemoScene& scene, double seconds, const levain::render::Frustum
     }
 }
 
+/// La taille où se lit un pixel de la scène : la fenêtre, ou le rectangle de la Vue de l'éditeur,
+/// où la scène est étirée dans sa texture (`scenePixelAt`).
+glm::vec2 sceneSizeOf(const levain::app::App& app)
+{
+    const levain::platform::PixelSize window = levain::platform::windowPixelSize(app.window);
+    const levain::app::SceneExtent extent = levain::app::sceneExtentOf(
+        app.sceneView.output, app.sceneRect, static_cast<float>(window.width),
+        static_cast<float>(window.height));
+    return {extent.width, extent.height};
+}
+
 /// La sélection à la souris, le critère de M6.2 : le rayon de la caméra par le pixel visé, puis le
 /// premier corps qu'il touche (ADR-0027). Le rayon voit le monde du dernier pas, pas la pose
 /// interpolée qu'on voit : un écart de quelques centimètres sur un corps qui tombe. `false` si la
 /// vue n'a pas de physique : il n'y avait rien à viser.
-bool selectAt(DemoScene& scene, levain::platform::PixelSize size, glm::vec2 pixel)
+bool selectAt(DemoScene& scene, glm::vec2 size, glm::vec2 pixel)
 {
     const auto* physics = scene.app.world.try_get<levain::physics::PhysicsWorld>();
-    if (physics == nullptr || size.width <= 0 || size.height <= 0)
+    if (physics == nullptr || size.x <= 0.0f || size.y <= 0.0f)
     {
         return false;
     }
-    const auto width = static_cast<float>(size.width);
-    const auto height = static_cast<float>(size.height);
+    const float width = size.x;
+    const float height = size.y;
     const levain::render::CameraRay ray = levain::render::rayThrough(
         scene.app.camera, width / height, levain::render::ndcOfPixel(pixel, width, height));
     const std::optional<levain::physics::RayHit> hit = levain::physics::raycast(
@@ -1124,11 +1136,12 @@ bool finishDemo(DemoScene& scene)
     // Demandé sur une vue sans physique, `--pick` ne vérifierait rien : la boucle échoue (règle
     // n°7). Avant la capture, que le contour de la sélection apparaisse dessus.
     if (scene.options.pickPixel &&
-        !selectAt(scene, levain::platform::windowPixelSize(scene.app.window),
-                  *scene.options.pickPixel))
+        !selectAt(scene, sceneSizeOf(scene.app), *scene.options.pickPixel))
     {
-        levain::core::log("sandbox", levain::core::LogLevel::Error,
-                          "--pick : cette vue n'a pas de physique, rien à sélectionner");
+        levain::core::log(
+            "sandbox", levain::core::LogLevel::Error,
+            "--pick : rien à sélectionner (cette vue n'a pas de physique, ou la scène n'est pas "
+            "montrée : la Vue de l'éditeur est fermée ou cachée)");
         return false;
     }
     // Lu par la CI (M6.3) : où sont les pieds du personnage, et sur quoi, à la fin de `--walk`.
@@ -1215,9 +1228,15 @@ void steerDemo(DemoScene& scene)
     app.mouseCaptureWanted = looking;
     if (!looking && levain::input::actionPressed(app.input, scene.actions.select))
     {
-        const levain::platform::CursorPosition cursor =
-            levain::platform::cursorPosition(app.window);
-        selectAt(scene, levain::platform::windowPixelSize(app.window), {cursor.x, cursor.y});
+        // Dans la scène, pas dans la fenêtre : avec la Vue de l'éditeur, la scène n'en couvre qu'un
+        // rectangle (ADR-0036, décision 7), et le curseur est celui des événements (`App::cursor`).
+        const levain::platform::PixelSize window = levain::platform::windowPixelSize(app.window);
+        if (const auto pixel = levain::app::scenePixelAt(
+                app.sceneView.output, app.sceneRect, static_cast<float>(window.width),
+                static_cast<float>(window.height), app.cursor.x, app.cursor.y))
+        {
+            selectAt(scene, {pixel->width, pixel->height}, {pixel->x, pixel->y});
+        }
     }
     if (scene.player)
     {

@@ -271,15 +271,21 @@ TEST_CASE("la scène est le trou du nœud central, et rien tant qu'une fenêtre 
     constexpr levain::app::ScreenRect Whole{
         .x = 0.0f, .y = 0.0f, .width = 320.0f, .height = 180.0f};
 
-    const levain::app::ScreenRect hole = levain::app::sceneRectOf(&node, Whole);
+    const levain::app::ScreenRect hole = levain::app::sceneRectOf(&node, Whole, true);
     CHECK((hole.x == 10.0f && hole.y == 20.0f && hole.width == 100.0f && hole.height == 50.0f));
     // Sans nœud central, la scène est la fenêtre.
-    CHECK(levain::app::sceneRectOf(nullptr, Whole).width == 320.0f);
+    CHECK(levain::app::sceneRectOf(nullptr, Whole, true).width == 320.0f);
     // Une fenêtre ancrée dans le centre : plus de trou, le clic est à elle. L'origine reste celle
     // du nœud, où la barre de mode s'accroche.
     node.Windows.push_back(window);
-    const levain::app::ScreenRect covered = levain::app::sceneRectOf(&node, Whole);
+    const levain::app::ScreenRect covered = levain::app::sceneRectOf(&node, Whole, true);
     CHECK_FALSE(levain::app::rectContains(covered, 50.0f, 40.0f));
     CHECK((covered.x == 10.0f && covered.y == 20.0f));
+    // La scène dans la texture de la Vue (ou nulle part) : un centre vide n'est pas un trou non
+    // plus, la souris n'y est pas au jeu.
+    node.Windows.clear();
+    const levain::app::ScreenRect empty = levain::app::sceneRectOf(&node, Whole, false);
+    CHECK_FALSE(levain::app::rectContains(empty, 50.0f, 40.0f));
+    CHECK((empty.x == 10.0f && empty.y == 20.0f));
     ImGui::EndFrame();
 }

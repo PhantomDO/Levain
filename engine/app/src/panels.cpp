@@ -55,7 +55,7 @@ DockNodes buildLayout(ImGuiID dockspace, ImVec2 size, bool editor)
     return {.left = left, .center = center, .inspector = right, .bottom = bottom};
 }
 
-ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole)
+ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole, bool sceneBehind)
 {
     // Le trou du nœud central est ce qu'on voit de la scène (`PassthruCentralNode`) ; sans nœud
     // (une disposition dont on a retiré le centre), toute la fenêtre.
@@ -64,9 +64,11 @@ ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole)
         return whole;
     }
     // Une fenêtre ancrée dans le centre n'y laisse plus de trou : ImGui la dessine et la prend.
-    // Rectangle vide, gardé à l'origine du nœud (la barre de mode s'y accroche) : la souris n'est
-    // pas au jeu, et `WantCaptureMouse` ne l'aurait pas dit, la route *jeu* l'ignorant.
-    if (!central->IsEmpty())
+    // Pas de trou non plus quand la scène est dans la texture de la Vue, ou nulle part : rien n'est
+    // visible à travers un centre vide. Rectangle vide, gardé à l'origine du nœud (la barre de
+    // mode s'y accroche) : la souris n'est pas au jeu, et `WantCaptureMouse` ne l'aurait pas dit,
+    // la route *jeu* l'ignorant.
+    if (!sceneBehind || !central->IsEmpty())
     {
         return {central->Pos.x, central->Pos.y, 0.0f, 0.0f};
     }
@@ -180,7 +182,8 @@ void drawEnginePanels(App& app)
     // tant que la scène est dans la fenêtre : dans la texture de la Vue, il n'y a rien à voir à
     // travers (`dockspaceFlagsFor`).
     ImGui::DockSpaceOverViewport(dockspace, viewport, dockspaceFlagsFor(app.sceneView.output));
-    app.sceneRect = sceneRectOf(ImGui::DockBuilderGetCentralNode(dockspace), app.sceneRect);
+    app.sceneRect = sceneRectOf(ImGui::DockBuilderGetCentralNode(dockspace), app.sceneRect,
+                                app.sceneView.output == SceneOutput::Window);
     drawImageWindow(app);
     drawPassesWindow(app);
     drawSceneWindow(app);

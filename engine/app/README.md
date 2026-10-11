@@ -104,10 +104,14 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    l'ancienne route. Avec la Vue, une fenêtre d'ImGui (morceaux 7 et 8), il n'atteindra pas le jeu ; avec le trou du
    docking d'aujourd'hui, qui n'est pas une fenêtre, `WantCaptureMouse` est faux au-dessus de lui et la route *UI* le
    laisse passer au jeu. `sceneRect` est refait à chaque image avant `ui` : la fenêtre entière, panneaux fermés ; le trou du nœud
-   central de la disposition, panneaux ouverts (un nœud central où une fenêtre est ancrée n'est pas un trou :
-   rectangle vide, la souris n'est pas au jeu) ; **la Vue (morceaux 7 et 8) y posera le rectangle de sa fenêtre**. La
-   position de la souris est celle d'ImGui : avant tout mouvement, nulle part, et sous la route *jeu* aucun clic
-   n'arrive.
+   central de la disposition, panneaux ouverts **tant que la scène est derrière lui** (`sceneRectOf`, `sceneBehind` :
+   un nœud central où une fenêtre est ancrée, ou que la scène n'occupe pas parce qu'elle est dans la texture de la Vue
+   ou nulle part, n'est pas un trou : rectangle vide, la souris n'est pas au jeu) ; **la Vue de l'éditeur (morceau 8)
+   y pose ensuite le rectangle de son image**. La position de la souris est celle d'ImGui : avant tout mouvement,
+   nulle part, et sous la route *jeu* aucun clic n'arrive. **`App::cursor`** (morceau 8) est cette position, ou celle de
+   SDL tant qu'ImGui n'en connaît pas, posée avant `frame` : le picking du sandbox la lit (`scenePixelAt` la ramène au
+   coin de la Vue et à sa taille, ou à la fenêtre quand la scène y est) plutôt que `platform::cursorPosition`, qu'un
+   script d'input ne déplace pas.
 
 15. **La scène va dans la fenêtre, dans la texture de la Vue, ou nulle part** (`SceneOutput`, ADR-0036, décision 7),
    selon ce que `ui` a demandé cette image par `requestScene`. **Rien demandé : la fenêtre**, le rendu d'avant la Vue,
@@ -173,12 +177,12 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `inputRoute`, `sceneRect`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `inputRoute`, `sceneRect`, `cursor`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
 | [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf`, `renderCameraOr` (la caméra imposée d'abord) : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
 | [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `AnimationClock`, `advanceAnimationClock`, `SkinningState`, `createSkinningState`, `animateModels` |
-| [`include/levain/app/scene_view.hpp`](include/levain/app/scene_view.hpp) | `SceneSize`, `SceneOutput`, `StableFramesBeforeResize`, `SizeSettling`, `shouldRecreateScene`, `sceneOutputFor`, `dockspaceFlagsFor`, `SceneView` ; `createSceneTexture`, `requestSceneTexture`, `beginSceneRequest`, `settleSceneOutput`, `releaseRetiredScenes`, `clearSwapchain` : la scène dans la texture de la Vue |
+| [`include/levain/app/scene_view.hpp`](include/levain/app/scene_view.hpp) | `SceneSize`, `SceneOutput`, `StableFramesBeforeResize`, `SizeSettling`, `shouldRecreateScene`, `sceneOutputFor`, `dockspaceFlagsFor`, `ScenePixel`, `scenePixelAt`, `SceneExtent`, `sceneExtentOf`, `SceneView` ; `createSceneTexture`, `requestSceneTexture`, `beginSceneRequest`, `settleSceneOutput`, `releaseRetiredScenes`, `clearSwapchain` : la scène dans la texture de la Vue |
 | [`include/levain/app/ui_layer.hpp`](include/levain/app/ui_layer.hpp) | `UiLayer`, `UiCost`, `FrameHistory`, `PanelsKey`, `InputRoute`, `ScreenRect`, `rectContains`, `DevicesTaken`, `RouteFacts`, `devicesTakenBy`, `gameInputOf`, `uiEventsOf`, `mouseTakenByCapture`, `togglesPanels`, `mouseShouldBeCaptured`, `recordHistory`, `recordUiCpu` : l'interface dans la boucle |
 | [`src/panels.hpp`](src/panels.hpp) | `drawEnginePanels` : les panneaux de debug du moteur, ancrés ; `buildLayout` et les clés de leurs fenêtres (`ImageWindow`…) pour `ui_i18n_test.cpp` ; interne |
 | [`include/levain/app/texture_reload.hpp`](include/levain/app/texture_reload.hpp) | `TextureReload`, `startTextureReload`, `reloadChangedTextures` : le hot-reload des textures |

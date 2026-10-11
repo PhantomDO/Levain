@@ -90,10 +90,9 @@ aussi « nan »). Elle ne va qu'à l'interface (`UiEvent`) : le jeu lit un dépl
 | la fermeture de la fenêtre | 13 | la modale de fermeture |
 | la répétition d'une touche | aucun | rien ne la demande |
 
-**Le piège du morceau 8** : le picking du sandbox lit `platform::cursorPosition`, qui interroge SDL, pas les
-événements. Une position scriptée n'y changerait rien : le morceau 8 doit faire lire à `App` la position que les
-événements ont portée (ou la leur substituer sous un script), sans quoi « un clic dans la Vue choisit le cube visé »
-resterait intestable.
+**Le piège du morceau 8, réglé** : `platform::cursorPosition` interroge SDL, pas les événements : une position
+scriptée n'y change rien. Le picking du sandbox lit donc `App::cursor` (la position des événements, qu'ImGui suit), ramenée
+au rectangle de la Vue par `scenePixelAt` ; `cursorPosition` ne sert plus qu'avant le premier mouvement.
 
 ## Trois choses à savoir sur les fenêtres
 

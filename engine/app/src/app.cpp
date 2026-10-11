@@ -560,6 +560,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .keymapChanges = 0,
             .inputRoute = InputRoute::Ui,
             .sceneRect = {},
+            .cursor = {},
             .sceneView = {},
             .mouseCaptureWanted = false,
             .mouseCaptured = false,
@@ -607,6 +608,10 @@ void beginUiFrame(App& app, const platform::Events& events, double frameSeconds)
         app.ui.panelsOpen = !app.ui.panelsOpen;
     }
     ui::followTextInput(app.window, io.WantTextInput, app.ui.textInputActive);
+    // La position des événements, pas celle de SDL : un script d'input ne bouge que la première
+    // (platform README). Sans souris connue (`-FLT_MAX` : aucun mouvement encore), celle de SDL.
+    app.cursor = ImGui::IsMousePosValid() ? platform::CursorPosition{io.MousePos.x, io.MousePos.y}
+                                          : platform::cursorPosition(app.window);
 }
 
 /// La fin d'une image d'UI : les panneaux du moteur s'ils sont ouverts, les fenêtres du programme,
