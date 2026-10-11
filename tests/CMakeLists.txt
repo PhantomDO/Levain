@@ -432,8 +432,8 @@ target_compile_definitions(levain_editor_console PRIVATE LEVAIN_DATA_DIR="${CMAK
 add_test(NAME gpu.editor-console.vulkan COMMAND levain_editor_console vulkan)
 set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
-# La scène dans une texture (ADR-0036, morceau 7) : la Vue demande une taille, le renderer rend à cette taille, dans la
-# vraie boucle hors écran.
+# La scène dans une texture (ADR-0036, morceau 7) : la Vue demande une taille, le renderer rend à cette taille, la texture
+# ne se recrée qu'une fois la taille stable et une Vue fermée ne rend rien, dans la vraie boucle hors écran.
 add_executable(levain_scene_view scene_view_gpu.cpp)
 target_link_libraries(levain_scene_view PRIVATE levain::app levain::assets levain::gpu levain::platform levain::render levain::scene)
 target_compile_definitions(levain_scene_view PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")

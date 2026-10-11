@@ -82,7 +82,8 @@ struct SizeSettling
     return requested->empty() || !hasTexture ? SceneOutput::Nothing : SceneOutput::Texture;
 }
 
-/// L'état de la scène dans une texture, que garde `App`.
+/// L'état de la scène dans une texture, que garde `App`. Le test de recréation, `created`, compte
+/// les textures nées depuis le début de la boucle.
 struct SceneView
 {
     nvrhi::TextureHandle texture; ///< La scène rendue ; nulle tant qu'aucune Vue n'a rien demandé.

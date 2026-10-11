@@ -19,8 +19,10 @@ d'entité et d'asset. Il n'a pas encore :
 - **de caméra d'éditeur** (morceau 9) : en Édition (M7.7, morceau 5), la simulation est à l'arrêt, le `frame` du
   programme n'est jamais appelé et le jeu ne reçoit rien (invariant 16) ; la caméra du jeu reste donc une vue fixe,
   aucun système ne la déplace, et ZQSD ne fait plus rien ;
-- **de Vue** : la scène couvre la fenêtre, vue par le centre du docking (engine/app/src/panels.cpp:148), mais sa
-  projection est celle de la fenêtre entière (engine/render/src/renderer.cpp:139) ; la caméra est celle du jeu, une
+- **de Vue** : **la scène dans une texture est écrite** (M7.7, morceau 7, `App::requestScene`, engine/app/README.md,
+  invariant 15), sans la fenêtre qui la montre (morceau 8) : l'éditeur ne la demande pas encore, la scène couvre donc la
+  fenêtre, vue par le centre du docking (engine/app/src/panels.cpp:148), et sa projection est celle de la fenêtre
+  entière (engine/render/src/renderer.cpp:139) ; la caméra est celle du jeu, une
   entité que déplace un système du pas fixe (sandbox/src/main.cpp:641-647 ; engine/scene/src/scene.cpp:111-117), et
   panneaux ouverts, la souris n'est jamais capturée (engine/app/include/levain/app/ui_layer.hpp:93-96) ;
 - **d'écriture vue dans son image** : les panneaux passent après les pas et le choix de la caméra (app.cpp:875-891) ;
