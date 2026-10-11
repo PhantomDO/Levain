@@ -118,7 +118,9 @@ inline constexpr std::uint16_t StopScancode = 41;
 /// Échap vient d'être appuyée : le front, lu sur l'input brut du jeu. Une touche tenue ne le
 /// redonne pas. **Elle vaut partout où le jeu reçoit le clavier** : sous la route *jeu*, mais aussi
 /// sous la route *UI* quand une fenêtre a le focus sans qu'un champ soit actif ; la décision 13
-/// la réserve au contexte *jeu*, ce que la table des raccourcis (morceau 10) fera.
+/// la réserve au contexte *jeu*. TODO morceaux 11 et 12 : la table existe (`shortcuts.hpp`,
+/// morceau 10) ; ils lisent alors Échap par `actionFor` (contexte *jeu*) au lieu de `StopScancode`,
+/// et Alt+P par `imguiChordOf(Play)` au lieu de la lettre écrite dans `playShortcutPressed`.
 [[nodiscard]] bool stopPressed(ModeState& state, const input::RawInput& raw);
 
 /// Passe dans ce mode. **Remet `mouseCaptureWanted` à faux** à chaque changement : en Édition le

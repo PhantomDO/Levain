@@ -41,6 +41,17 @@ après, ImGui lui donnerait l'onglet visible du nœud à l'ouverture. Dans cette
 (`fitsOnLine`) et le champ de recherche a sa propre ligne. De bout en bout : `gpu.editor-console.*`
 (`tests/editor_console_gpu.cpp`), qui lit ce que les fenêtres ont dessiné par `EditorOptions::afterUi`.
 
+**La table des raccourcis est écrite, défauts seuls** (M7.7, morceau 10, `shortcuts.hpp`, ADR-0036, décision 13) : par
+action son nom (clé du catalogue), au plus deux accords, un contexte (vol, Vue, global, jeu ; le vol passe avant la
+Vue, le jeu vaut seul sous sa route). Le vol et les outils vont **par position** (le scancode d'USB), les accords à
+Ctrl ou Alt **par lettre**. `displayNameOf` montre la touche de la disposition d'aujourd'hui (`App::keyAtPosition` :
+« Z » à la place du W sur un AZERTY) ; `tokenOf` et `chordFromToken` fixent le nom stable des préférences (`pos:26`,
+`Ctrl+S`, jamais un nom de SDL ou d'ImGui). **Pas encore branchée** : Alt+P et Échap restent lus par `mode.cpp`
+(`playShortcutPressed`, `StopScancode`), et les gestes (morceau 11) et les menus (12) appelleront `actionFor` ; changer
+et enregistrer un accord sont les morceaux 15 et 16. Équivalents : les raccourcis d'éditeur d'Unreal, le *Shortcuts
+Manager* d'Unity, les *Editor Settings > Shortcuts* de Godot. Test : `tests/editor_shortcuts_test.cpp`, et de bout en
+bout `gpu.editor-shortcuts.*`. **Le contrat avec ImGui** : `actionFor` sert les accords de position et le contexte *jeu* ; les accords de lettre passent par `ImGui::Shortcut(imguiChordOf(...))`, et un champ de texte actif (`ActiveContexts::textInput`) ne laisse rien au vol, à la Vue ni au global. Alt-Gr tenu ne vaut aucun accord. **À faire au morceau 11** : le relâchement d'un vol est un clic pour ImGui (le menu contextuel de la Vue s'ouvrirait à la fin de chaque vol) ; la Vue ne l'ouvrira que si aucun vol n'a eu lieu depuis l'appui (`playFlightReleaseIsAClick` épingle le comportement d'aujourd'hui).
+
 **La logique de sa caméra est écrite** (M7.7, morceau 9, `camera.hpp`), sans entrée ni Vue pour la porter : les gestes
 (morceau 11) lui donneront des deltas, `App::cameraOverride` sa sortie.
 
@@ -158,6 +169,9 @@ M couverts par un test ».
   `playShortcutPressed`, `sceneHasFocus` (`mode.hpp`) : les modes, en fonctions libres. À la fin, `withEditor` écrit aussi `editor.mode mode=edit steps=0 -- mode : Édition ; pas : 0`,
   sous son nom stable (ADR-0036, décision 14), que la CI lit : l'éditeur lancé sans script est en Édition à zéro pas
   (`App::stepsPlayed`, tous les pas de la boucle).
+- `Action`, `Context`, `Chord`, `Binding`, `ShortcutTable`, `defaultShortcuts`, `bindingOf`, `nameOf`, `actionFor`,
+  `chordMatches`, `positionHeld`, `displayNameOf`, `tokenOf`, `chordFromToken`, `imguiChordOf` (`shortcuts.hpp`) : la
+  table des raccourcis, en fonctions libres dont la disposition du clavier est un paramètre.
 - `drawConsole(console, ring, dock)` : la fenêtre « Console ». Son modèle est en fonctions libres sur une copie de
   l'anneau de `core` (`core/log_ring.hpp`), sans ImGui : `listConsoleRows` (niveaux, recherche, Réduire),
   `isShown`, `containsIgnoringAsciiCase`, `shouldFollowTail` (le défilement automatique, sauf remonté),

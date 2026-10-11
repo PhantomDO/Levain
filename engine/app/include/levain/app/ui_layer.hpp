@@ -165,6 +165,7 @@ gameInputOf(std::span<const platform::InputEvent> events, const input::RawInput&
 /// précédé, donc ImGui y voit un *clic* (appui et relâchement au même point). Le menu contextuel
 /// d'un clic droit sur la Vue s'ouvrirait à la fin de chaque vol. Unreal ne l'ouvre que pour un
 /// clic droit sans glissé : la Vue ne devra l'ouvrir que si aucun vol n'a eu lieu depuis l'appui.
+/// `gpu.editor-shortcuts.*` épingle le comportement d'aujourd'hui.
 [[nodiscard]] constexpr bool mouseTakenByCapture(const platform::UiEvent& event, bool captured)
 {
     switch (event.type)
