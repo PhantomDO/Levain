@@ -13,6 +13,8 @@
 #include <string_view>
 #include <vector>
 
+#include <imgui.h>
+
 #include "levain/core/log_ring.hpp"
 
 namespace levain::editor
@@ -75,5 +77,47 @@ void listConsoleRows(std::span<const core::LogEntry> entries, const ConsoleFilte
 /// Le texte d'une ligne : le temps, la catégorie, le message sur une ligne (`singleLine`), et «
 /// (×N) » après N répétitions réduites.
 [[nodiscard]] std::string lineOf(const core::LogEntry& entry, std::size_t repeats);
+
+/// Où les éléments de la fenêtre se sont dessinés à la dernière image (leur centre, en pixels de
+/// l'écran) : les tests y cliquent, sans recalculer la mise en page d'ImGui.
+struct ConsoleLayout
+{
+    ImVec2 info{};
+    ImVec2 warning{};
+    ImVec2 error{};
+    ImVec2 collapse{};
+    ImVec2 clear{};
+    ImVec2 search{};
+    ImVec2 list{};
+    /// La largeur du champ de recherche : il garde la sienne dans une colonne étroite, au lieu de
+    /// se réduire à un pixel (ImGui lit une largeur négative comme « jusqu'au bord droit »).
+    float searchWidth = 0.0f;
+};
+
+/// Ce que la fenêtre garde d'une image à l'autre.
+struct Console
+{
+    bool info = true;
+    bool warning = true;
+    bool error = true;
+    bool collapse = false;
+    /// Le texte cherché, terminé par un zéro (c'est le tampon du champ d'ImGui).
+    std::array<char, 128> search{};
+    /// La dernière copie de l'anneau : recopiée seulement quand sa génération change.
+    core::LogSnapshot snapshot;
+    /// Les lignes montrées à la dernière image.
+    std::vector<ConsoleRow> rows;
+    /// Les libellés que les trois cases ont portés à la dernière image (`filterLabels`) : ce que
+    /// l'utilisateur lit, que les tests comparent aux comptes.
+    std::array<std::string, 3> labels;
+    /// Le défilement de la liste lu à la dernière image, avant qu'elle ne le règle.
+    float scrollY = 0.0f;
+    float scrollMax = 0.0f;
+    ConsoleLayout layout;
+};
+
+/// La fenêtre « Console », ancrée au premier affichage au nœud `dock`. Le bouton Effacer vide
+/// `ring`.
+void drawConsole(Console& console, core::LogRing& ring, ImGuiID dock);
 
 } // namespace levain::editor

@@ -17,6 +17,7 @@
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/registry.hpp"
 #include "levain/core/i18n.hpp"
+#include "levain/core/log_ring.hpp"
 #include "levain/editor/console.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
@@ -748,10 +749,203 @@ TEST_CASE("le rappel de la barre de mode ne promet pas d'Alt+P pour revenir")
     CHECK_FALSE(inPlay.contains("Alt+P"));
 }
 
+namespace
+{
+
+/// Un clic de la souris à `at`, étalé sur les images qu'ImGui met à lire ses événements.
+/// `framesAfterRelease` : combien d'images après le relâchement ; une seule est l'image qui reçoit
+/// le clic (le bouton agit au relâchement), de quoi vérifier ce qui se passe « dans l'image même ».
+void clickAt(ImVec2 at, const std::function<void()>& frame, int framesAfterRelease = 4)
+{
+    ImGuiIO& io = ImGui::GetIO();
+    const auto settle = [&](int frames)
+    {
+        for (int i = 0; i < frames; ++i)
+        {
+            frame();
+        }
+    };
+    io.AddMousePosEvent(at.x, at.y);
+    settle(4);
+    io.AddMouseButtonEvent(0, true);
+    settle(4);
+    io.AddMouseButtonEvent(0, false);
+    settle(framesAfterRelease);
+}
+
+void push(levain::core::LogRing& ring, levain::core::LogLevel level, const char* text)
+{
+    levain::core::pushLogEntry(ring,
+                               {.level = level, .category = "test", .text = text, .seconds = 0.0});
+}
+
+/// La console dans une fenêtre à une place connue, comme `Typing::frame` pour l'inspecteur.
+struct ConsoleBench
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    flecs::world world;
+    levain::core::LogRing ring{200};
+    levain::editor::Console console;
+    float width = 630.0f; ///< la fenêtre : 24 % d'un écran de 1280 est une colonne de 307 px
+
+    void frame()
+    {
+        uiFrame(world,
+                [&]
+                {
+                    ImGui::SetNextWindowPos({0.0f, 0.0f});
+                    ImGui::SetNextWindowSize({width, 220.0f});
+                    levain::editor::drawConsole(console, ring, 0);
+                });
+    }
+
+    void settle()
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            frame();
+        }
+    }
+
+    void click(ImVec2 at, int framesAfterRelease = 4)
+    {
+        clickAt(at, [this] { frame(); }, framesAfterRelease);
+    }
+};
+
+} // namespace
+
+TEST_CASE(
+    "la console : les cases filtrent et comptent, Réduire, la recherche tapée et Effacer, au clic")
+{
+    using levain::core::LogLevel;
+    ConsoleBench bench;
+    push(bench.ring, LogLevel::Info, "chargé");
+    push(bench.ring, LogLevel::Warning, "lent");
+    push(bench.ring, LogLevel::Error, "panne");
+    push(bench.ring, LogLevel::Error, "panne");
+    bench.settle();
+    CHECK(bench.console.rows.size() == 4);
+    CHECK(bench.console.snapshot.counts.errors == 2);
+    // Ce que l'utilisateur lit sur les cases : les comptes de tous les messages reçus.
+    CHECK(bench.console.labels ==
+          std::array<std::string, 3>{"Infos : 1", "Avertissements : 1", "Erreurs : 2"});
+
+    // Décocher « Erreurs » retire les deux erreurs, et la recocher les rend ; ni l'une ni l'autre
+    // case des deux autres niveaux ne bouge.
+    bench.click(bench.console.layout.error);
+    CHECK_FALSE(bench.console.error);
+    CHECK(bench.console.info);
+    CHECK(bench.console.warning);
+    CHECK(bench.console.rows.size() == 2);
+    bench.click(bench.console.layout.error);
+    CHECK(bench.console.rows.size() == 4);
+    bench.click(bench.console.layout.warning);
+    CHECK_FALSE(bench.console.warning);
+    CHECK(bench.console.rows.size() == 3);
+    bench.click(bench.console.layout.warning);
+    bench.click(bench.console.layout.info);
+    CHECK_FALSE(bench.console.info);
+    CHECK(bench.console.rows.size() == 3);
+    bench.click(bench.console.layout.info);
+
+    // Réduire : les deux « panne » qui se suivent ne font qu'une ligne, comptée deux fois.
+    bench.click(bench.console.layout.collapse);
+    REQUIRE(bench.console.rows.size() == 3);
+    CHECK(bench.console.rows.back().repeats == 2);
+
+    // La recherche est tapée dans le champ : elle filtre à chaque lettre.
+    bench.click(bench.console.layout.search);
+    ImGui::GetIO().AddInputCharactersUTF8("LEN");
+    bench.settle();
+    REQUIRE(bench.console.rows.size() == 1);
+    CHECK(bench.console.snapshot.entries.at(bench.console.rows.front().entry).text == "lent");
+
+    // Effacer vide l'anneau et les comptes dans l'image qui reçoit le clic (une seule image après
+    // le relâchement) : la liste et les cases de cette image sont celles d'après l'effacement.
+    bench.click(bench.console.layout.clear, 1);
+    CHECK(bench.console.rows.empty());
+    CHECK(bench.console.snapshot.counts.errors == 0);
+    CHECK(bench.console.labels ==
+          std::array<std::string, 3>{"Infos : 0", "Avertissements : 0", "Erreurs : 0"});
+    CHECK(levain::core::snapshotOf(bench.ring).entries.empty());
+}
+
+TEST_CASE("la console tient dans une colonne étroite : chaque case, le bouton et le champ de "
+          "recherche restent dans la fenêtre")
+{
+    using levain::core::LogLevel;
+    // La colonne gauche de l'éditeur : 24 % d'un écran de 1280 px, moins que la barre d'outils sur
+    // une seule ligne (environ 500 px).
+    ConsoleBench bench;
+    bench.width = 300.0f;
+    push(bench.ring, LogLevel::Error, "panne");
+    bench.settle();
+    const levain::editor::ConsoleLayout& layout = bench.console.layout;
+    for (const ImVec2 center :
+         {layout.clear, layout.collapse, layout.info, layout.warning, layout.error, layout.search})
+    {
+        CHECK(center.x > 0.0f);
+        CHECK(center.x < bench.width);
+        CHECK(center.y > 0.0f);
+        CHECK(center.y < 220.0f);
+    }
+    // Le champ garde presque toute la largeur : ImGui lirait une largeur négative comme « jusqu'au
+    // bord droit » et le réduirait à un pixel.
+    CHECK(layout.searchWidth > bench.width - 40.0f);
+    // Et la dernière case se coche : son centre est cliquable, pas rogné par le bord.
+    bench.click(layout.error);
+    CHECK_FALSE(bench.console.error);
+}
+
 TEST_CASE("fitsOnLine : un élément qui dépasse le bord droit va à la ligne")
 {
     CHECK(levain::editor::fitsOnLine(100.0f, 8.0f, 50.0f, 200.0f));
     CHECK(levain::editor::fitsOnLine(100.0f, 8.0f, 92.0f, 200.0f)); // pile au bord : il tient
     CHECK_FALSE(levain::editor::fitsOnLine(100.0f, 8.0f, 93.0f, 200.0f));
     CHECK_FALSE(levain::editor::fitsOnLine(100.0f, 8.0f, 50.0f, 150.0f));
+}
+
+TEST_CASE("la console suit le bout de la liste tant qu'on y est, et laisse en paix qui est remonté")
+{
+    using levain::core::LogLevel;
+    ConsoleBench bench;
+    const auto pushMany = [&](int count)
+    {
+        for (int i = 0; i < count; ++i)
+        {
+            push(bench.ring, LogLevel::Info, "message");
+        }
+    };
+    pushMany(60);
+    bench.settle();
+    REQUIRE(bench.console.scrollMax > 0.0f); // la liste déborde de la fenêtre
+    CHECK(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
+
+    // Un message arrive pendant qu'on est au bout : la liste s'allonge et le défilement la suit.
+    const float before = bench.console.scrollMax;
+    pushMany(10);
+    bench.settle();
+    CHECK(bench.console.scrollMax > before);
+    CHECK(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
+
+    // Remontée à la molette : un message de plus ne la ramène pas en bas.
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(bench.console.layout.list.x, bench.console.layout.list.y);
+    bench.settle();
+    io.AddMouseWheelEvent(0.0f, 10.0f);
+    bench.settle();
+    REQUIRE_FALSE(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
+    const float held = bench.console.scrollY;
+    pushMany(10);
+    bench.settle();
+    CHECK(bench.console.scrollY == held);
+    CHECK_FALSE(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
+
+    // Redescendue tout en bas, elle suit de nouveau.
+    io.AddMouseWheelEvent(0.0f, -100.0f);
+    bench.settle();
+    pushMany(10);
+    bench.settle();
+    CHECK(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
 }
