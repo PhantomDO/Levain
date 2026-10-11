@@ -81,18 +81,30 @@ nommant la ligne et le champ (règle n°7).
 aussi « nan »). Elle ne va qu'à l'interface (`UiEvent`) : le jeu lit un déplacement, jamais un lieu. Sous la route *jeu*
 (`app`), un clic scripté sans `mouse move` avant lui n'atteint pas le jeu : le curseur d'ImGui n'est encore nulle part.
 
+**La fermeture** s'écrit `window close` : la croix (`CloseRequested`). Un signal ne s'écrit pas dans un script, il se lève pour de
+vrai (`raise(SIGTERM)`, `gpu.editor-close.*`) : il arrive en `QuitSignal` (SDL_EVENT_QUIT), et le programme n'est jamais
+consulté. `createWindow` coupe `SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE`, sans quoi SDL enverrait aussi QUIT à la croix
+(`SDL_windowevents.c`) et le signal et la croix ne se distingueraient plus. **Un test doctest ne peut pas lever ce
+signal** : SDL n'installe son gestionnaire que si SIGTERM est encore à SIG_DFL (`SDL_quit.c`), et doctest a pris le sien.
+
 **Pas encore scriptés, et le morceau d'ADR-0036 qui les ajoute** (`addKey` et `addButton` montrent où) :
 
 | Événement | Morceau | Pour quel scénario |
 |---|---|---|
 | le mouvement, la molette | 11 | l'orbite, le zoom, le vol |
 | le texte | 12 | un champ texte qui garde son Ctrl+Z |
-| la fermeture de la fenêtre | 13 | la modale de fermeture |
 | la répétition d'une touche | aucun | rien ne la demande |
 
 **Le piège du morceau 8, réglé** : `platform::cursorPosition` interroge SDL, pas les événements : une position
 scriptée n'y change rien. Le picking du sandbox lit donc `App::cursor` (la position des événements, qu'ImGui suit), ramenée
 au rectangle de la Vue par `scenePixelAt` ; `cursorPosition` ne sert plus qu'avant le premier mouvement.
+
+## Le titre en ASCII
+
+`setWindowTitle` n'accepte que l'ASCII (une assertion, absente en Release) et la boucle de `app` le réécrit chaque
+seconde : tout texte qui ne vient pas du code (un nom de scène) passe par `asciiTitleOf` (chaque caractère hors ASCII
+devient un « ? »), et `windowTitle` relit le titre pour qu'un test le prouve. Le nom de la scène et son « * » vont dans
+la barre de menus d'ImGui, jamais dans le titre (ADR-0036, décision 11).
 
 ## Trois choses à savoir sur les fenêtres
 

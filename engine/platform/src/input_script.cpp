@@ -239,6 +239,18 @@ core::Result<void> addKeymapChange(Events& events, int line, const Words& words)
     return {};
 }
 
+/// `window close` : la croix de la fenêtre (CLOSE_REQUESTED). Pas de signal scripté : celui-ci se
+/// lève pour de vrai (`raise`), dans le test.
+core::Result<void> addWindowClose(Events& events, int line, const Words& words)
+{
+    if (words.size() != 3 || words[2] != "close")
+    {
+        return refusal(line, "champs", "window close est attendu");
+    }
+    events.window.push_back({.type = WindowEventType::CloseRequested});
+    return {};
+}
+
 } // namespace
 
 std::uint32_t qwertyKeyAtPosition(std::uint16_t scancode)
@@ -282,12 +294,14 @@ core::Result<InputScript> parseInputScript(std::string_view text)
         previousFrame = *frame;
         const std::string_view kind = words.size() > 1 ? words[1] : "";
         Events& events = script.frames[*frame];
-        const auto added = kind == "key"      ? addKey(events, line, words, held)
-                           : kind == "button" ? addButton(events, line, words)
-                           : kind == "mouse"  ? addMouseMove(events, line, words)
-                           : kind == "keymap"
-                               ? addKeymapChange(events, line, words)
-                               : refusal(line, "type", "key, button, mouse ou keymap est attendu");
+        const auto added =
+            kind == "key"      ? addKey(events, line, words, held)
+            : kind == "button" ? addButton(events, line, words)
+            : kind == "mouse"  ? addMouseMove(events, line, words)
+            : kind == "keymap" ? addKeymapChange(events, line, words)
+            : kind == "window"
+                ? addWindowClose(events, line, words)
+                : refusal(line, "type", "key, button, mouse, keymap ou window est attendu");
         if (!added)
         {
             return std::unexpected(added.error());
@@ -344,6 +358,7 @@ void addScriptedEvents(Events& events, const InputScript& script, int frame)
         const Events& extra = scripted->second;
         events.input.insert(events.input.end(), extra.input.begin(), extra.input.end());
         events.ui.insert(events.ui.end(), extra.ui.begin(), extra.ui.end());
+        events.window.insert(events.window.end(), extra.window.begin(), extra.window.end());
     }
 }
 

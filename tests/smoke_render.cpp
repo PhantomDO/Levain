@@ -320,7 +320,7 @@ levain::core::Result<Image> renderScene(nvrhi::IDevice& device, std::string_view
     targetDesc.isRenderTarget = true;
     targetDesc.initialState = nvrhi::ResourceStates::RenderTarget;
     targetDesc.keepInitialState = true;
-    targetDesc.debugName = "cible du test de fumée";
+    targetDesc.debugName = "cible du test de fumee";
     const nvrhi::TextureHandle target = device.createTexture(targetDesc);
 
     nvrhi::FramebufferDesc framebufferDesc = nvrhi::FramebufferDesc().addColorAttachment(target);
@@ -381,7 +381,7 @@ levain::core::Result<Image> renderWith(const levain::tests::TestBackend& backend
         }
         return renderScene(**device, scene);
     }
-    auto window = levain::platform::createWindow("Levain - test de fumée", ImageSize, ImageSize,
+    auto window = levain::platform::createWindow("Levain - test de fumee", ImageSize, ImageSize,
                                                  levain::gpu::surfaceFor(backend.api));
     if (!window)
     {

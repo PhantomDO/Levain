@@ -50,6 +50,7 @@ struct InputScript
 ///     <image> button down|up left|right|middle     un bouton de la souris
 ///     <image> mouse move <x> <y>                   le curseur, en pixels de l'image
 ///     <image> keymap changed                       la disposition du clavier a changé
+///     <image> window close                         la croix de la fenêtre
 ///
 /// **Une touche a deux identités** : sa position (`W`, le scancode, que lit le jeu) et la lettre
 /// qu'elle tape (le keycode, que lit ImGui). Sans `as`, la lettre est celle d'un clavier QWERTY

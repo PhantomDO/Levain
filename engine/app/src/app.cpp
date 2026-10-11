@@ -97,13 +97,24 @@ void forgetHiddenTime(Clock::time_point& previousFrameEnd, const platform::Windo
     }
 }
 
+/// Une demande de fermeture arrête-t-elle la boucle ? Oui, sauf quand le programme répond
+/// « demandons d'abord » à une exécution interactive : une exécution scriptée se ferme tout de
+/// suite, sans appeler le programme (ADR-0036, décision 11).
+bool closeStops(const AppSettings& settings, const std::function<bool(App&)>& closeRequested,
+                App& app)
+{
+    return isScriptedRun(settings) || !closeRequested || !closeRequested(app);
+}
+
 void applyWindowEvent(LoopState& state, const platform::WindowEvent& event)
 {
     using platform::WindowEventType;
 
     switch (event.type)
     {
+    // Le signal quitte sans demander. La croix, elle, passe par `closeStops` avant d'arriver ici.
     case WindowEventType::CloseRequested:
+    case WindowEventType::QuitSignal:
         state.isRunning = false;
         break;
     // Les deux arrivent en double : sous Wayland, SDL renvoie EXPOSED après chaque
@@ -923,7 +934,7 @@ bool runFrame(Loop& loop)
 {
     App& app = loop.app;
     const AppSettings& settings = app.settings;
-    if (!loop.state.isRunning ||
+    if (!loop.state.isRunning || app.quitRequested ||
         secondsBetween(loop.loopStart, Clock::now()) >= settings.loopSeconds ||
         (settings.steps && app.frameCount >= *settings.steps) ||
         scriptEndsRun(settings, app.frameCount))
@@ -944,6 +955,15 @@ bool runFrame(Loop& loop)
         const platform::Events whileHidden = platform::waitEvents(app.window, remainingSeconds);
         for (const auto& event : whileHidden.window)
         {
+            if (event.type == platform::WindowEventType::CloseRequested &&
+                !closeStops(settings, app.hooks.closeRequested, app))
+            {
+                // La modale se dessine dans `ui`, que la boucle ne joue pas fenêtre masquée :
+                // personne ne la verrait, et ses clics seraient avalés. On remet la fenêtre devant
+                // (le banc d'essai n'a pas d'événement « masquée » : non couvert par un test).
+                platform::restoreAndRaise(app.window);
+                continue;
+            }
             applyWindowEvent(loop.state, event);
         }
         // Un changement de disposition reçu fenêtre masquée compte aussi : qui garde une touche
@@ -973,6 +993,11 @@ bool runFrame(Loop& loop)
         }
         for (const auto& event : events.window)
         {
+            if (event.type == platform::WindowEventType::CloseRequested &&
+                !closeStops(settings, app.hooks.closeRequested, app))
+            {
+                continue; // le programme demande d'abord : la modale s'ouvre dans `ui`
+            }
             applyWindowEvent(loop.state, event);
             forgetHiddenTime(loop.previousFrameEnd, event, frameStart);
         }
@@ -1090,8 +1115,10 @@ bool runFrame(Loop& loop)
         LEVAIN_PROFILE_SCOPE_NAMED("titre");
         const FrameReport report = frameReportOf(*summary, loop.periodEngineSeconds,
                                                  platform::windowPixelSize(app.window));
-        platform::setWindowTitle(app.window, describeFrameTimes(settings.title, report,
-                                                                render::averageOf(loop.periodGpu)));
+        // Le titre du programme peut venir d'ailleurs que du code (un nom de scène) : ASCII.
+        platform::setWindowTitle(app.window,
+                                 platform::asciiTitleOf(describeFrameTimes(
+                                     settings.title, report, render::averageOf(loop.periodGpu))));
 #ifdef __EMSCRIPTEN__
         const UiCost& uiCost = app.ui.cost;
         reportFrame(report, uiCost.cpuSamples > 0 ? uiCost.cpuTotalMs / uiCost.cpuSamples : 0.0,
@@ -1407,6 +1434,16 @@ OptionUse parseCommonOption(AppSettings& settings, std::string_view name, std::s
     return OptionUse::Taken;
 }
 
+bool isScriptedRun(const AppSettings& settings)
+{
+    if (settings.testInteractive)
+    {
+        return false;
+    }
+    return std::isfinite(settings.loopSeconds) || settings.steps || settings.frozenSeconds ||
+           settings.capturePath || settings.inputScript || settings.inputScriptFile;
+}
+
 core::Result<std::optional<platform::InputScript>> inputScriptOf(const AppSettings& settings)
 {
     if (settings.inputScriptFile)
@@ -1439,8 +1476,8 @@ int runApp(const AppSettings& requested, const StartFunction& start)
         return 1;
     }
     settings.inputScript = std::move(*script);
-    auto window = platform::createWindow(settings.title, settings.width, settings.height,
-                                         gpu::surfaceFor(settings.api));
+    auto window = platform::createWindow(platform::asciiTitleOf(settings.title), settings.width,
+                                         settings.height, gpu::surfaceFor(settings.api));
     if (!window)
     {
         core::log("app", core::LogLevel::Critical, "{}", window.error().message);
