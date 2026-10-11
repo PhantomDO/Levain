@@ -1,6 +1,7 @@
-// Les gestes de la caméra de l'éditeur, les boîtes qu'elle cadre et ses plans de découpe (ADR-0036,
-// décisions 6, 8 et 13, morceau 11) : de la logique pure, sans fenêtre. Chaque règle a son cas (les
-// contre-tests sont listés dans la PR du morceau).
+// Les gestes de la caméra de l'éditeur (ADR-0036, décisions 6, 8 et 13, morceau 11) : de la
+// logique pure, sans fenêtre ni monde. Le geste d'une image est une fonction de l'état, des
+// événements et du contexte ; la caméra suivante, une fonction de la caméra et du geste. Chaque
+// règle a son cas (les contre-tests sont listés dans la PR du morceau).
 
 #include <cmath>
 #include <cstdint>
@@ -18,6 +19,7 @@
 #include "levain/platform/window.hpp"
 #include "levain/scene/components.hpp"
 
+using levain::editor::applyGesture;
 using levain::editor::capturesMouse;
 using levain::editor::EditorCamera;
 using levain::editor::Gesture;
@@ -34,7 +36,7 @@ namespace
 {
 
 constexpr std::uint16_t ScanW = 26, ScanZ = 29, ScanS = 22, ScanA = 4, ScanD = 7, ScanE = 8,
-                        ScanQ = 20;
+                        ScanQ = 20, ScanF = 9;
 constexpr float Dt = 1.0f / 60.0f;
 
 const levain::editor::ShortcutTable& table()
@@ -47,7 +49,9 @@ const levain::editor::ShortcutTable& table()
 GestureContext sceneContext()
 {
     return {.region = {.x = 100.0f, .y = 50.0f, .width = 800.0f, .height = 600.0f},
-            .sceneHovered = true};
+            .sceneHovered = true,
+            .sceneFocused = false,
+            .textInput = false};
 }
 
 UiEvent moved(float x, float y)
@@ -67,6 +71,11 @@ UiEvent key(std::uint16_t scancode, bool down, levain::platform::KeyModifiers mo
             .scancode = scancode,
             .down = down,
             .modifiers = modifiers};
+}
+
+UiEvent wheel(float notches)
+{
+    return {.type = UiEventType::MouseWheel, .y = notches};
 }
 
 Events eventsOf(std::initializer_list<UiEvent> ui, glm::vec2 motion = {0.0f, 0.0f})
@@ -182,6 +191,108 @@ TEST_CASE("un geste commencé hors de la Vue ne se continue pas quand la souris 
     CHECK(next.frame.gesture == Gesture::None);
     CHECK(next.frame.motion == glm::vec2{0.0f});
     CHECK(next.frame.move == glm::vec3{0.0f});
+    const EditorCamera camera = tilted();
+    const EditorCamera after = applyGesture(camera, next.frame, 600.0f);
+    CHECK(after.position == camera.position);
+    CHECK(after.yawDegrees == camera.yawDegrees);
+}
+
+TEST_CASE("en vol : la souris regarde, les touches par position avancent, Maj court")
+{
+    const GestureState state = flying();
+    const GestureStep ahead = step(state, eventsOf({key(ScanW, true)}, {8.0f, -4.0f}));
+    CHECK(ahead.frame.gesture == Gesture::Fly);
+    CHECK(ahead.frame.motion == glm::vec2{8.0f, -4.0f});
+    CHECK(ahead.frame.move == glm::vec3{0.0f, 0.0f, 1.0f});
+    CHECK(ahead.frame.speedMultiplier == 1.0f);
+
+    const EditorCamera camera = tilted();
+    const EditorCamera flown =
+        applyGesture(camera, step(state, eventsOf({key(ScanW, true)})).frame, 600.0f);
+    CHECK(glm::length(flown.position - camera.position) ==
+          doctest::Approx(camera.flySpeed * Dt).epsilon(1e-4));
+    CHECK(glm::dot(glm::normalize(flown.position - camera.position),
+                   levain::editor::viewDirectionOf(camera)) == doctest::Approx(1.0f).epsilon(1e-4));
+
+    const GestureStep run = step(
+        ahead.state, eventsOf({key(levain::editor::LeftShiftScancode, true), key(ScanW, true)}));
+    CHECK(run.frame.speedMultiplier == levain::editor::RunMultiplier);
+    // Sans vol, les mêmes touches ne font rien.
+    const GestureStep idle = step({}, eventsOf({moved(500.0f, 350.0f), key(ScanW, true)}));
+    CHECK(idle.frame.gesture == Gesture::None);
+    CHECK(idle.frame.move == glm::vec3{0.0f});
+}
+
+TEST_CASE("la molette règle la vitesse en vol, et zoome sinon, dans la scène seulement")
+{
+    const EditorCamera camera = tilted();
+    // En vol : la vitesse, pas la position.
+    const GestureStep flight = step(flying(), eventsOf({wheel(2.0f)}));
+    const EditorCamera faster = applyGesture(camera, flight.frame, 600.0f);
+    CHECK(faster.flySpeed > camera.flySpeed);
+    CHECK(faster.position == camera.position);
+    CHECK(faster.pivotDistance == camera.pivotDistance);
+
+    // Hors vol, sur la scène : le dolly, la vitesse reste.
+    GestureState hovering;
+    hovering.cursor = {500.0f, 350.0f};
+    hovering.cursorKnown = true;
+    const GestureStep zoom = step(hovering, eventsOf({wheel(2.0f)}));
+    const EditorCamera closer = applyGesture(camera, zoom.frame, 600.0f);
+    CHECK(closer.pivotDistance < camera.pivotDistance);
+    CHECK(closer.flySpeed == camera.flySpeed);
+
+    // Hors de la scène : rien.
+    hovering.cursor = {40.0f, 350.0f};
+    const GestureStep outside = step(hovering, eventsOf({wheel(2.0f)}));
+    CHECK(outside.frame.wheelNotches == 0.0f);
+    CHECK(applyGesture(camera, outside.frame, 600.0f).position == camera.position);
+}
+
+TEST_CASE("Alt + clic gauche orbite : le pivot et sa distance ne bougent pas")
+{
+    const EditorCamera camera = tilted();
+    GestureState state =
+        step({}, eventsOf({moved(500.0f, 350.0f), key(levain::editor::LeftAltScancode, true),
+                           button(levain::editor::LeftButton, true)}))
+            .state;
+    CHECK(state.active == Gesture::Orbit);
+    CHECK_FALSE(capturesMouse(state)); // seul le vol capture
+    const GestureStep drag = step(state, eventsOf({}, {40.0f, -15.0f}));
+    const EditorCamera orbited = applyGesture(camera, drag.frame, 600.0f);
+    CHECK(orbited.yawDegrees != camera.yawDegrees);
+    CHECK(orbited.pivotDistance == camera.pivotDistance);
+    const glm::vec3 pivot = levain::editor::pivotOf(camera);
+    CHECK(glm::length(levain::editor::pivotOf(orbited) - pivot) < 1e-3f);
+    CHECK(glm::length(orbited.position - pivot) ==
+          doctest::Approx(camera.pivotDistance).epsilon(1e-4));
+}
+
+TEST_CASE("le bouton du milieu fait glisser la vue sans la tourner, Alt + clic droit avance")
+{
+    const EditorCamera camera = tilted();
+    GestureState pan =
+        step({}, eventsOf({moved(500.0f, 350.0f), button(levain::editor::MiddleButton, true)}))
+            .state;
+    const EditorCamera panned =
+        applyGesture(camera, step(pan, eventsOf({}, {30.0f, 20.0f})).frame, 600.0f);
+    CHECK(panned.position != camera.position);
+    CHECK(panned.yawDegrees == camera.yawDegrees);
+    CHECK(panned.pitchDegrees == camera.pitchDegrees);
+    CHECK(panned.pivotDistance == camera.pivotDistance);
+
+    GestureState dolly =
+        step({}, eventsOf({moved(500.0f, 350.0f), key(levain::editor::LeftAltScancode, true),
+                           button(levain::editor::RightButton, true)}))
+            .state;
+    CHECK(dolly.active == Gesture::DollyDrag);
+    // Vers le haut de l'écran (y < 0) : on avance vers le pivot.
+    const EditorCamera nearer =
+        applyGesture(camera, step(dolly, eventsOf({}, {0.0f, -48.0f})).frame, 600.0f);
+    CHECK(nearer.pivotDistance < camera.pivotDistance);
+    const EditorCamera farther =
+        applyGesture(camera, step(dolly, eventsOf({}, {0.0f, 48.0f})).frame, 600.0f);
+    CHECK(farther.pivotDistance > camera.pivotDistance);
 }
 
 TEST_CASE("le mouvement de l'image du relâchement revient encore au geste, puis il est fini")
@@ -196,6 +307,58 @@ TEST_CASE("le mouvement de l'image du relâchement revient encore au geste, puis
     // Un autre bouton relâché ne finit pas le geste.
     CHECK(step(state, eventsOf({button(levain::editor::LeftButton, false)})).state.active ==
           Gesture::Fly);
+}
+
+TEST_CASE("un clic droit qui ne vole pas reste un clic : le menu s'ouvrira, pas après un vol")
+{
+    // Appui et relâchement sans bouger : un clic.
+    GestureState state = flying();
+    state = step(state, eventsOf({button(levain::editor::RightButton, false)})).state;
+    CHECK_FALSE(state.flew);
+    // Un tremblement sous le seuil reste un clic.
+    state = flying();
+    state = step(state, eventsOf({}, {1.0f, 1.0f})).state;
+    state = step(state, eventsOf({button(levain::editor::RightButton, false)})).state;
+    CHECK_FALSE(state.flew);
+    // Bougé au-delà du seuil, plusieurs images ensemble : un vol, et il le reste après le
+    // relâchement, pour la fin de l'image où le menu déciderait.
+    state = flying();
+    state = step(state, eventsOf({}, {3.0f, 0.0f})).state;
+    CHECK_FALSE(state.flew);
+    state = step(state, eventsOf({}, {3.0f, 0.0f})).state;
+    CHECK(state.flew);
+    state = step(state, eventsOf({button(levain::editor::RightButton, false)})).state;
+    CHECK(state.flew);
+    // Une touche de vol, ou la molette, suffit sans bouger.
+    state = flying();
+    state = step(state, eventsOf({key(ScanW, true)})).state;
+    CHECK(state.flew);
+    state = flying();
+    state = step(state, eventsOf({wheel(1.0f)})).state;
+    CHECK(state.flew);
+    // Le prochain appui repart de zéro.
+    state = step(state, eventsOf({button(levain::editor::RightButton, false),
+                                  button(levain::editor::RightButton, true)}))
+                .state;
+    CHECK_FALSE(state.flew);
+}
+
+TEST_CASE(
+    "F cadre où elle vaut : la Vue survolée ou focalisée, hors champ de texte, sans modificateur")
+{
+    const auto f = eventsOf({key(ScanF, true)});
+    CHECK(step({}, f).frameSelection);
+    GestureContext elsewhere = sceneContext();
+    elsewhere.sceneHovered = false;
+    CHECK_FALSE(step({}, f, elsewhere).frameSelection);
+    elsewhere.sceneFocused = true; // la Vue a le focus sans être survolée
+    CHECK(step({}, f, elsewhere).frameSelection);
+    GestureContext typing = sceneContext();
+    typing.textInput = true;
+    CHECK_FALSE(step({}, f, typing).frameSelection);
+    CHECK_FALSE(step({}, eventsOf({key(ScanF, true, {.ctrl = true})})).frameSelection);
+    // Une touche relâchée ne cadre pas.
+    CHECK_FALSE(step({}, eventsOf({key(ScanF, false)})).frameSelection);
 }
 
 TEST_CASE("la souris capturée n'a pas de position : le curseur ne suit pas pendant le vol")
@@ -313,6 +476,28 @@ TEST_CASE("une fenêtre cachée remet les gestes au repos : les relâchements ne
     Events shown = eventsOf({});
     shown.window.push_back({.type = levain::platform::WindowEventType::Shown});
     CHECK(step(state, shown).state.active == Gesture::Fly);
+}
+
+TEST_CASE("chaque appui du bouton droit repart de zéro, et le menu veut un appui parti de la Vue")
+{
+    // Un vol d'avant a laissé `flew` : l'appui suivant, parti d'un panneau, ne le garde pas.
+    GestureState state = flying();
+    state = step(state, eventsOf({key(ScanW, true)}, {20.0f, 0.0f})).state;
+    state = step(state, eventsOf({button(levain::editor::RightButton, false), key(ScanW, false)}))
+                .state;
+    REQUIRE(state.flew);
+    REQUIRE(state.rightPressInScene);
+    state = step(state, eventsOf({moved(40.0f, 350.0f), button(levain::editor::RightButton, true)}))
+                .state;
+    CHECK_FALSE(state.flew);
+    CHECK_FALSE(state.rightPressInScene);
+    // Parti de la Vue, sans glissé : le menu est permis.
+    state = step(state, eventsOf({button(levain::editor::RightButton, false)})).state;
+    state =
+        step(state, eventsOf({moved(500.0f, 350.0f), button(levain::editor::RightButton, true)}))
+            .state;
+    CHECK(state.rightPressInScene);
+    CHECK_FALSE(state.flew);
 }
 
 TEST_CASE("la boîte de la scène se garde : refaite quand quelque chose a changé, sinon non")

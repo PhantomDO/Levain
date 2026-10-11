@@ -1,5 +1,7 @@
 #include "levain/editor/gestures.hpp"
 
+#include <cmath>
+
 namespace levain::editor
 {
 
@@ -23,11 +25,21 @@ bool startsInScene(const GestureState& state, const GestureContext& context)
            app::rectContains(context.region, state.cursor.x, state.cursor.y);
 }
 
-/// Un bouton vient de commencer le geste `gesture` : ce qui se garde de l'appui.
+float lengthOf(glm::vec2 vector)
+{
+    return std::sqrt((vector.x * vector.x) + (vector.y * vector.y));
+}
+
+/// Le bouton droit vient de commencer le geste `gesture` : ce qui se garde de l'appui.
 void begin(GestureState& state, Gesture gesture, std::uint8_t button)
 {
     state.active = gesture;
     state.button = button;
+    if (button == RightButton)
+    {
+        state.travelled = 0.0f;
+        state.rightPressInScene = true;
+    }
 }
 
 } // namespace
@@ -37,6 +49,8 @@ GestureState idleGestures(const GestureState& state)
     GestureState idle;
     idle.cursor = state.cursor;
     idle.cursorKnown = state.cursorKnown;
+    idle.flew = state.flew;
+    idle.rightPressInScene = state.rightPressInScene;
     return idle;
 }
 
@@ -71,6 +85,13 @@ GestureStep stepGestures(GestureState state, const platform::Events& events,
             }
             break;
         case platform::UiEventType::MouseButton:
+            if (event.down && event.button == RightButton)
+            {
+                // Chaque appui du bouton droit repart de zéro, où qu'il tombe : un `flew` resté
+                // d'un vol d'avant n'est pas celui d'un clic parti d'un panneau.
+                state.flew = false;
+                state.rightPressInScene = false;
+            }
             if (event.down && state.active == Gesture::None)
             {
                 const Gesture gesture = gestureStartedBy(event.button, altHeld(state.keys));
@@ -91,12 +112,25 @@ GestureStep stepGestures(GestureState state, const platform::Events& events,
             if (state.active != Gesture::None || startsInScene(state, context))
             {
                 step.frame.wheelNotches += event.y;
+                state.flew = state.flew || state.active == Gesture::Fly;
             }
             break;
         case platform::UiEventType::Key:
             if (event.scancode < state.keys.size())
             {
                 state.keys.set(event.scancode, event.down);
+            }
+            if (event.down)
+            {
+                const KeyPress press{.scancode = event.scancode,
+                                     .keycode = event.keycode,
+                                     .modifiers = event.modifiers};
+                const ActiveContexts active{.flight = state.active == Gesture::Fly,
+                                            .view = context.sceneHovered || context.sceneFocused,
+                                            .game = false,
+                                            .textInput = context.textInput};
+                step.frameSelection = step.frameSelection ||
+                                      actionFor(table, press, active) == Action::FrameSelection;
             }
             break;
         case platform::UiEventType::FocusLost:
@@ -137,8 +171,43 @@ GestureStep stepGestures(GestureState state, const platform::Events& events,
         step.frame.move = flightMoveOf(table, state.keys);
         step.frame.speedMultiplier = shiftHeld(state.keys) ? RunMultiplier : 1.0f;
     }
+    if (current == Gesture::Fly || current == Gesture::DollyDrag)
+    {
+        // Le clic droit : a-t-il bougé, volé ou zoomé ? Sinon c'est un clic (`GestureState::flew`).
+        state.travelled += lengthOf(step.frame.motion);
+        const bool keyed = step.frame.move != glm::vec3{0.0f};
+        state.flew = state.flew || state.travelled > ClickSlopPixels || keyed;
+    }
     step.state = state;
     return step;
+}
+
+EditorCamera applyGesture(EditorCamera camera, const GestureFrame& frame,
+                          float viewportHeightPixels)
+{
+    switch (frame.gesture)
+    {
+    case Gesture::Fly:
+        camera = flyCamera(camera,
+                           {.lookPixels = frame.motion,
+                            .move = frame.move,
+                            .speedMultiplier = frame.speedMultiplier},
+                           frame.seconds);
+        return scaleFlySpeed(camera, frame.wheelNotches);
+    case Gesture::Orbit:
+        camera = orbitCamera(camera, frame.motion);
+        break;
+    case Gesture::Pan:
+        camera = panCamera(camera, frame.motion, viewportHeightPixels);
+        break;
+    case Gesture::DollyDrag:
+        // Vers le haut de l'écran (y < 0), on avance : un cran par `DollyPixelsPerNotch`.
+        camera = dollyCamera(camera, -frame.motion.y / DollyPixelsPerNotch);
+        break;
+    case Gesture::None:
+        break;
+    }
+    return frame.wheelNotches != 0.0f ? dollyCamera(camera, frame.wheelNotches) : camera;
 }
 
 } // namespace levain::editor
