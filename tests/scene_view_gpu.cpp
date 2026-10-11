@@ -23,6 +23,8 @@
 #include <vector>
 
 #include <imgui.h>
+// Le nœud de l'espace d'ancrage, pour lire ses drapeaux : l'API interne d'ImGui.
+#include <imgui_internal.h>
 
 #include "gpu_test_backend.hpp"
 
@@ -69,6 +71,10 @@ struct Asked
     SceneSize size{};
     bool gotImage = false;
     int created = 0; ///< `SceneView::created`, juste après la demande
+    /// L'espace d'ancrage de cette image laisse-t-il passer son centre (`PassthruCentralNode`) ?
+    /// Il le doit tant que la scène est dans la fenêtre, derrière lui.
+    bool passthru = false;
+    bool dockspace = false; ///< l'espace d'ancrage existe (panneaux ouverts)
 };
 
 struct Pixel
@@ -168,6 +174,16 @@ void drawStale(ImTextureID image)
     ImGui::PopStyleVar();
 }
 
+/// L'espace d'ancrage des panneaux laisse-t-il passer le centre cette image ? Les drapeaux que
+/// `drawEnginePanels` lui a donnés, relus sur son nœud.
+bool dockspacePassesThrough(bool& exists)
+{
+    const ImGuiDockNode* node = ImGui::DockBuilderGetNode(ImHashStr("levain"));
+    exists = node != nullptr;
+    return node != nullptr && (static_cast<unsigned>(node->SharedFlags) &
+                               static_cast<unsigned>(ImGuiDockNodeFlags_PassthruCentralNode)) != 0;
+}
+
 /// Relit le centre de la texture de la scène et sa taille, dans une command list à soi.
 void readScene(App& app, Run& run)
 {
@@ -220,6 +236,8 @@ levain::app::StartFunction programOf(Run& run, const Ask& ask)
         hooks.ui = [&run, &ask](App& uiApp)
         {
             const int frame = uiApp.frameCount;
+            bool dockspace = false;
+            const bool passthru = dockspacePassesThrough(dockspace);
             const std::optional<SceneSize> size = ask(frame, uiApp.ui.panelsOpen);
             if (!size)
             {
@@ -229,7 +247,9 @@ levain::app::StartFunction programOf(Run& run, const Ask& ask)
             run.asked.push_back({.frame = frame,
                                  .size = *size,
                                  .gotImage = image.has_value(),
-                                 .created = uiApp.sceneView.created});
+                                 .created = uiApp.sceneView.created,
+                                 .passthru = passthru,
+                                 .dockspace = dockspace});
             if (image)
             {
                 // Une image neuve : la Vue a été recréée dans cette image. L'ancienne, déjà retirée
@@ -256,12 +276,21 @@ levain::app::StartFunction programOf(Run& run, const Ask& ask)
     };
 }
 
-/// Le programme dans la vraie boucle, hors écran, `frames` images. `capture` : la dernière image
-/// (la swapchain) est écrite, puis relue.
+/// Le programme dans la vraie boucle, hors écran, `frames` images. `script` : l'input rejoué ;
+/// `capture` : la dernière image (la swapchain) est écrite, puis relue.
 Run play(const levain::tests::TestBackend& backend, const Ask& ask, int frames,
-         bool capture = false)
+         std::string_view script = {}, bool capture = false)
 {
     levain::app::AppSettings settings;
+    if (!script.empty())
+    {
+        auto parsed = levain::platform::parseInputScript(script);
+        if (!parsed)
+        {
+            throw std::runtime_error{parsed.error().message};
+        }
+        settings.inputScript = std::move(*parsed);
+    }
     std::optional<TempDir> dir;
     if (capture)
     {
@@ -430,7 +459,7 @@ int closedViewRendersNothing(const levain::tests::TestBackend& backend)
     const Run run = play(
         backend, [](int frame, bool) -> std::optional<SceneSize>
         { return frame < OpenFrames ? SceneSize{.width = 640, .height = 360} : SceneSize{}; },
-        Frames, true);
+        Frames, {}, true);
     int failures = expect(run.exitCode == 0, "Vue fermée : les 8 images se jouent, code 0");
     failures += expect(run.rendered.size() == OpenFrames,
                        std::format("Vue fermée : {} scènes rendues (celles de la Vue ouverte), pas "
@@ -454,8 +483,8 @@ int closedViewRendersNothing(const levain::tests::TestBackend& backend)
 /// couleur de la texture (convertie une seule fois), et la swapchain effacée partout ailleurs.
 int swapchainClearedAroundTheView(const levain::tests::TestBackend& backend)
 {
-    const Run run =
-        play(backend, [](int, bool) { return SceneSize{.width = 640, .height = 360}; }, 4, true);
+    const Run run = play(
+        backend, [](int, bool) { return SceneSize{.width = 640, .height = 360}; }, 4, {}, true);
     if (!run.capture || run.exitCode != 0)
     {
         return expect(false, "image montrée : code 0 et la capture relue");
@@ -477,6 +506,46 @@ int swapchainClearedAroundTheView(const levain::tests::TestBackend& backend)
     return failures;
 }
 
+/// F1 (ADR-0036) : panneaux fermés, la Vue ne demande rien et la scène remplit la fenêtre, comme
+/// avant ; panneaux ouverts, elle va dans la texture de la Vue. Le centre de l'espace d'ancrage ne
+/// laisse passer l'image que dans le premier cas : la première image des panneaux le lit encore
+/// ouvert (la Vue ne demande que dans `ui`, après lui), les suivantes non.
+int panelsToggleTheOutput(const levain::tests::TestBackend& backend)
+{
+    constexpr SceneSize View{.width = 400, .height = 100};
+    const Run run = play(
+        backend, [View](int, bool panelsOpen) -> std::optional<SceneSize>
+        { return panelsOpen ? std::optional{View} : std::nullopt; }, 10,
+        "2 key down F1\n3 key up F1\n6 key down F1\n7 key up F1\n");
+    int failures = expect(run.exitCode == 0, "F1 : code 0") +
+                   expect(run.rendered.size() == 10, "F1 : une scène par image");
+    // Panneaux ouverts de l'image 2 à la 5 : 400 × 100 ; fermés avant et après : la fenêtre.
+    for (const Rendered& rendered : run.rendered)
+    {
+        const bool open = rendered.frame >= 2 && rendered.frame <= 5;
+        const bool right = open
+                               ? sameSize(rendered, View)
+                               : (rendered.width == WindowWidth && rendered.height == WindowHeight);
+        failures += expect(right && aspectFollows(rendered),
+                           std::format("F1, image {} : la scène est dans {}", rendered.frame,
+                                       open ? "la texture de la Vue" : "la fenêtre"));
+    }
+    failures += expect(run.created == 1, "F1 : une seule texture, créée à la première demande");
+    for (const Asked& asked : run.asked)
+    {
+        // Image 2 : la scène était dans la fenêtre à l'image d'avant ; 3 à 5 : dans la texture.
+        failures += expect(asked.dockspace,
+                           std::format("F1, image {} : les panneaux sont là", asked.frame));
+        failures += expect(asked.passthru == (asked.frame == 2),
+                           std::format("F1, image {} : le centre ne laisse passer l'image que "
+                                       "tant que la scène est dans la fenêtre",
+                                       asked.frame));
+    }
+    failures +=
+        expect(run.asked.size() == 4, "F1 : la Vue demande quand les panneaux sont ouverts");
+    return failures;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -493,7 +562,8 @@ int main(int argc, char** argv)
         }
         const int failures = renderedAtRequestedSize(*backend) + dragRecreatesOnce(*backend) +
                              closedViewRendersNothing(*backend) +
-                             swapchainClearedAroundTheView(*backend);
+                             swapchainClearedAroundTheView(*backend) +
+                             panelsToggleTheOutput(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

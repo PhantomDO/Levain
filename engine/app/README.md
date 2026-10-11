@@ -127,7 +127,10 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    vivante tant qu'une command list en vol tient son framebuffer, sa texture suivie ou son binding set (sources de
    NVRHI du port : `vulkan-graphics.cpp:509`, `vulkan-state-tracking.cpp:304`, `vulkan-resource-bindings.cpp:966` ;
    `d3d12-state-tracking.cpp:236`, `d3d12-resource-bindings.cpp:1003`). `SceneView::created` compte les textures nées, ce
-   que lit le test des « au plus 2 » d'un glissé. `tests/scene_view_gpu.cpp` est le banc (`gpu.scene-view.*`).
+   que lit le test des « au plus 2 » d'un glissé. **Les panneaux lisent la sortie de l'image d'avant** : l'espace
+   d'ancrage est soumis avant `ui`, où la Vue demande, et perd `PassthruCentralNode` (`dockspaceFlagsFor`) une image
+   après que la scène a quitté la fenêtre, comme la route de l'input (invariant 14). `tests/scene_view_gpu.cpp`
+   est le banc (`gpu.scene-view.*`).
 
 ## Pièges connus
 
@@ -171,7 +174,7 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
 | [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `AnimationClock`, `advanceAnimationClock`, `SkinningState`, `createSkinningState`, `animateModels` |
-| [`include/levain/app/scene_view.hpp`](include/levain/app/scene_view.hpp) | `SceneSize`, `SceneOutput`, `StableFramesBeforeResize`, `SizeSettling`, `shouldRecreateScene`, `sceneOutputFor`, `SceneView` ; `createSceneTexture`, `requestSceneTexture`, `beginSceneRequest`, `settleSceneOutput`, `releaseRetiredScenes`, `clearSwapchain` : la scène dans la texture de la Vue |
+| [`include/levain/app/scene_view.hpp`](include/levain/app/scene_view.hpp) | `SceneSize`, `SceneOutput`, `StableFramesBeforeResize`, `SizeSettling`, `shouldRecreateScene`, `sceneOutputFor`, `dockspaceFlagsFor`, `SceneView` ; `createSceneTexture`, `requestSceneTexture`, `beginSceneRequest`, `settleSceneOutput`, `releaseRetiredScenes`, `clearSwapchain` : la scène dans la texture de la Vue |
 | [`include/levain/app/ui_layer.hpp`](include/levain/app/ui_layer.hpp) | `UiLayer`, `UiCost`, `FrameHistory`, `PanelsKey`, `InputRoute`, `ScreenRect`, `rectContains`, `DevicesTaken`, `RouteFacts`, `devicesTakenBy`, `gameInputOf`, `uiEventsOf`, `mouseShouldBeCaptured`, `recordHistory`, `recordUiCpu` : l'interface dans la boucle |
 | [`src/panels.hpp`](src/panels.hpp) | `drawEnginePanels` : les panneaux de debug du moteur, ancrés ; `buildLayout` et les clés de leurs fenêtres (`ImageWindow`…) pour `ui_i18n_test.cpp` ; interne |
 | [`include/levain/app/texture_reload.hpp`](include/levain/app/texture_reload.hpp) | `TextureReload`, `startTextureReload`, `reloadChangedTextures` : le hot-reload des textures |

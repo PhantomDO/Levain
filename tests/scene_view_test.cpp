@@ -1,7 +1,8 @@
 // La scène dans une texture (ADR-0036, décision 7) : les fonctions pures qui décident quand la
-// texture se recrée et où va la scène.
+// texture se recrée et où va la scène. Le GPU suit `levain_scene_view` (gpu.scene-view.*).
 
 #include <doctest/doctest.h>
+#include <imgui.h>
 
 #include "levain/app/scene_view.hpp"
 
@@ -81,4 +82,12 @@ TEST_CASE("où va la scène : rien demandé, dans la fenêtre, une Vue fermée o
     CHECK(sceneOutputFor(SceneSize{.width = 640, .height = 0}, true) == SceneOutput::Nothing);
     CHECK(sceneOutputFor(Wide, false) == SceneOutput::Nothing);
     CHECK(sceneOutputFor(Wide, true) == SceneOutput::Texture);
+}
+
+TEST_CASE("le centre du docking ne laisse passer l'image que tant que la scène est dans la fenêtre")
+{
+    using levain::app::dockspaceFlagsFor;
+    CHECK(dockspaceFlagsFor(SceneOutput::Window) == ImGuiDockNodeFlags_PassthruCentralNode);
+    CHECK(dockspaceFlagsFor(SceneOutput::Texture) == ImGuiDockNodeFlags_None);
+    CHECK(dockspaceFlagsFor(SceneOutput::Nothing) == ImGuiDockNodeFlags_None);
 }

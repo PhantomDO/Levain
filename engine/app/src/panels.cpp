@@ -162,8 +162,10 @@ void drawEnginePanels(App& app)
     {
         app.ui.dock = buildLayout(dockspace, viewport->Size);
     }
-    // Le centre laisse passer la souris et l'image : on y voit la scène, et on y vise.
-    ImGui::DockSpaceOverViewport(dockspace, viewport, ImGuiDockNodeFlags_PassthruCentralNode);
+    // Le centre laisse passer la souris et l'image : on y voit la scène, et on y vise. Seulement
+    // tant que la scène est dans la fenêtre : dans la texture de la Vue, il n'y a rien à voir à
+    // travers (`dockspaceFlagsFor`).
+    ImGui::DockSpaceOverViewport(dockspace, viewport, dockspaceFlagsFor(app.sceneView.output));
     app.sceneRect = sceneRectOf(ImGui::DockBuilderGetCentralNode(dockspace), app.sceneRect);
     drawImageWindow(app);
     drawPassesWindow(app);
