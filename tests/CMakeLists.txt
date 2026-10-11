@@ -46,6 +46,7 @@ set(nativeTests
     light_clusters_test.cpp
     log_ring_test.cpp
     log_sink_test.cpp
+    scene_view_test.cpp
     shadows_test.cpp
     stages_test.cpp
     terrain_test.cpp
