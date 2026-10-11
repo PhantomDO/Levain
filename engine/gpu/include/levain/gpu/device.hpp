@@ -153,6 +153,14 @@ void requestGpuDevice(const platform::Window& window, const DeviceOptions& optio
                                                       const DeviceOptions& options);
 #endif
 
+/// Le niveau (linéaire, les trois canaux) dont le moteur efface l'image de présentation quand la
+/// scène n'y est pas : un gris sombre, loin du fond de la scène, pour que l'écran ne montre jamais
+/// une scène périmée sous l'UI (la Vue, ADR-0036). Une swapchain sRGB convertit en écrivant.
+/// L'image hors écran est créée avec cette valeur d'effacement : Direct3D 12 avertit sinon à chaque
+/// effacement (D3D12_MESSAGE_ID 820). Les images d'une swapchain DXGI n'en ont pas et ne s'en
+/// plaignent pas (mesuré sur la 4070, fenêtre ouverte, Debug).
+inline constexpr float PresentClearLevel = 0.02f;
+
 /// Le format des images de la swapchain : les pipelines qui y dessinent en ont besoin à leur
 /// création.
 [[nodiscard]] nvrhi::Format swapchainFormat(const GpuDevice& gpu);

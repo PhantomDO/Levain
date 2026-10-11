@@ -558,6 +558,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .frameCount = 0,
             .inputRoute = InputRoute::Ui,
             .sceneRect = {},
+            .sceneView = {},
             .mouseCaptureWanted = false,
             .mouseCaptured = false,
             .ui = UiLayer{.context = ui::createUiContext(platform::displayScale(window)),
@@ -605,6 +606,7 @@ void endUiFrame(App& app)
     const platform::PixelSize window = platform::windowPixelSize(app.window);
     app.sceneRect = {0.0f, 0.0f, static_cast<float>(window.width),
                      static_cast<float>(window.height)};
+    beginSceneRequest(app.sceneView);
     if (app.ui.panelsOpen)
     {
         drawEnginePanels(app);
@@ -613,6 +615,7 @@ void endUiFrame(App& app)
     {
         app.hooks.ui(app);
     }
+    settleSceneOutput(app.sceneView);
     ImGui::Render();
     app.ui.frameReady = true;
 }
@@ -699,6 +702,33 @@ void recordUiFrame(App& app, nvrhi::ICommandList& commandList, nvrhi::ITexture& 
     app.ui.frameReady = false;
 }
 
+/// La scène de l'image (ADR-0036, décision 7), là où `SceneView::output` la met : dans la fenêtre,
+/// comme avant la Vue ; dans la texture de la Vue, la swapchain étant effacée pour l'UI ; ou nulle
+/// part, une Vue fermée, la swapchain effacée quand même. La passe de l'UI qui suit est la même.
+void recordScene(App& app, nvrhi::ICommandList& commandList, const FrameClocks& clocks,
+                 nvrhi::ITexture& backBuffer)
+{
+    const SceneOutput output = app.sceneView.output;
+    if (output != SceneOutput::Nothing)
+    {
+        nvrhi::ITexture& target =
+            output == SceneOutput::Texture ? *app.sceneView.texture : backBuffer;
+        render::renderFrame(*app.gpu.nvrhi, commandList, app.renderer,
+                            {.camera = app.camera,
+                             .sun = app.sun,
+                             .environmentIntensity = 1.0f,
+                             .lights = app.lights,
+                             .tonemap = app.settings.tonemap,
+                             .background = app.background,
+                             .seconds = clocks.scene},
+                            target);
+    }
+    if (output != SceneOutput::Window)
+    {
+        clearSwapchain(commandList, backBuffer);
+    }
+}
+
 /// Enregistre l'image, la présente, et rend le temps GPU d'une image précédente, dès qu'il est
 /// lisible. Avec `capture`, l'image est aussi copiée pour être relue (`render::readBack`).
 /// `displayWait`, s'il est donné, reçoit le temps passé dans `beginFrame` et `presentFrame` :
@@ -734,15 +764,7 @@ std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList,
         {
             app.hooks.record(app, commandList, clocks.scene);
         }
-        render::renderFrame(*app.gpu.nvrhi, commandList, app.renderer,
-                            {.camera = app.camera,
-                             .sun = app.sun,
-                             .environmentIntensity = 1.0f,
-                             .lights = app.lights,
-                             .tonemap = app.settings.tonemap,
-                             .background = app.background,
-                             .seconds = clocks.scene},
-                            *backBuffer);
+        recordScene(app, commandList, clocks, *backBuffer);
         // Après le tonemapping, sur l'image finale, et avant la copie d'une capture (ADR-0032).
         if (app.ui.frameReady)
         {
@@ -786,6 +808,7 @@ bool captureFrame(App& app, nvrhi::ICommandList& commandList, const FrameClocks&
     // std::addressof et non « & » : le RefCountPtr de NVRHI surcharge l'opérateur & (il rend
     // l'adresse du pointeur brut, comme les ComPtr de COM).
     static_cast<void>(renderFrame(app, commandList, clocks, std::addressof(staging)));
+    releaseRetiredScenes(app.sceneView, app.ui.pass);
     if (!staging)
     {
         core::log("app", core::LogLevel::Error,
@@ -1014,6 +1037,8 @@ bool runFrame(Loop& loop)
             ++app.totalGpu.samples;
         }
     }
+    // L'ancienne scène de la Vue, remplacée dans cette image : plus aucun dessin ne la montre.
+    releaseRetiredScenes(app.sceneView, app.ui.pass);
     // Le coût CPU de l'UI (le critère de M7.1), compté à chaque image, présentée ou non : sans
     // image à dessiner (fenêtre réduite, swapchain à recréer), ses tranches s'ajouteraient sinon
     // à l'image suivante, qui paraîtrait coûter toute l'attente.

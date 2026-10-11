@@ -20,6 +20,7 @@
 
 #include "levain/app/camera.hpp"
 #include "levain/app/models.hpp"
+#include "levain/app/scene_view.hpp"
 #include "levain/app/ui_layer.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/gltf.hpp"
@@ -312,6 +313,11 @@ struct App
     /// rectangle de sa fenêtre, et `ui` peut déjà le remplacer. Lu à l'image suivante, il est
     /// celui de l'image d'avant.
     ScreenRect sceneRect;
+    /// **La scène dans une texture** (ADR-0036, décision 7) : la texture de la Vue, sa taille qui
+    /// ne se recrée qu'une fois stable, et où va la scène à cette image (`SceneOutput`). Le
+    /// programme n'y touche pas encore. Sans demande, la scène remplit
+    /// la fenêtre comme avant : le sandbox et *Rando* n'en savent rien.
+    SceneView sceneView;
     /// **`App` possède la capture de la souris** (ADR-0032) : le programme pose ce qu'il veut,
     /// et la boucle seule capture, sauf quand les panneaux de debug sont ouverts. Le programme lit
     /// l'état réel dans `mouseCaptured`, celui de la fin de l'image précédente : la boucle capture

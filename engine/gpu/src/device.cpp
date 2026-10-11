@@ -111,15 +111,17 @@ nvrhi::ITexture* offscreenFrame(GpuDevice& gpu, platform::PixelSize size)
     if (!gpu.offscreen || gpu.offscreen->getDesc().width != width ||
         gpu.offscreen->getDesc().height != height)
     {
-        gpu.offscreen =
-            gpu.nvrhi->createTexture(nvrhi::TextureDesc()
-                                         .setWidth(width)
-                                         .setHeight(height)
-                                         .setFormat(OffscreenFormat)
-                                         .setIsRenderTarget(true)
-                                         .setInitialState(nvrhi::ResourceStates::RenderTarget)
-                                         .setKeepInitialState(true)
-                                         .setDebugName("image hors écran"));
+        gpu.offscreen = gpu.nvrhi->createTexture(
+            nvrhi::TextureDesc()
+                .setWidth(width)
+                .setHeight(height)
+                .setFormat(OffscreenFormat)
+                .setIsRenderTarget(true)
+                .setInitialState(nvrhi::ResourceStates::RenderTarget)
+                .setKeepInitialState(true)
+                .setClearValue(
+                    nvrhi::Color{PresentClearLevel, PresentClearLevel, PresentClearLevel, 1.0f})
+                .setDebugName("image hors écran"));
     }
     return gpu.offscreen;
 }
