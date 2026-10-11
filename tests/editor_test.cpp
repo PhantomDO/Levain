@@ -978,3 +978,128 @@ TEST_CASE("la scène a le focus : la Vue panneaux ouverts, aucune fenêtre panne
     CHECK(sceneFocusedIn(false, false, false, false));
     CHECK_FALSE(sceneFocusedIn(false, true, true, false));
 }
+
+TEST_CASE("la modale « Quitter ? » : une demande, une ouverture, jamais empilée")
+{
+    using levain::editor::askToQuit;
+    using levain::editor::QuitState;
+    using levain::editor::shouldOpenQuitModal;
+    QuitState state;
+    CHECK_FALSE(shouldOpenQuitModal(state)); // personne n'a fermé
+    askToQuit(state);
+    CHECK(shouldOpenQuitModal(state));
+    state.asked = false; // ce que `drawQuitModal` fait en l'ouvrant
+    state.open = true;
+    CHECK_FALSE(shouldOpenQuitModal(state));
+    // Une deuxième croix modale ouverte : ni une autre modale, ni une pour après la fermeture.
+    askToQuit(state);
+    CHECK_FALSE(shouldOpenQuitModal(state));
+    state.open = false; // Annuler
+    CHECK_FALSE(shouldOpenQuitModal(state));
+    askToQuit(state); // une croix modale fermée : une nouvelle modale
+    CHECK(shouldOpenQuitModal(state));
+}
+
+TEST_CASE("sous la modale, la route est celle de l'UI et les raccourcis globaux se taisent")
+{
+    using levain::app::InputRoute;
+    levain::editor::QuitState state;
+    // Fermée : la route du mode passe telle quelle, les raccourcis marchent.
+    CHECK(levain::editor::inputRouteWhileQuit(state, InputRoute::Game) == InputRoute::Game);
+    CHECK(levain::editor::inputRouteWhileQuit(state, InputRoute::Editor) == InputRoute::Editor);
+    CHECK(levain::editor::globalChordsAllowed(state));
+    // Ouverte : l'UI garde tout, quelle que soit la route du mode.
+    state.open = true;
+    CHECK(levain::editor::inputRouteWhileQuit(state, InputRoute::Game) == InputRoute::Ui);
+    CHECK(levain::editor::inputRouteWhileQuit(state, InputRoute::Editor) == InputRoute::Ui);
+    CHECK_FALSE(levain::editor::globalChordsAllowed(state));
+}
+
+namespace
+{
+
+/// La modale « Quitter ? » dans l'ImGui sans fenêtre, comme `ConsoleBench`.
+struct QuitBench
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    flecs::world world;
+    levain::editor::QuitState state;
+    levain::editor::QuitAnswer answer = levain::editor::QuitAnswer::Pending;
+    levain::editor::QuitAnswer lastAnswer =
+        levain::editor::QuitAnswer::Pending; ///< la dernière non « Pending »
+
+    void frame()
+    {
+        uiFrame(world,
+                [&]
+                {
+                    answer = levain::editor::drawQuitModal(state);
+                    if (answer != levain::editor::QuitAnswer::Pending)
+                    {
+                        lastAnswer = answer;
+                    }
+                });
+    }
+
+    void settle(int frames = 4)
+    {
+        for (int i = 0; i < frames; ++i)
+        {
+            frame();
+        }
+    }
+
+    static ImVec2 centerOf(const levain::app::ScreenRect& rect)
+    {
+        return {rect.x + rect.width / 2.0f, rect.y + rect.height / 2.0f};
+    }
+};
+
+} // namespace
+
+TEST_CASE("la modale « Quitter ? » dessinée : une ouverture, Quitter, Annuler et Échap répondent")
+{
+    using levain::editor::QuitAnswer;
+    QuitBench bench;
+    bench.settle();
+    CHECK_FALSE(bench.state.open); // rien demandé : rien dessiné
+    CHECK(bench.state.quitButton.width == 0.0f);
+
+    // Une croix : la modale s'ouvre, dessine Quitter puis Annuler, et attend.
+    levain::editor::askToQuit(bench.state);
+    bench.settle();
+    REQUIRE(bench.state.open);
+    CHECK(bench.state.timesOpened == 1);
+    CHECK(bench.lastAnswer == QuitAnswer::Pending);
+    REQUIRE(bench.state.quitButton.width > 0.0f);
+    CHECK(bench.state.quitButton.x < bench.state.cancelButton.x);
+    levain::editor::askToQuit(bench.state); // une deuxième croix : pas une deuxième ouverture
+    bench.settle();
+    CHECK(bench.state.timesOpened == 1);
+
+    // Annuler au clic.
+    clickAt(QuitBench::centerOf(bench.state.cancelButton), [&] { bench.frame(); });
+    CHECK(bench.lastAnswer == QuitAnswer::Cancel);
+    CHECK_FALSE(bench.state.open);
+
+    // Échap annule aussi.
+    levain::editor::askToQuit(bench.state);
+    bench.settle();
+    REQUIRE(bench.state.open);
+    bench.lastAnswer = QuitAnswer::Pending;
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, true);
+    bench.settle(2);
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
+    bench.settle(2);
+    CHECK(bench.lastAnswer == QuitAnswer::Cancel);
+    CHECK_FALSE(bench.state.open);
+
+    // Quitter au clic.
+    levain::editor::askToQuit(bench.state);
+    bench.settle();
+    REQUIRE(bench.state.open);
+    bench.lastAnswer = QuitAnswer::Pending;
+    clickAt(QuitBench::centerOf(bench.state.quitButton), [&] { bench.frame(); });
+    CHECK(bench.lastAnswer == QuitAnswer::Quit);
+    CHECK_FALSE(bench.state.open);
+}

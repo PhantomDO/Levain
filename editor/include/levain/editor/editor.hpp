@@ -22,6 +22,7 @@
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
 #include "levain/editor/mode.hpp"
+#include "levain/editor/quit.hpp"
 #include "levain/editor/view.hpp"
 #include "levain/editor/window_menu.hpp"
 
@@ -87,6 +88,8 @@ struct Editor
     View view;
     /// Où le menu « Fenêtre » a été dessiné à la dernière image.
     WindowMenuLayout menu;
+    /// La modale « Quitter l'éditeur ? » (ADR-0036, décision 11).
+    QuitState quit;
 };
 
 /// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web
