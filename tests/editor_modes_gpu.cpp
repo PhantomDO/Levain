@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <exception>
 #include <format>
+#include <optional>
 #include <print>
 #include <span>
 #include <stdexcept>
@@ -52,6 +53,7 @@ struct Seen
     bool barDrawn = false; ///< la barre de mode a été dessinée à l'image d'avant
     float barX = 0.0f;     ///< son coin haut gauche, à l'image d'avant
     float barY = 0.0f;
+    bool viewFocused = false; ///< la Vue a le focus à cette image (sa barre comprise)
 };
 
 /// Le programme : une caméra, un « mover » que la simulation avance, un `frame` qui compte ses
@@ -152,6 +154,7 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
             seen.barDrawn = editor.view.barDrawn;
             seen.barX = editor.view.barAt.x;
             seen.barY = editor.view.barAt.y;
+            seen.viewFocused = editor.view.focused;
         }
     };
     run.exitCode = levain::app::runApp(
@@ -347,6 +350,107 @@ int playButton(const levain::tests::TestBackend& backend)
                   "le bouton « Revenir à l'édition » arrête le jeu");
 }
 
+/// Les points de la Vue, lus par un premier passage sans script : un point de l'image hors de la
+/// barre, et un point de la marge de la barre de mode (dans son enfant, à côté du bouton).
+struct ViewSpots
+{
+    float sceneX = 0.0f;
+    float sceneY = 0.0f;
+    float barX = 0.0f;
+    float barY = 0.0f;
+};
+
+std::optional<ViewSpots> viewSpots(const levain::tests::TestBackend& backend)
+{
+    const Run probe = play(backend, "0 mouse move 1 1\n", 3, true, false);
+    if (probe.seen.empty() || probe.seen.back().rect.width <= 0.0f)
+    {
+        return std::nullopt;
+    }
+    const levain::app::ScreenRect hole = probe.seen.back().rect;
+    // La barre est à 8 px du coin, sa marge de 8 px : le point est dans l'enfant, hors du bouton.
+    // Hors de la barre, qui en jeu (avec son bandeau) couvre la Vue de 320 px : son coin bas droit.
+    return ViewSpots{.sceneX = hole.x + hole.width - 4.0f,
+                     .sceneY = hole.y + hole.height - 3.0f,
+                     .barX = hole.x + 8.0f + 3.0f,
+                     .barY = hole.y + 8.0f + 3.0f};
+}
+
+/// La barre de mode de la Vue, panneaux ouverts, de bout en bout : (1) en jeu, un clic sur la barre
+/// ne va qu'à elle, jamais au jeu (la barre est dans le rectangle de la scène : sans la route *UI*
+/// sur son survol, le jeu choisirait ce qu'il y a dessous) ; (2) le clic qui suit Alt+P atteint le
+/// jeu, sans image perdue à attendre le focus de la Vue ; (3) cliquer la barre laisse le focus à la
+/// Vue (`ImGuiFocusedFlags_ChildWindows`), sans quoi le clic suivant ne ferait que le reprendre.
+int playBar(const levain::tests::TestBackend& backend)
+{
+    const auto spots = viewSpots(backend);
+    if (!spots)
+    {
+        return expect(false, "la barre : le passage qui lit la Vue n'a pas trouvé son image");
+    }
+    constexpr std::string_view AltP =
+        "2 key down Left Alt\n2 key down P\n3 key up P\n3 key up Left Alt\n";
+    // (1) Jouer à l'image 2, puis un clic sur le bouton « Revenir à l'édition » (image 7) :
+    // l'Édition, et le jeu n'a vu aucun bouton.
+    const float buttonX = spots->barX + 17.0f;
+    const float buttonY = spots->barY + 6.0f;
+    const Run onBar = play(backend,
+                           std::format("{}5 mouse move {} {}\n7 button down left\n"
+                                       "8 button up left\n",
+                                       AltP, buttonX, buttonY),
+                           14, true, false);
+    int failures = expect(onBar.exitCode == 0 && onBar.seen.size() == 14,
+                          "la barre : une image relevée par image, code 0");
+    if (onBar.seen.size() != 14)
+    {
+        return failures;
+    }
+    const bool anyLeft = std::ranges::any_of(onBar.seen, [](const Seen& s) { return s.leftSeen; });
+    failures += expect(onBar.seen.at(6).steps > 0, "la barre : le jeu joue avant le clic") +
+                expect(!anyLeft, "la barre : le clic sur la barre en jeu n'atteint pas le jeu") +
+                expect(onBar.seen.at(13).steps == onBar.seen.at(12).steps &&
+                           onBar.seen.at(12).steps == onBar.seen.at(9).steps,
+                       "la barre : le bouton « Revenir à l'édition » arrête le jeu");
+    // (2) La Vue n'a plus le focus (un clic sur la hiérarchie, image 1) ; Alt+P à l'image 5, puis
+    // le clic de l'image 6 : le jeu le voit à l'image même, sans attendre que la Vue ait pris le
+    // focus.
+    const Run after = play(backend,
+                           std::format("0 mouse move 20 90\n1 button down left\n2 button up left\n"
+                                       "3 mouse move {0} {1}\n"
+                                       "5 key down Left Alt\n5 key down P\n6 key up P\n"
+                                       "6 key up Left Alt\n6 button down left\n7 button up left\n",
+                                       spots->sceneX, spots->sceneY),
+                           12, true, false);
+    failures += expect(after.seen.size() == 12, "Alt+P puis clic : une image relevée par image");
+    if (after.seen.size() == 12)
+    {
+        failures += expect(!after.seen.at(4).viewFocused,
+                           "Alt+P puis clic : la hiérarchie a pris le focus à la Vue") +
+                    expect(after.seen.at(6).route == levain::app::InputRoute::Game,
+                           "Alt+P puis clic : la route est jeu dès l'image qui suit Alt+P") +
+                    expect(after.seen.at(6).leftSeen,
+                           "le clic qui suit Alt+P atteint le jeu, sans image perdue");
+    }
+    // (3) En Édition : un clic dans la Vue lui donne le focus, un clic sur la marge de la barre le
+    // lui laisse.
+    const Run focus =
+        play(backend,
+             std::format("0 mouse move {0} {1}\n1 button down left\n2 button up left\n"
+                         "4 mouse move {2} {3}\n5 button down left\n"
+                         "6 button up left\n",
+                         spots->sceneX, spots->sceneY, spots->barX, spots->barY),
+             10, true, false);
+    failures += expect(focus.seen.size() == 10, "le focus : une image relevée par image");
+    if (focus.seen.size() == 10)
+    {
+        failures +=
+            expect(focus.seen.at(4).viewFocused, "le focus : un clic dans la Vue la focalise") +
+            expect(focus.seen.at(8).viewFocused && focus.seen.at(9).viewFocused,
+                   "le focus : un clic sur la barre laisse le focus à la Vue");
+    }
+    return failures;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -362,7 +466,7 @@ int main(int argc, char** argv)
             return 2;
         }
         const int failures = playModes(*backend) + playPanels(*backend) +
-                             playWholeWindow(*backend) + playButton(*backend);
+                             playWholeWindow(*backend) + playButton(*backend) + playBar(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)
