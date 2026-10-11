@@ -29,7 +29,15 @@ d'entité et d'asset. Il n'a pas encore :
   (app.cpp:106-107) ;
 - **d'annulation** : `commitEdit` écrit la copie par `setComponentValue` sans garder l'ancienne valeur
   (editor/src/inspector.cpp:543-552) ;
-- ni menu, ni console, ni raccourci que Alt+P et Échap (invariant 16).
+- ni menu, ni raccourci que Alt+P et Échap (invariant 16).
+
+**La console est écrite** (M7.7, morceau 14) : la fenêtre « Console » lit le journal du processus par un récepteur de
+`core::log` (`withEditor` le pose avant `runApp` : ce que la fenêtre et le device écrivent en s'ouvrant y est), dans un
+anneau de 2 000 messages ; niveaux, compteurs de tous les messages reçus, recherche, Effacer, Réduire. Elle s'ancre
+pour l'instant au nœud de la hiérarchie (le bas de l'écran est pour la disposition du morceau 15), dessinée *avant* elle :
+après, ImGui lui donnerait l'onglet visible du nœud à l'ouverture. Dans cette colonne étroite, la barre d'outils s'enroule
+(`fitsOnLine`) et le champ de recherche a sa propre ligne. De bout en bout : `gpu.editor-console.*`
+(`tests/editor_console_gpu.cpp`), qui lit ce que les fenêtres ont dessiné par `EditorOptions::afterUi`.
 
 **La logique de sa caméra est écrite** (M7.7, morceau 9, `camera.hpp`), sans entrée ni Vue pour la porter : les gestes
 (morceau 11) lui donneront des deltas, `App::cameraOverride` sa sortie.
@@ -140,6 +148,11 @@ M couverts par un test ».
   `playShortcutPressed`, `sceneHasFocus` (`mode.hpp`) : les modes, en fonctions libres. À la fin, `withEditor` écrit aussi `editor.mode mode=edit steps=0 -- mode : Édition ; pas : 0`,
   sous son nom stable (ADR-0036, décision 14), que la CI lit : l'éditeur lancé sans script est en Édition à zéro pas
   (`App::stepsPlayed`, tous les pas de la boucle).
+- `drawConsole(console, ring, dock)` : la fenêtre « Console ». Son modèle est en fonctions libres sur une copie de
+  l'anneau de `core` (`core/log_ring.hpp`), sans ImGui : `listConsoleRows` (niveaux, recherche, Réduire),
+  `isShown`, `containsIgnoringAsciiCase`, `shouldFollowTail` (le défilement automatique, sauf remonté),
+  `filterLabels` (les trois cases et leurs comptes), `fitsOnLine` (la barre d'outils qui s'enroule), `lineOf` et `singleLine`. Un message sur plusieurs lignes tient
+  sur une seule (la liste suppose une hauteur fixe) ; la sélection d'une ligne par un clic n'est pas écrite.
 - `takeEditorOptions(arguments, options)` : retire `--select chemin` de la ligne de commande avant que le programme
   ne lise ses options, qu'il refuserait sinon.
 - `selectedIfAlive(world, selected)` : l'entité choisie si elle vit encore.
@@ -252,6 +265,8 @@ M couverts par un test ».
 | **Unreal** | Les modules `Editor` d'un plugin, et l'Unreal Editor | Un module Editor « will only be loaded when the editor is starting up » (**documenté**, ADR-0034 [12]) ; l'éditeur est un exécutable à part du jeu livré (**supposé**, d'après la structure des cibles `*Editor.Target.cs`). |
 | **Unity** | Les scripts du dossier `Editor` | Ils « aren't available in Player builds at runtime » (**documenté**, ADR-0034 [13]) : rien de l'éditeur dans le jeu livré, comme ici. |
 | **Godot** | L'éditeur, un programme du moteur | Il tourne sur le moteur et son UI (**documenté**, ADR-0032) ; le jeu s'exporte avec des modèles d'export compilés sans l'éditeur (**supposé**). |
+| **Unreal**, la console | L'Output Log | Les messages du journal par catégorie, les erreurs en rouge (**documenté**, *Logging in Unreal Engine*) ; ses filtres de catégorie et de verbosité sont **supposés** : ici, trois niveaux et une recherche qui lit aussi la catégorie. |
+| **Unity**, la console | La fenêtre Console | Des filtres par type avec leurs compteurs, une recherche et *Collapse* (**documenté**, manuel, *Console Window*) : Réduire ici fusionne les messages identiques *qui se suivent*, là où Unity fusionne tous les identiques (**supposé** : non relu dans le manuel). |
 | **Unreal**, la hiérarchie | L'Outliner (*World Outliner* jusqu'à UE4) | « Hierarchical tree view of all Actors within the current Level. Used for selection, attachment, and more » (**documenté**, *Outliner in Unreal Engine*). Un acteur sans position y figure aussi ; ici, seules les entités placées, les autres en M7.3. |
 | **Unity**, la hiérarchie | La fenêtre Hierarchy | Pour « arrange the GameObjects in your scenes, group them into parent-child hierarchies » (**documenté**, manuel, *Hierarchy window*). |
 | **Godot**, la hiérarchie | Le dock Scène | Il « lists the active scene's nodes » (**documenté**, *First look at the editor*) ; un nœud est un objet, pas une entité d'ECS : pas de singletons à part. |

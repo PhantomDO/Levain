@@ -18,7 +18,6 @@
 #include "levain/assets/registry.hpp"
 #include "levain/core/i18n.hpp"
 #include "levain/core/log_ring.hpp"
-#include "levain/editor/console.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
