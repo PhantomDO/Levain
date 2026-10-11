@@ -30,8 +30,6 @@ namespace levain::editor
 namespace
 {
 
-constexpr const char* InspectorWindow = "Inspecteur";
-
 /// Ce qu'un pixel de glissé ajoute à un nombre ; Ctrl+clic pour le taper.
 constexpr float DragSpeed = 0.01f;
 
@@ -579,13 +577,17 @@ int inspectComponent(flecs::world& world, Inspector& inspector, flecs::entity en
 }
 
 void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t selected,
-                   ImGuiID dock)
+                   ImGuiID dock, bool* open)
 {
     LEVAIN_ASSERT(world.is_deferred(), "drawInspector : le monde doit être différé (defer_begin)");
     inspector.fieldsDrawn = 0;
     inspector.wrote = false;
+    if (open != nullptr && !*open)
+    {
+        return;
+    }
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(ui::labelOf(InspectorWindow).c_str()))
+    if (ImGui::Begin(ui::labelOf(InspectorWindow).c_str(), open))
     {
         const flecs::entity entity = selectedIfAlive(world, selected);
         if (!entity)

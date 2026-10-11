@@ -4,6 +4,7 @@
 // exécutables éditeur lient (`levain_sandbox_editor`, plus tard `rando_editor`). Le jeu livré et
 // la page web n'en embarquent rien.
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -22,6 +23,7 @@
 #include "levain/editor/inspector.hpp"
 #include "levain/editor/mode.hpp"
 #include "levain/editor/view.hpp"
+#include "levain/editor/window_menu.hpp"
 
 namespace levain::editor
 {
@@ -40,11 +42,31 @@ struct EditorOptions
     std::function<void(const Editor&)> afterUi;
 };
 
+/// Le nombre de fenêtres du menu : le tableau du menu (`MaxWindowEntries`) doit les contenir
+/// toutes.
+inline constexpr std::size_t EditorWindowCount = 7;
+static_assert(EditorWindowCount <= MaxWindowEntries,
+              "le menu « Fenêtre » ne peut pas lister toutes les fenêtres");
+
+/// Les fenêtres du menu « Fenêtre », dans l'ordre où il les liste, chacune avec son drapeau
+/// d'ouverture : les trois de l'éditeur, la Vue, puis les trois du moteur (`App::ui.windows`).
+[[nodiscard]] std::array<WindowEntry, EditorWindowCount> windowEntriesOf(Editor& editor,
+                                                                         app::App& app);
+
 /// Retire de la ligne de commande les options de l'éditeur, que le programme refuserait, avant
 /// qu'il ne lise les siennes. Les options vont par paires, nom et valeur, comme celles d'`app` ;
 /// le reste garde son ordre, et un `--select` sans valeur y reste : le programme le refuse.
 [[nodiscard]] std::vector<char*> takeEditorOptions(std::span<char* const> arguments,
                                                    EditorOptions& options);
+
+/// Les fenêtres de l'éditeur ouvertes ou fermées, que leur croix et le menu « Fenêtre » partagent
+/// (celles du moteur sont dans `App::ui.windows`, la Vue dans `View::open`).
+struct EditorWindows
+{
+    bool hierarchy = true;
+    bool inspector = true;
+    bool console = true;
+};
 
 /// Ce que l'éditeur garde d'une image à l'autre.
 struct Editor
@@ -60,8 +82,11 @@ struct Editor
     /// le device y ont écrit), partagé avec la fonction de démarrage qui le garde en vie.
     std::shared_ptr<core::LogCapture> log;
     Console console;
+    EditorWindows windows;
     /// La Vue (ADR-0036, décision 7) : la scène dans une fenêtre, son rectangle et sa taille.
     View view;
+    /// Où le menu « Fenêtre » a été dessiné à la dernière image.
+    WindowMenuLayout menu;
 };
 
 /// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web

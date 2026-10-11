@@ -453,7 +453,7 @@ add_test(NAME gpu.editor-console.vulkan COMMAND levain_editor_console vulkan)
 set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
 # La Vue de l'éditeur (ADR-0036, morceau 8) : chaque fenêtre sur son nœud et l'inspecteur visible, la taille demandée
-# égale à celle du contenu, 0 x 0 pour la Vue cachée derrière un onglet ou repliée.
+# égale à celle du contenu, le menu « Fenêtre » qui ferme la Vue (0 x 0, aucune scène) puis la rouvre.
 add_executable(levain_editor_view editor_view_gpu.cpp)
 target_link_libraries(levain_editor_view PRIVATE levain::editor levain::app levain::core levain::platform levain::scene levain::ui)
 target_compile_definitions(levain_editor_view PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")

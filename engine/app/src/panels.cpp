@@ -88,9 +88,13 @@ void plotHistory(const char* french, const std::array<float, HistoryLength>& val
                      ImVec2(0.0f, 60.0f * ImGui::GetStyle().FontScaleDpi));
 }
 
-void drawImageWindow(const App& app)
+void drawImageWindow(const App& app, bool& open, bool closable)
 {
-    if (ImGui::Begin(ui::labelOf(ImageWindow).c_str()))
+    if (!open)
+    {
+        return;
+    }
+    if (ImGui::Begin(ui::labelOf(ImageWindow).c_str(), closable ? &open : nullptr))
     {
         const ImGuiIO& io = ImGui::GetIO();
         ui::textf("{:.0f} images/s, {:.2f} ms", io.Framerate,
@@ -113,9 +117,13 @@ void drawImageWindow(const App& app)
     ImGui::End();
 }
 
-void drawPassesWindow(const App& app)
+void drawPassesWindow(const App& app, bool& open, bool closable)
 {
-    if (ImGui::Begin(ui::labelOf(PassesWindow).c_str()))
+    if (!open)
+    {
+        return;
+    }
+    if (ImGui::Begin(ui::labelOf(PassesWindow).c_str(), closable ? &open : nullptr))
     {
         if (ImGui::BeginTable("passes", 2, ImGuiTableFlags_RowBg))
         {
@@ -151,9 +159,13 @@ void drawPassesWindow(const App& app)
     ImGui::End();
 }
 
-void drawSceneWindow(App& app)
+void drawSceneWindow(App& app, bool& open, bool closable)
 {
-    if (ImGui::Begin(ui::labelOf(SceneWindow).c_str()))
+    if (!open)
+    {
+        return;
+    }
+    if (ImGui::Begin(ui::labelOf(SceneWindow).c_str(), closable ? &open : nullptr))
     {
         const auto perFrame = [&app](std::uint64_t count)
         { return static_cast<double>(count) / std::max(app.frameCount, 1); };
@@ -184,9 +196,11 @@ void drawEnginePanels(App& app)
     ImGui::DockSpaceOverViewport(dockspace, viewport, dockspaceFlagsFor(app.sceneView.output));
     app.sceneRect = sceneRectOf(ImGui::DockBuilderGetCentralNode(dockspace), app.sceneRect,
                                 app.sceneView.output == SceneOutput::Window);
-    drawImageWindow(app);
-    drawPassesWindow(app);
-    drawSceneWindow(app);
+    // La croix seulement si le menu « Fenêtre » de l'éditeur peut rouvrir la fenêtre.
+    const bool closable = app.ui.editorLayout;
+    drawImageWindow(app, app.ui.windows.image, closable);
+    drawPassesWindow(app, app.ui.windows.passes, closable);
+    drawSceneWindow(app, app.ui.windows.scene, closable);
 }
 
 } // namespace levain::app

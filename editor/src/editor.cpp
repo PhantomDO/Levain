@@ -52,6 +52,17 @@ void changeMode(app::App& app, Editor& editor, Mode mode)
 
 } // namespace
 
+std::array<WindowEntry, EditorWindowCount> windowEntriesOf(Editor& editor, app::App& app)
+{
+    return {{{HierarchyWindow, &editor.windows.hierarchy},
+             {InspectorWindow, &editor.windows.inspector},
+             {ConsoleWindow, &editor.windows.console},
+             {ViewWindow, &editor.view.open},
+             {"Image", &app.ui.windows.image},
+             {"Passes", &app.ui.windows.passes},
+             {"Scène", &app.ui.windows.scene}}};
+}
+
 std::vector<char*> takeEditorOptions(std::span<char* const> arguments, EditorOptions& options)
 {
     std::vector<char*> rest;
@@ -115,7 +126,9 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                                             .mode = {},
                                             .log = capture,
                                             .console = {},
-                                            .view = {}});
+                                            .windows = {},
+                                            .view = {},
+                                            .menu = {}});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -152,16 +165,20 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             std::optional<Mode> requested;
             if (app.ui.panelsOpen)
             {
+                // Le menu d'abord : la barre retire sa hauteur à l'espace d'ancrage.
+                drawWindowMenu(windowEntriesOf(*editor, app), editor->menu);
                 // Avant la hiérarchie : dessinée après elle, la console prendrait l'onglet visible
                 // de son nœud (ImGui montre le dernier venu, `DockNodeUpdateTabBar` dans
                 // imgui.cpp) ; elle ne partage plus de nœud avec elle, mais garde l'ordre. Elle
                 // n'écrit pas dans le monde : hors du `defer`.
-                drawConsole(editor->console, *editor->log->ring, app.ui.dock.bottom);
+                drawConsole(editor->console, *editor->log->ring, app.ui.dock.bottom,
+                            &editor->windows.console);
                 // Les écritures de l'inspecteur et leurs observateurs passent après le parcours.
                 app.world.defer_begin();
-                drawHierarchy(app.world, editor->hierarchy, editor->selected, app.ui.dock.left);
-                drawInspector(app.world, editor->inspector, editor->selected,
-                              app.ui.dock.inspector);
+                drawHierarchy(app.world, editor->hierarchy, editor->selected, app.ui.dock.left,
+                              &editor->windows.hierarchy);
+                drawInspector(app.world, editor->inspector, editor->selected, app.ui.dock.inspector,
+                              &editor->windows.inspector);
                 app.world.defer_end();
                 if (editor->inspector.wrote)
                 {

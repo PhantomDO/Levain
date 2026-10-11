@@ -57,6 +57,14 @@ struct DockNodes
     ImGuiID bottom = 0;
 };
 
+/// Les fenêtres du moteur ouvertes ou fermées (le menu « Fenêtre » de l'éditeur les rouvre).
+struct EngineWindows
+{
+    bool image = true;
+    bool passes = true;
+    bool scene = true;
+};
+
 /// L'UI d'un programme. Elle tient des ressources du GPU : `App` la déclare avant ses points
 /// d'accroche, et la détruit avant le device (ADR-0029).
 struct UiLayer
@@ -68,9 +76,11 @@ struct UiLayer
     /// Les panneaux de debug du moteur, ouverts par F1 ou `--ui on`.
     bool panelsOpen = false;
     DockNodes dock{};
+    EngineWindows windows{};
     /// **Un éditeur enveloppe ce programme** (`withEditor`) : la disposition à colonnes
-    /// (hiérarchie, Vue, inspecteur, onglets du bas). Faux (le sandbox, *Rando*) : la disposition
-    /// d'avant.
+    /// (hiérarchie, Vue, inspecteur, onglets du bas) et les fenêtres du moteur à croix, que son
+    /// menu « Fenêtre » rouvre. Faux (le sandbox, *Rando*) : la disposition d'avant, et des
+    /// fenêtres sans croix, car rien ne les rouvrirait (F1 ferme tous les panneaux d'un coup).
     bool editorLayout = false;
     bool textInputActive = false;
     /// Les touches d'ImGui envoyées à l'appui, à relâcher à l'identique (`feedInput`).
