@@ -13,6 +13,9 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include "levain/platform/input.hpp"
@@ -117,5 +120,25 @@ struct ShortcutTable
             .key = static_cast<std::uint32_t>(letter),
             .modifiers = modifiers};
 }
+
+/// **Le nom stable d'un accord**, celui qu'écrira le fichier des préférences (morceaux 15 et 16) :
+/// les modificateurs dans l'ordre « Ctrl+Shift+Alt+Super+ », puis `pos:<scancode>` pour une
+/// position (le numéro d'USB) ou la lettre en majuscule pour une lettre. Jamais un nom de SDL ou
+/// d'ImGui, qui changent d'une version à l'autre (SDL_keyboard.h:275-282 ; imgui.h:1102). Le texte
+/// vide pour « pas d'accord » (`Chord{}`) : la seconde place d'une action qui n'en a qu'un.
+[[nodiscard]] std::string tokenOf(const Chord& chord);
+
+/// Le contraire de `tokenOf`. Rien si le texte n'est pas un nom d'accord (un fichier mal écrit
+/// échoue au chargement, règle n°7), ni s'il en est un que le moteur se réserve : une position de
+/// modificateur seul (224 à 231, Ctrl ou Maj ne se lie pas), F1 sans modificateur (les panneaux,
+/// `togglesPanels`). **Un seul nom par accord** : « pos:026 » ou des modificateurs dans le
+/// désordre sont refusés, pour qu'un fichier relu et réécrit ne change pas.
+[[nodiscard]] std::optional<Chord> chordFromToken(std::string_view token);
+
+/// **Le nom qu'on affiche**, selon la disposition d'aujourd'hui : un accord de position montre la
+/// touche que `keyAtPosition` met à cette place (« Z » pour le W d'un QWERTY, sur un AZERTY).
+/// Les clés « Espace » et « Échap » sont celles du catalogue.
+[[nodiscard]] std::string displayNameOf(const Chord& chord,
+                                        const platform::KeyAtPosition& keyAtPosition);
 
 } // namespace levain::editor
