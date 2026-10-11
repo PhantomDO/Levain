@@ -1,0 +1,8 @@
+# Le même clic en jeu, mais sur la hiérarchie (x = 100, hors de la Vue) : le jeu ne le reçoit pas, rien n'est visé.
+2 key down Left Alt
+2 key down P
+3 key up P
+3 key up Left Alt
+19 mouse move 100 400
+20 button down left
+21 button up left

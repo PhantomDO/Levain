@@ -37,7 +37,7 @@ struct View
     /// *UI*, le clic sur le bouton n'atteint pas le jeu.
     bool barHovered = false;
     /// La taille demandée à la dernière image : celle du contenu de la fenêtre si elle est montrée,
-    /// 0 × 0 sinon.
+    /// 0 × 0 sinon. C'est elle que la CI imprime (`editor.view`).
     app::SceneSize requested{};
     app::ScreenRect image{}; ///< Où la dernière image a mis la scène.
     bool barDrawn = false;   ///< La barre de mode en calque a été dessinée à la dernière image.

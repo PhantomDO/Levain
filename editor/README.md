@@ -19,12 +19,9 @@ d'entité et d'asset. Il n'a pas encore :
 - **de caméra d'éditeur** (morceau 9) : en Édition (M7.7, morceau 5), la simulation est à l'arrêt, le `frame` du
   programme n'est jamais appelé et le jeu ne reçoit rien (invariant 16) ; la caméra du jeu reste donc une vue fixe,
   aucun système ne la déplace, et ZQSD ne fait plus rien ;
-- **de Vue** : **la scène dans une texture est écrite** (M7.7, morceau 7, `App::requestScene`, engine/app/README.md,
-  invariant 15), sans la fenêtre qui la montre (morceau 8) : l'éditeur ne la demande pas encore, la scène couvre donc la
-  fenêtre, vue par le centre du docking (engine/app/src/panels.cpp:148), et sa projection est celle de la fenêtre
-  entière (engine/render/src/renderer.cpp:139) ; la caméra est celle du jeu, une
-  entité que déplace un système du pas fixe (sandbox/src/main.cpp:641-647 ; engine/scene/src/scene.cpp:111-117), et
-  panneaux ouverts, la souris n'est jamais capturée (engine/app/include/levain/app/ui_layer.hpp:93-96) ;
+- **de caméra qui se pilote dans la Vue** (morceaux 9 et 11) : la **Vue existe** (M7.7, morceau 8, `view.hpp`, invariant 19),
+  la scène y est rendue à la taille de son contenu, mais la caméra est celle du jeu, une entité que déplace un
+  système du pas fixe (sandbox/src/main.cpp:641-647 ; engine/scene/src/scene.cpp:111-117) ;
 - **d'écriture vue dans son image** : les panneaux passent après les pas et le choix de la caméra (app.cpp:875-891) ;
   une valeur tapée dans l'inspecteur se voit à l'image suivante ;
 - **d'enregistrement** : rien n'écrit la scène, et fermer la fenêtre arrête la boucle sans rien demander
@@ -137,15 +134,22 @@ M couverts par un test ».
     changement de mode remet `mouseCaptureWanted` à faux** (`enterMode`) : le `frame` du programme, qui le repose,
     ne tourne plus en Édition, et un clic droit tenu qui capturait la souris la gardait ; le jeu repart aussi d'un
     `InputState` neuf, sans appuis en attente pour le premier pas. La route de l'image suivante se pose à la fin de
-    `ui` : *éditeur* en Édition, en jeu *jeu* si aucune fenêtre d'ImGui n'a le focus (`sceneHasFocus`), sinon *UI*.
-    **La Vue n'existe pas** (morceaux 7 et 8) : tant qu'elle manque, « dans la Vue » est le trou du nœud central de
-    la disposition, ou la fenêtre entière panneaux fermés (`App::sceneRect`) ; une fenêtre ancrée dans le centre n'y
-    laisse pas de trou. Un clic dans le trou retire le focus à la fin de son image (`ImGui::Render`, après `ui`) :
-    `ui` de l'image suivante le voit et pose la route *jeu*, qui vaut **deux images après le clic**, non une.
-    **La barre de mode** s'accroche au coin haut gauche de la scène (`App::sceneRect`), dans le trou, et non sur
-    les onglets des colonnes. Elle est dessinée toujours : panneaux ouverts avec son bouton, fermés sans lui, en
-    bandeau que rien ne vise ni ne focalise (`NoInputs`), pour que le bandeau de « Jouer (sans retour) » se voie
-    aussi sans panneaux et que la route *jeu* reste. Celle du morceau 12 la remplacera.
+    `ui` : *éditeur* en Édition, en jeu *jeu* si la scène a le focus (`sceneFocusedIn`), sinon *UI*.
+    **La Vue** (morceau 8) donne le rectangle de la scène : panneaux ouverts, `App::sceneRect` est le rectangle de son
+    image (le contenu de la fenêtre) ; panneaux fermés, la fenêtre entière. Elle a le focus quand on clique dedans, ou
+    quand Play le lui donne (`View::focusRequested`) : la route *jeu* veut **la Vue focalisée** panneaux ouverts
+    (`sceneFocusedIn`), aucune fenêtre focalisée panneaux fermés. **Le clic qui donne le focus à la Vue n'atteint pas
+    le jeu** (la route est encore *UI* à cette image : ImGui le prend pour focaliser), mais celui qui suit Alt+P
+    l'atteint (`viewHasFocus` compte la demande de focus de Play, la route est *jeu* dès l'image suivante). **La barre de mode ne passe pas au jeu** : tant que la
+    souris la survole (`View::barHovered`), la route de l'image suivante est *UI*, et la cliquer laisse le focus à
+    la Vue (`IsWindowFocused(ChildWindows)`). Piège connu, du même ordre : le survol ne se sait qu'en fin d'image,
+    donc un clic dans l'image même où la souris arrive sur la barre atteint encore le jeu ; le morceau 12, qui
+    remplace la barre par une vraie barre d'outils, le règle. Une Vue fermée ou cachée n'a pas de rectangle
+    (vide, à l'origine du nœud) : la souris n'est pas au jeu. **La barre de mode** est un enfant de la Vue, dans le coin
+    haut gauche de l'image, pas une fenêtre flottante, qui passerait derrière la Vue dès qu'elle prend le focus
+    (`drawModeBarOverlay`). Panneaux fermés, il n'y a pas de Vue, et la barre est le bandeau d'avant, sans bouton
+    (`NoInputs`), pour que le bandeau de « Jouer (sans retour) » se voie aussi sans panneaux et que la route *jeu*
+    reste. Celle du morceau 12 la remplacera.
 17. **Une valeur tapée dans l'inspecteur se voit dans l'image même** : `commitEdit` qui écrit lève
     `Inspector::wrote` (remis à faux à chaque `drawInspector`), et `withEditor` pose alors
     `App::recomposeAfterUi` (ADR-0036, décision 2). Le scénario de bout en bout attend le texte scripté (morceau 12).
@@ -155,6 +159,27 @@ M couverts par un test ».
     message est celui de l'éditeur, pas celui d'un adaptateur absent. La page web n'a pas d'éditeur, et la Vue de
     l'éditeur natif n'a pas été éprouvée sur Dawn. Le programme sort en 1 (`editor.refuses-webgpu`, qui lance
     l'exécutable et lit le message, sans « device créé »).
+
+19. **La Vue** (ADR-0036, décisions 7 et 10 ; `view.hpp`) : une fenêtre sans marge, ancrée au nœud central, qui demande
+    à chaque image la taille de son contenu (`sceneSizeOfContent`, l'entier en dessous, vide sous un pixel) par
+    `App::requestScene`, puis montre la texture par `ImGui::Image` sur tout son contenu. **Chaque image où elle n'est pas
+    montrée, elle demande 0 × 0** (fermée par le menu, repliée, derrière un onglet : `ImGui::Begin` faux) : « rien
+    demandé » est la scène dans la fenêtre, que la Vue ne doit jamais provoquer. `App::sceneRect` est le rectangle de
+    son image, que la route de l'input et le picking du sandbox lisent (`scenePixelAt`, avec `App::cursor`, la position
+    des événements et non celle de SDL). **La disposition** : la hiérarchie à gauche, la Vue au centre, l'inspecteur à
+    droite **seul sur son nœud** (donc toujours visible, la CI le compte), la console, Image, Passes et Scène en onglets
+    en bas (`DockNodes::left, center, inspector, bottom`). **Le menu « Fenêtre »** (`window_menu.hpp`), dans une barre
+    de menus qui n'a que lui (les autres sont du morceau 12), ferme et rouvre chaque fenêtre par son drapeau
+    (`windowEntriesOf`) ; les fenêtres sont fermées aussi par leur croix. La disposition n'est pas gardée (morceau 15) :
+    une fenêtre fermée puis rouverte retrouve son nœud, ImGui gardant le `DockId` de la fenêtre fermée
+    (`SetNextWindowDockID` en `FirstUseEver` ne sert qu'à la première ouverture). Le sandbox et *Rando* gardent leur
+    disposition et leurs fenêtres sans croix (`UiLayer::editorLayout`, posé par `withEditor`) : rien n'y rouvrirait
+    une fenêtre fermée. La ligne de la CI
+    `editor.view width=W height=H -- vue : W×H` donne la taille demandée à la dernière image (`ci-programs.sh editor` la
+    veut non nulle). Pas encore : l'onglet caché et la Vue repliée sont testés en posant l'ancrage et le repli par le
+    code (`playHidden`), non à la souris ; glisser ou désancrer la Vue n'est pas testé ; la barre de menus n'existe que
+    panneaux ouverts ; **`StableFramesBeforeResize` n'est pas mesuré sur un vrai glissé de séparateur à 144 Hz** (cette
+    machine n'a pas d'écran à 144 Hz), à faire quand un écran rapide est sous la main.
 
 ## Points d'entrée
 
@@ -172,7 +197,10 @@ M couverts par un test ».
 - `Action`, `Context`, `Chord`, `Binding`, `ShortcutTable`, `defaultShortcuts`, `bindingOf`, `nameOf`, `actionFor`,
   `chordMatches`, `positionHeld`, `displayNameOf`, `tokenOf`, `chordFromToken`, `imguiChordOf` (`shortcuts.hpp`) : la
   table des raccourcis, en fonctions libres dont la disposition du clavier est un paramètre.
-- `drawConsole(console, ring, dock)` : la fenêtre « Console ». Son modèle est en fonctions libres sur une copie de
+- `drawView(view, app, mode)`, `View`, `sceneSizeOfContent`, `sceneFocusedIn` (`view.hpp`) ; `drawWindowMenu(entries,
+  layout)`, `WindowEntry` (`window_menu.hpp`) ; `windowEntriesOf(editor, app)` (`editor.hpp`) : la Vue, son menu. À la
+  fin, `withEditor` écrit aussi `editor.view width=W height=H -- vue : W×H`, sous son nom stable.
+- `drawConsole(console, ring, dock, open)` : la fenêtre « Console ». Son modèle est en fonctions libres sur une copie de
   l'anneau de `core` (`core/log_ring.hpp`), sans ImGui : `listConsoleRows` (niveaux, recherche, Réduire),
   `isShown`, `containsIgnoringAsciiCase`, `shouldFollowTail` (le défilement automatique, sauf remonté),
   `filterLabels` (les trois cases et leurs comptes), `fitsOnLine` (la barre d'outils qui s'enroule), `lineOf` et `singleLine`. Un message sur plusieurs lignes tient
@@ -180,9 +208,9 @@ M couverts par un test ».
 - `takeEditorOptions(arguments, options)` : retire `--select chemin` de la ligne de commande avant que le programme
   ne lise ses options, qu'il refuserait sinon.
 - `selectedIfAlive(world, selected)` : l'entité choisie si elle vit encore.
-- `drawHierarchy(world, hierarchy, selected, dock)` : la fenêtre ; `listHierarchyRows` et `singletonsOf`, ses
+- `drawHierarchy(world, hierarchy, selected, dock, open)` : la fenêtre (`open` : le drapeau de sa croix et du menu) ; `listHierarchyRows` et `singletonsOf`, ses
   lignes, sans ImGui.
-- `drawInspector(world, inspector, selected, dock)` : la fenêtre, dans son nœud ;
+- `drawInspector(world, inspector, selected, dock, open)` : la fenêtre, dans son nœud ;
   `inspectComponent`, les champs d'un composant, rend leur nombre ; `componentLabelOf`, le nom d'un composant ;
   `commitEdit`, l'écriture d'une copie éditée ; `enumNameOf`, la constante qu'une valeur désigne.
 - `createInspector(world, registry)` : les types des dessinateurs, lus une fois ; le registre d'assets de
