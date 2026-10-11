@@ -38,6 +38,7 @@ set(nativeTests
     console_test.cpp
     culling_test.cpp
     editor_camera_test.cpp
+    editor_shortcuts_test.cpp
     editor_test.cpp
     environment_test.cpp
     grass_test.cpp

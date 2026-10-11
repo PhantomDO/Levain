@@ -80,7 +80,7 @@ qu'un tableau à lire.
 | 35 | Fermer : l'éditeur demande avant de quitter | supposé | supposé | une modale, jamais sous un lancement scripté | M7.7 | 13 | `gestes.fermer-demande` | à faire |
 | 36 | Mettre en pause, avancer d'une image | Pause, Frame Skip : documenté [E5] | Ctrl+Maj+P, Ctrl+Alt+P : documenté [U6] | barre d'outils ; touches à décider | M7.5 | à venir | `gestes.pause-image` | à faire |
 | 37 | Simuler : la scène vit, sans jouer | Alt+S : documenté [E5] | aucun : supposé | Alt+S, si le sondage de M7.5 le garde (sinon reporté) | M7.5 | à venir | `gestes.simuler` | à faire |
-| 38 | Rendre la souris en jeu | Maj+F1 : documenté [E5] | Échap : supposé | Maj+F1 | M7.5 | à venir | `gestes.rendre-souris` | à faire |
+| 38 | Rendre la souris en jeu | Maj+F1 : documenté [E5] | Échap : supposé | Maj+F1 (F1 seule ouvre les panneaux, Maj+F1 non) | M7.5 | à venir (la table et la touche : M7.7, 10) | `gestes.rendre-souris` | à faire |
 | 39 | Passer du repère local au repère monde | dans la barre d'outils : documenté [E2] ; raccourci : supposé | X : documenté [U6] | barre d'outils ; touche à décider | M7.4 | à venir | `gestes.local-monde` | à faire |
 | 40 | Accrocher à la grille | X bascule, X tenu active : documenté [E2] | Ctrl tenu en glissant : documenté [U4] | à décider | M7.4 | à venir | `gestes.accrochage` | à faire |
 | 41 | Passer à l'outil suivant | Espace : documenté [E1] | aucun : supposé | pos. Espace | M7.4 | à venir (la touche : M7.7, 10) | `gestes.outil-suivant` | à faire |
