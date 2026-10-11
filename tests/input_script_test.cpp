@@ -121,6 +121,14 @@ TEST_CASE("un script refuse ce qu'il ne saurait pas rejouer, en nommant la ligne
     refused("0 mouse move 3 4x\n", "ligne 1", "position");
     refused("0 mouse move nan 4\n", "ligne 1", "position"); // from_chars lit « nan » et « inf »
     refused("0 mouse move 3 inf\n", "ligne 1", "position");
+    refused("0 mouse motion 3\n", "ligne 1", "champs");
+    refused("0 mouse motion 3 4x\n", "ligne 1", "déplacement");
+    refused("0 mouse motion nan 4\n", "ligne 1", "déplacement");
+    refused("0 mouse motion 3 inf\n", "ligne 1", "déplacement");
+    refused("0 wheel\n", "ligne 1", "champs");
+    refused("0 wheel 1 2\n", "ligne 1", "champs");
+    refused("0 wheel up\n", "ligne 1", "crans");
+    refused("0 wheel inf\n", "ligne 1", "crans");
     refused("2147483647 key down W\n", "ligne 1",
             "image"); // « dernière image plus une » déborderait
     refused("1000001 key down W\n", "ligne 1", "image");
@@ -134,6 +142,29 @@ TEST_CASE("la position de la souris n'est que pour l'interface : le jeu lit un d
     CHECK(events.ui[0].type == levain::platform::UiEventType::MouseMoved);
     CHECK(events.ui[0].x == 120.5f);
     CHECK(events.ui[0].y == -4.0f);
+}
+
+TEST_CASE("le mouvement relatif est pour le jeu et le vol, sans le curseur, et la molette pour "
+          "l'interface")
+{
+    const Events motion = eventsAt(parsed("3 mouse motion 12 -7.5\n"), 3);
+    REQUIRE(motion.input.size() == 2);
+    CHECK(motion.ui.empty()); // le curseur d'ImGui ne bouge pas : `mouse move` est à part
+    for (std::uint16_t axis = 0; axis < 2; ++axis)
+    {
+        CHECK(motion.input[axis].type == levain::platform::InputEventType::AxisMotion);
+        CHECK(motion.input[axis].device == levain::platform::InputDevice::Mouse);
+        CHECK(motion.input[axis].code == axis);
+    }
+    CHECK(motion.input[0].value == 12.0f);
+    CHECK(motion.input[1].value == -7.5f);
+
+    const Events wheel = eventsAt(parsed("4 wheel -2\n"), 4);
+    CHECK(wheel.input.empty()); // le jeu ne lit pas la molette
+    REQUIRE(wheel.ui.size() == 1);
+    CHECK(wheel.ui[0].type == levain::platform::UiEventType::MouseWheel);
+    CHECK(wheel.ui[0].x == 0.0f);
+    CHECK(wheel.ui[0].y == -2.0f);
 }
 
 TEST_CASE("un script sans aucun événement est refusé : il ne rejouerait rien")

@@ -56,16 +56,19 @@ std::optional<std::uint16_t> codeOf(int value, int invalid)
 
 /// Les deux axes de la souris, envoyés ensemble : un mouvement en diagonale donne deux
 /// déplacements, et `engine/input` les accumule séparément.
-void appendMouseMotion(std::vector<InputEvent>& events, const SDL_MouseMotionEvent& motion)
+void appendMouseMotion(std::vector<InputEvent>& events, const SDL_MouseMotionEvent& motion,
+                       float density)
 {
+    // En pixels de l'image comme la position : sans la densité, le pan de l'éditeur ne suivrait
+    // pas le curseur d'un écran HiDPI (SDL compte xrel en coordonnées de fenêtre).
     events.push_back({.type = InputEventType::AxisMotion,
                       .device = InputDevice::Mouse,
                       .code = 0,
-                      .value = motion.xrel});
+                      .value = motion.xrel * density});
     events.push_back({.type = InputEventType::AxisMotion,
                       .device = InputDevice::Mouse,
                       .code = 1,
-                      .value = motion.yrel});
+                      .value = motion.yrel * density});
 }
 
 /// La densité de pixels de la fenêtre `windowId` : 1 si SDL ne la connaît pas.
@@ -144,6 +147,13 @@ CursorPosition cursorPosition(const Window& window)
         position.y *= density;
     }
     return position;
+}
+
+void warpMouse(const Window& window, CursorPosition position)
+{
+    const float density = SDL_GetWindowPixelDensity(window.handle.get());
+    const float scale = density > 0.0f ? density : 1.0f;
+    SDL_WarpMouseInWindow(window.handle.get(), position.x / scale, position.y / scale);
 }
 
 void setMouseCaptured(const Window& window, bool captured)
@@ -300,7 +310,7 @@ void appendInputEvent(std::vector<InputEvent>& events, const SDL_Event& event)
         break;
 
     case SDL_EVENT_MOUSE_MOTION:
-        appendMouseMotion(events, event.motion);
+        appendMouseMotion(events, event.motion, pixelDensityOf(event.motion.windowID));
         break;
 
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:

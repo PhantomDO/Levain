@@ -212,10 +212,6 @@ std::optional<float> coordinateOf(std::string_view text)
 /// position n'est pas un `InputEvent` : le jeu lit un déplacement, pas un lieu), comme chez SDL.
 core::Result<void> addMouseMove(Events& events, int line, const Words& words)
 {
-    if (words.size() != 5 || words[2] != "move")
-    {
-        return refusal(line, "champs", "mouse move <x> <y> est attendu");
-    }
     const auto x = coordinateOf(words[3]);
     const auto y = coordinateOf(words[4]);
     if (!x || !y)
@@ -224,6 +220,57 @@ core::Result<void> addMouseMove(Events& events, int line, const Words& words)
                        std::format("« {} {} » : deux nombres finis", words[3], words[4]));
     }
     events.ui.push_back({.type = UiEventType::MouseMoved, .x = *x, .y = *y});
+    return {};
+}
+
+/// `mouse motion <dx> <dy>` : le déplacement relatif, ce que lisent le jeu et le vol de l'éditeur
+/// (`InputEvent`, deux axes comme `appendMouseMotion`). **Il ne bouge pas le curseur d'ImGui** : à
+/// la souris capturée, SDL non plus n'envoie plus de position, seulement le déplacement ; un test
+/// qui veut aussi le curseur écrit un `mouse move`.
+core::Result<void> addMouseMotion(Events& events, int line, const Words& words)
+{
+    const auto dx = coordinateOf(words[3]);
+    const auto dy = coordinateOf(words[4]);
+    if (!dx || !dy)
+    {
+        return refusal(line, "déplacement",
+                       std::format("« {} {} » : deux nombres finis", words[3], words[4]));
+    }
+    events.input.push_back({.type = InputEventType::AxisMotion,
+                            .device = InputDevice::Mouse,
+                            .code = 0,
+                            .value = *dx});
+    events.input.push_back({.type = InputEventType::AxisMotion,
+                            .device = InputDevice::Mouse,
+                            .code = 1,
+                            .value = *dy});
+    return {};
+}
+
+core::Result<void> addMouse(Events& events, int line, const Words& words)
+{
+    const std::string_view what = words.size() > 2 ? words[2] : "";
+    if (words.size() != 5 || (what != "move" && what != "motion"))
+    {
+        return refusal(line, "champs", "mouse move|motion <x> <y> est attendu");
+    }
+    return what == "move" ? addMouseMove(events, line, words) : addMouseMotion(events, line, words);
+}
+
+/// `wheel <dy>` : des crans de molette, positifs vers l'avant (loin du joueur), comme SDL. Pour
+/// l'interface (`UiEvent`) : le jeu ne lit pas la molette.
+core::Result<void> addWheel(Events& events, int line, const Words& words)
+{
+    if (words.size() != 3)
+    {
+        return refusal(line, "champs", "wheel <crans> est attendu");
+    }
+    const auto notches = coordinateOf(words[2]);
+    if (!notches)
+    {
+        return refusal(line, "crans", std::format("« {} » : un nombre fini", words[2]));
+    }
+    events.ui.push_back({.type = UiEventType::MouseWheel, .y = *notches});
     return {};
 }
 
@@ -297,11 +344,12 @@ core::Result<InputScript> parseInputScript(std::string_view text)
         const auto added =
             kind == "key"      ? addKey(events, line, words, held)
             : kind == "button" ? addButton(events, line, words)
-            : kind == "mouse"  ? addMouseMove(events, line, words)
+            : kind == "mouse"  ? addMouse(events, line, words)
+            : kind == "wheel"  ? addWheel(events, line, words)
             : kind == "keymap" ? addKeymapChange(events, line, words)
             : kind == "window"
                 ? addWindowClose(events, line, words)
-                : refusal(line, "type", "key, button, mouse, keymap ou window est attendu");
+                : refusal(line, "type", "key, button, mouse, wheel, keymap ou window est attendu");
         if (!added)
         {
             return std::unexpected(added.error());

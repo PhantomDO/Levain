@@ -216,9 +216,13 @@ uiEventsOf(InputRoute route, const platform::Events& events, bool mouseCaptured)
 
 /// La souris capturée : le programme la veut, et les panneaux ne sont pas ouverts. `App` possède
 /// la capture (ADR-0032) ; le programme pose `mouseCaptureWanted` et lit `mouseCaptured`.
-[[nodiscard]] constexpr bool mouseShouldBeCaptured(bool wanted, bool panelsOpen)
+/// **`overPanels`** (`App::mouseCaptureOverPanels`, ADR-0036, décision 8) : le vol de la caméra de
+/// l'éditeur capture la souris panneaux ouverts aussi, car il se fait dans la Vue, qui est un
+/// panneau. Sans lui, F1 libérerait la souris pour tout programme qui la veut ; avec lui, seul qui
+/// le pose (l'éditeur, pendant un vol) la garde.
+[[nodiscard]] constexpr bool mouseShouldBeCaptured(bool wanted, bool panelsOpen, bool overPanels)
 {
-    return wanted && !panelsOpen;
+    return wanted && (!panelsOpen || overPanels);
 }
 
 /// Ajoute une image à l'historique des courbes. Une image sans mesure GPU (pas encore relue, ou
