@@ -89,6 +89,9 @@ inline constexpr std::array<std::string_view, 3> MeshPassShaderFiles{"mesh", "li
                                                        const nvrhi::FramebufferInfo& target);
 
 /// Le depth buffer à la taille de l'image où l'on dessine : recréé seulement quand elle change.
+/// **Remplacer une profondeur existante attend le GPU** (`waitForIdle`) : NVRHI Vulkan ne retient
+/// pas une texture que sa command list ne fait qu'effacer, et l'ancienne, libérée avec une image
+/// encore en vol, ferait refuser `vkDestroyImage` (un arrêt par changement de taille).
 [[nodiscard]] nvrhi::ITexture* ensureDepthTexture(nvrhi::IDevice& device,
                                                   nvrhi::TextureHandle& depth, std::uint32_t width,
                                                   std::uint32_t height);
