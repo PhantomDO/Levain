@@ -20,6 +20,38 @@ M7.7, morceau 14 (la console, `gpu.editor-console.*`).
   que la doc de `LogSink` disait qu'un récepteur pouvait journaliser. **Parade** : un message écrit depuis un récepteur
   ne va qu'à la console (`SinkCallScope`, log.cpp) ; test `deux récepteurs qui journalisent…`, qui quitte en erreur au
   bout de 30 s plutôt que de figer la suite.
+## Un contre-test restauré par `cp -p` laisse ninja sur l'objet fauté ; une image jamais écrite ne se présente pas (2026-10-11)
+
+M7.7, morceau 7 (`gpu.scene-view.*`, `engine/app/src/scene_view.cpp`).
+
+- **Symptôme** : une série de contre-tests, chacun « faute injectée depuis une copie, build, test rouge, copie remise »,
+  a rendu des rouges qui ne correspondaient pas à la faute du moment (« glisser : au plus 2 textures nées » sous une
+  faute qui ne touchait pas à la recréation), alors que la restauration annonçait « build exit=0 ». **Cause** : la copie
+  gardée à côté avait son ancienne date (`shutil.copy2`, `cp -p`) ; remise en place, elle est plus vieille que l'objet
+  compilé depuis la version fautée, et ninja la croit à jour sans recompiler (rien à faire, code 0). **Parade** : après
+  la restauration, `touch` le fichier (`os.utime`) avant de rebâtir ; vérifier le premier test vert après la série. Le
+  script de la session (`mutate.py`, dans le scratchpad) le fait depuis.
+- **Symptôme** : une scène dans une texture sans l'effacement de la swapchain arrête `levain_scene_view` sur « vkQueuePresentKHR():
+  images passed to present must be in layout VK_IMAGE_LAYOUT_PRESENT_SRC_KHR … but VkImage … is in
+  VK_IMAGE_LAYOUT_UNDEFINED » (SIGTRAP, code 133). **Cause** : quand rien ne dessine sur la swapchain (la Vue fermée,
+  une UI sans commande), l'image acquise n'est jamais écrite, donc jamais transitionnée. **Parade** : la swapchain est
+  effacée dès que la scène n'y est pas (`clearSwapchain`), ce que le contre-test « sans l'effacement » montre rouge par
+  la validation de Vulkan elle-même (règle n°4), avant même la lecture des pixels.
+- **Symptôme** : `ctest --test-dir build/windows-debug -R '^gpu[.]scene-view[.]vulkan$'` (fenêtre réelle sur la 4070,
+  swapchain, images en vol) sort en 3 sur « vkDestroyImage(): can't be called on VkImage [depth buffer] that is currently
+  in use by VkCommandBuffer » (2 fois sur 2), vert sous lavapipe hors écran et sur WARP. **Cause** : la même que celle de
+  `runApp` à la fermeture (entrée du 2026-10-10, morceau 2), mais à l'exécution : la Vue qui change de taille remplace
+  la profondeur du renderer (`ensureDepthTexture`), et un programme qui ne dessine aucun mesh ne la lie à aucun
+  framebuffer : NVRHI Vulkan ne retient pas une texture que sa command list ne fait qu'effacer. **Parade** :
+  `ensureDepthTexture` attend le GPU (`waitForIdle`) avant de remplacer une profondeur existante : un arrêt par
+  changement de taille, que la Vue ne fait qu'une fois la taille stable. Vert 4 fois sur 4 ensuite (11 à 12 s, fenêtres
+  ouvertes). Un contre-test headless est impossible : le chemin hors écran attend le GPU à chaque image ; le test qui garde
+  cette attente est **`gpu.scene-view.vulkan` lancé dans une vraie fenêtre**, par son nom exact, depuis la distro du portable
+  (`ctest --test-dir build/windows-debug -R '^gpu[.]scene-view[.]vulkan$'`), jamais par la suite entière.
+- **Direct3D 12, Debug** : effacer l'image hors écran (`gpu::PresentClearLevel`) sans lui avoir donné de valeur
+  d'effacement à la création fait avertir la couche de debug à chaque effacement (message 820, 6 passages de
+  `levain_scene_view.exe d3d12` hors écran sur la 4070 : une trentaine d'avertissements ; 0 une fois la valeur donnée à la
+  création, `offscreenFrame`). Les images d'une swapchain DXGI n'avertissent pas (fenêtre ouverte, 0 avertissement).
 
 ## Un test de « ne prend pas le focus » qui lit une touche ne voit rien : lire la route (2026-10-10)
 

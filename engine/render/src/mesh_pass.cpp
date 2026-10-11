@@ -210,7 +210,7 @@ nvrhi::ITexture* ensureDepthTexture(nvrhi::IDevice& device, nvrhi::TextureHandle
     // Vulkan ne retient pas une texture que sa command list ne fait qu'effacer
     // (`clearDepthStencilTexture`, vulkan-texture.cpp), et une scène sans dessin ne la lie jamais à
     // un framebuffer. Libérée avec la dernière image encore en vol, elle ferait refuser
-    // `vkDestroyImage`. Un seul arrêt par changement de taille, que la Vue ne
+    // `vkDestroyImage` (build/GOTCHA.md). Un seul arrêt par changement de taille, que la Vue ne
     // fait qu'une fois la taille stable.
     if (depth)
     {

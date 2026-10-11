@@ -25,6 +25,9 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
   (Image, Passes, Scène, en fenêtres ancrées), que F1 ou `--ui on` ouvrent ; le point d'accroche `ui`, où le
   programme ajoute ses fenêtres ; et la capture de la souris, que `App` possède. La disposition des panneaux
   garde ses nœuds (`UiLayer::dock`), où l'éditeur ancre les siens (ADR-0034) ;
+- **la scène dans une texture** (M7.7, morceau 7, ADR-0036 décision 7) : `requestScene(app, taille)`, que la Vue appellera dans
+  `ui`, rend l'identifiant de l'image à montrer par `ImGui::Image` ; la scène se rend alors dans cette texture, la
+  swapchain est effacée et seule l'UI y est dessinée (`scene_view.hpp`). Voir l'invariant 15 ;
 - **le banc d'essai** (ADR-0036) : `--input-script f` (ou `AppSettings::inputScript`, pour un test) rejoue les
   `platform::Events` d'un script dans la vraie boucle, hors écran. Voir l'invariant 12.
 
@@ -102,6 +105,30 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    position de la souris est celle d'ImGui : avant tout mouvement, nulle part, et sous la route *jeu* aucun clic
    n'arrive.
 
+15. **La scène va dans la fenêtre, dans la texture de la Vue, ou nulle part** (`SceneOutput`, ADR-0036, décision 7),
+   selon ce que `ui` a demandé cette image par `requestScene`. **Rien demandé : la fenêtre**, le rendu d'avant la Vue,
+   que le sandbox, *Rando* et l'éditeur panneaux fermés (F1) gardent sans rien savoir. **Une taille : la texture**, au
+   format de la swapchain (la conversion sRGB de l'UI, `linearOnSrgbTarget`, ne se fait alors qu'une fois), cible de
+   rendu au repos en `ShaderResource` et avec une valeur d'effacement, défensive (Direct3D 12, message 820 ; le 821 est
+   celui de la profondeur) ; la
+   swapchain est effacée (`gpu::PresentClearLevel`), et seule l'UI la dessine. **0 × 0, ou aucune texture : nulle part** (la
+   Vue fermée) : aucune scène, la swapchain effacée quand même, sans quoi l'image présentée n'aurait jamais été
+   écrite (la couche de validation de Vulkan refuse de présenter une image sans disposition). Une Vue fermée demande
+   donc 0 × 0 plutôt que de se taire, **à chaque image où elle n'est pas montrée** (fermée, derrière un onglet,
+   repliée : `ImGui::Begin` rend faux). C'est un écart assumé avec « rien demandé panneaux ouverts = nulle part » :
+   le moteur ne sait pas si un programme est un éditeur, et le sandbox ne demande rien. Une Vue qui se tairait
+   ferait revenir la scène dans la fenêtre, derrière les panneaux, et chaque bascule changerait la taille de l'image HDR
+   et de la profondeur (un `waitForIdle` chacune) : l'exigence est au morceau 8 (ADR-0036, tableau des morceaux). **La texture ne se recrée qu'une fois la taille demandée stable**
+   (`StableFramesBeforeResize` images de suite, `shouldRecreateScene`) : à chaque taille, l'image HDR et la profondeur du
+   renderer (`ensureHdrTarget`, `ensureDepthTexture`) se recréent avec elle, et un glissé de bord changerait la
+   taille à chaque image. La première taille crée la texture tout de suite ; en attendant, l'ancienne est montrée
+   étirée (`ImGui::Image` à la taille demandée). La nouvelle existe quand `ImGui::Image` la reçoit ; **l'ancienne
+   n'est libérée qu'après l'image** (`releaseRetiredScenes`, une fois la command list enregistrée) : NVRHI la garde
+   vivante tant qu'une command list en vol tient son framebuffer, sa texture suivie ou son binding set (sources de
+   NVRHI du port : `vulkan-graphics.cpp:509`, `vulkan-state-tracking.cpp:304`, `vulkan-resource-bindings.cpp:966` ;
+   `d3d12-state-tracking.cpp:236`, `d3d12-resource-bindings.cpp:1003`). `SceneView::created` compte les textures nées, ce
+   que lit le test des « au plus 2 » d'un glissé. `tests/scene_view_gpu.cpp` est le banc (`gpu.scene-view.*`).
+
 ## Pièges connus
 
 - **Les appuis entre deux pas** : `input::actionPressed` ne vaut que pour l'image de l'appui. À 144 images/s, la
@@ -163,4 +190,5 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 | **Godot** | `MainLoop`, `SceneTree` ; `MeshInstance3D`, `Skeleton3D` | La boucle par défaut d'un projet (**documenté**, ADR-0029) ; un modèle est un nœud, son squelette un autre. |
 | **La caméra** | `CameraComponent` actif (Unreal), `Camera.main` (Unity), `Camera3D.current` (Godot) | Une caméra parmi d'autres est celle du rendu ; ici, il n'y en a qu'une, et deux sont une erreur. |
 | **L'arrêt** | `SetGamePaused` (Unreal), `Time.timeScale = 0` (Unity), `SceneTree.paused` (Godot) | Arrêter la simulation sans arrêter le rendu (**documenté**) ; ici un drapeau d'`App`, et les squelettes suivent la simulation, l'eau non. La caméra de l'éditeur, hors de la scène, est celle de la vue de niveau chez Unreal (**supposé**). |
+| **La scène dans une texture** | `USceneCaptureComponent2D` et `UTextureRenderTarget2D` (Unreal), `Camera.targetTexture` (Unity), `SubViewport` et `ViewportTexture` (Godot) | Rendre une caméra dans une texture que l'UI affiche (**documenté** pour chacun). Les vues de l'éditeur d'Unreal et d'Unity ne passent pas par ces API publiques : ce qu'elles font à la taille d'une fenêtre qu'on glisse, **non vérifié**. Ici, la taille ne se reprend qu'une fois stable. |
 | **L'input** | `Input.GetKeyDown` (Unity), `Input.is_action_just_pressed` (Godot) | Un appui ne vaut que pour l'image : Unity dit de le lire dans `Update`, pas dans `FixedUpdate` (**documenté**, `Input.GetKeyDown`). `PlayerInput` le garde jusqu'au pas suivant. |
