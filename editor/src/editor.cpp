@@ -73,6 +73,18 @@ flecs::entity selectedIfAlive(const flecs::world& world, flecs::entity_t selecte
     return selected != 0 && world.is_alive(selected) ? world.entity(selected) : flecs::entity{};
 }
 
+core::Result<void> requireEditorBackend(nvrhi::GraphicsAPI api)
+{
+    if (api == nvrhi::GraphicsAPI::WEBGPU)
+    {
+        return core::makeError(core::ErrorCode::Unsupported,
+                               "--gpu webgpu : l'éditeur n'a pas de WebGPU (la page web n'a pas "
+                               "d'éditeur, et la Vue de l'éditeur natif n'a pas été éprouvée sur "
+                               "Dawn) ; --gpu vulkan ou d3d12");
+    }
+    return {};
+}
+
 app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
 {
     // Captée ici, avant `runApp` : ce que la fenêtre et le device ont écrit en s'ouvrant est dans

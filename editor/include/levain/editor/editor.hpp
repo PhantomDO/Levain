@@ -12,8 +12,10 @@
 #include <vector>
 
 #include <flecs.h>
+#include <nvrhi/nvrhi.h>
 
 #include "levain/app/app.hpp"
+#include "levain/core/error.hpp"
 #include "levain/core/log_ring.hpp"
 #include "levain/editor/console.hpp"
 #include "levain/editor/hierarchy.hpp"
@@ -58,6 +60,15 @@ struct Editor
     std::shared_ptr<core::LogCapture> log;
     Console console;
 };
+
+/// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web
+/// n'a pas d'éditeur, et l'éditeur natif sur Dawn, qui le pourrait, n'est pas du périmètre de M7.7
+/// : la Vue (la scène dans une texture, rendue puis montrée) n'y est ni écrite ni éprouvée. Un
+/// refus bruyant, qui nomme l'option, plutôt qu'un éditeur dont rien ne dit qu'il marche (règle
+/// n°7). **À appeler avant `runApp`** (le `main` de l'exécutable éditeur, une fois les options
+/// lues) : `withEditor` ne démarre qu'après la fenêtre et le device, et refuserait trop tard, après
+/// avoir ouvert un device Dawn pour rien.
+[[nodiscard]] core::Result<void> requireEditorBackend(nvrhi::GraphicsAPI api);
 
 /// L'entité choisie si elle vit encore ; l'entité nulle sinon, ou sans choix. Une sélection
 /// survit ainsi à la destruction de son entité, sans jamais désigner une entité morte.

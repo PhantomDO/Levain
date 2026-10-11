@@ -59,6 +59,15 @@ TEST_CASE("les options de l'éditeur sont retirées, le reste garde son ordre")
     CHECK_FALSE(untouched.select.has_value());
 }
 
+TEST_CASE("l'éditeur refuse WebGPU, en nommant l'option, et accepte les autres backends")
+{
+    const auto refused = levain::editor::requireEditorBackend(nvrhi::GraphicsAPI::WEBGPU);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("--gpu webgpu") != std::string::npos);
+    CHECK(levain::editor::requireEditorBackend(nvrhi::GraphicsAPI::VULKAN).has_value());
+    CHECK(levain::editor::requireEditorBackend(nvrhi::GraphicsAPI::D3D12).has_value());
+}
+
 TEST_CASE("une sélection survit à la destruction de son entité, sans désigner celle qui recycle "
           "son index")
 {

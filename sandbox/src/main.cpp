@@ -1323,6 +1323,17 @@ int main(int argc, char** argv)
                          levain::app::CommonOptionsUsage);
             return 2;
         }
+#ifdef LEVAIN_SANDBOX_EDITOR
+        // Avant la fenêtre et le device : un `--gpu webgpu` refusé n'ouvre pas de device Dawn pour
+        // rien, et le message est celui de l'éditeur, pas celui d'un adaptateur absent (ADR-0036,
+        // décision 7).
+        if (const auto backend = levain::editor::requireEditorBackend(settings.api); !backend)
+        {
+            levain::core::log("app", levain::core::LogLevel::Critical, "{}",
+                              backend.error().message);
+            return 1;
+        }
+#endif
         if (options->view == SandboxView::Khronos)
         {
             // Le ciel tel que l'éclaire le glTF Sample Viewer : son soleil reste dans l'IBL, sans

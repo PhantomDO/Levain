@@ -360,6 +360,17 @@ endif()
 if(NOT EMSCRIPTEN)
     levain_add_symbol_check(build.no-editor levain_sandbox FORBID "levain::editor::" REQUIRE "levain::app::")
     levain_add_symbol_check(build.editor-symbols levain_sandbox_editor REQUIRE "levain::editor::")
+
+    # L'exécutable éditeur refuse `--gpu webgpu` avant d'ouvrir fenêtre ni device (ADR-0036, décision 7) : le message de
+    # l'éditeur doit être celui qui sort (un adaptateur Dawn absent en dirait un autre, règle n°7), et aucun device ne
+    # doit être né. Le programme sort en 1, ctest ne juge que la sortie ; sans le refus, le sandbox démarre ou échoue
+    # ailleurs, et le motif manque. Pas de GPU, pas de fenêtre : ce test tourne partout, runner Windows compris. Les deux
+    # motifs sont en ASCII (le « é » de « éditeur » et de « créé » n'en fait pas partie) : l'encodage de la console n'y
+    # change rien.
+    add_test(NAME editor.refuses-webgpu COMMAND levain_sandbox_editor --gpu webgpu --seconds 1)
+    set_tests_properties(editor.refuses-webgpu PROPERTIES
+        ENVIRONMENT "${testVideo}"
+        PASS_REGULAR_EXPRESSION "n'a pas de WebGPU [(]la page web" FAIL_REGULAR_EXPRESSION "device cr")
 endif()
 
 levain_add_host_test(assets.metas-committed
