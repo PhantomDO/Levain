@@ -285,6 +285,8 @@ void feedInput(ImGuiIO& io, const platform::Events& events, PressedKeys& pressed
             // Plus rien n'est survolé : sans ça, un bouton resterait en surbrillance.
             io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
             break;
+        case platform::UiEventType::KeymapChanged:
+            break; // ImGui lit les touches traduites par keycode : rien à lui dire
         case platform::UiEventType::FocusGained:
             io.AddFocusEvent(true);
             break;

@@ -154,6 +154,22 @@ void setMouseCaptured(const Window& window, bool captured)
     }
 }
 
+std::uint32_t keyAtPosition(std::uint16_t scancode)
+{
+    // `key_event = true` : comme un événement de touche, donc avec SDL_HINT_KEYCODE_OPTIONS
+    // (french_numbers, latin_letters) que SDL n'applique qu'alors (SDL_keyboard.h,
+    // `SDL_GetKeyFromScancode`) : sans elle, la position 30 d'un AZERTY donnerait « & » et non
+    // « 1 », et celle d'une disposition russe « ц ». Sans Maj ni Alt-Gr (`SDL_KMOD_NONE`).
+    // Au-delà du dernier scancode, SDL refuse : 0.
+    if (scancode >= SDL_SCANCODE_COUNT)
+    {
+        return 0;
+    }
+    const SDL_Keycode key =
+        SDL_GetKeyFromScancode(static_cast<SDL_Scancode>(scancode), SDL_KMOD_NONE, true);
+    return key == SDLK_UNKNOWN ? 0U : static_cast<std::uint32_t>(key);
+}
+
 void startTextInput(const Window& window)
 {
     if (!SDL_StartTextInput(window.handle.get()))
@@ -231,7 +247,12 @@ void appendUiEvent(Events& events, const SDL_Event& event, std::uint32_t windowI
                       .modifiers = {.ctrl = (event.key.mod & SDL_KMOD_CTRL) != 0,
                                     .shift = (event.key.mod & SDL_KMOD_SHIFT) != 0,
                                     .alt = (event.key.mod & SDL_KMOD_ALT) != 0,
-                                    .super = (event.key.mod & SDL_KMOD_GUI) != 0}});
+                                    .super = (event.key.mod & SDL_KMOD_GUI) != 0,
+                                    .altGr = (event.key.mod & SDL_KMOD_MODE) != 0}});
+        break;
+    case SDL_EVENT_KEYMAP_CHANGED:
+        // Un événement du système, sans fenêtre : le filtre sur l'identifiant n'a rien à lire.
+        ui.push_back({.type = UiEventType::KeymapChanged});
         break;
     case SDL_EVENT_TEXT_INPUT:
         events.text += event.text.text;

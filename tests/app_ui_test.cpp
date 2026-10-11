@@ -182,7 +182,7 @@ TEST_CASE(
                  {.type = UiEventType::MouseButton, .button = 1, .down = true}};
     events.text = "w";
 
-    const auto sorted = levain::app::uiEventsOf(levain::app::InputRoute::Game, events);
+    const auto sorted = levain::app::uiEventsOf(levain::app::InputRoute::Game, events, false);
     REQUIRE(sorted.has_value());
     // (clang-tidy ne suit pas le REQUIRE : l'accès explicite.)
     const levain::platform::Events inGame = sorted ? *sorted : levain::platform::Events{};
@@ -196,8 +196,65 @@ TEST_CASE(
     // événements eux-mêmes, ce que le sandbox et *Rando* font à chaque image.
     for (const auto route : {levain::app::InputRoute::Ui, levain::app::InputRoute::Editor})
     {
-        CHECK_FALSE(levain::app::uiEventsOf(route, events).has_value());
+        CHECK_FALSE(levain::app::uiEventsOf(route, events, false).has_value());
     }
+}
+
+TEST_CASE("souris capturée : ImGui ne reçoit que les relâchements, jamais un appui ni un mouvement")
+{
+    using levain::platform::UiEvent;
+    using levain::platform::UiEventType;
+    levain::platform::Events events;
+    events.ui = {{.type = UiEventType::MouseMoved, .x = 5.0f, .y = 6.0f},
+                 {.type = UiEventType::MouseButton, .button = 3, .down = true},
+                 {.type = UiEventType::MouseWheel, .y = 1.0f},
+                 {.type = UiEventType::MouseButton, .button = 3, .down = false},
+                 {.type = UiEventType::Key, .keycode = 'w', .scancode = 26, .down = true},
+                 {.type = UiEventType::KeymapChanged}};
+    events.text = "w";
+    // Sous toute route : la capture est celle du vol, et le vol vaut dans l'éditeur comme au jeu.
+    for (const auto route : {levain::app::InputRoute::Ui, levain::app::InputRoute::Editor})
+    {
+        const auto kept = levain::app::uiEventsOf(route, events, true);
+        REQUIRE(kept.has_value());
+        const levain::platform::Events given = kept ? *kept : levain::platform::Events{};
+        REQUIRE(given.ui.size() == 3);
+        CHECK(given.ui[0].type == UiEventType::MouseButton); // le relâchement du clic droit
+        CHECK_FALSE(given.ui[0].down);
+        CHECK(given.ui[1].scancode == 26); // les touches restent : Ctrl+S vaut en vol
+        CHECK(given.ui[2].type == UiEventType::KeymapChanged);
+        // Mais pas le texte : en vol, « zqsd » ne se tape pas dans le champ qui était actif.
+        CHECK(given.text.empty());
+    }
+    // Sous la route jeu et capturée : les relâchements de la souris, ceux du clavier, F1 ; ni
+    // appui de touche (hors F1), ni mouvement, ni molette, ni texte.
+    events.ui.push_back({.type = UiEventType::Key, .scancode = 26, .down = false});
+    events.ui.push_back({.type = UiEventType::Key, .scancode = 58, .down = true}); // F1
+    const auto inGame = levain::app::uiEventsOf(levain::app::InputRoute::Game, events, true);
+    REQUIRE(inGame.has_value());
+    const levain::platform::Events gameGiven = inGame ? *inGame : levain::platform::Events{};
+    REQUIRE(gameGiven.ui.size() == 4);
+    CHECK(gameGiven.ui[0].type == UiEventType::MouseButton); // le relâchement du clic droit
+    CHECK_FALSE(gameGiven.ui[0].down);
+    CHECK(gameGiven.ui[1].type == UiEventType::KeymapChanged);
+    CHECK((gameGiven.ui[2].scancode == 26 && !gameGiven.ui[2].down)); // le relâchement du clavier
+    CHECK((gameGiven.ui[3].scancode == 58 && gameGiven.ui[3].down));  // F1
+    CHECK(gameGiven.text.empty());
+    // Les panneaux ouverts libèrent la souris (`mouseShouldBeCaptured`) : sans capture, rien ne
+    // change.
+    CHECK_FALSE(
+        levain::app::uiEventsOf(levain::app::InputRoute::Editor, events, false).has_value());
+}
+
+TEST_CASE("F1 ouvre les panneaux seule : un modificateur tenu les laisse")
+{
+    using levain::platform::KeyModifiers;
+    CHECK(levain::app::togglesPanels(true, KeyModifiers{}));
+    CHECK_FALSE(levain::app::togglesPanels(false, KeyModifiers{}));
+    CHECK_FALSE(levain::app::togglesPanels(true, KeyModifiers{.shift = true})); // Maj+F1
+    CHECK_FALSE(levain::app::togglesPanels(true, KeyModifiers{.ctrl = true}));
+    CHECK_FALSE(levain::app::togglesPanels(true, KeyModifiers{.alt = true}));
+    CHECK_FALSE(levain::app::togglesPanels(true, KeyModifiers{.super = true}));
 }
 
 TEST_CASE("la scène est le trou du nœud central, et rien tant qu'une fenêtre y est ancrée")

@@ -155,13 +155,46 @@ struct RouteFacts
 gameInputOf(std::span<const platform::InputEvent> events, const input::RawInput& held,
             DevicesTaken taken);
 
+/// La capture garde la souris pour la caméra : ni mouvement, ni molette, ni appui n'arrive à ImGui
+/// (le survol d'une fenêtre sous le curseur figé ne doit pas répondre au vol). **Jamais un
+/// relâchement** : ImGui garde l'état des boutons, et un relâchement perdu laisserait « enfoncé »
+/// le bouton droit qui a pris la capture ; après un vol, son menu contextuel ne s'ouvrirait plus
+/// (ADR-0036, décision 13 ; même règle que `gameInputOf` pour le jeu).
+///
+/// **TODO morceau 11** : le relâchement du vol atteint ImGui sans les mouvements qui l'ont
+/// précédé, donc ImGui y voit un *clic* (appui et relâchement au même point). Le menu contextuel
+/// d'un clic droit sur la Vue s'ouvrirait à la fin de chaque vol. Unreal ne l'ouvre que pour un
+/// clic droit sans glissé : la Vue ne devra l'ouvrir que si aucun vol n'a eu lieu depuis l'appui.
+[[nodiscard]] constexpr bool mouseTakenByCapture(const platform::UiEvent& event, bool captured)
+{
+    switch (event.type)
+    {
+    case platform::UiEventType::MouseMoved:
+    case platform::UiEventType::MouseWheel:
+        return captured;
+    case platform::UiEventType::MouseButton:
+        return captured && event.down;
+    default:
+        return false;
+    }
+}
+
+/// F1 ouvre et ferme les panneaux **sans modificateur** (ADR-0036, décision 13) : Maj+F1 est
+/// « rendre la souris » du jeu, et ne doit pas aussi fermer les panneaux.
+[[nodiscard]] constexpr bool togglesPanels(bool f1Pressed, const platform::KeyModifiers& modifiers)
+{
+    return f1Pressed && !modifiers.ctrl && !modifiers.shift && !modifiers.alt && !modifiers.super;
+}
+
 /// Ce qu'ImGui reçoit des événements de l'image, quand ce n'est pas tous. Sous la route *jeu*, du
 /// clavier il n'a que les relâchements et F1 (un relâchement perdu laisserait une touche enfoncée
 /// pour lui aussi), et pas le texte tapé : une touche du jeu n'ouvre pas un menu, un Ctrl+S ne
-/// part pas. Sous toute autre route, **rien** (`nullopt`) : ImGui reçoit `events` tels quels, sans
-/// copie, ce que le sandbox et *Rando* font à chaque image.
-[[nodiscard]] std::optional<platform::Events> uiEventsOf(InputRoute route,
-                                                         const platform::Events& events);
+/// part pas. **Souris capturée** (le vol), quelle que soit la route : de la souris, les
+/// relâchements seuls (`mouseTakenByCapture`), et pas le texte tapé. Sous toute autre route et sans
+/// capture, **rien** (`nullopt`) : ImGui reçoit `events` tels quels, sans copie, ce que le sandbox
+/// et *Rando* font à chaque image.
+[[nodiscard]] std::optional<platform::Events>
+uiEventsOf(InputRoute route, const platform::Events& events, bool mouseCaptured);
 
 /// La souris capturée : le programme la veut, et les panneaux ne sont pas ouverts. `App` possède
 /// la capture (ADR-0032) ; le programme pose `mouseCaptureWanted` et lit `mouseCaptured`.

@@ -227,7 +227,24 @@ core::Result<void> addMouseMove(Events& events, int line, const Words& words)
     return {};
 }
 
+/// `keymap changed` : la disposition du clavier a changé (SDL_EVENT_KEYMAP_CHANGED). L'événement ne
+/// porte pas la disposition : le programme de test la change où il la lit (`App::keyAtPosition`).
+core::Result<void> addKeymapChange(Events& events, int line, const Words& words)
+{
+    if (words.size() != 3 || words[2] != "changed")
+    {
+        return refusal(line, "champs", "keymap changed est attendu");
+    }
+    events.ui.push_back({.type = UiEventType::KeymapChanged});
+    return {};
+}
+
 } // namespace
+
+std::uint32_t qwertyKeyAtPosition(std::uint16_t scancode)
+{
+    return qwertyKeycodeOf(scancode);
+}
 
 core::Result<InputScript> parseInputScript(std::string_view text)
 {
@@ -267,9 +284,10 @@ core::Result<InputScript> parseInputScript(std::string_view text)
         Events& events = script.frames[*frame];
         const auto added = kind == "key"      ? addKey(events, line, words, held)
                            : kind == "button" ? addButton(events, line, words)
-                           : kind == "mouse"
-                               ? addMouseMove(events, line, words)
-                               : refusal(line, "type", "key, button ou mouse est attendu");
+                           : kind == "mouse"  ? addMouseMove(events, line, words)
+                           : kind == "keymap"
+                               ? addKeymapChange(events, line, words)
+                               : refusal(line, "type", "key, button, mouse ou keymap est attendu");
         if (!added)
         {
             return std::unexpected(added.error());

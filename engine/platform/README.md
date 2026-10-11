@@ -60,6 +60,11 @@ Le jeu lit des actions ; une interface (ImGui, `engine/ui`) a besoin d'autre cho
   propres répétitions), mais pas dans `InputEvent`, où une action ne doit partir qu'au vrai appui.
 - **Le texte n'arrive qu'entre `startTextInput` et `stopTextInput`.** C'est aussi ce qui ouvre le clavier d'un
   téléphone.
+- **La disposition du clavier** : `keyAtPosition(scancode)` rend la touche que la disposition d'aujourd'hui met à
+  une position (« z » pour le scancode du W, sur un AZERTY), pour afficher un raccourci ; `KeyAtPosition` en est le
+  type en paramètre, pour que la logique n'appelle pas SDL (ADR-0011). Un changement de disposition arrive comme
+  `UiEventType::KeymapChanged` (`SDL_EVENT_KEYMAP_CHANGED`) : qui garde un résultat de `keyAtPosition` le refait.
+  Le banc d'essai l'écrit `<image> keymap changed` ; sa disposition est `qwertyKeyAtPosition`.
 - **La position de la souris est en pixels de l'image**, densité comprise, comme `cursorPosition`.
 
 ## Le banc d'essai de l'input (ADR-0036)
