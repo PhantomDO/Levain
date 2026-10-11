@@ -7,6 +7,7 @@
 #include <doctest/doctest.h>
 
 #include "levain/assets/asset_ref.hpp"
+#include "levain/platform/input.hpp"
 #include "levain/platform/input_script.hpp"
 
 using levain::platform::addScriptedEvents;
@@ -174,4 +175,27 @@ TEST_CASE("un script se lit dans un fichier, et un refus nomme ce fichier")
     CHECK(script.error().message.find(file.string()) != std::string::npos);
     CHECK(script.error().message.find("ligne 2, touche") != std::string::npos);
     CHECK_FALSE(levain::platform::loadInputScript(file).has_value()); // effacé
+}
+
+TEST_CASE("keymap changed : l'événement de disposition, sans rien d'autre")
+{
+    const Events events = eventsAt(parsed("3 keymap changed\n"), 3);
+    CHECK(events.input.empty());
+    REQUIRE(events.ui.size() == 1);
+    CHECK(events.ui[0].type == levain::platform::UiEventType::KeymapChanged);
+    refused("0 keymap\n", "ligne 1", "champs");
+    refused("0 keymap change\n", "ligne 1", "champs");
+}
+
+TEST_CASE(
+    "la disposition du banc d'essai est un QWERTY, et keyAtPosition refuse une position inconnue")
+{
+    CHECK(levain::platform::qwertyKeyAtPosition(ScancodeW) == 'w');
+    CHECK(levain::platform::qwertyKeyAtPosition(44) == ' ');                 // Espace
+    CHECK(levain::platform::qwertyKeyAtPosition(58) == (0x40000000U | 58U)); // F1
+    // Hors des scancodes de SDL : rien, et non une lecture hors d'un tableau.
+    CHECK(levain::platform::keyAtPosition(60000) == 0);
+    // Les touches qui ne changent pas d'une disposition à l'autre : F1 (SDLK_F1) et Espace.
+    CHECK(levain::platform::keyAtPosition(58) == (0x40000000U | 58U));
+    CHECK(levain::platform::keyAtPosition(44) == ' ');
 }

@@ -6,6 +6,7 @@
 // est celle du vrai programme. À une différence près : pas de répétition de touche, pas de texte,
 // et la lettre d'une ponctuation sans `as` est son scancode au lieu du caractère que SDL donnerait.
 
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <string_view>
@@ -19,6 +20,11 @@ namespace levain::platform
 /// Le plus grand numéro d'image d'un script : au-delà, le script est une faute de frappe (et
 /// « dernière image plus une » déborderait).
 inline constexpr int MaxInputScriptFrame = 1'000'000;
+
+/// Le keycode (`SDLK_`) qu'un clavier QWERTY américain donne à ce scancode : la disposition du banc
+/// d'essai, la même sur toutes les machines (`SDL_GetKeyFromScancode` lit celle de la machine).
+/// Une disposition de test en part : `keyAtPosition` d'un AZERTY n'en change que quelques lettres.
+[[nodiscard]] std::uint32_t qwertyKeyAtPosition(std::uint16_t scancode);
 
 /// Les événements à rejouer, par numéro d'image (0 pour la première de la boucle).
 struct InputScript
@@ -43,6 +49,7 @@ struct InputScript
 ///     <image> key down|up <touche> [as <lettre>]   une position du clavier, par son nom SDL
 ///     <image> button down|up left|right|middle     un bouton de la souris
 ///     <image> mouse move <x> <y>                   le curseur, en pixels de l'image
+///     <image> keymap changed                       la disposition du clavier a changé
 ///
 /// **Une touche a deux identités** : sa position (`W`, le scancode, que lit le jeu) et la lettre
 /// qu'elle tape (le keycode, que lit ImGui). Sans `as`, la lettre est celle d'un clavier QWERTY

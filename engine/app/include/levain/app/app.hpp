@@ -301,6 +301,14 @@ struct App
     render::GpuTimeAverage totalGpu; ///< Depuis le début de la boucle, journalisé à la fin.
     int frameCount = 0;
 
+    /// **La disposition du clavier** (ADR-0036, décision 5) : la touche qu'une position porte,
+    /// pour afficher un raccourci (« Z » à la place du W, sur un AZERTY). Le système par défaut ;
+    /// un test pose la sienne. `keymapChanges` compte les `KeymapChanged` reçus : qui garde un
+    /// résultat de `keyAtPosition` (un conflit de raccourcis, morceau 16) le refait quand il
+    /// change.
+    platform::KeyAtPosition keyAtPosition = platform::keyAtPosition;
+    int keymapChanges = 0;
+
     /// **Qui reçoit l'input** (ADR-0036, décision 4), lu par la boucle au début de chaque image
     /// (`devicesTakenBy`, `uiEventsOf`) : l'éditeur la pose à la fin de l'image N pour l'image N+1,
     /// car le survol et le focus ne se savent que dans `hooks.ui`. Un programme qui n'est pas un

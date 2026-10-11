@@ -556,6 +556,8 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .frameTimer = render::createGpuTimer(*gpu.nvrhi),
             .totalGpu = {},
             .frameCount = 0,
+            .keyAtPosition = platform::keyAtPosition,
+            .keymapChanges = 0,
             .inputRoute = InputRoute::Ui,
             .sceneRect = {},
             .sceneView = {},
@@ -581,6 +583,13 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
     return app;
 }
 
+/// Les changements de disposition du clavier de ces événements, ajoutés à `App::keymapChanges`.
+void countKeymapChanges(App& app, const platform::Events& events)
+{
+    app.keymapChanges += static_cast<int>(std::ranges::count(
+        events.ui, platform::UiEventType::KeymapChanged, &platform::UiEvent::type));
+}
+
 /// Le début d'une image d'UI (ADR-0032, « L'ordre d'une image ») : ImGui reçoit l'input, puis
 /// `NewFrame` le traite ; ce n'est qu'après que `WantCaptureMouse` et `WantCaptureKeyboard` sont à
 /// jour. F1 ouvre ou ferme les panneaux ; la saisie de texte suit ce que veut ImGui.
@@ -590,7 +599,10 @@ void beginUiFrame(App& app, const platform::Events& events, double frameSeconds)
     ui::feedInput(io, events, app.ui.pressedKeys);
     ui::prepareUiFrame(io, platform::windowPixelSize(app.window), frameSeconds);
     ImGui::NewFrame();
-    if (ImGui::IsKeyPressed(ImGuiKey_F1, false))
+    countKeymapChanges(app, events);
+    const platform::KeyModifiers held{
+        .ctrl = io.KeyCtrl, .shift = io.KeyShift, .alt = io.KeyAlt, .super = io.KeySuper};
+    if (togglesPanels(ImGui::IsKeyPressed(ImGuiKey_F1, false), held))
     {
         app.ui.panelsOpen = !app.ui.panelsOpen;
     }
@@ -924,10 +936,14 @@ bool runFrame(Loop& loop)
         // dormirait sinon indéfiniment. L'infini par défaut attend sans limite.
         const double remainingSeconds =
             settings.loopSeconds - secondsBetween(loop.loopStart, Clock::now());
-        for (const auto& event : platform::waitEvents(app.window, remainingSeconds).window)
+        const platform::Events whileHidden = platform::waitEvents(app.window, remainingSeconds);
+        for (const auto& event : whileHidden.window)
         {
             applyWindowEvent(loop.state, event);
         }
+        // Un changement de disposition reçu fenêtre masquée compte aussi : qui garde une touche
+        // affichée la relirait sans cela à la restauration, trop tard pour la première image.
+        countKeymapChanges(app, whileHidden);
 
         // Le temps passé masquée n'est pas une image. Sans cette remise à l'heure, la première
         // image après la restauration durerait toute la minimisation, et le maximum affiché serait
@@ -959,7 +975,8 @@ bool runFrame(Loop& loop)
         // route est celle que l'éditeur a posée à la fin de l'image d'avant (ADR-0036).
         const Clock::time_point uiStart = Clock::now();
         const InputRoute route = app.inputRoute;
-        const std::optional<platform::Events> uiEvents = uiEventsOf(route, events);
+        const std::optional<platform::Events> uiEvents =
+            uiEventsOf(route, events, app.mouseCaptured);
         beginUiFrame(app, uiEvents ? *uiEvents : events, loop.lastFrameSeconds);
         const ImGuiIO& io = ImGui::GetIO();
         const std::vector<platform::InputEvent> gameEvents = gameInputOf(

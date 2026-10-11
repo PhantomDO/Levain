@@ -71,22 +71,29 @@ std::vector<platform::InputEvent> gameInputOf(std::span<const platform::InputEve
     return game;
 }
 
-std::optional<platform::Events> uiEventsOf(InputRoute route, const platform::Events& events)
+std::optional<platform::Events> uiEventsOf(InputRoute route, const platform::Events& events,
+                                           bool mouseCaptured)
 {
-    if (route != InputRoute::Game)
+    if (route != InputRoute::Game && !mouseCaptured)
     {
         return std::nullopt;
     }
     platform::Events kept; // sans `text` : le texte tapé en jouant n'est pas pour ImGui
+    kept.ui.reserve(events.ui.size());
     for (const platform::UiEvent& event : events.ui)
     {
-        const bool gameKeyPress =
-            event.type == platform::UiEventType::Key && event.down && event.scancode != PanelsKey;
-        if (!gameKeyPress)
+        const bool gameKeyPress = route == InputRoute::Game &&
+                                  event.type == platform::UiEventType::Key && event.down &&
+                                  event.scancode != PanelsKey;
+        if (!gameKeyPress && !mouseTakenByCapture(event, mouseCaptured))
         {
             kept.ui.push_back(event);
         }
     }
+    // Pas de texte sous la capture non plus : en vol, ZQSD ne se tape pas dans le champ de
+    // l'inspecteur qui était actif. Les touches, elles, restent (Ctrl+S, un accord du global, vaut
+    // en vol ; décision 13). TODO morceau 11 : Retour arrière, les flèches... agissent encore sur
+    // ce champ ; le vol devrait le désactiver en commençant (`ImGui::ClearActiveID`).
     return kept;
 }
 
