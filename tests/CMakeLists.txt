@@ -43,6 +43,7 @@ set(nativeTests
     input_script_test.cpp
     input_test.cpp
     light_clusters_test.cpp
+    log_sink_test.cpp
     shadows_test.cpp
     stages_test.cpp
     terrain_test.cpp

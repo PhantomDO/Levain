@@ -23,7 +23,7 @@ de modification (le hot-reload des shaders, M2.3).
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/core/log.hpp`](include/levain/core/log.hpp) | `log(category, level, fmt, …)` — une catégorie par module, le niveau est testé **avant** le formatage |
+| [`include/levain/core/log.hpp`](include/levain/core/log.hpp) | `log(category, level, fmt, …)` — une catégorie par module, le niveau est testé **avant** le formatage ; `addLogSink` et `LogSinkHandle` — un récepteur de plus (la console de l'éditeur), appelé depuis le fil qui journalise, retiré à la destruction de sa poignée sans appel qui traîne ; ce qu'un récepteur journalise va à la console seule, jamais aux récepteurs (la règle des verrous est dans `LogSink`). Équivalent des `FOutputDevice` d'Unreal (`GLog->AddOutputDevice`) et de `Application.logMessageReceivedThreaded` d'Unity |
 | [`include/levain/core/assert.hpp`](include/levain/core/assert.hpp) | `LEVAIN_ASSERT` (Debug seulement) et `LEVAIN_VERIFY` (évalue toujours) |
 | [`include/levain/core/error.hpp`](include/levain/core/error.hpp) | `Result<T>` = `std::expected<T, Error>`, pour les échecs qui ne sont pas des bugs |
 | [`include/levain/core/linear_allocator.hpp`](include/levain/core/linear_allocator.hpp) | `LinearAllocator` — arène vidée d'un coup, **9,4× plus rapide que `malloc`** |
