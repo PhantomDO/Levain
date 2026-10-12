@@ -132,10 +132,21 @@ void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow
             hierarchy.open.insert(row.entity);
         }
     }
-    else if (ImGui::IsItemClicked())
+    else
     {
-        selected = row.entity;
+        if (ImGui::IsItemClicked())
+        {
+            selected = row.entity;
+        }
+        // Le double-clic choisit aussi la ligne, puis demande le cadrage : Unreal cadre au
+        // double-clic dans l'Outliner (supposé, ADR-0036 [E3]).
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+            selected = row.entity;
+            hierarchy.frameRequested = true;
+        }
     }
+    hierarchy.rects[row.entity] = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
     ImGui::PopID();
 }
 
@@ -148,7 +159,9 @@ Hierarchy createHierarchy(const flecs::world& world)
     // section « Parent storage details »).
     return {.roots = world.query_builder<const scene::Transform>().without<flecs::Parent>().build(),
             .open = {},
-            .rows = {}};
+            .rows = {},
+            .frameRequested = false,
+            .rects = {}};
 }
 
 bool isEngineInternal(const flecs::table& table)
@@ -232,6 +245,8 @@ void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entit
                    ImGuiID dock, bool* open)
 {
     listHierarchyRows(hierarchy, hierarchy.rows);
+    hierarchy.frameRequested = false;
+    hierarchy.rects.clear();
     if (open != nullptr && !*open)
     {
         return;

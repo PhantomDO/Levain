@@ -92,8 +92,8 @@ std::optional<platform::Events> uiEventsOf(InputRoute route, const platform::Eve
     }
     // Pas de texte sous la capture non plus : en vol, ZQSD ne se tape pas dans le champ de
     // l'inspecteur qui était actif. Les touches, elles, restent (Ctrl+S, un accord du global, vaut
-    // en vol ; décision 13). TODO morceau 11 : Retour arrière, les flèches... agissent encore sur
-    // ce champ ; le vol devrait le désactiver en commençant (`ImGui::ClearActiveID`).
+    // en vol ; décision 13). Retour arrière et les flèches agiraient encore sur un champ actif :
+    // l'éditeur le désactive en commençant le vol (`ImGui::ClearActiveID`, morceau 11).
     return kept;
 }
 

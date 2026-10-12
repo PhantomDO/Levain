@@ -49,6 +49,7 @@ void enterMode(app::App& app, ModeState& state, Mode mode)
     state.stopHeld = false;
     app.simulationPaused = simulationPausedIn(mode);
     app.mouseCaptureWanted = false;
+    app.mouseCaptureOverPanels = false;
     // Le jeu repart de zéro : un `InputState` neuf, ses appuis en attente oubliés, et le
     // singleton relu (il vaut pour l'image en cours, où `frame` a peut-être déjà tourné).
     app.input = input::makeInputState(app.bindings);

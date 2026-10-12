@@ -201,7 +201,7 @@ constexpr std::string_view Script =
     "17 key down Escape\n"   // clic droit tenu : l'Édition, la souris rendue
     "18 key up Escape\n"
     "20 button up right\n"
-    "21 button down right\n" // Édition, clic droit tenu...
+    "21 button down right\n" // Édition, clic droit tenu : le vol de la caméra capture la souris...
     "22 key down Left Alt\n"
     "22 key down P\n" // ...et le jeu dès l'image 23
     "23 key up P\n"
@@ -235,8 +235,11 @@ int playModes(const levain::tests::TestBackend& backend)
         {
             failures += expect(seen.forward == 0.0f && !seen.anyHeld,
                                at + "PlayerInput reste vide en Édition");
-            failures += expect(!seen.leftSeen && !seen.rightSeen && !seen.captured,
-                               at + "ni souris vue ni souris capturée en Édition");
+            // La souris n'est capturée en Édition que par le vol de la caméra (morceau 11) : un
+            // clic droit appuyé dans la scène, ici aux images 21 et 22.
+            failures += expect(!seen.leftSeen && !seen.rightSeen &&
+                                   seen.captured == (frame == 21 || frame == 22),
+                               at + "ni souris vue, ni capturée hors du vol, en Édition");
         }
         // Les touches : ImGui seul les voit en Édition (W, images 1 et 2) ; en jeu le jeu seul (6
         // et 7).
@@ -251,8 +254,9 @@ int playModes(const levain::tests::TestBackend& backend)
         failures +=
             expect(seen.rightSeen == (frame == 15 || frame == 16 || frame == 27 || frame == 28),
                    at + "le jeu tient le clic droit de son appui à son relâchement, pas avant");
-        failures += expect(seen.captured == seen.rightSeen,
-                           at + "la souris est capturée tant que le jeu tient le clic droit");
+        failures += expect(seen.captured == (seen.rightSeen || frame == 21 || frame == 22),
+                           at + "la souris est capturée tant que le jeu tient le clic droit, ou "
+                                "que la caméra vole");
     }
     return failures;
 }

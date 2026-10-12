@@ -4,6 +4,7 @@
 // rangées par `flecs::Parent` (ADR-0015), et un nœud des singletons. En M7.2, elle sélectionne
 // seulement. Ses lignes se calculent sans ImGui : les tests les lisent.
 
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -25,6 +26,13 @@ struct HierarchyRow
     int depth = 0;
 };
 
+/// Où une ligne a été dessinée à la dernière image, en pixels de l'image.
+struct RowRect
+{
+    ImVec2 min{};
+    ImVec2 max{};
+};
+
 /// Ce que la hiérarchie garde d'une image à l'autre.
 struct Hierarchy
 {
@@ -34,6 +42,13 @@ struct Hierarchy
     std::unordered_set<flecs::entity_t> open;
     /// Les lignes de la dernière image : les racines, et les enfants des nœuds ouverts.
     std::vector<HierarchyRow> rows;
+    /// Le double-clic sur une ligne a eu lieu à cette image : l'entité de la ligne est choisie et
+    /// l'éditeur la cadre (ADR-0036, décision 6). Remis à faux au début de chaque dessin.
+    bool frameRequested = false;
+    /// Où les lignes dessinées à la dernière image sont (celles que le clipper a montrées) : un
+    /// test vise une ligne par son rectangle, et la hiérarchie qui défile jusqu'à la sélection
+    /// (M7.4) en aura besoin.
+    std::unordered_map<flecs::entity_t, RowRect> rects;
 };
 
 [[nodiscard]] Hierarchy createHierarchy(const flecs::world& world);

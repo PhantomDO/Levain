@@ -249,8 +249,9 @@ int playFlight(const levain::tests::TestBackend& backend)
 /// **Le comportement d'aujourd'hui, épinglé** : le relâchement d'un vol atteint ImGui, mais pas les
 /// mouvements d'avant (`mouseTakenByCapture`) : appui et relâchement au même point, c'est un clic,
 /// et le menu du clic droit de la Vue s'ouvre à la fin de chaque vol. Ce n'est pas voulu (Unreal
-/// n'ouvre le menu que pour un clic droit sans glissé) : TODO morceau 11, la Vue ne l'ouvrira que
-/// si aucun vol n'a eu lieu depuis l'appui, et ce test changera alors de sens. La fenêtre au menu
+/// n'ouvre le menu que pour un clic droit sans glissé) : au morceau 11, la Vue de l'éditeur ne
+/// l'ouvre que si le clic n'a pas volé (`gpu.editor-gestures.*`) ; ce test épingle `app` seul, sans
+/// l'éditeur, et ne change donc pas de sens. La fenêtre au menu
 /// est dessinée dès l'image 1, avant l'appui.
 int playFlightReleaseIsAClick(const levain::tests::TestBackend& backend)
 {
