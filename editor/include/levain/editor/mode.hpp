@@ -12,6 +12,7 @@
 #include <imgui.h>
 
 #include "levain/app/app.hpp"
+#include "levain/editor/shortcuts.hpp"
 #include "levain/input/state.hpp"
 
 namespace levain::editor
@@ -113,17 +114,20 @@ struct ModeRequests
     return mode == Mode::Edit ? "edit" : "play";
 }
 
-/// Échap, par sa position (le scancode 41 d'USB, que `platform` vérifie contre SDL) : en jeu, elle
-/// ramène à l'Édition, comme l'arrêt d'Unreal (ADR-0036, décision 13) ; M7.5 en fera « Arrêter ».
+/// Échap, par sa position (le scancode 41 d'USB, que `platform` vérifie contre SDL) : le défaut de
+/// l'action « Arrêter » de la table (`shortcuts.hpp`). En jeu, elle ramène à l'Édition, comme
+/// l'arrêt d'Unreal (ADR-0036, décision 13) ; M7.5 en fera « Arrêter ».
 inline constexpr std::uint16_t StopScancode = 41;
 
-/// Échap vient d'être appuyée : le front, lu sur l'input brut du jeu. Une touche tenue ne le
-/// redonne pas. **Elle vaut partout où le jeu reçoit le clavier** : sous la route *jeu*, mais aussi
-/// sous la route *UI* quand une fenêtre a le focus sans qu'un champ soit actif ; la décision 13
-/// la réserve au contexte *jeu*. TODO morceaux 11 et 12 : la table existe (`shortcuts.hpp`,
-/// morceau 10) ; ils lisent alors Échap par `actionFor` (contexte *jeu*) au lieu de `StopScancode`,
-/// et Alt+P par `imguiChordOf(Play)` au lieu de la lettre écrite dans `playShortcutPressed`.
-[[nodiscard]] bool stopPressed(ModeState& state, const input::RawInput& raw);
+/// Échap vient d'être appuyée : le front, lu sur l'input brut du jeu, à la position que la table
+/// donne à « Arrêter » (`table`, ADR-0036, décision 13) : un accord changé par l'utilisateur
+/// (morceau 16) arrête aussi. Une touche tenue ne le redonne pas. **Elle vaut partout où le jeu
+/// reçoit le clavier** : sous la route *jeu*, mais aussi sous la route *UI* quand une fenêtre a le
+/// focus sans qu'un champ soit actif ; la décision 13 la réserve au contexte *jeu* (la route *jeu*
+/// seule sait l'être : M7.5 la lui rendra avec « Arrêter »). Sans accord de position pour l'action,
+/// jamais.
+[[nodiscard]] bool stopPressed(ModeState& state, const input::RawInput& raw,
+                               const ShortcutTable& table);
 
 /// Passe dans ce mode. **Remet `mouseCaptureWanted` à faux** à chaque changement : en Édition le
 /// `frame` du programme, qui le repose, ne tourne plus, et la souris qu'un clic droit tenu avait
@@ -146,9 +150,10 @@ void drawModeBar(Mode current, const app::ScreenRect& scene);
 /// barre est dans le rectangle de la scène).
 [[nodiscard]] std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered);
 
-/// Alt+P est pressée, par la lettre (ADR-0036, décision 13) : le raccourci d'Unreal pour jouer.
-/// ImGui doit recevoir le clavier : sous la route *jeu*, il n'en a que les relâchements.
-[[nodiscard]] bool playShortcutPressed();
+/// Alt+P est pressée, par la lettre que la table donne à « Jouer » (`imguiChordOf`, ADR-0036,
+/// décision 13) : le raccourci d'Unreal pour jouer. ImGui doit recevoir le clavier : sous la route
+/// *jeu*, il n'en a que les relâchements. Sans accord de lettre pour l'action, jamais.
+[[nodiscard]] bool playShortcutPressed(const ShortcutTable& table);
 
 /// Aucune fenêtre d'ImGui n'a le focus : la scène l'a, la fenêtre entière, panneaux fermés.
 /// Panneaux ouverts, c'est la Vue qui a le focus ou non (`View::focused`, `sceneFocusedIn`).

@@ -139,7 +139,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                                             .windows = {},
                                             .view = {},
                                             .menu = {},
-                                            .quit = {}});
+                                            .quit = {},
+                                            .shortcuts = defaultShortcuts()});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -158,7 +159,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         {
             // Échap ramène à l'Édition ; le `frame` du programme ne tourne qu'en jeu.
             if (const auto requested = modeRequested(
-                    editor->mode.current, {.stop = stopPressed(editor->mode, app.input.raw)}))
+                    editor->mode.current,
+                    {.stop = stopPressed(editor->mode, app.input.raw, editor->shortcuts)}))
             {
                 changeMode(app, *editor, *requested);
             }
@@ -211,9 +213,9 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 drawModeBar(editor->mode.current, app.sceneRect);
             }
             if (const auto next = modeRequested(
-                    editor->mode.current,
-                    {.toolbar = requested,
-                     .playShortcut = globalChordsAllowed(editor->quit) && playShortcutPressed()}))
+                    editor->mode.current, {.toolbar = requested,
+                                           .playShortcut = globalChordsAllowed(editor->quit) &&
+                                                           playShortcutPressed(editor->shortcuts)}))
             {
                 changeMode(app, *editor, *next);
             }

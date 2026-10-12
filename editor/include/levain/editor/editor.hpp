@@ -23,6 +23,7 @@
 #include "levain/editor/inspector.hpp"
 #include "levain/editor/mode.hpp"
 #include "levain/editor/quit.hpp"
+#include "levain/editor/shortcuts.hpp"
 #include "levain/editor/view.hpp"
 #include "levain/editor/window_menu.hpp"
 
@@ -90,6 +91,8 @@ struct Editor
     WindowMenuLayout menu;
     /// La modale « Quitter l'éditeur ? » (ADR-0036, décision 11).
     QuitState quit;
+    /// La table des raccourcis : les défauts de la décision 13 (les changer est le morceau 16).
+    ShortcutTable shortcuts;
 };
 
 /// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web
