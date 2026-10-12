@@ -29,9 +29,9 @@ qu'un tableau à lire.
 - **Le scénario** est le nom du test qui prouvera le geste de bout en bout, par le banc d'essai de l'App (ADR-0036,
   morceau 2 : des événements rejoués, en QWERTY et en AZERTY pour une touche à position). Il est provisoire tant que le
   geste est « à faire » : la PR qui écrit le scénario peut le renommer, ici aussi.
-  Le banc sait écrire des touches, des boutons, la position de la souris (morceau 5) et un changement de disposition du
-  clavier (`keymap changed`, morceau 10) ; le mouvement et la
-  molette (11), le texte (12) et la fermeture (13) viennent avec le morceau qui en a besoin
+  Le banc sait écrire des touches, des boutons, la position de la souris (morceau 5), un changement de disposition du
+  clavier (`keymap changed`, morceau 10), le mouvement relatif et la molette (`mouse motion`, `wheel`, morceau 11) et la
+  croix de la fenêtre (`window close`, morceau 13) ; le texte (12) vient avec le morceau qui en a besoin
   ([platform/README](../engine/platform/README.md)).
 - **L'état** prend l'un de trois mots, et la commande refuse tout autre :
   - `à faire` : aucun test ne prouve le geste ;
@@ -43,7 +43,7 @@ qu'un tableau à lire.
 
 | n° | Geste | Unreal (le modèle) | Unity | Levain | Milestone | Morceau | Scénario | État |
 |---|---|---|---|---|---|---|---|---|
-| 1 | Regarder et voler | clic droit tenu, souris, W A S D : documenté [E1] | clic droit tenu, souris, W A S D : documenté [U1] | clic droit tenu dans la Vue ; pos. W A S D (Z Q S D) | M7.7 | 11 | `gestes.vol` | à faire |
+| 1 | Regarder et voler | clic droit tenu, souris, W A S D : documenté [E1] | clic droit tenu, souris, W A S D : documenté [U1] | clic droit tenu dans la Vue ; pos. W A S D (Z Q S D) | M7.7 | 11 | `gpu.editor-gestures.vulkan` (clic droit tenu dans la Vue + la touche à la place du W avance, en QWERTY et en AZERTY ; la touche marquée W d'un AZERTY, à la place du Z, ne fait rien ; la même chose hors de la Vue ne fait rien ; la souris n'est capturée que pendant le vol) ; `les touches de vol se lisent par position : W, A, S, D, E, Q` | couvert |
 | 2 | Sélectionner au clic dans la Vue | clic gauche : documenté [E1] | clic : documenté [U7] | clic gauche | M7.4 | à venir | `gestes.clic-vue` | à faire |
 | 3 | Sélectionner dans la hiérarchie | clic dans l'Outliner : documenté [E3] | clic dans la Hierarchy : supposé | clic sur la ligne (existe : editor/src/hierarchy.cpp:137-139 ; le scénario manque) | M7.7 | 8 | `gestes.clic-hierarchie` | à faire |
 | 4 | Annuler | Ctrl+Z : documenté [E9] pour le sculpt, supposé ailleurs | Ctrl+Z : documenté [U6] | Ctrl+Z | M7.3 | à venir (annulation) | `gestes.annuler` | à faire |
@@ -52,7 +52,7 @@ qu'un tableau à lire.
 | 7 | Prendre l'outil déplacer, tourner, échelle | W, E, R : documenté [E2] | W, E, R : documenté [U3] | pos. W E R (Z E R) | M7.4 | à venir (la touche : M7.7, 10) | `gestes.outils` | à faire |
 | 8 | Taper une valeur, la voir dans l'image | dans l'image : supposé | dans l'image : supposé | dans la même image (l'éditeur demande la recomposition depuis M7.7, 5 ; le scénario attend le texte scripté) | M7.7 | 12 (la recomposition : 4, 5) | `gestes.champ-meme-image` | à faire |
 | 9 | Enregistrer la scène | Ctrl+S : supposé | Ctrl+S : supposé | Ctrl+S | M7.3 | à venir (scènes) | `gestes.enregistrer` | à faire |
-| 10 | Monter, descendre en vol | E, Q : documenté [E1] | E, Q : documenté [U1] | pos. E et Q (E et A) | M7.7 | 11 | `gestes.vol-monter` | à faire |
+| 10 | Monter, descendre en vol | E, Q : documenté [E1] | E, Q : documenté [U1] | pos. E et Q (E et A) | M7.7 | 11 | `gpu.editor-gestures.vulkan` (E et Q par position, aux places du W : `flightMoveOf`) ; `les touches de vol se lisent par position : W, A, S, D, E, Q` | couvert |
 | 11 | Régler la vitesse du vol | molette, clic droit tenu : documenté [E1] | molette en vol : documenté [U1] | molette, clic droit tenu | M7.7 | 11 | `gestes.vol-vitesse` | à faire |
 | 12 | Orbiter autour du pivot | Alt+clic gauche : documenté [E1] | Alt+clic gauche : documenté [U1] | Alt+clic gauche | M7.7 | 11 | `gestes.orbite` | à faire |
 | 13 | Zoomer | molette : documenté [E1] | molette : documenté [U1] | molette, hors vol | M7.7 | 11 | `gestes.zoom` | à faire |
