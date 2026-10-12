@@ -14,10 +14,21 @@
 #include "levain/editor/gestures.hpp"
 #include "levain/editor/scene_bounds.hpp"
 #include "levain/editor/shortcuts.hpp"
+#include "levain/platform/input_script.hpp"
+#include "levain/platform/window.hpp"
 #include "levain/scene/components.hpp"
 
+using levain::editor::capturesMouse;
 using levain::editor::EditorCamera;
 using levain::editor::Gesture;
+using levain::editor::GestureContext;
+using levain::editor::GestureFrame;
+using levain::editor::GestureState;
+using levain::editor::GestureStep;
+using levain::editor::stepGestures;
+using levain::platform::Events;
+using levain::platform::UiEvent;
+using levain::platform::UiEventType;
 
 namespace
 {
@@ -30,6 +41,64 @@ const levain::editor::ShortcutTable& table()
 {
     static const auto shortcuts = levain::editor::defaultShortcuts();
     return shortcuts;
+}
+
+/// Une scène de 800 × 600 en (100, 50) : ce que la Vue montre.
+GestureContext sceneContext()
+{
+    return {.region = {.x = 100.0f, .y = 50.0f, .width = 800.0f, .height = 600.0f},
+            .sceneHovered = true};
+}
+
+UiEvent moved(float x, float y)
+{
+    return {.type = UiEventType::MouseMoved, .x = x, .y = y};
+}
+
+UiEvent button(std::uint8_t which, bool down)
+{
+    return {.type = UiEventType::MouseButton, .button = which, .down = down};
+}
+
+UiEvent key(std::uint16_t scancode, bool down, levain::platform::KeyModifiers modifiers = {})
+{
+    return {.type = UiEventType::Key,
+            .keycode = levain::platform::qwertyKeyAtPosition(scancode),
+            .scancode = scancode,
+            .down = down,
+            .modifiers = modifiers};
+}
+
+Events eventsOf(std::initializer_list<UiEvent> ui, glm::vec2 motion = {0.0f, 0.0f})
+{
+    Events events;
+    events.ui = ui;
+    if (motion != glm::vec2{0.0f})
+    {
+        events.input.push_back({.type = levain::platform::InputEventType::AxisMotion,
+                                .device = levain::platform::InputDevice::Mouse,
+                                .code = 0,
+                                .value = motion.x});
+        events.input.push_back({.type = levain::platform::InputEventType::AxisMotion,
+                                .device = levain::platform::InputDevice::Mouse,
+                                .code = 1,
+                                .value = motion.y});
+    }
+    return events;
+}
+
+GestureStep step(const GestureState& state, const Events& events,
+                 const GestureContext& context = sceneContext())
+{
+    return stepGestures(state, events, context, table(), Dt);
+}
+
+/// Un vol commencé au centre de la scène.
+GestureState flying()
+{
+    const GestureStep started =
+        step({}, eventsOf({moved(500.0f, 350.0f), button(levain::editor::RightButton, true)}));
+    return started.state;
 }
 
 EditorCamera tilted()
@@ -75,6 +144,76 @@ TEST_CASE("les touches de vol se lisent par position : W, A, S, D, E, Q")
     keys.reset();
     keys.set(ScanZ);
     CHECK(flightMoveOf(table(), keys) == glm::vec3{0.0f});
+}
+
+TEST_CASE("un geste ne commence que dans la scène, sous la souris : ailleurs il ne fait rien")
+{
+    const auto press = eventsOf({moved(500.0f, 350.0f), button(levain::editor::RightButton, true)});
+    CHECK(step({}, press).state.active == Gesture::Fly);
+    CHECK(capturesMouse(step({}, press).state));
+
+    // Hors du rectangle de la Vue (dans la colonne de gauche).
+    const auto outside =
+        eventsOf({moved(40.0f, 350.0f), button(levain::editor::RightButton, true)});
+    CHECK(step({}, outside).state.active == Gesture::None);
+    // Dans le rectangle, mais une autre fenêtre est dessus : pas sous la souris.
+    GestureContext covered = sceneContext();
+    covered.sceneHovered = false;
+    CHECK(step({}, press, covered).state.active == Gesture::None);
+    // Sans position connue, l'appui n'est nulle part.
+    CHECK(step({}, eventsOf({button(levain::editor::RightButton, true)})).state.active ==
+          Gesture::None);
+    // Le bord haut gauche en est, le bas droit non, comme un pixel.
+    CHECK(step({}, eventsOf({moved(100.0f, 50.0f), button(levain::editor::MiddleButton, true)}))
+              .state.active == Gesture::Pan);
+    CHECK(step({}, eventsOf({moved(900.0f, 650.0f), button(levain::editor::MiddleButton, true)}))
+              .state.active == Gesture::None);
+}
+
+TEST_CASE("un geste commencé hors de la Vue ne se continue pas quand la souris y entre")
+{
+    GestureState state =
+        step({}, eventsOf({moved(40.0f, 350.0f), button(levain::editor::RightButton, true)})).state;
+    CHECK(state.active == Gesture::None);
+    // Le bouton est toujours tenu : la souris entre dans la Vue en bougeant, et la touche de vol
+    // est tenue. Rien ne vole.
+    const GestureStep next =
+        step(state, eventsOf({moved(500.0f, 350.0f), key(ScanW, true)}, {30.0f, 10.0f}));
+    CHECK(next.frame.gesture == Gesture::None);
+    CHECK(next.frame.motion == glm::vec2{0.0f});
+    CHECK(next.frame.move == glm::vec3{0.0f});
+}
+
+TEST_CASE("le mouvement de l'image du relâchement revient encore au geste, puis il est fini")
+{
+    const GestureState state = flying();
+    const GestureStep last =
+        step(state, eventsOf({button(levain::editor::RightButton, false)}, {12.0f, 0.0f}));
+    CHECK(last.frame.gesture == Gesture::Fly);
+    CHECK(last.frame.motion.x == 12.0f);
+    CHECK(last.state.active == Gesture::None);
+    CHECK_FALSE(capturesMouse(last.state));
+    // Un autre bouton relâché ne finit pas le geste.
+    CHECK(step(state, eventsOf({button(levain::editor::LeftButton, false)})).state.active ==
+          Gesture::Fly);
+}
+
+TEST_CASE("la souris capturée n'a pas de position : le curseur ne suit pas pendant le vol")
+{
+    const GestureState state = flying();
+    CHECK(step(state, eventsOf({moved(2000.0f, -300.0f)})).state.cursor ==
+          glm::vec2{500.0f, 350.0f});
+}
+
+TEST_CASE("la fenêtre qui perd le focus lâche le geste et les touches : leurs relâchements ne "
+          "viendront pas")
+{
+    GestureState state = step(flying(), eventsOf({key(ScanW, true)})).state;
+    CHECK(state.keys.test(ScanW));
+    state = step(state, eventsOf({UiEvent{.type = UiEventType::FocusLost}})).state;
+    CHECK(state.active == Gesture::None);
+    CHECK(state.keys.none());
+    CHECK(state.cursorKnown); // le curseur reste situé
 }
 
 TEST_CASE("les boîtes : celle d'une entité, celle de la scène, les plans de découpe")
@@ -151,6 +290,29 @@ TEST_CASE("la durée d'un vol est bornée : une image longue ne lance pas la cam
     CHECK(clampFlightSeconds(2.0f) == MaxFlightSeconds);
     CHECK(clampFlightSeconds(-1.0f) == 0.0f);
     CHECK(clampFlightSeconds(std::nanf("")) == 0.0f);
+    // Dans le pas : une image de deux secondes compte `MaxFlightSeconds`.
+    const GestureStep slow = stepGestures({}, eventsOf({}), sceneContext(), table(), 2.0f);
+    CHECK(slow.frame.seconds == MaxFlightSeconds);
+}
+
+TEST_CASE("une fenêtre cachée remet les gestes au repos : les relâchements ne viendront pas")
+{
+    GestureState state = flying();
+    state = step(state, eventsOf({key(ScanW, true)})).state;
+    REQUIRE(state.active == Gesture::Fly);
+    REQUIRE(state.keys.test(ScanW));
+    Events hidden = eventsOf({}, {5.0f, 0.0f});
+    hidden.window.push_back({.type = levain::platform::WindowEventType::Hidden});
+    const GestureStep next = step(state, hidden);
+    CHECK(next.state.active == Gesture::None);
+    CHECK_FALSE(next.state.keys.test(ScanW));
+    CHECK_FALSE(capturesMouse(next.state));
+    // Le curseur reste connu : le prochain appui est situé.
+    CHECK(next.state.cursorKnown);
+    // Visible, la fenêtre ne remet rien (la molette hors vol zoome, elle ne tient pas d'état).
+    Events shown = eventsOf({});
+    shown.window.push_back({.type = levain::platform::WindowEventType::Shown});
+    CHECK(step(state, shown).state.active == Gesture::Fly);
 }
 
 TEST_CASE("la boîte de la scène se garde : refaite quand quelque chose a changé, sinon non")

@@ -3,6 +3,43 @@
 namespace levain::editor
 {
 
+namespace
+{
+
+bool altHeld(const std::bitset<platform::KeyCodeCount>& keys)
+{
+    return keys.test(LeftAltScancode) || keys.test(RightAltScancode);
+}
+
+bool shiftHeld(const std::bitset<platform::KeyCodeCount>& keys)
+{
+    return keys.test(LeftShiftScancode) || keys.test(RightShiftScancode);
+}
+
+/// Le curseur est dans la scène et celle-ci est sous la souris : l'endroit où un geste commence.
+bool startsInScene(const GestureState& state, const GestureContext& context)
+{
+    return state.cursorKnown && context.sceneHovered &&
+           app::rectContains(context.region, state.cursor.x, state.cursor.y);
+}
+
+/// Un bouton vient de commencer le geste `gesture` : ce qui se garde de l'appui.
+void begin(GestureState& state, Gesture gesture, std::uint8_t button)
+{
+    state.active = gesture;
+    state.button = button;
+}
+
+} // namespace
+
+GestureState idleGestures(const GestureState& state)
+{
+    GestureState idle;
+    idle.cursor = state.cursor;
+    idle.cursorKnown = state.cursorKnown;
+    return idle;
+}
+
 glm::vec3 flightMoveOf(const ShortcutTable& table, const std::bitset<platform::KeyCodeCount>& keys)
 {
     const auto axis = [&table, &keys](Action positive, Action negative)
@@ -14,6 +51,94 @@ glm::vec3 flightMoveOf(const ShortcutTable& table, const std::bitset<platform::K
     };
     return {axis(Action::MoveRight, Action::MoveLeft), axis(Action::MoveUp, Action::MoveDown),
             axis(Action::MoveForward, Action::MoveBackward)};
+}
+
+GestureStep stepGestures(GestureState state, const platform::Events& events,
+                         const GestureContext& context, const ShortcutTable& table, float seconds)
+{
+    GestureStep step;
+    step.frame.seconds = clampFlightSeconds(seconds);
+    for (const platform::UiEvent& event : events.ui)
+    {
+        switch (event.type)
+        {
+        case platform::UiEventType::MouseMoved:
+            // Souris capturée, SDL continue de compter une position qui n'est pas celle du curseur.
+            if (state.active != Gesture::Fly)
+            {
+                state.cursor = {event.x, event.y};
+                state.cursorKnown = true;
+            }
+            break;
+        case platform::UiEventType::MouseButton:
+            if (event.down && state.active == Gesture::None)
+            {
+                const Gesture gesture = gestureStartedBy(event.button, altHeld(state.keys));
+                if (gesture != Gesture::None && startsInScene(state, context))
+                {
+                    begin(state, gesture, event.button);
+                }
+            }
+            else if (!event.down && state.active != Gesture::None && event.button == state.button)
+            {
+                // Le mouvement de cette image est encore pour ce geste (`activeThisFrame`).
+                step.frame.gesture = state.active;
+                state.active = Gesture::None;
+                state.button = 0;
+            }
+            break;
+        case platform::UiEventType::MouseWheel:
+            if (state.active != Gesture::None || startsInScene(state, context))
+            {
+                step.frame.wheelNotches += event.y;
+            }
+            break;
+        case platform::UiEventType::Key:
+            if (event.scancode < state.keys.size())
+            {
+                state.keys.set(event.scancode, event.down);
+            }
+            break;
+        case platform::UiEventType::FocusLost:
+            // Les relâchements ne viendront pas : ni touche tenue, ni geste en cours.
+            state = idleGestures(state);
+            break;
+        default:
+            break;
+        }
+    }
+    // Cachée, la fenêtre ne reçoit plus les relâchements : ni touche tenue, ni geste en cours. Le
+    // mouvement de l'image revient au geste qui s'arrête ici (`current` ci-dessous).
+    for (const platform::WindowEvent& event : events.window)
+    {
+        if (event.type == platform::WindowEventType::Hidden)
+        {
+            step.frame.gesture = state.active != Gesture::None ? state.active : step.frame.gesture;
+            state = idleGestures(state);
+        }
+    }
+    // Le geste de l'image : celui qui était en cours au début ou a commencé dans l'image, même si
+    // son bouton a été relâché depuis (le mouvement qui précède le relâchement lui revient).
+    const Gesture current = state.active != Gesture::None ? state.active : step.frame.gesture;
+    step.frame.gesture = current;
+    if (current != Gesture::None)
+    {
+        for (const platform::InputEvent& event : events.input)
+        {
+            if (event.type == platform::InputEventType::AxisMotion &&
+                event.device == platform::InputDevice::Mouse && event.code < 2)
+            {
+                (event.code == 0 ? step.frame.motion.x : step.frame.motion.y) += event.value;
+            }
+        }
+    }
+    if (current == Gesture::Fly)
+    {
+        step.frame.move = flightMoveOf(table, state.keys);
+        step.frame.speedMultiplier = shiftHeld(state.keys) ? RunMultiplier : 1.0f;
+    }
+    step.state = state;
+    return step;
 }
 
 } // namespace levain::editor
