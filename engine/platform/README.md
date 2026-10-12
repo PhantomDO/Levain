@@ -30,7 +30,7 @@ clavier, de la souris et des manettes, avec la résolution des noms de SDL dont 
 | [`include/levain/platform/window.hpp`](include/levain/platform/window.hpp) | `createWindow` (et `GraphicsSurface`, la surface que la fenêtre annonce), `windowPixelSize`, `pollEvents`, `waitEvents`, `setWindowTitle` |
 | [`include/levain/platform/input_script.hpp`](include/levain/platform/input_script.hpp) | `InputScript`, `parseInputScript`, `loadInputScript`, `addScriptedEvents` : des événements écrits dans un fichier, rejoués image par image (ADR-0036) |
 | [`include/levain/platform/process.hpp`](include/levain/platform/process.hpp) | `runProcess` — lance un programme, attend sa fin, rend sa sortie (standard et erreur mêlées) et son code de retour |
-| [`include/levain/platform/input.hpp`](include/levain/platform/input.hpp) | `InputEvent` (appuis, axes, souris), `keyCodeFromName` et ses cousines, `setMouseCaptured`, `cursorPosition` (la souris en pixels de la swapchain, pour viser à l'écran) ; pour une interface (ADR-0032) : `UiEvent`, `startTextInput`, `stopTextInput`, `clipboardText`, `setClipboardText`, `displayScale` |
+| [`include/levain/platform/input.hpp`](include/levain/platform/input.hpp) | `InputEvent` (appuis, axes, souris), `keyCodeFromName` et ses cousines, `setMouseCaptured`, `warpMouse` (le curseur remis avant de quitter la capture), `cursorPosition` (la souris en pixels de la swapchain, pour viser à l'écran) ; pour une interface (ADR-0032) : `UiEvent`, `startTextInput`, `stopTextInput`, `clipboardText`, `setClipboardText`, `displayScale` |
 
 ## Trois choses à savoir sur l'input brut
 
@@ -65,7 +65,7 @@ Le jeu lit des actions ; une interface (ImGui, `engine/ui`) a besoin d'autre cho
   type en paramètre, pour que la logique n'appelle pas SDL (ADR-0011). Un changement de disposition arrive comme
   `UiEventType::KeymapChanged` (`SDL_EVENT_KEYMAP_CHANGED`) : qui garde un résultat de `keyAtPosition` le refait.
   Le banc d'essai l'écrit `<image> keymap changed` ; sa disposition est `qwertyKeyAtPosition`.
-- **La position de la souris est en pixels de l'image**, densité comprise, comme `cursorPosition`.
+- **La position de la souris est en pixels de l'image**, densité comprise, comme `cursorPosition`. Le mouvement relatif (`AxisMotion` de la souris) l'est aussi : `xrel` et `yrel` de SDL, multipliés par la densité.
 
 ## Le banc d'essai de l'input (ADR-0036)
 
@@ -81,6 +81,11 @@ nommant la ligne et le champ (règle n°7).
 aussi « nan »). Elle ne va qu'à l'interface (`UiEvent`) : le jeu lit un déplacement, jamais un lieu. Sous la route *jeu*
 (`app`), un clic scripté sans `mouse move` avant lui n'atteint pas le jeu : le curseur d'ImGui n'est encore nulle part.
 
+**Le mouvement relatif et la molette** (morceau 11) : `mouse motion <dx> <dy>` donne les deux axes de la souris au jeu
+(`InputEvent`, ce que lit le vol de l'éditeur) **sans bouger le curseur d'ImGui** (à la souris capturée, SDL n'envoie
+pas non plus de position) ; `wheel <crans>` (positif vers l'avant, comme SDL) va à l'interface seule. Un test qui veut
+le curseur et le mouvement écrit les deux lignes.
+
 **La fermeture** s'écrit `window close` : la croix (`CloseRequested`). Un signal ne s'écrit pas dans un script, il se lève pour de
 vrai (`raise(SIGTERM)`, `gpu.editor-close.*`) : il arrive en `QuitSignal` (SDL_EVENT_QUIT), et le programme n'est jamais
 consulté. `createWindow` coupe `SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE`, sans quoi SDL enverrait aussi QUIT à la croix
@@ -91,7 +96,6 @@ signal** : SDL n'installe son gestionnaire que si SIGTERM est encore à SIG_DFL 
 
 | Événement | Morceau | Pour quel scénario |
 |---|---|---|
-| le mouvement, la molette | 11 | l'orbite, le zoom, le vol |
 | le texte | 12 | un champ texte qui garde son Ctrl+Z |
 | la répétition d'une touche | aucun | rien ne la demande |
 

@@ -74,6 +74,13 @@ struct CursorPosition
 
 [[nodiscard]] CursorPosition cursorPosition(const Window& window);
 
+/// **Remet le curseur** au point `position` de l'image, en pixels comme `cursorPosition` (la
+/// densité de pixels est divisée ici : SDL compte en coordonnées de fenêtre). À appeler **avant**
+/// de quitter la capture : en mode relatif, SDL ajoute le mouvement relatif à sa position, et en
+/// sortant il y replace le curseur ; il réapparaîtrait sinon décalé de tout le glissé, peut-être
+/// sur un panneau.
+void warpMouse(const Window& window, CursorPosition position);
+
 /// Capture la souris : curseur caché, mouvements relatifs, sans butée d'écran. C'est ce qu'il faut
 /// pour faire tourner une caméra ; sans ça, le regard s'arrête au bord de l'écran.
 void setMouseCaptured(const Window& window, bool captured);

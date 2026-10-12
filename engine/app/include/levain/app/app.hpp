@@ -349,6 +349,16 @@ struct App
     /// donne (`platform::cursorPosition`), qu'un script ne change pas. Posé avant `frame` : le
     /// picking du sandbox le lit, avec `scenePixelAt`.
     platform::CursorPosition cursor;
+    /// **Les événements de l'image**, tels que la fenêtre (et le script d'input) les a rendus,
+    /// avant tout filtre de route ou de capture (ADR-0036, décision 6) : l'éditeur y lit le
+    /// mouvement relatif de la souris, les boutons et la molette de ses gestes, que `inputRoute`
+    /// retire au jeu et la capture à ImGui. Posés après `beginUiFrame`, valables de `frame` à la
+    /// fin de `ui` ; vides avant la première image.
+    platform::Events rawFrameEvents;
+    /// La durée de l'image, en secondes, que le monde compte : celle de l'image précédente, ou le
+    /// pas fixe sous `--steps` (un test rejoue ainsi les mêmes distances sur toutes les machines).
+    /// Posée avec `rawFrameEvents`, lue par `frame` (le vol de la caméra de l'éditeur).
+    float frameSeconds = 0.0f;
     /// **La scène dans une texture** (ADR-0036, décision 7) : la texture de la Vue, sa taille qui
     /// ne se recrée qu'une fois stable, et où va la scène à cette image (`SceneOutput`). Le
     /// programme n'y touche que par `requestScene`, dans `hooks.ui`. Sans demande, la scène remplit
@@ -359,7 +369,17 @@ struct App
     /// l'état réel dans `mouseCaptured`, celui de la fin de l'image précédente : la boucle capture
     /// après `FrameHooks::frame`.
     bool mouseCaptureWanted = false;
+    /// Le vol de l'éditeur (ADR-0036, décision 8) : la capture tient panneaux ouverts aussi
+    /// (`mouseShouldBeCaptured`). Faux par défaut ; l'éditeur le pose le temps d'un vol, et
+    /// `enterMode` le remet à faux avec `mouseCaptureWanted`.
+    bool mouseCaptureOverPanels = false;
     bool mouseCaptured = false;
+    /// **Où remettre le curseur quand la capture finit**, en pixels de l'image : le programme le
+    /// pose en la commençant (l'éditeur, le point où le clic droit a été pressé). Sans cela, SDL
+    /// ajoute le mouvement relatif à sa position et le curseur réapparaît décalé de tout le
+    /// glissé, peut-être sur un panneau. La boucle le consomme à la fin de la capture
+    /// (`platform::warpMouse`, avant de quitter le mode relatif), puis le vide.
+    std::optional<platform::CursorPosition> mouseReturnTo;
     /// ImGui et ses panneaux. Avant les points d'accroche, donc détruite après eux, et avec
     /// `App`, avant le device dont elle tient des ressources (ADR-0029).
     UiLayer ui;

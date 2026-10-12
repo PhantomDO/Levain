@@ -46,11 +46,16 @@ struct InputScript
 /// espaces ou des tabulations, les images en ordre croissant (un fichier peut commencer par la
 /// marque UTF-8, comme l'écrit le Bloc-notes) :
 ///
+// clang-format off
 ///     <image> key down|up <touche> [as <lettre>]   une position du clavier, par son nom SDL
 ///     <image> button down|up left|right|middle     un bouton de la souris
 ///     <image> mouse move <x> <y>                   le curseur, en pixels de l'image
+///     <image> mouse motion <dx> <dy>               le déplacement relatif (le vol, le jeu), sans
+///                                                  bouger le curseur
+///     <image> wheel <crans>                        la molette, positive vers l'avant (SDL)
 ///     <image> keymap changed                       la disposition du clavier a changé
 ///     <image> window close                         la croix de la fenêtre
+// clang-format on
 ///
 /// **Une touche a deux identités** : sa position (`W`, le scancode, que lit le jeu) et la lettre
 /// qu'elle tape (le keycode, que lit ImGui). Sans `as`, la lettre est celle d'un clavier QWERTY

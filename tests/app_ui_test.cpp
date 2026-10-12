@@ -79,9 +79,13 @@ TEST_CASE("F1 est la touche de l'UI : le jeu ne la voit jamais appuyée")
 
 TEST_CASE("la souris n'est capturée que si le programme la veut et que les panneaux sont fermés")
 {
-    CHECK(levain::app::mouseShouldBeCaptured(true, false));
-    CHECK_FALSE(levain::app::mouseShouldBeCaptured(true, true));
-    CHECK_FALSE(levain::app::mouseShouldBeCaptured(false, false));
+    CHECK(levain::app::mouseShouldBeCaptured(true, false, false));
+    CHECK_FALSE(levain::app::mouseShouldBeCaptured(true, true, false));
+    CHECK_FALSE(levain::app::mouseShouldBeCaptured(false, false, false));
+    // Le vol de l'éditeur capture panneaux ouverts aussi, mais jamais sans que le programme le
+    // veuille.
+    CHECK(levain::app::mouseShouldBeCaptured(true, true, true));
+    CHECK_FALSE(levain::app::mouseShouldBeCaptured(false, true, true));
 }
 
 TEST_CASE("le coût de l'UI garde sa moyenne et son pire")

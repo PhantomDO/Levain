@@ -57,7 +57,10 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    modèle skinné déjà chargé. Un modèle statique s'instancie de nouveau, sur les mêmes données GPU. Un nom
    d'entité déjà pris est refusé : la racine écraserait l'entité qui le porte.
 8. **La souris se capture par `App`** : le programme pose `mouseCaptureWanted`, la boucle appelle
-   `setMouseCaptured`, et le programme lit `mouseCaptured`. Les panneaux ouverts, elle n'est pas capturée.
+   `setMouseCaptured`, et le programme lit `mouseCaptured`. Les panneaux ouverts, elle n'est pas capturée, **sauf si
+   `mouseCaptureOverPanels` est posé** (`mouseShouldBeCaptured`) : le vol de la caméra de l'éditeur se fait dans la Vue,
+   un panneau (ADR-0036, décision 8). `App::rawFrameEvents` garde les événements de l'image avant tout filtre, que
+   l'éditeur lit pour ses gestes, et `App::frameSeconds` la durée que le monde compte (le pas fixe sous `--steps`).
 9. **L'ordre d'une image** (ADR-0032, ADR-0036) : les événements, ImGui (`NewFrame`), ce que l'UI garde pour elle
    (`gameInputOf`), l'input du jeu, `frame`, la souris, les pas, les fenêtres (`ui`), `ImGui::Render`, **si `ui` l'a
    demandé (`recomposeAfterUi`) la recomposition des matrices monde puis la relecture de la caméra**, puis le rendu,
@@ -190,7 +193,7 @@ attend le code 1.
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `inputRoute`, `sceneRect`, `cursor`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `inputRoute`, `sceneRect`, `cursor`, `rawFrameEvents`, `frameSeconds`, `mouseCaptureOverPanels`, `mouseReturnTo`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
 | [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf`, `renderCameraOr` (la caméra imposée d'abord) : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |

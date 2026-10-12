@@ -572,9 +572,13 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .inputRoute = InputRoute::Ui,
             .sceneRect = {},
             .cursor = {},
+            .rawFrameEvents = {},
+            .frameSeconds = 0.0f,
             .sceneView = {},
             .mouseCaptureWanted = false,
+            .mouseCaptureOverPanels = false,
             .mouseCaptured = false,
+            .mouseReturnTo = std::nullopt,
             .ui = UiLayer{.context = ui::createUiContext(platform::displayScale(window)),
                           .pass = std::move(*uiPass),
                           .timer = render::createGpuTimer(*gpu.nvrhi),
@@ -655,9 +659,20 @@ void endUiFrame(App& app)
 /// quand l'UI la libère, et ne la reprendrait jamais.
 void applyMouseCapture(App& app)
 {
-    const bool captured = mouseShouldBeCaptured(app.mouseCaptureWanted, app.ui.panelsOpen);
+    const bool captured = mouseShouldBeCaptured(app.mouseCaptureWanted, app.ui.panelsOpen,
+                                                app.mouseCaptureOverPanels);
     if (captured != app.mouseCaptured)
     {
+        if (!captured)
+        {
+            if (app.mouseReturnTo)
+            {
+                // Avant de quitter le mode relatif : SDL y replace alors le curseur, à la position
+                // qu'on vient de lui donner.
+                platform::warpMouse(app.window, *app.mouseReturnTo);
+            }
+            app.mouseReturnTo.reset();
+        }
         platform::setMouseCaptured(app.window, captured);
         app.mouseCaptured = captured;
     }
@@ -1017,6 +1032,13 @@ bool runFrame(Loop& loop)
                         .mouseInScene = rectContains(app.sceneRect, io.MousePos.x, io.MousePos.y),
                         .mouseCaptured = app.mouseCaptured}));
         app.ui.frameCpuMs += secondsBetween(uiStart, Clock::now()) * 1000.0;
+        // Ce que l'image a reçu, avant tout filtre : l'éditeur y lit ses gestes
+        // (`App::rawFrameEvents`).
+        app.rawFrameEvents = std::move(events);
+        // La durée que le monde compte pour cette image (le pas fixe sous `--steps`, comme plus
+        // bas).
+        app.frameSeconds =
+            settings.steps ? app.fixedStep.stepSeconds : static_cast<float>(loop.lastFrameSeconds);
         input::updateInput(app.input, app.bindings, gameEvents,
                            static_cast<float>(loop.lastFrameSeconds));
         takeFrameInput(app.world.get_mut<PlayerInput>(), app.input);
