@@ -4,9 +4,9 @@
 // `App::rawFrameEvents`, avant le filtre de route qui retire la souris au jeu et celui de la
 // capture qui la retire à ImGui. La logique est en fonctions libres dont toutes les dépendances
 // sont des paramètres (ADR-0011) : `stepGestures` plie les événements d'une image dans un état et
-// dans ce que la caméra doit faire (`GestureFrame`). Elle ne lit ni ImGui ni flecs (ce qu'ImGui a
-// dit de la Vue lui vient dans `GestureContext`, seul `ScreenRect` est emprunté à `app`) :
-// `withEditor` n'en aura que la glu.
+// dans ce que la caméra doit faire (`GestureFrame`) ; `applyGesture` rend la caméra suivante. Ni
+// l'une ni l'autre ne lit ImGui ni flecs (ce qu'ImGui a dit de la Vue leur vient dans
+// `GestureContext`, seul `ScreenRect` est emprunté à `app`) : `withEditor` n'en a que la glu.
 // Équivalents : les gestes de la vue de niveau d'Unreal (documenté, ADR-0036 [1]) et de la vue
 // Scène d'Unity ; le Viewport 3D de Godot, au bouton du milieu pour l'orbite.
 
@@ -16,6 +16,7 @@
 #include <glm/glm.hpp>
 
 #include "levain/app/ui_layer.hpp"
+#include "levain/editor/camera.hpp"
 #include "levain/editor/shortcuts.hpp"
 #include "levain/platform/input.hpp"
 #include "levain/platform/window.hpp"
@@ -44,6 +45,11 @@ inline constexpr std::uint16_t LeftAltScancode = 226;
 inline constexpr std::uint16_t RightShiftScancode = 229;
 inline constexpr std::uint16_t RightAltScancode = 230;
 
+/// Un clic droit qui a bougé de moins de ce nombre de pixels (tous mouvements additionnés) est un
+/// clic, non un vol : le menu contextuel s'ouvre. Plus petit qu'une main qui tremble, il rendrait
+/// le menu introuvable.
+inline constexpr float ClickSlopPixels = 4.0f;
+
 /// Une image plus longue que cela (le débogueur, un déplacement de fenêtre, une fenêtre cachée) ne
 /// fait pas voler la caméra de toute sa durée : `clampFlightSeconds`.
 inline constexpr float MaxFlightSeconds = 0.1f;
@@ -58,6 +64,9 @@ inline constexpr float MaxFlightSeconds = 0.1f;
 /// Maj tenu pendant le vol multiplie la vitesse (documenté pour Unity, ADR-0036 [4] ; supposé pour
 /// Unreal).
 inline constexpr float RunMultiplier = 3.0f;
+
+/// Le glissé vertical d'Alt + clic droit : tant de pixels valent un cran de molette.
+inline constexpr float DollyPixelsPerNotch = 24.0f;
 
 /// **Le geste qu'un bouton commence**, selon Alt tenu. Le clic gauche seul ne commence rien : il
 /// choisit (M7.4), il ne bouge pas la caméra.
@@ -81,7 +90,18 @@ struct GestureState
 {
     Gesture active = Gesture::None;
     std::uint8_t button = 0; ///< Le bouton qui a commencé `active` : son relâchement le finit.
+    /// Le chemin de la souris depuis l'appui du bouton droit, en pixels, tous les mouvements
+    /// additionnés (`ClickSlopPixels`).
+    float travelled = 0.0f;
+    /// Le dernier appui du bouton droit a volé : bougé au-delà du seuil, une touche de vol tenue ou
+    /// la molette. **Il reste vrai après le relâchement**, jusqu'au prochain appui : la Vue ouvre
+    /// son menu à la fin d'un clic droit qui n'a pas volé (la décision 8 laisse ce relâchement à
+    /// ImGui, qui y voit un clic).
+    bool flew = false;
     std::bitset<platform::KeyCodeCount> keys; ///< Les touches tenues, par position (scancode).
+    /// Le dernier appui du bouton droit a commencé dans la Vue : le menu ne s'ouvre qu'à un clic
+    /// parti de la Vue, non d'un panneau dont le relâchement tombe sur elle.
+    bool rightPressInScene = false;
     glm::vec2 cursor{0.0f};
     /// Au moins une position reçue : sans elle, un appui n'est nulle part.
     bool cursorKnown = false;
@@ -96,6 +116,8 @@ struct GestureContext
     /// La scène est la fenêtre sous la souris : la Vue n'est pas cachée par une autre, ni sa barre
     /// de mode survolée. Lu à l'image d'avant (ImGui ne le sait qu'à la fin de `ui`).
     bool sceneHovered = false;
+    bool sceneFocused = false; ///< La Vue a le focus : F la cadre sans la survoler.
+    bool textInput = false;    ///< Un champ de texte est actif : aucune touche n'est un raccourci.
 };
 
 /// Ce que la caméra doit faire à cette image.
@@ -114,6 +136,8 @@ struct GestureStep
 {
     GestureState state;
     GestureFrame frame;
+    /// F a été appuyée là où elle vaut (la Vue, ni champ de texte actif) : cadrer la sélection.
+    bool frameSelection = false;
 };
 
 /// Le vol est en cours : la souris est capturée (`App::mouseCaptureWanted`), panneaux ouverts
@@ -147,5 +171,10 @@ struct GestureStep
 [[nodiscard]] GestureStep stepGestures(GestureState state, const platform::Events& events,
                                        const GestureContext& context, const ShortcutTable& table,
                                        float seconds);
+
+/// **De la caméra, d'un geste et de ce qu'il a lu, la caméra suivante.** `viewportHeightPixels` :
+/// la hauteur de la Vue, pour que le pan suive le curseur.
+[[nodiscard]] EditorCamera applyGesture(EditorCamera camera, const GestureFrame& frame,
+                                        float viewportHeightPixels);
 
 } // namespace levain::editor
