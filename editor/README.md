@@ -9,19 +9,16 @@ avec une définition qui enveloppe son démarrage par `withEditor`, et lié à `
 ainsi `levain_sandbox_editor` (dans `sandbox/`) pour ses démos et sa CI ; *Rando* construira `rando_editor` à côté
 de `rando`, dont la cible ne change pas.
 
-**État après M7.2 : l'éditeur, c'est le jeu avec deux panneaux de plus.** Il a le branchement sur la boucle,
+**État après M7.2 : l'éditeur, c'est le jeu avec deux panneaux de plus**, plus, depuis M7.7, des modes, la Vue et une
+caméra qui se pilote comme celle d'Unreal (invariant 20). Il a le branchement sur la boucle,
 l'option `--select`, le bilan que lit la CI, **la hiérarchie** : les entités placées (`Transform`), rangées par
 `flecs::Parent` (ADR-0015), et un nœud *Singletons*, qui sélectionne seulement ; et **l'inspecteur** : les
 composants de l'entité choisie, un widget par champ, lus dans la description de flecs, aux valeurs de l'image. Une
 donnée d'auteur (`Authored`) s'édite, le reste est grisé ; trois dessinateurs lui donnent des angles, des noms
 d'entité et d'asset. Il n'a pas encore :
 
-- **de caméra d'éditeur** (morceau 9) : en Édition (M7.7, morceau 5), la simulation est à l'arrêt, le `frame` du
-  programme n'est jamais appelé et le jeu ne reçoit rien (invariant 16) ; la caméra du jeu reste donc une vue fixe,
-  aucun système ne la déplace, et ZQSD ne fait plus rien ;
-- **de caméra qui se pilote dans la Vue** (morceaux 9 et 11) : la **Vue existe** (M7.7, morceau 8, `view.hpp`, invariant 19),
-  la scène y est rendue à la taille de son contenu, mais la caméra est celle du jeu, une entité que déplace un
-  système du pas fixe (sandbox/src/main.cpp:641-647 ; engine/scene/src/scene.cpp:111-117) ;
+- **de menu contextuel riche** : le clic droit sur la Vue (sans vol) n'a qu'une entrée, « Cadrer la sélection » ; les
+  autres (Entité, M7.3) viennent avec leur milestone ;
 - **d'écriture vue dans son image** : les panneaux passent après les pas et le choix de la caméra (app.cpp:875-891) ;
   une valeur tapée dans l'inspecteur se voit à l'image suivante ;
 - **d'enregistrement** : rien n'écrit la scène, et fermer la fenêtre arrête la boucle sans rien demander
@@ -43,14 +40,14 @@ action son nom (clé du catalogue), au plus deux accords, un contexte (vol, Vue,
 Vue, le jeu vaut seul sous sa route). Le vol et les outils vont **par position** (le scancode d'USB), les accords à
 Ctrl ou Alt **par lettre**. `displayNameOf` montre la touche de la disposition d'aujourd'hui (`App::keyAtPosition` :
 « Z » à la place du W sur un AZERTY) ; `tokenOf` et `chordFromToken` fixent le nom stable des préférences (`pos:26`,
-`Ctrl+S`, jamais un nom de SDL ou d'ImGui). **Pas encore branchée** : Alt+P et Échap restent lus par `mode.cpp`
-(`playShortcutPressed`, `StopScancode`), et les gestes (morceau 11) et les menus (12) appelleront `actionFor` ; changer
-et enregistrer un accord sont les morceaux 15 et 16. Équivalents : les raccourcis d'éditeur d'Unreal, le *Shortcuts
+`Ctrl+S`, jamais un nom de SDL ou d'ImGui). **Branchée** (morceau 11) : les gestes lisent le vol et F par `positionHeld` et `actionFor` (`gestures.cpp`), Alt+P par
+`imguiChordOf` et Échap par `positionHeld` de l'action « Arrêter » (`mode.cpp`) ; les menus (12) appelleront aussi
+`actionFor` ; changer et enregistrer un accord sont les morceaux 15 et 16. Équivalents : les raccourcis d'éditeur d'Unreal, le *Shortcuts
 Manager* d'Unity, les *Editor Settings > Shortcuts* de Godot. Test : `tests/editor_shortcuts_test.cpp`, et de bout en
-bout `gpu.editor-shortcuts.*`. **Le contrat avec ImGui** : `actionFor` sert les accords de position et le contexte *jeu* ; les accords de lettre passent par `ImGui::Shortcut(imguiChordOf(...))`, et un champ de texte actif (`ActiveContexts::textInput`) ne laisse rien au vol, à la Vue ni au global. Alt-Gr tenu ne vaut aucun accord. **À faire au morceau 11** : le relâchement d'un vol est un clic pour ImGui (le menu contextuel de la Vue s'ouvrirait à la fin de chaque vol) ; la Vue ne l'ouvrira que si aucun vol n'a eu lieu depuis l'appui (`playFlightReleaseIsAClick` épingle le comportement d'aujourd'hui).
+bout `gpu.editor-shortcuts.*`. **Le contrat avec ImGui** : `actionFor` sert les accords de position et le contexte *jeu* ; les accords de lettre passent par `ImGui::Shortcut(imguiChordOf(...))`, et un champ de texte actif (`ActiveContexts::textInput`) ne laisse rien au vol, à la Vue ni au global. Alt-Gr tenu ne vaut aucun accord. **Fait au morceau 11** : le relâchement d'un vol est un clic pour ImGui, et le menu contextuel de la Vue ne s'ouvre que si le clic droit n'a pas volé (`GestureState::flew` : bougé au-delà de `ClickSlopPixels`, une touche de vol ou la molette) ; `playFlightReleaseIsAClick` épingle toujours le comportement d'`app` seul, sans l'éditeur.
 
-**La logique de sa caméra est écrite** (M7.7, morceau 9, `camera.hpp`), sans entrée ni Vue pour la porter : les gestes
-(morceau 11) lui donneront des deltas, `App::cameraOverride` sa sortie.
+**Sa caméra se pilote** (M7.7, morceaux 9 et 11, `camera.hpp`, `gestures.hpp`, invariant 20) : la logique est en
+fonctions libres, les gestes lisent l'input brut (`App::rawFrameEvents`) et `App::cameraOverride` en est la sortie.
 
 La suite : l'[ADR-0036](../docs/adr/0036-mode-edition-vue-et-camera-de-l-editeur.md), proposé pour M7.7, que
 suivent M7.5, M7.3, M7.4 et M7.6. Les gestes quotidiens d'Unity et d'Unreal que l'éditeur doit rendre, chacun avec son
@@ -180,6 +177,37 @@ M couverts par un test ».
     code (`playHidden`), non à la souris ; glisser ou désancrer la Vue n'est pas testé ; la barre de menus n'existe que
     panneaux ouverts ; **`StableFramesBeforeResize` n'est pas mesuré sur un vrai glissé de séparateur à 144 Hz** (cette
     machine n'a pas d'écran à 144 Hz), à faire quand un écran rapide est sous la main.
+20. **La caméra de l'éditeur** (ADR-0036, décisions 6, 8 et 13 ; `gestures.hpp`, `camera.hpp`, `scene_bounds.hpp`) : un
+    état d'`Editor` (`Editor::camera`), jamais une entité, qui part de celle du jeu (`editorCameraFrom`) et que
+    `App::cameraOverride` impose chaque image en Édition (en jeu, l'imposition est levée et la caméra du jeu voit). Les
+    gestes lisent l'**input brut** (`App::rawFrameEvents`, avant le filtre de route et celui de la capture), dans `frame`
+    pour que la capture soit celle de la même image : un geste ne **commence** que si le curseur est dans la Vue (et
+    qu'elle est la fenêtre sous la souris), jamais ailleurs, et ne se continue pas quand la souris y entre bouton tenu.
+    *Clic droit tenu* : le regard au mouvement relatif, les touches de vol **par position** (`flightMoveOf` : ZQSD sur
+    un AZERTY), Maj court (×3), la molette règle la vitesse ; la souris est **capturée panneaux ouverts compris**
+    (`App::mouseCaptureOverPanels`) et **seulement pendant ce vol** : l'orbite (Alt+clic gauche), le pan (bouton du
+    milieu), le dolly (Alt+clic droit) lisent le mouvement relatif sans la prendre. Hors geste, la molette dans la Vue
+    zoome (`dollyCamera`). F cadre la sélection (`framingOf` sur `entityBoxOf` : la boîte de son mesh si le modèle est
+    sur le GPU, sinon un cube de côté 1 à sa position), comme le double-clic sur une ligne de la hiérarchie et
+    l'entrée du menu du clic droit. Les plans de découpe (`editorClipPlanes`) : le lointain d'abord, celui des bornes de la scène sans
+    descendre sous le défaut (1000 m) ni passer 1e5 m ; le proche du seul rapport (lointain / 10 000), jamais de l'entité
+    la plus proche : un terrain, l'eau ou l'herbe, tracés par leur passe, ne sont pas des entités et ne sont pas rognés. **Le clic droit qui
+    n'a pas volé** (`GestureState::flew` faux) ouvre le menu de la Vue au relâchement ; à la fin d'un vol, ImGui y voit
+    un clic aussi, et le menu reste fermé. Le vol désactive le champ de texte actif (`ImGui::ClearActiveID`, de
+    l'API interne) : Retour arrière et les flèches ne l'éditent pas. **Fin d'un vol** : le curseur revient au point de l'appui
+    (`App::mouseReturnTo`, `platform::warpMouse` avant le mode relatif : le banc hors écran ne voit pas le warp de SDL,
+    le test épingle le point posé puis consommé). Un vol ne dure pas plus de `MaxFlightSeconds` par image
+    (`clampFlightSeconds`), et une fenêtre cachée remet les gestes au repos (les relâchements se perdent). **En jeu**,
+    ni menu de la Vue (`View::menuAllowed` faux hors Édition, le menu ouvert se ferme) ni cadrage : le clic droit est au
+    jeu. Panneaux fermés, la scène est « survolée » sauf sous une fenêtre d'ImGui (`WantCaptureMouse` de l'image
+    d'avant). La boîte de la scène est gardée (`SceneBoundsCache`, refaite à l'écriture de l'inspecteur, au changement
+    de mode ou du nombre d'entités ou de modèles, et toutes les 60 images). **Limites** : F et le double-clic sur un
+    parent cadrent **son cube unité** (la boîte de ses enfants n'est pas calculée) ; une entité sans `WorldTransform`
+    ne se cadre pas ; la boîte gardée peut retarder de 60 images les plans de découpe quand un programme déplace des
+    entités en Édition sans passer par l'inspecteur. Pas encore : l'orbite et le pan ne capturent pas
+    la souris (le curseur butte au bord de l'écran, Unreal le cache), la touche F n'agit pas hiérarchie focalisée,
+    et le sens du pan n'est pas un réglage. Tests : `tests/editor_gestures_test.cpp` et, de bout en bout,
+    `gpu.editor-gestures.*`.
 
 ## Fermer l'éditeur (ADR-0036, décision 11)
 
@@ -188,7 +216,9 @@ M couverts par un test ».
 garde l'éditeur. **Une seule modale** : une croix reçue modale ouverte n'en empile pas, et n'en prépare pas pour après.
 `app` ne consulte jamais le programme sous `isScriptedRun` (`--seconds`, `--input-script`…) ni pour un signal. M7.3 y
 ajoutera « Enregistrer ». **Sous la modale**, la route est celle de l'UI (`inputRouteWhileQuit` : ni clic ni touche n'atteint le jeu derrière)
-et Alt+P ne joue pas (`globalChordsAllowed`). **Échap annule** (en Édition il n'a rien d'autre à faire ; en jeu l'UI
+et Alt+P ne joue pas (`globalChordsAllowed`) ; **les gestes de la caméra non plus** (`cameraGesturesAllowed`, dès la
+croix reçue) : ils lisent l'input brut, que la route ne filtre pas, et un vol en cours (Alt+F4 en vol) s'arrête et rend
+la souris (`gpu.editor-gestures.*`). **Échap annule** (en Édition il n'a rien d'autre à faire ; en jeu l'UI
 garde le clavier, il n'arrête pas le jeu). Une croix reçue **fenêtre masquée** remet la fenêtre devant
 (`platform::restoreAndRaise`), pour que la modale se voie (aucun test : le banc d'essai n'a pas d'événement
 « masquée »). En jeu, souris capturée, Alt+F4 ouvre une modale qu'on ne clique qu'après Échap ou Maj+F1. `withEditor`
@@ -232,6 +262,10 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   l'application nomme les assets, sans lui leur GUID. `eulerHint` et `rotationFromEuler` : les angles d'une
   rotation et la rotation de ces angles ; `entityFieldOf` et `entityLabelOf` : l'entité d'un champ, et son
   texte ; `assetNameOf` : le texte d'un asset.
+- `stepGestures(state, events, context, table, seconds)`, `applyGesture(camera, frame, hauteur)`, `gestureStartedBy`,
+  `flightMoveOf`, `capturesMouse`, `idleGestures`, `GestureState` (`gestures.hpp`) : les gestes de la caméra en fonctions
+  libres, de l'état et des événements d'une image à la caméra suivante, sans ImGui ni flecs ; `entityBoxOf`,
+  `sceneBoxOf`, `editorClipPlanes` (`scene_bounds.hpp`) : la boîte que F cadre, celle de la scène et les plans de découpe.
 - `flyCamera(camera, input, seconds)`, `orbitCamera(camera, pixels)`, `panCamera(camera, pixels, hauteur)`,
   `dollyCamera(camera, crans)`, `scaleFlySpeed(camera, crans)` : les gestes de la caméra, chacun rend la caméra
   suivante. `framingOf(camera, box, aspect)` la place pour qu'une boîte tienne (F), `clipPlanesFor(camera, box)` rend

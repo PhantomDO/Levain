@@ -7,9 +7,13 @@
 //   - le même geste commencé hors de la Vue ne fait rien, ni ne capture ;
 //   - le menu du clic droit s'ouvre à un clic sans vol, pas à la fin d'un vol ;
 // clang-format off
+//   - la molette règle la vitesse en vol, et zoome sinon ; Alt + clic gauche orbite autour du
+//     pivot ; le bouton du milieu fait glisser la vue ; Alt + clic droit avance ;
 //   - F, le double-clic dans la hiérarchie cadrent la sélection : sa boîte tient dans l'image ;
 //   - un champ de texte actif n'est plus actif quand le vol commence ; en jeu, rien de tout cela ;
-//   - un clic droit glissé vole menu ouvert ; le curseur revient au point de l'appui.
+//   - un clic droit glissé vole menu ouvert ; le curseur revient au point de l'appui ;
+//   - panneaux fermés (F1) : le vol et ses gestes valent partout, sauf sous une fenêtre d'ImGui ;
+//   - Alt+F4 en vol : la modale « Quitter ? » arrête le vol et rend la souris.
 // clang-format on
 // Il faut un device, comme `levain_app_script`.
 //   levain_editor_gestures [vulkan|d3d12|d3d12-warp]
@@ -72,7 +76,9 @@ struct Seen
     bool overridePresent = false;
     std::unordered_map<flecs::entity_t, levain::editor::RowRect> rows;
     bool targetInView = false; ///< La boîte de la cible tient dans l'image de la caméra.
+    bool panelsOpen = true;
     std::optional<levain::platform::CursorPosition> returnTo; ///< `App::mouseReturnTo`.
+    bool quitOpen = false; ///< La modale « Quitter ? » est ouverte.
 };
 
 struct Run
@@ -163,14 +169,17 @@ Seen seenOf(const App& app, const levain::editor::Editor& editor, flecs::entity_
               .rows = editor.hierarchy.rects,
               .targetInView = target != 0 && editor.view.image.height > 0.0f &&
                               boxInView(app, target, editor.camera, editor.view.image),
-              .returnTo = app.mouseReturnTo};
+              .panelsOpen = app.ui.panelsOpen,
+              .returnTo = app.mouseReturnTo,
+              .quitOpen = editor.quit.open};
     seen.overrideMatchesCamera =
         app.cameraOverride && app.cameraOverride->position == editor.camera.position;
     return seen;
 }
 
 Run play(const levain::tests::TestBackend& backend, std::string_view script, int frames,
-         bool field = false, std::optional<std::string> select = std::nullopt)
+         bool field = false, std::optional<std::string> select = std::nullopt,
+         bool interactive = false)
 {
     auto parsed = levain::platform::parseInputScript(script);
     if (!parsed)
@@ -180,6 +189,8 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
     levain::app::AppSettings settings;
     settings.inputScript = std::move(*parsed);
     settings.steps = frames;
+    // La croix n'ouvre la modale « Quitter ? » que d'une exécution interactive (`isScriptedRun`).
+    settings.testInteractive = interactive;
     settings.showUiPanels = true;
     settings.width = WindowWidth;
     settings.height = WindowHeight;
@@ -400,6 +411,104 @@ int playMenu(const levain::tests::TestBackend& backend, const Layout& layout)
     return failures;
 }
 
+/// La molette : la vitesse en vol, le zoom (dolly) sinon dans la Vue, rien hors d'elle.
+int playWheel(const levain::tests::TestBackend& backend, const Layout& layout)
+{
+    const Run flight = play(backend,
+                            std::format("4 mouse move {}\n8 button down right\n9 wheel 2\n"
+                                        "11 button up right\n",
+                                        at(layout.center)),
+                            14);
+    const Run zoom =
+        play(backend, std::format("4 mouse move {}\n8 wheel 3\n", at(layout.center)), 12);
+    const Run outside =
+        play(backend, std::format("4 mouse move {}\n8 wheel 3\n", at(layout.outside)), 12);
+    const EditorCamera start = flight.seen.front().camera;
+    const EditorCamera sped = flight.seen.back().camera;
+    int failures = expect(flight.exitCode == 0 && zoom.exitCode == 0 && outside.exitCode == 0,
+                          "la molette : code 0");
+    failures +=
+        expect(std::abs(sped.flySpeed - (start.flySpeed * 1.5625f)) < 1e-3f &&
+                   near(sped.position, start.position) && sped.pivotDistance == start.pivotDistance,
+               "la molette en vol règle la vitesse (deux crans), la caméra ne bouge pas");
+    const EditorCamera zoomed = zoom.seen.back().camera;
+    failures +=
+        expect(zoomed.pivotDistance < start.pivotDistance && zoomed.flySpeed == start.flySpeed &&
+                   near(levain::editor::pivotOf(zoomed), levain::editor::pivotOf(start)),
+               "la molette hors vol, dans la Vue, avance vers le pivot qui ne bouge pas");
+    failures += expect(near(outside.seen.back().camera.position, start.position) &&
+                           outside.seen.back().camera.pivotDistance == start.pivotDistance,
+                       "la molette hors de la Vue ne zoome pas");
+    return failures;
+}
+
+/// Alt + clic gauche orbite, le bouton du milieu fait glisser la vue, Alt + clic droit avance :
+/// aucun ne capture la souris.
+int playDrags(const levain::tests::TestBackend& backend, const Layout& layout)
+{
+    const std::string place = std::format("4 mouse move {}\n", at(layout.center));
+    const Run orbit =
+        play(backend,
+             place + "7 key down Left Alt\n8 button down left\n9 mouse motion 40 -15\n"
+                     "10 mouse motion 20 0\n11 button up left\n12 key up Left Alt\n",
+             14);
+    const Run pan = play(
+        backend, place + "8 button down middle\n9 mouse motion 30 20\n10 button up middle\n", 14);
+    const Run dolly =
+        play(backend,
+             place + "7 key down Left Alt\n8 button down right\n9 mouse motion 0 -48\n"
+                     "10 button up right\n11 key up Left Alt\n",
+             14);
+    const Run plain =
+        play(backend, place + "8 button down left\n9 mouse motion 40 0\n10 button up left\n", 14);
+    int failures = expect(orbit.exitCode == 0 && pan.exitCode == 0 && dolly.exitCode == 0 &&
+                              plain.exitCode == 0,
+                          "les glissés : code 0");
+    const EditorCamera start = orbit.seen.front().camera;
+    const EditorCamera orbited = orbit.seen.back().camera;
+    const glm::vec3 pivot = levain::editor::pivotOf(start);
+    failures += expect(
+        orbited.yawDegrees != start.yawDegrees && near(levain::editor::pivotOf(orbited), pivot) &&
+            std::abs(orbited.pivotDistance - start.pivotDistance) < 1e-4f &&
+            std::abs(glm::length(orbited.position - pivot) - start.pivotDistance) < 1e-3f,
+        "Alt + clic gauche orbite : le pivot et sa distance ne bougent pas");
+    const EditorCamera panned = pan.seen.back().camera;
+    failures +=
+        expect(!near(panned.position, start.position) && panned.yawDegrees == start.yawDegrees &&
+                   panned.pitchDegrees == start.pitchDegrees &&
+                   panned.pivotDistance == start.pivotDistance,
+               "le bouton du milieu fait glisser la vue sans la tourner");
+    failures += expect(dolly.seen.back().camera.pivotDistance < start.pivotDistance,
+                       "Alt + clic droit, vers le haut, avance vers le pivot");
+    failures += expect(near(plain.seen.back().camera.position, start.position) &&
+                           plain.seen.back().camera.yawDegrees == start.yawDegrees,
+                       "le clic gauche seul ne bouge pas la caméra (il choisira, M7.4)");
+    for (const Run* run : {&orbit, &pan, &dolly, &plain})
+    {
+        failures +=
+            expect(std::ranges::none_of(run->seen, [](const Seen& s) { return s.captured; }),
+                   "ni l'orbite, ni le pan, ni le dolly, ni un clic gauche ne capture");
+    }
+    failures += expect(std::ranges::none_of(dolly.seen, [](const Seen& s) { return s.menuOpen; }),
+                       "la fin d'Alt + clic droit glissé n'ouvre pas le menu");
+    return failures;
+}
+
+/// Maj tenu pendant le vol multiplie la vitesse.
+int playRun(const levain::tests::TestBackend& backend, const Layout& layout)
+{
+    const Run run = play(backend,
+                         std::format("4 mouse move {}\n8 button down right\n9 key down Left Shift\n"
+                                     "9 key down W\n15 key up W\n16 button up right\n",
+                                     at(layout.center)),
+                         22);
+    const EditorCamera start = run.seen.front().camera;
+    const glm::vec3 expected = start.position + (levain::editor::viewDirectionOf(start) *
+                                                 (start.flySpeed * Dt * 6.0f * 3.0f));
+    return expect(run.exitCode == 0 && near(run.seen.back().camera.position, expected),
+                  "Maj tenu court trois fois plus vite");
+}
+
 /// F cadre la sélection quand la Vue est survolée ; sans survol ni focus, rien. Le double-clic sur
 /// une ligne de la hiérarchie la choisit et la cadre.
 int playFraming(const levain::tests::TestBackend& backend, const Layout& layout)
@@ -527,6 +636,33 @@ int playCursorReturn(const levain::tests::TestBackend& backend, const Layout& la
     return failures;
 }
 
+/// Panneaux fermés (F1) : la scène est la fenêtre, le vol se fait partout, sauf sous une fenêtre
+/// d'ImGui (`WantCaptureMouse` de l'image d'avant) : celle du champ de texte, en haut à gauche.
+int playPanelsClosed(const levain::tests::TestBackend& backend)
+{
+    const std::string closing = "2 key down F1\n3 key up F1\n";
+    const auto script = [&](glm::vec2 mouse)
+    {
+        return closing +
+               std::format("5 mouse move {}\n8 button down right\n9 key down W\n15 key up W\n"
+                           "16 button up right\n",
+                           at(mouse));
+    };
+    const Run open = play(backend, script({640.0f, 400.0f}), 22, true);
+    const Run covered = play(backend, script({30.0f, 30.0f}), 22, true);
+    int failures = expect(open.exitCode == 0 && covered.exitCode == 0, "panneaux fermés : code 0");
+    const EditorCamera start = open.seen.front().camera;
+    failures += expect(open.seen.at(1).panelsOpen && !open.seen.at(5).panelsOpen,
+                       "F1 ferme les panneaux (précondition)");
+    failures += expect(!near(open.seen.back().camera.position, start.position),
+                       "panneaux fermés, le vol fait avancer la caméra partout dans la fenêtre");
+    failures += checkCaptureOnlyDuringFlight(open, PressFrame, ReleaseFrame - 1, "panneaux fermés");
+    failures += expect(near(covered.seen.back().camera.position, start.position),
+                       "panneaux fermés, sous une fenêtre d'ImGui, le clic droit ne vole pas");
+    failures += checkCaptureOnlyDuringFlight(covered, 1000, 1000, "sous une fenêtre d'ImGui");
+    return failures;
+}
+
 /// En jeu, les gestes de l'éditeur ne font rien : la caméra du jeu voit, l'éditeur n'est pas
 /// touché.
 int playPlay(const levain::tests::TestBackend& backend, const Layout& layout)
@@ -600,6 +736,35 @@ int playPlay(const levain::tests::TestBackend& backend, const Layout& layout)
     return failures;
 }
 
+/// Alt+F4 en vol : la croix ouvre la modale « Quitter ? » et le vol s'arrête à son image, la
+/// souris rendue pour qu'on clique ses boutons ; la touche encore tenue n'avance plus. Les gestes
+/// lisent l'input brut, que la route de la modale ne filtre pas (`cameraGesturesAllowed`).
+int playUnderQuitModal(const levain::tests::TestBackend& backend, const Layout& layout)
+{
+    const Run run = play(backend,
+                         std::format("4 mouse move {}\n8 button down right\n9 key down W\n"
+                                     "11 window close\n15 key up W\n16 button up right\n",
+                                     at(layout.center)),
+                         22, false, std::nullopt, true);
+    int failures = expect(run.exitCode == 0 && run.seen.size() == 22, "modale en vol : code 0");
+    failures += expect(run.seen.at(10).captured &&
+                           !near(run.seen.at(10).camera.position, run.seen.at(8).camera.position),
+                       "modale en vol : le vol avançait avant la croix (précondition)");
+    failures += expect(run.seen.at(11).quitOpen && run.seen.back().quitOpen,
+                       "modale en vol : la croix ouvre la modale");
+    failures += expect(
+        std::ranges::all_of(run.seen.begin() + 11, run.seen.end(),
+                            [&](const Seen& s)
+                            {
+                                return !s.captured && !s.capturedOverPanels &&
+                                       s.gesture == levain::editor::Gesture::None && !s.menuOpen &&
+                                       near(s.camera.position, run.seen.at(10).camera.position);
+                            }),
+        "sous la modale, le vol s'arrête : la caméra ne bouge plus, la souris est "
+        "rendue, aucun menu");
+    return failures;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -617,9 +782,12 @@ int main(int argc, char** argv)
         const Layout layout = layoutOf(*backend);
         const int failures = playFlight(*backend, layout) + playOutside(*backend, layout) +
                              playPressedOutside(*backend, layout) + playMenu(*backend, layout) +
-                             playFraming(*backend, layout) + playActiveField(*backend, layout) +
-                             playPlay(*backend, layout) + playFlightWithMenuOpen(*backend, layout) +
-                             playCursorReturn(*backend, layout);
+                             playWheel(*backend, layout) + playDrags(*backend, layout) +
+                             playRun(*backend, layout) + playFraming(*backend, layout) +
+                             playActiveField(*backend, layout) + playPlay(*backend, layout) +
+                             playFlightWithMenuOpen(*backend, layout) +
+                             playCursorReturn(*backend, layout) + playPanelsClosed(*backend) +
+                             playUnderQuitModal(*backend, layout);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

@@ -476,7 +476,7 @@ add_test(NAME gpu.editor-shortcuts.vulkan COMMAND levain_editor_shortcuts vulkan
 set_tests_properties(gpu.editor-shortcuts.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
 # Les gestes de la caméra de l'éditeur (ADR-0036, morceau 11) dans la vraie boucle : clic droit tenu et la touche à la place du W
-# (QWERTY et AZERTY), la capture de la souris pendant le vol seulement, rien hors de la Vue, le menu du clic droit sans vol.
+# (QWERTY et AZERTY), la capture de la souris pendant le vol seulement, rien hors de la Vue, la molette, l'orbite, le pan, F.
 add_executable(levain_editor_gestures editor_gestures_gpu.cpp)
 target_link_libraries(levain_editor_gestures PRIVATE levain::editor levain::app levain::core levain::platform levain::render levain::scene)
 target_compile_definitions(levain_editor_gestures PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
