@@ -28,6 +28,7 @@
 #include "levain/app/app.hpp"
 #include "levain/app/player_input.hpp"
 #include "levain/editor/editor.hpp"
+#include "levain/platform/input_script.hpp"
 #include "levain/scene/components.hpp"
 
 namespace
@@ -65,6 +66,8 @@ levain::app::StartFunction programOf(std::vector<Seen>& seen, int& programFrames
         [&seen, &programFrames, pinRect](App& app) -> levain::core::Result<levain::app::FrameHooks>
     {
         app.world.entity("camera").set(levain::scene::Transform{}).set(levain::app::CameraLens{});
+        // Épinglée : une vraie fenêtre lirait la disposition de la machine (AZERTY chez Donnovan).
+        app.keyAtPosition = levain::platform::qwertyKeyAtPosition;
         app.world.entity("mover")
             .set(levain::scene::Transform{})
             .set(levain::scene::Velocity{.linear = {1, 0, 0}});

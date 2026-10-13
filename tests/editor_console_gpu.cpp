@@ -31,6 +31,7 @@
 #include "levain/core/log.hpp"
 #include "levain/core/log_ring.hpp"
 #include "levain/editor/editor.hpp"
+#include "levain/platform/input_script.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/ui/tr.hpp"
 
@@ -98,6 +99,8 @@ levain::app::StartFunction programOf(int focusFrame)
     return [focusFrame](App& app) -> levain::core::Result<levain::app::FrameHooks>
     {
         app.world.entity("camera").set(levain::scene::Transform{}).set(levain::app::CameraLens{});
+        // Épinglée : une vraie fenêtre lirait la disposition de la machine (AZERTY chez Donnovan).
+        app.keyAtPosition = levain::platform::qwertyKeyAtPosition;
         levain::core::log(Category, levain::core::LogLevel::Info, "chargé");
         levain::core::log(Category, levain::core::LogLevel::Warning, "lent");
         levain::core::log(Category, levain::core::LogLevel::Error, "panne");

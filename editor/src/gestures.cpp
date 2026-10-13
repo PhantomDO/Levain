@@ -126,7 +126,7 @@ GestureStep stepGestures(GestureState state, const platform::Events& events,
                                      .keycode = event.keycode,
                                      .modifiers = event.modifiers};
                 const ActiveContexts active{.flight = inFlight(state),
-                                            .view = context.sceneHovered || context.sceneFocused,
+                                            .view = context.viewActive,
                                             .game = false,
                                             .textInput = context.textInput};
                 step.frameSelection = step.frameSelection ||

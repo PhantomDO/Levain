@@ -46,6 +46,7 @@
 #include "levain/editor/editor.hpp"
 #include "levain/editor/scene_bounds.hpp"
 #include "levain/platform/input.hpp"
+#include "levain/platform/input_script.hpp"
 #include "levain/render/camera.hpp"
 #include "levain/scene/components.hpp"
 
@@ -100,6 +101,8 @@ levain::app::StartFunction programOf(Run& run, bool field)
         app.world.entity("camera")
             .set(levain::scene::Transform{.position = {0.0f, 2.0f, 10.0f}})
             .set(levain::app::CameraLens{});
+        // Épinglée : une vraie fenêtre lirait la disposition de la machine (AZERTY chez Donnovan).
+        app.keyAtPosition = levain::platform::qwertyKeyAtPosition;
         run.target = app.world.entity("cible")
                          .set(levain::scene::Transform{.position = {60.0f, 0.0f, -30.0f},
                                                        .scale = glm::vec3{4.0f}})
@@ -509,8 +512,8 @@ int playRun(const levain::tests::TestBackend& backend, const Layout& layout)
                   "Maj tenu court trois fois plus vite");
 }
 
-/// F cadre la sélection quand la Vue est survolée ; sans survol ni focus, rien. Le double-clic sur
-/// une ligne de la hiérarchie la choisit et la cadre.
+/// F cadre la sélection quand la Vue est survolée ou focalisée ; sans survol ni focus, rien. Le
+/// double-clic sur une ligne de la hiérarchie la choisit et la cadre.
 int playFraming(const levain::tests::TestBackend& backend, const Layout& layout)
 {
     int failures = 0;
@@ -539,6 +542,17 @@ int playFraming(const levain::tests::TestBackend& backend, const Layout& layout)
     failures += expect(elsewhere.exitCode == 0 &&
                            near(elsewhere.seen.back().camera.position, start.position),
                        "F, la Vue ni survolée ni focalisée : la caméra ne bouge pas");
+
+    // F, la Vue focalisée (un clic gauche dedans) et la souris partie sur la hiérarchie : elle
+    // cadre, la règle des touches de la Vue (`viewActiveIn`), la même que pour les outils.
+    const Run focused = play(backend,
+                             std::format("2 mouse move {}\n3 button down left\n4 button up left\n"
+                                         "6 mouse move {}\n8 key down F\n9 key up F\n",
+                                         at(layout.center), at(layout.outside)),
+                             14, false, "cible");
+    failures += expect(focused.exitCode == 0 && focused.seen.back().targetInView &&
+                           !focused.seen.at(7).targetInView,
+                       "F, la Vue focalisée sans être survolée : elle cadre (viewActiveIn)");
 
     // Le menu du clic droit cadre aussi.
     const Run menu = play(

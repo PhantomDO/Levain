@@ -108,6 +108,11 @@ struct GestureState
 };
 
 /// Où l'image se déroule : la région où un geste peut commencer et ce qu'ImGui dit des fenêtres.
+/// **Deux règles, pas une** : un geste de souris commence là où est le pointeur (`sceneHovered` et
+/// `region`, le focus n'y compte pas : la Vue focalisée, un clic droit sur la hiérarchie ne vole
+/// pas) ; une touche de la Vue (F ici, les outils et Ctrl+R dans `shortcutsPressed`) vaut là où
+/// l'on travaille, la Vue survolée **ou** focalisée (`viewActive`, la règle `viewActiveIn`
+/// d'actions.hpp, la même pour les deux).
 struct GestureContext
 {
     /// Le rectangle de la scène, en pixels de l'image : la Vue (panneaux ouverts) ou la fenêtre
@@ -116,8 +121,9 @@ struct GestureContext
     /// La scène est la fenêtre sous la souris : la Vue n'est pas cachée par une autre, ni sa barre
     /// de mode survolée. Lu à l'image d'avant (ImGui ne le sait qu'à la fin de `ui`).
     bool sceneHovered = false;
-    bool sceneFocused = false; ///< La Vue a le focus : F la cadre sans la survoler.
-    bool textInput = false;    ///< Un champ de texte est actif : aucune touche n'est un raccourci.
+    /// Les touches de la Vue valent (`viewActiveIn`) : F la cadre, survolée ou focalisée.
+    bool viewActive = false;
+    bool textInput = false; ///< Un champ de texte est actif : aucune touche n'est un raccourci.
 };
 
 /// Ce que la caméra doit faire à cette image.
