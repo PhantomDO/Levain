@@ -140,12 +140,20 @@ struct GestureStep
     bool frameSelection = false;
 };
 
+/// **Le vol est en cours** : le clic droit tenu, parti de la scène. C'est l'état que lisent la
+/// capture de la souris et les raccourcis (`ActiveContexts::flight` : en vol, la Vue se tait), non
+/// le bouton droit tel qu'ImGui le voit, qu'un clic sur un panneau tient aussi.
+[[nodiscard]] constexpr bool inFlight(const GestureState& state)
+{
+    return state.active == Gesture::Fly;
+}
+
 /// Le vol est en cours : la souris est capturée (`App::mouseCaptureWanted`), panneaux ouverts
 /// compris (décision 8). **Seul le vol capture** : l'orbite, le pan et le dolly lisent le mouvement
 /// relatif sans prendre la souris, et un clic sans vol non plus.
 [[nodiscard]] constexpr bool capturesMouse(const GestureState& state)
 {
-    return state.active == Gesture::Fly;
+    return inFlight(state);
 }
 
 /// L'état au repos : ce qu'on remet quand le mode quitte l'Édition, que la fenêtre perd le focus ou

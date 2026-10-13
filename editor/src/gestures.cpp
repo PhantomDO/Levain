@@ -125,7 +125,7 @@ GestureStep stepGestures(GestureState state, const platform::Events& events,
                 const KeyPress press{.scancode = event.scancode,
                                      .keycode = event.keycode,
                                      .modifiers = event.modifiers};
-                const ActiveContexts active{.flight = state.active == Gesture::Fly,
+                const ActiveContexts active{.flight = inFlight(state),
                                             .view = context.sceneHovered || context.sceneFocused,
                                             .game = false,
                                             .textInput = context.textInput};

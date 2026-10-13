@@ -11,12 +11,16 @@
 // les `EditorAction` de Godot.
 
 #include <array>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #include "levain/editor/mode.hpp"
 #include "levain/editor/shortcuts.hpp"
+#include "levain/input/state.hpp"
+#include "levain/platform/window.hpp"
 
 namespace levain::editor
 {
@@ -88,5 +92,36 @@ void switchRealTime(Mode from, Mode to, bool& appRealTime, bool& editChoice);
 /// navigation) sont comptées et n'ont pas d'effet ici.
 [[nodiscard]] std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& realTime,
                                             Mode current);
+
+/// Une touche d'outil (`isToolAction`) appuyée dans la Vue : l'action de l'outil, ou rien.
+/// **En vol (clic droit tenu), aucune** : `actionFor` rend Avancer pour W et ne laisse rien à la
+/// Vue pour R ou Espace (la Vue se tait en vol). Avec Ctrl ou tout autre modificateur, ce n'est pas
+/// la touche d'outil non plus (`exactModifiers`), et dans un champ de texte actif, ni l'un ni
+/// l'autre (`textInput`).
+[[nodiscard]] std::optional<Action> toolActionOf(const ShortcutTable& table, const KeyPress& press,
+                                                 const ActiveContexts& active);
+
+/// **Les touches appuyées à cette image**, lues dans ses événements bruts (`App::rawFrameEvents`,
+/// avant la route et la capture), dans leur ordre : la position (le scancode), la lettre que la
+/// disposition y met (le keycode de l'événement) et les modificateurs tenus avec elle. Sous la
+/// route *éditeur* le jeu n'a rien ; ImGui reçoit le clavier, mais traduit par lettre, et une
+/// position se perdrait à repasser par lui. **Une répétition n'est pas un appui** : SDL répète une
+/// touche tenue (`UiEventType::Key`, « répétitions comprises ») ; une touche déjà enfoncée (dans
+/// `held`, les touches tenues au début de l'image, ou enfoncée plus tôt dans l'image) ne compte
+/// qu'à son premier appui, sans quoi tenir W prendrait l'outil à chaque répétition. La fenêtre qui
+/// perd le focus oublie les touches tenues : leurs relâchements ne viendront pas.
+[[nodiscard]] std::vector<KeyPress> keyPressesOf(const platform::Events& events,
+                                                 std::bitset<platform::KeyCodeCount> held);
+
+/// **La Vue est « active »** quand les touches de la Vue valent (les outils, F, Ctrl+R) : panneaux
+/// fermés, la scène remplit la fenêtre, toujours ; ouverts, la Vue doit avoir le focus ou être
+/// survolée **au sens d'ImGui** (`View::hovered`) : une fenêtre, un menu ou un popup sous la
+/// souris, posé par-dessus la Vue, la prive de la souris, et W ou Ctrl+R ne doivent pas partir à
+/// travers eux. La règle des touches seulement : un geste de souris, lui, commence sous le
+/// pointeur, le focus n'y compte pas (`GestureContext`).
+[[nodiscard]] constexpr bool viewActiveIn(bool panelsOpen, bool focused, bool hovered)
+{
+    return !panelsOpen || focused || hovered;
+}
 
 } // namespace levain::editor

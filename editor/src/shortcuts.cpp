@@ -268,8 +268,9 @@ std::optional<Action> actionFor(const ShortcutTable& table, const KeyPress& pres
                               : std::vector{Context::Flight, Context::View, Context::Global};
     for (const Context context : contexts)
     {
+        // En vol, la Vue se tait : ni R ni Espace ne changent d'outil sous le clic droit tenu.
         const bool inactive = (context == Context::Flight && !active.flight) ||
-                              (context == Context::View && !active.view);
+                              (context == Context::View && (!active.view || active.flight));
         if (inactive)
         {
             continue;
