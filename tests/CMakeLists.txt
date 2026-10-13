@@ -513,7 +513,7 @@ set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVid
 
 # La disposition et les préférences de l'éditeur (ADR-0036, morceau 15) dans la vraie boucle, une entrée par scénario : les
 # scénarios et leurs raisons sont dans l'en-tête de editor_preferences_gpu.cpp.
-set(editorPreferencesScenarios central)
+set(editorPreferencesScenarios round-trip play central scripted)
 add_executable(levain_editor_preferences editor_preferences_gpu.cpp)
 target_link_libraries(levain_editor_preferences PRIVATE levain::editor levain::app levain::assets levain::core levain::platform levain::scene levain::ui)
 target_compile_definitions(levain_editor_preferences PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
