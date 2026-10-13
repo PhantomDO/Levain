@@ -511,6 +511,17 @@ target_compile_definitions(levain_editor_console PRIVATE LEVAIN_DATA_DIR="${CMAK
 add_test(NAME gpu.editor-console.vulkan COMMAND levain_editor_console vulkan)
 set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# La disposition et les préférences de l'éditeur (ADR-0036, morceau 15) dans la vraie boucle, une entrée par scénario : les
+# scénarios et leurs raisons sont dans l'en-tête de editor_preferences_gpu.cpp.
+set(editorPreferencesScenarios central)
+add_executable(levain_editor_preferences editor_preferences_gpu.cpp)
+target_link_libraries(levain_editor_preferences PRIVATE levain::editor levain::app levain::assets levain::core levain::platform levain::scene levain::ui)
+target_compile_definitions(levain_editor_preferences PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+foreach(scenario ${editorPreferencesScenarios})
+    add_test(NAME gpu.editor-preferences-${scenario}.vulkan COMMAND levain_editor_preferences vulkan ${scenario})
+    set_tests_properties(gpu.editor-preferences-${scenario}.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+endforeach()
+
 # La Vue de l'éditeur (ADR-0036, morceau 8) : chaque fenêtre sur son nœud et l'inspecteur visible, la taille demandée
 # égale à celle du contenu, le menu « Fenêtre » qui ferme la Vue (0 x 0, aucune scène) puis la rouvre.
 add_executable(levain_editor_view editor_view_gpu.cpp)
@@ -621,6 +632,11 @@ if(WIN32)
     add_test(NAME gpu.editor-modes.d3d12-warp COMMAND levain_editor_modes d3d12-warp)
     add_test(NAME gpu.editor-console.d3d12-warp COMMAND levain_editor_console d3d12-warp)
     add_test(NAME gpu.editor-view.d3d12-warp COMMAND levain_editor_view d3d12-warp)
+    set(editorPreferencesWarp)
+    foreach(scenario ${editorPreferencesScenarios})
+        add_test(NAME gpu.editor-preferences-${scenario}.d3d12-warp COMMAND levain_editor_preferences d3d12-warp ${scenario})
+        list(APPEND editorPreferencesWarp gpu.editor-preferences-${scenario}.d3d12-warp)
+    endforeach()
     add_test(NAME gpu.scene-view.d3d12-warp COMMAND levain_scene_view d3d12-warp)
     add_test(NAME gpu.editor-shortcuts.d3d12-warp COMMAND levain_editor_shortcuts d3d12-warp)
     add_test(NAME gpu.editor-gestures.d3d12-warp COMMAND levain_editor_gestures d3d12-warp)
@@ -629,7 +645,7 @@ if(WIN32)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
         gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp gpu.editor-console.d3d12-warp
         gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp gpu.editor-gestures.d3d12-warp
-        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp
+        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp ${editorPreferencesWarp}
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 

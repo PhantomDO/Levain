@@ -1,6 +1,7 @@
 // Les préférences de l'éditeur (ADR-0036, décision 10, morceau 15) : le texte versionné qu'on écrit
 // puis relit, chaque refus du lecteur (règle n°7 : à la première faute, le fichier entier), le
 // fichier sur le disque, et la règle d'une exécution scriptée, qui n'a pas de préférences.
+// Le glue d'ImGui est dans `tests/editor_preferences_gpu.cpp`.
 
 #include <atomic>
 #include <filesystem>
