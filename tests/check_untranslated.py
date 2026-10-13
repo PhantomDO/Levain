@@ -25,12 +25,16 @@ PRINTF_FIELD = re.compile(r"\\.|%[-+ #0]*\d*(?:\.\d+)?(?:ll|l|z|h)?[a-zA-Z]")
 SELF_TEST = (
     ('ImGui::Text("Bonjour \\"toi\\"", x);', 1), ('ImGui::SetItemTooltip("Lancer");', 1),
     ('ImGui::TextColored(color, "Erreur");', 1), ('ImGui::TextDisabled("%s", "non mesuré");', 1),
-    ('ImGui::TreeNodeEx("##id", 0, "Nœud %d", i);', 1), ('ImGui::Button(\n"Valider");', 1),
+    ('ImGui::TreeNodeEx("##id", 0, "Noeud %d", i);', 1), ('ImGui::Button(\n"Valider");', 1),
     ('ImGui::Text(str("Bonjour"));', 1), ('ImGui::Begin(ui::tr("Console"));', 1), ("ImGui::Begin(name);", 1),
     ('ImGui::Text("a"); // ImGui::Text("Bonjour")', 1), ('// ImGui::Text("Bonjour")\nint x;', 0),
     ('ImGui::TextDisabled("%s", ui::tr("ok (fin)"));', 0), ('ImGui::Begin(ui::labelOf("Console").c_str());', 0),
     ('ImGui::Button(ui::labelOf("Annuler", "refuser").c_str());', 0), ('ImGui::Text(ui::tr("b", "c"), "Zut");', 1),
     ('ImGui::BeginTable("passes", 2);', 0), ('ImGui::TreeNodeEx("##entité", 0, "%s", s);', 0),
+    # Hors Latin-1 : la police par défaut n'a pas le glyphe et dessine « ? » (« … » : écrire « ... »).
+    ('ImGui::Text(ui::tr("Créer…"));', 1), ('soonItem("Raccourcis…", "M7.7");', 1),
+    ('ImGui::Text(ui::tr("640×360 é"));', 0), ('soonItem("Raccourcis...", "M7.7");', 0),
+    ('// "Créer…"\nint x;', 0),
 )
 
 
@@ -70,6 +74,10 @@ def refusals(text: str) -> tuple[int, list[tuple[int, str]]]:
             first_argument = rank == 0 and args[:literal.start()].strip() == ""
             if shows_text(literal.group()[1:-1]) and not (first_argument and name in ID_ONLY):
                 found.append((line, f"« {literal.group()[1:-1]} » est affiché hors du catalogue (ImGui::{name})"))
+    for literal in re.finditer(STRING, text):
+        if re.search(r"[^\x00-\xff]", literal.group()):
+            found.append((text.count("\n", 0, literal.start()) + 1,
+                          f"« {literal.group()[1:-1]} » sort de Latin-1 : la police d'ImGui le dessinerait « ? » (écrire « ... »)"))
     return calls, found
 
 

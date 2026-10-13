@@ -30,13 +30,9 @@ void saySoon(const char* milestone, SoonSide side)
     ImGui::SetTooltip("%s", ui::trf("Arrive en {}", milestone).c_str());
 }
 
-void drawWindowMenu(std::span<const WindowEntry> entries, WindowMenuLayout& layout)
+void drawWindowMenuItems(std::span<const WindowEntry> entries, WindowMenuLayout& layout)
 {
     layout.itemsShown = false;
-    if (!ImGui::BeginMainMenuBar())
-    {
-        return;
-    }
     const bool opened = ImGui::BeginMenu(ui::labelOf("Fenêtre").c_str());
     layout.title = centerOfLastItem();
     if (opened)
@@ -51,6 +47,16 @@ void drawWindowMenu(std::span<const WindowEntry> entries, WindowMenuLayout& layo
         }
         ImGui::EndMenu();
     }
+}
+
+void drawWindowMenu(std::span<const WindowEntry> entries, WindowMenuLayout& layout)
+{
+    layout.itemsShown = false;
+    if (!ImGui::BeginMainMenuBar())
+    {
+        return;
+    }
+    drawWindowMenuItems(entries, layout);
     ImGui::EndMainMenuBar();
 }
 
