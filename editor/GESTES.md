@@ -85,20 +85,20 @@ qu'un tableau à lire.
 | 40 | Accrocher à la grille | X bascule, X tenu active : documenté [E2] | Ctrl tenu en glissant : documenté [U4] | à décider | M7.4 | à venir | `gestes.accrochage` | à faire |
 | 41 | Passer à l'outil suivant | Espace : documenté [E1] | aucun : supposé | pos. Espace | M7.4 | à venir (la touche : M7.7, 10) | `gestes.outil-suivant` | à faire |
 | 42 | Avancer vers le pivot (dolly) | Alt+clic droit : documenté [E1] | Alt+clic droit : documenté [U1] | Alt+clic droit | M7.7 | 11 | `gpu.editor-gestures.vulkan` (Alt + clic droit vers le haut : la distance au pivot diminue) ; `le bouton du milieu fait glisser la vue sans la tourner, Alt + clic droit avance` | couvert |
-| 43 | Régler la vitesse de la caméra sans voler | dans les préférences : documenté [E6] ; dans la Vue : supposé | réglages de la caméra, vitesse bornée : documenté [U2] | barre d'outils | M7.7 | 12 | `gestes.vol-vitesse-barre` | à faire |
+| 43 | Régler la vitesse de la caméra sans voler | dans les préférences : documenté [E6] ; dans la Vue : supposé | réglages de la caméra, vitesse bornée : documenté [U2] | barre d'outils | M7.7 | 12 | `gpu.editor-menus.vulkan` (de bout en bout : un clic sur le curseur de la barre d'outils règle la vitesse de la caméra de l'éditeur, bornée, et le même vol va ensuite plus loin, dans le rapport des vitesses : une seule caméra ; `tests/editor_menus_test.cpp` pour la barre seule) | couvert |
 | 44 | La hiérarchie suit la sélection faite dans la Vue | défile jusqu'à elle : documenté [E3] | supposé | défile jusqu'à la ligne | M7.4 | à venir | `gestes.hierarchie-suit` | à faire |
 | 45 | Chercher dans la hiérarchie | termes partiels, liés par ET : documenté [E3] | supposé | un filtre (proposé) | M7.3 | à venir (annulation) | `gestes.hierarchie-recherche` | à faire |
 | 46 | Copier, coller des entités | Ctrl+C, Ctrl+V : supposé | Ctrl+Maj+V colle en enfant : documenté [U11] ; Ctrl+C, Ctrl+V : supposé | Ctrl+C, Ctrl+V (proposé) | M7.3 | à venir (annulation) | `gestes.copier-coller` | à faire |
 | 47 | Réinitialiser, retirer, copier un composant | retour à la valeur par défaut : documenté [E4] | menu ⋮ du composant : documenté [U14] | clic droit sur son en-tête (proposé) | M7.3 | à venir (annulation) | `gestes.composant-menu` | à faire |
 | 48 | Glisser un nombre : une étape d'annulation | supposé | un appui de souris sépare les groupes : documenté [U18] | un glissé, une étape | M7.3 | à venir (annulation) | `gestes.champ-une-etape` | à faire |
-| 49 | Taper dans un champ sans voler ni lancer de raccourci | supposé | supposé | un champ actif garde ses touches et son Ctrl+Z | M7.7 | 12 | `gestes.champ-texte` | à faire |
+| 49 | Taper dans un champ sans voler ni lancer de raccourci | supposé | supposé | un champ actif garde ses touches et son Ctrl+Z | M7.7 | 12 | `levain_tests` « un champ de texte actif garde son Ctrl+Z » (un ImGui sans fenêtre : la frappe défaite par le champ, aucune action Annuler ; sans champ, Ctrl+Z atteint Annuler) ; le script d'input n'écrit pas de texte, `gpu.editor-menus.*` couvre le reste (Ctrl+S, une touche d'outil, Ctrl+W) | couvert |
 | 50 | Agrandir, déplacer la Vue | une fenêtre ancrée : supposé | une fenêtre ancrée : supposé | la projection suit sa taille | M7.7 | 7, 8 | `gpu.editor-view.vulkan` (la taille demandée est celle du contenu de la Vue, la texture à cette taille ; la Vue cachée derrière un onglet ou repliée demande 0 x 0 : ancrage et repli posés par le code, ni glisser ni désancrer à la souris) ; `gpu.scene-view.vulkan` (le glisser, l'aspect qui suit, au plus deux recréations) | couvert |
 | 51 | Rouvrir une fenêtre fermée | menu Window : supposé | menu Window : supposé | menu Fenêtre | M7.7 | 8 | `gpu.editor-view.vulkan` (le menu Fenêtre, cliqué à la souris scriptée, ferme la Vue : 0 x 0 et aucune scène ; la même case la rouvre sur son nœud) | couvert |
 | 52 | Retrouver ou réinitialiser sa disposition | supposé | enregistrer, charger, réinitialiser : documenté [U24] | gardée ; Fenêtre > Réinitialiser la disposition | M7.7 | 15 | `gestes.disposition` | à faire |
 | 53 | Revenir à un point de l'historique | Undo History : supposé | Undo History, un clic : documenté [U17] | fenêtre Historique (proposé) | M7.3 | à venir (annulation) | `gestes.historique` | à faire |
-| 54 | Retrouver un raccourci | Editor Preferences > Keyboard Shortcuts : documenté [E13] | Shortcuts Manager : documenté [U29] | fenêtre Aide, la liste des raccourcis | M7.7 | 12 | `gestes.aide-raccourcis` | à faire |
+| 54 | Retrouver un raccourci | Editor Preferences > Keyboard Shortcuts : documenté [E13] | Shortcuts Manager : documenté [U29] | fenêtre Aide, la liste des raccourcis | M7.7 | 12 | `gpu.editor-menus.vulkan` (Aide > Raccourcis cliqué à la souris scriptée liste chaque action de la table, « Z » pour Avancer sous une paire AZERTY ; la recherche filtre : `levain_tests` « Aide ») | couvert |
 | 55 | Changer un raccourci | deux accords, conflit, Override : documenté [E13] | Shortcuts Manager : documenté [U29] | Édition > Préférences > Raccourcis | M7.7 | 16 | `gestes.raccourci-change` | à faire |
-| 56 | Figer ou animer la Vue (temps réel) | Ctrl+R : documenté [E1] | supposé | Ctrl+R | M7.7 | 17 | `gestes.temps-reel` | à faire |
+| 56 | Figer ou animer la Vue (temps réel) | Ctrl+R : documenté [E1] | supposé | Ctrl+R | M7.7 | 17 | `gpu.editor-menus.vulkan` (la case « Temps réel » de la barre d'outils puis Ctrl+R dans la Vue figent, puis rendent, le temps de la scène que lit `record` ; `App::realTime` livré au morceau 12, avec le menu ; il ne se règle qu'en Édition, jouer le force : `gpu.editor-menus.vulkan` aussi ; le morceau 17 garde le menu Afficher) | couvert |
 | 57 | Voir la Vue comme le jeu | G : documenté [E1] | supposé | pos. G | M7.7 | 17 | `gestes.vue-de-jeu` | à faire |
 | 58 | Sculpter le terrain | clic monte, Maj+clic descend : documenté [E9] | clic monte, Maj descend : documenté [U26] | clic, Maj+clic (proposé) | M7.6 | à venir | `gestes.sculpter` | à faire |
 | 59 | Changer la taille du pinceau | aucun raccourci par défaut : documenté [E12] | [ et ] : documenté [U25] | pos. [ et ] (^ et $ sur l'AZERTY) (proposé) | M7.6 | à venir | `gestes.pinceau-taille` | à faire |
@@ -115,7 +115,7 @@ awk -F'|' -v m="$m" '
   /^\| n° \|/ { table = 1; next }
   table && /^[[:space:]]*$/ { table = 0 }
   !table || /^ *\|---/ { next }
-  !/^ *\|/ || NF != 11 || $2 !~ /^ [0-9]+ $/ { print "ligne " NR " : pas une ligne de geste"; bad = 1; n++; next }
+  !/^ *\|/ || !/\| *$/ || NF != 11 || $2 !~ /^ [0-9]+ $/ { print "ligne " NR " : pas une ligne de geste"; bad = 1; n++; next }
   {
     if ($2 + 0 != ++n) { print "ligne " NR " : rang " ($2 + 0) ", attendu " n; bad = 1; n = $2 + 0 }
     ms = $7; e = $10; gsub(/^ +| +$/, "", ms); gsub(/^ +| +$/, "", e)
@@ -131,7 +131,7 @@ awk -F'|' -v m="$m" '
 ```
 
 Elle lit le tableau de son en-tête à la première ligne vide, et échoue (code 1), en nommant la ligne, sur toute ligne
-qui n'y est pas une ligne de geste (sans `|` en tête, sans numéro, sans ses neuf colonnes : un `|` dans une cellule),
+qui n'y est pas une ligne de geste (sans `|` en tête ni en queue, sans numéro, sans ses neuf colonnes : un `|` dans une cellule),
 sur un rang qui saute ou se répète, sur un milestone ou un état hors de leur liste, et sur un milestone sans geste :
 une faute de frappe rendrait sinon « 0 gestes sur 0 », ou retirerait une ligne du compte, vert (règle n°7). Elle ne
 vérifie pas qu'un scénario `couvert` existe : la relecture de la PR qui change l'état le fait, `ctest -N` à l'appui.

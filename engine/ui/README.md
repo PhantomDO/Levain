@@ -102,6 +102,15 @@ journal en Release.
   (`ConfigInputTrickleEventQueue`) : un clic très court reste visible au moins une image. Un test qui envoie
   plusieurs événements doit jouer plusieurs images.
 
+- **Fonds opaques, en attendant un mélange en espace gamma.** L'alpha de 94 % des fenêtres et des popups d'ImGui est
+  pensé pour un mélange en espace sRGB ; l'interface se mélange ici en linéaire sur une cible sRGB, où 94 % se lit autour
+  de 73 % : un menu laissait voir le texte de la barre d'outils, la modale le damier. `createUiContext` rend donc
+  `WindowBg`, `PopupBg` et `MenuBarBg` opaques (`ChildBg` reste transparent). **Pas encore** : mélanger l'interface en
+  espace gamma, qui rendrait aussi leur sens aux autres alphas du style ; noté au morceau 17 de M7.7 (ADR-0036).
+- **La police par défaut s'arrête à Latin-1** : « … », « → », « — » s'y dessinent « ? ». `i18n.untranslated` refuse tout
+  littéral hors de Latin-1 dans `editor/`, `engine/app` et `engine/ui` (écrire « ... ») jusqu'à la police complète du
+  morceau 17.
+
 ## Équivalents ailleurs
 
 | Moteur | Équivalent | Note |

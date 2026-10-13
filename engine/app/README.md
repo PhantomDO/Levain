@@ -92,7 +92,9 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    elle** : `animateModels` et `motionOf` reçoivent le temps de la scène moins le temps passé à l'arrêt
    (`advanceAnimationClock`), qui repart d'où il s'était arrêté ; `--time` le fige comme avant, à T même si le
    programme démarre à l'arrêt. L'eau, l'herbe, les
-   matériaux et `record` gardent le temps de la scène. `tests/app_loop_gpu.cpp` joue l'arrêt, l'horloge, la
+   matériaux et `record` gardent le temps de la scène, **sauf `App::realTime` décoché** (« Temps réel » de l'éditeur,
+   décision 9) : une seconde `AnimationClock` (`Loop::realTimeClock`) fige alors ce temps pour tous, squelettes compris,
+   et le rend sans saut (`gpu.editor-menus.*`). `tests/app_loop_gpu.cpp` joue l'arrêt, l'horloge, la
    recomposition et la caméra imposée dans la vraie boucle.
 
 14. **L'input a une route** (`App::inputRoute`, ADR-0036, décision 4), lue au début de chaque image par
@@ -193,7 +195,7 @@ attend le code 1.
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `inputRoute`, `sceneRect`, `cursor`, `rawFrameEvents`, `frameSeconds`, `mouseCaptureOverPanels`, `mouseReturnTo`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `realTime`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `inputRoute`, `sceneRect`, `cursor`, `rawFrameEvents`, `frameSeconds`, `mouseCaptureOverPanels`, `mouseReturnTo`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
 | [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf`, `renderCameraOr` (la caméra imposée d'abord) : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
