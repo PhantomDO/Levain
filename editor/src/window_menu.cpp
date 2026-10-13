@@ -49,15 +49,4 @@ void drawWindowMenuItems(std::span<const WindowEntry> entries, WindowMenuLayout&
     }
 }
 
-void drawWindowMenu(std::span<const WindowEntry> entries, WindowMenuLayout& layout)
-{
-    layout.itemsShown = false;
-    if (!ImGui::BeginMainMenuBar())
-    {
-        return;
-    }
-    drawWindowMenuItems(entries, layout);
-    ImGui::EndMainMenuBar();
-}
-
 } // namespace levain::editor

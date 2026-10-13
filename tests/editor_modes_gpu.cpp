@@ -134,8 +134,10 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
     settings.inputScript = std::move(*parsed);
     settings.steps = frames;
     settings.showUiPanels = panels;
-    settings.width = 320;
-    settings.height = 180;
+    // Panneaux ouverts, les barres (menus, outils, état) prennent leur hauteur à la Vue : dans 320
+    // x 180, le trou central ne ferait plus que 20 px de haut, sans place pour la barre de mode.
+    settings.width = panels ? 640 : 320;
+    settings.height = panels ? 360 : 180;
     settings.assetRoots = {LEVAIN_DATA_DIR};
     settings.bindingsFile = LEVAIN_DATA_DIR "/input.cfg";
     settings.api = backend.api;
@@ -283,7 +285,7 @@ int playPanels(const levain::tests::TestBackend& backend)
            expect(second.route == levain::app::InputRoute::Game && !second.imguiP,
                   "panneaux ouverts : Jouer met la Vue en avant, la route est jeu") +
            expect(last.rect.x > 0.0f && last.rect.width > 0.0f &&
-                      last.rect.x + last.rect.width < 320.0f,
+                      last.rect.x + last.rect.width < 640.0f,
                   "panneaux ouverts : la scène est l'image de la Vue, entre les colonnes") +
            expect(last.barDrawn && last.barX >= last.rect.x && last.barY >= last.rect.y,
                   "panneaux ouverts : la barre est dans l'image de la Vue, pas sur les colonnes");

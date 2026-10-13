@@ -18,11 +18,14 @@
 #include "levain/app/app.hpp"
 #include "levain/core/error.hpp"
 #include "levain/core/log_ring.hpp"
+#include "levain/editor/actions.hpp"
+#include "levain/editor/bars.hpp"
 #include "levain/editor/camera.hpp"
 #include "levain/editor/console.hpp"
 #include "levain/editor/gestures.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
+#include "levain/editor/menus.hpp"
 #include "levain/editor/mode.hpp"
 #include "levain/editor/quit.hpp"
 #include "levain/editor/scene_bounds.hpp"
@@ -95,18 +98,31 @@ struct Editor
     WindowMenuLayout menu;
     /// La modale « Quitter l'éditeur ? » (ADR-0036, décision 11).
     QuitState quit;
-    /// **La caméra de l'éditeur** (ADR-0036, décision 6) : un état, pas une entité. Elle part de
-    /// celle du jeu s'il y en a une, les gestes la bougent en Édition, et `App::cameraOverride` la
-    /// pose chaque image ; en jeu, l'imposition est levée et la caméra du jeu reprend.
+    /// **La caméra de l'éditeur** (ADR-0036, décision 6) : un état, pas une entité, **une seule**.
+    /// Elle part de celle du jeu s'il y en a une, les gestes la bougent en Édition, et
+    /// `App::cameraOverride` la pose chaque image ; en jeu, l'imposition est levée et la caméra du
+    /// jeu reprend. Sa vitesse de vol se règle à deux endroits, la molette en vol et le curseur de
+    /// la barre d'outils, tous deux bornés par `clampFlySpeed` : le vol suivant va à cette vitesse.
     EditorCamera camera;
     /// Les gestes en cours (clic droit tenu, orbite, pan, dolly) et les touches tenues.
     GestureState gestures;
-    /// La table des raccourcis : les défauts de la décision 13 (les changer est le morceau 16).
+    /// **La table des raccourcis** (ADR-0036, décision 13) : les défauts, que les gestes, le menu,
+    /// la fenêtre Aide et les raccourcis lisent tous. Le morceau 16 la rend modifiable.
     ShortcutTable shortcuts;
     /// Toute entité placée dans le monde : de quoi bornes de la scène et plans de découpe.
     flecs::query<const scene::WorldTransform> everything;
     /// La boîte de la scène de la dernière image où elle a été refaite (`cachedSceneBoxOf`).
     SceneBoundsCache sceneBounds;
+    /// Les actions atteintes (menu, barre d'outils) : faites ou grisées et dites.
+    ActionCounters actions;
+    /// La barre de menus, où elle a été dessinée, et la fenêtre Aide (ADR-0036, décision 12).
+    MenuBarLayout bar;
+    HelpState help;
+    /// La barre d'outils (où elle a été dessinée) et la barre d'état (ce qu'elle a dit).
+    ToolbarLayout toolbar;
+    StatusLine status;
+    /// Le choix de « Temps réel » en Édition, gardé pendant qu'on joue (`switchRealTime`).
+    bool realTimeEdit = true;
 };
 
 /// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web
