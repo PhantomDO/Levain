@@ -41,6 +41,7 @@ set(nativeTests
     editor_camera_test.cpp
     editor_gestures_test.cpp
     editor_menus_test.cpp
+    editor_preferences_test.cpp
     editor_shortcuts_test.cpp
     editor_test.cpp
     environment_test.cpp
@@ -50,6 +51,7 @@ set(nativeTests
     light_clusters_test.cpp
     log_ring_test.cpp
     log_sink_test.cpp
+    paths_test.cpp
     scene_view_test.cpp
     shadows_test.cpp
     stages_test.cpp
