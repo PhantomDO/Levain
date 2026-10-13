@@ -30,9 +30,10 @@ void saySoon(const char* milestone, SoonSide side)
     ImGui::SetTooltip("%s", ui::trf("Arrive en {}", milestone).c_str());
 }
 
-void drawWindowMenuItems(std::span<const WindowEntry> entries, WindowMenuLayout& layout)
+bool drawWindowMenuItems(std::span<const WindowEntry> entries, WindowMenuLayout& layout)
 {
     layout.itemsShown = false;
+    bool resetClicked = false;
     const bool opened = ImGui::BeginMenu(ui::labelOf("Fenêtre").c_str());
     layout.title = centerOfLastItem();
     if (opened)
@@ -45,8 +46,12 @@ void drawWindowMenuItems(std::span<const WindowEntry> entries, WindowMenuLayout&
             ImGui::MenuItem(ui::tr(entry.french), nullptr, entry.open);
             layout.items.at(index++) = centerOfLastItem();
         }
+        ImGui::Separator();
+        resetClicked = ImGui::MenuItem(ui::tr("Réinitialiser la disposition"));
+        layout.reset = centerOfLastItem();
         ImGui::EndMenu();
     }
+    return resetClicked;
 }
 
 } // namespace levain::editor

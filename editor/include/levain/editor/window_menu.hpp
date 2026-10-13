@@ -34,6 +34,7 @@ struct WindowMenuLayout
     ImVec2 title{};
     bool itemsShown = false;
     std::array<ImVec2, MaxWindowEntries> items{};
+    ImVec2 reset{}; ///< « Réinitialiser la disposition », valable `itemsShown`.
 };
 
 /// Le centre du dernier widget dessiné : l'endroit où cliquer.
@@ -54,7 +55,9 @@ void saySoon(const char* milestone, SoonSide side);
 
 /// Le menu « Fenêtre » seul, **dans une barre de menus déjà ouverte** (`BeginMainMenuBar`) : la
 /// barre complète (`drawMenuBar`) y met ses cinq menus. Une case cliquée inverse le drapeau de sa
-/// fenêtre ; `layout` retient où elle est.
-void drawWindowMenuItems(std::span<const WindowEntry> entries, WindowMenuLayout& layout);
+/// fenêtre ; `layout` retient où elle est. Après les cases, « Réinitialiser la disposition » : vrai
+/// à l'image où on le clique (le travail est celui de l'appelant, `resetLayout`).
+[[nodiscard]] bool drawWindowMenuItems(std::span<const WindowEntry> entries,
+                                       WindowMenuLayout& layout);
 
 } // namespace levain::editor

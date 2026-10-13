@@ -219,6 +219,7 @@ std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>&
     {
         askToQuit(editor.quit);
     }
+    editor.layoutResetRequested = editor.layoutResetRequested || menus.resetLayout;
     if (toolbar.flySpeed)
     {
         editor.camera.flySpeed = *toolbar.flySpeed;
@@ -346,7 +347,9 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .realTimeEdit = true,
                    .lastShortcuts = {},
                    .preferencesFile = {},
-                   .shortcutLines = {}});
+                   .shortcutLines = {},
+                   .layoutResetRequested = false,
+                   .savePreferencesNext = false});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -374,6 +377,11 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         imposeCamera(app, *editor, true);
         hooks->frame = [frame = std::move(hooks->frame), editor](app::App& app)
         {
+            if (std::exchange(editor->layoutResetRequested, false))
+            {
+                resetLayout(app, *editor);
+                editor->savePreferencesNext = true;
+            }
             // Échap ramène à l'Édition ; le `frame` du programme ne tourne qu'en jeu.
             if (const auto requested = modeRequested(
                     editor->mode.current,
@@ -464,6 +472,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 inputRouteFor(editor->mode.current,
                               sceneFocusedIn(app.ui.panelsOpen, viewHasFocus(editor->view),
                                              !sceneHasFocus(), editor->view.barHovered)));
+            if (std::exchange(editor->savePreferencesNext, false))
+            {
+                savePreferencesNow(app, *editor);
+            }
             if (afterUi)
             {
                 afterUi(*editor);

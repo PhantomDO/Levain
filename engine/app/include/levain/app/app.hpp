@@ -409,6 +409,17 @@ struct App
 /// l'ancienne est étirée en attendant et libérée après l'image (`requestSceneTexture`).
 [[nodiscard]] std::optional<ImTextureID> requestScene(App& app, const SceneSize& size);
 
+/// **« Réinitialiser la disposition »** (ADR-0036, décision 10) : rebâtit la disposition par défaut
+/// de l'éditeur sur l'espace d'ancrage, même s'il existe déjà (la restaurée, ou celle que
+/// l'utilisateur a défaite), et rouvre les trois fenêtres du moteur. Les fenêtres du moteur sont
+/// ancrées sur leurs nœuds tout de suite, y compris celles qui existent (`DockBuilderDockWindow` ne
+/// touche une fenêtre déjà créée que par `SetWindowDock`) ; celles de l'éditeur, que `app` ne
+/// connaît pas, le sont par l'appelant sur les nœuds rendus, qui est aussi `app.ui.dock`.
+/// À appeler entre `NewFrame` et la soumission de l'espace d'ancrage de l'image : le `frame` du
+/// programme. Pas de panneaux ouverts (F1) : sans effet utile, la disposition se refait à
+/// l'ouverture suivante.
+[[nodiscard]] DockNodes resetEditorLayout(App& app);
+
 /// Le monde d'une application, sans fenêtre ni GPU : la scène, les assets, les composants d'`app`
 /// décrits (ADR-0034), et `PlayerInput` enregistré (`createApp` le pose ensuite). Appelée par
 /// `createApp`, et par le test des composants décrits, qui voit ainsi le monde de l'application.

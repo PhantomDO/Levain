@@ -31,8 +31,8 @@ d'entité et d'asset. Il n'a pas encore :
 **La console est écrite** (M7.7, morceau 14) : la fenêtre « Console » lit le journal du processus par un récepteur de
 `core::log` (`withEditor` le pose avant `runApp` : ce que la fenêtre et le device écrivent en s'ouvrant y est), dans un
 anneau de 2 000 messages ; niveaux, compteurs de tous les messages reçus, recherche, Effacer, Réduire. Elle s'ancre
-pour l'instant au nœud de la hiérarchie (le bas de l'écran est pour la disposition du morceau 15), dessinée *avant* elle :
-après, ImGui lui donnerait l'onglet visible du nœud à l'ouverture. Dans cette colonne étroite, la barre d'outils s'enroule
+au nœud du bas (`app.ui.dock.bottom`, avec Image, Passes et Scène : la disposition du morceau 15), dessinée *avant* elles :
+après, ImGui lui donnerait l'onglet visible du nœud à l'ouverture. Dans un nœud étroit, la barre d'outils s'enroule
 (`fitsOnLine`) et le champ de recherche a sa propre ligne. De bout en bout : `gpu.editor-console.*`
 (`tests/editor_console_gpu.cpp`), qui lit ce que les fenêtres ont dessiné par `EditorOptions::afterUi`.
 
@@ -208,9 +208,9 @@ M couverts par un test ».
     droite **seul sur son nœud** (donc toujours visible, la CI le compte), la console, Image, Passes et Scène en onglets
     en bas (`DockNodes::left, center, inspector, bottom`). **Le menu « Fenêtre »** (`window_menu.hpp`), un des cinq de
     la barre de menus (morceau 12, `drawMenuBar`), ferme et rouvre chaque fenêtre par son drapeau
-    (`windowEntriesOf`) ; les fenêtres sont fermées aussi par leur croix. La disposition n'est pas gardée (morceau 15) :
-    une fenêtre fermée puis rouverte retrouve son nœud, ImGui gardant le `DockId` de la fenêtre fermée
-    (`SetNextWindowDockID` en `FirstUseEver` ne sert qu'à la première ouverture). Le sandbox et *Rando* gardent leur
+    (`windowEntriesOf`) ; les fenêtres sont fermées aussi par leur croix. Une fenêtre fermée puis rouverte
+    retrouve son nœud, ImGui gardant le `DockId` de la fenêtre fermée (`SetNextWindowDockID` en `FirstUseEver` ne sert
+    qu'à la première ouverture). La disposition est gardée d'une session à l'autre : voir le point 20. Le sandbox et *Rando* gardent leur
     disposition et leurs fenêtres sans croix (`UiLayer::editorLayout`, posé par `withEditor`) : rien n'y rouvrirait
     une fenêtre fermée. La ligne de la CI
     `editor.view width=W height=H -- vue : W×H` donne la taille demandée à la dernière image (`ci-programs.sh editor` la
@@ -218,7 +218,43 @@ M couverts par un test ».
     code (`playHidden`), non à la souris ; glisser ou désancrer la Vue n'est pas testé ; la barre de menus n'existe que
     panneaux ouverts ; **`StableFramesBeforeResize` n'est pas mesuré sur un vrai glissé de séparateur à 144 Hz** (cette
     machine n'a pas d'écran à 144 Hz), à faire quand un écran rapide est sous la main.
-20. **La caméra de l'éditeur** (ADR-0036, décisions 6, 8 et 13 ; `gestures.hpp`, `camera.hpp`, `scene_bounds.hpp`) : un
+20. **La disposition et les préférences** (M7.7, morceau 15, ADR-0036, décision 10 ; `preferences.hpp`, `layout.hpp`,
+    `platform::prefPath`). L'éditeur garde, dans `preferences.cfg` sous `SDL_GetPrefPath("Levain", "Editor")`
+    (`%APPDATA%\Levain\Editor\` sous Windows, `$XDG_DATA_HOME/Levain/Editor/` sous Linux), un fichier texte versionné
+    (`levain-editor 1`) : `[editeur]` (la vitesse de la caméra, le choix de « Temps réel » en Édition), `[fenetres]` (les
+    sept fenêtres ouvertes ou non), `[raccourcis]` (vide tant que personne n'en change : l'absence d'une action, ce sont
+    les défauts ; le morceau 16 y écrit les accords par leurs noms stables `tokenOf`, et les lignes relues sont déjà
+    gardées et réécrites) et, **à la fin, tel quel**, `[disposition]` : le texte d'ImGui (`SaveIniSettingsToMemory`), dont
+    l'`imgui.ini` n'est pas écrit (ADR-0032 : il changerait d'une exécution à l'autre). Le lecteur refuse le fichier
+    entier à la première faute (version inconnue ou plus récente, section ou clé inconnue ou en double, valeur hors
+    bornes, accord illisible), avec le numéro de ligne. **Au démarrage**, `withEditor` relit le fichier avant la première
+    image : la disposition d'ImGui est rechargée (`LoadIniSettingsFromMemory`), l'espace d'ancrage existe donc et
+    `drawEnginePanels` ne rappelle pas `buildLayout` (il ne bâtit que ce qui manque) ; les nœuds de l'éditeur
+    (`app.ui.dock`) sont **retrouvés par le nom des fenêtres** dans les réglages relus (`dockNodesOfSavedLayout`), pas
+    par des identifiants gardés à part. Un fichier refusé est dit à la console (erreur), mis de côté en `.bad` et la
+    disposition par défaut se construit ; une disposition sans espace d'ancrage est écartée de même, le reste des
+    préférences gardé. **À la fermeture** (`FrameHooks::finish`) et aussitôt après « Réinitialiser la disposition »
+    (`Fenêtre`, dernière entrée : `resetEditorLayout` rebâtit le défaut, toutes les fenêtres rouvertes et ancrées sur leurs
+    nœuds, vitesse et « Temps réel » gardés), il est réécrit par un fichier voisin renommé. Un second fichier refusé remplace le
+    premier `.bad` ; si la mise de côté échoue, la session n'enregistre pas. **Un fichier d'une version plus récente**
+    (`isFromNewerVersion`) n'est ni mis de côté ni écrasé : une branche plus ancienne le rétrograderait en v1 ; la
+    session n'enregistre pas et la console le dit. Le fichier voisin porte un nom par écriture
+    (`temporaryFileFor`, `<fichier>.<id>.tmp`) : deux éditeurs lancés ensemble ne se tronquent pas l'un l'autre
+    (un plantage au milieu d'une écriture laisse un `.tmp`, que rien ne nettoie). **Une fenêtre renommée dans une
+    disposition enregistrée** (`[Window][Ancien nom]`) flotte pour toujours à côté de la nouvelle : « Réinitialiser la
+    disposition » la rend à la défaut. **Une exécution scriptée n'en
+    lit ni n'en écrit** (`isScriptedRun` : `--seconds`, `--steps`, `--time`, `--capture`, `--input-script`), et
+    `platform::prefPath`, qui crée le dossier, n'est alors pas même appelé. Les tests posent
+    `AppSettings::testInteractive` (une exécution scriptée n'a pas de préférences) **et injectent un dossier jetable**
+    (`EditorOptions::preferencesDirectory`) : `preferencesFileFor(scriptedRun, testRun, ...)` ne laisse jamais une
+    exécution de test (`testRun`) atteindre le dossier de l'utilisateur, un test qui oublie le dossier n'a simplement pas de
+    préférences (contre-test : `tests/editor_preferences_test.cpp`). Un fichier tronqué (sans `[disposition]`) est refusé
+    comme les autres, et l'écriture est à l'abri d'un plantage (fichier voisin renommé), pas d'une coupure de courant. De
+    bout en bout : `gpu.editor-preferences-*.*`, un test par scénario (`tests/editor_preferences_gpu.cpp`) ; le format : `tests/editor_preferences_test.cpp` ;
+    `prefPath` sous `%APPDATA%` au portable : `tests/paths_test.cpp`. Pas encore : l'écriture périodique (un plantage perd
+    la session ; l'enregistrement se fait à la fermeture), la disposition d'un sandbox ou de *Rando* (leur
+    `editorLayout` est faux), le choix du mode et la sélection.
+21. **La caméra de l'éditeur** (ADR-0036, décisions 6, 8 et 13 ; `gestures.hpp`, `camera.hpp`, `scene_bounds.hpp`) : un
     état d'`Editor` (`Editor::camera`), jamais une entité, qui part de celle du jeu (`editorCameraFrom`) et que
     `App::cameraOverride` impose chaque image en Édition (en jeu, l'imposition est levée et la caméra du jeu voit). Les
     gestes lisent l'**input brut** (`App::rawFrameEvents`, avant le filtre de route et celui de la capture), dans `frame`
@@ -275,6 +311,9 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   `--select`, en ouvre les ancêtres, ajoute la hiérarchie et l'inspecteur aux fenêtres, et écrit à la fin le
   bilan que lit la CI, « éditeur : N entités, M champs dessinés ; sélection : chemin », N étant les lignes de la
   hiérarchie et M les champs de la sélection à la dernière image.
+- `Preferences`, `formatPreferences`, `parsePreferences`, `loadPreferences`, `savePreferences`, `preferencesFileFor`
+  (`preferences.hpp`, sans ImGui) ; `startPreferences`, `savePreferencesNow`, `preferencesOf`, `applyPreferences`,
+  `dockNodesOfSavedLayout`, `resetLayout` (`layout.hpp`) : le fichier des préférences et son branchement sur ImGui.
 - `QuitState`, `askToQuit`, `shouldOpenQuitModal`, `drawQuitModal` (`quit.hpp`) : la modale de fermeture.
 - `Mode`, `ModeState`, `ModeRequests`, `modeRequested`, `enterMode`, `stopPressed`, `inputRouteFor`,
   `simulationPausedIn`, `programFrameRunsIn`, `otherMode`, `modeNameOf`, `modeHintOf`, `modeTokenOf`, `drawModeBar`,

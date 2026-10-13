@@ -150,8 +150,12 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 ## Fermer, et `isScriptedRun` (ADR-0036, décisions 10 et 11)
 
 `isScriptedRun(settings)` est vrai sous `--seconds`, `--steps`, `--time`, `--capture` ou `--input-script` : ni préférences
-lues ni écrites (morceau 15), et la croix ferme tout de suite. `AppSettings::testInteractive` le rend faux pour un test
-du banc d'essai qui éprouve ce qu'un humain déclenche (aucune option de ligne de commande ne le pose). **La croix**
+lues ni écrites (morceau 15, `editor/README.md` point 20), et la croix ferme tout de suite. `AppSettings::testInteractive`
+le rend faux pour un test du banc d'essai qui éprouve ce qu'un humain déclenche (aucune option de ligne de commande ne le
+pose) ; un test qui éprouve les préférences injecte aussi un dossier jetable (`EditorOptions::preferencesDirectory`) ; sans lui,
+il n'en a pas (`preferencesFileFor` : jamais le dossier de qui lance le test).
+`resetEditorLayout(app)` rebâtit la disposition par défaut de l'éditeur sur l'espace d'ancrage (« Réinitialiser la
+disposition ») et rouvre les fenêtres du moteur ; `mainDockspaceId()` est l'identifiant de cet espace. **La croix**
 (`CloseRequested`) passe par `FrameHooks::closeRequested` : `true` veut dire « je demande d'abord » (la boucle ne
 s'arrête pas, le programme pose `App::quitRequested` s'il quitte) ; il n'est jamais appelé sous `isScriptedRun`. **Un
 signal** (`QuitSignal`) arrête toujours, sans demander. Le titre de la fenêtre passe par `platform::asciiTitleOf`.

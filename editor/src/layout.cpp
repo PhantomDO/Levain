@@ -6,6 +6,7 @@
 #include <format>
 #include <span>
 #include <string>
+#include <utility>
 
 #include <imgui.h>
 // DockBuilder et les réglages de fenêtre par leur identifiant : l'API interne d'ImGui, comme
@@ -239,6 +240,24 @@ void savePreferencesNow(const app::App& app, const Editor& editor)
     {
         core::log("editor", core::LogLevel::Error, "{}", saved.error().message);
     }
+}
+
+void resetLayout(app::App& app, Editor& editor)
+{
+    const app::DockNodes nodes = app::resetEditorLayout(app);
+    // Les fenêtres de l'éditeur, qu'`app` ne connaît pas : `DockBuilderDockWindow` ancre aussi
+    // celles qui existent déjà (SetWindowDock).
+    const std::array<std::pair<const char*, ImGuiID>, 4> placed{{{HierarchyWindow, nodes.left},
+                                                                 {InspectorWindow, nodes.inspector},
+                                                                 {ViewWindow, nodes.center},
+                                                                 {ConsoleWindow, nodes.bottom}}};
+    for (const auto& [french, node] : placed)
+    {
+        ImGui::DockBuilderDockWindow(ui::labelOf(french).c_str(), node);
+    }
+    ImGui::DockBuilderFinish(app::mainDockspaceId());
+    editor.windows = {};
+    editor.view.open = true;
 }
 
 } // namespace levain::editor
