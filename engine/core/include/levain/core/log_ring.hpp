@@ -10,6 +10,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -109,6 +110,14 @@ struct LogSnapshot
 [[nodiscard]] LogSnapshot snapshotOf(const LogRing& ring);
 
 [[nodiscard]] std::uint64_t generationOf(const LogRing& ring);
+
+/// Le message le plus récent, ou rien si l'anneau est vide : sous le mutex, sans recopier les
+/// entrées (la barre d'état d'une image n'en veut qu'une).
+[[nodiscard]] std::optional<LogEntry> lastEntryOf(const LogRing& ring);
+
+/// Les comptes seuls, sous le mutex. Lus à part de `lastEntryOf` : un message écrit entre les deux
+/// ne fait qu'avancer le compte d'un cran sur le texte, ce que l'image suivante corrige.
+[[nodiscard]] LogCounts countsOf(const LogRing& ring);
 
 /// Un anneau qui reçoit le journal tant qu'il vit. Le destructeur retire le récepteur *avant* que
 /// les membres ne partent : aucun appel ne peut plus atteindre l'anneau une fois libéré, quel que

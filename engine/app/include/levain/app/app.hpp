@@ -267,6 +267,12 @@ struct App
     /// images : à l'arrêt, il ne joue aucun pas. Les squelettes s'arrêtent avec elle
     /// (`skinningState.clock`) ; l'eau, l'herbe et les matériaux gardent le temps de la scène.
     bool simulationPaused = false;
+    /// **Le temps réel** (ADR-0036, décisions 9 et 12), que l'éditeur décoche avec « Temps réel »
+    /// (Ctrl+R) : décoché, le temps de la scène que lisent l'eau, l'herbe, les matériaux et le
+    /// point d'accroche `record` ne court plus (les squelettes, qui le suivent, non plus) ; la
+    /// simulation, elle, ne dépend que de `simulationPaused`. Recoché, il repart d'où il s'était
+    /// arrêté, sans saut. Vrai au départ : le jeu livré n'y touche pas.
+    bool realTime = true;
     /// Les pas de simulation joués depuis le début, tous les `advanceWorld` : il n'avance pas tant
     /// que la simulation est à l'arrêt, et reste à zéro si rien n'a jamais joué. Ce que compte un
     /// bilan (le « pas : 0 » de l'éditeur lancé en Édition) ; la simulation, elle, ne le lit pas.
