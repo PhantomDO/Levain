@@ -29,6 +29,7 @@
 #include "levain/app/app.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/editor/mode.hpp"
+#include "levain/platform/input_script.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/scene/components.hpp"
 
@@ -71,6 +72,8 @@ levain::app::StartFunction programOf(Run& run, int raiseAt, std::string& titleSe
     {
         run.startTitle = levain::platform::windowTitle(app.window);
         app.world.entity("camera").set(levain::scene::Transform{}).set(levain::app::CameraLens{});
+        // Épinglée : une vraie fenêtre lirait la disposition de la machine (AZERTY chez Donnovan).
+        app.keyAtPosition = levain::platform::qwertyKeyAtPosition;
         levain::app::FrameHooks hooks;
         // Ne joue qu'en jeu (`withEditor`) : ce qu'il y voit est ce que le jeu recevrait.
         hooks.frame = [&run](App& frameApp)

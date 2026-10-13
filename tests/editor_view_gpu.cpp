@@ -29,6 +29,7 @@
 
 #include "levain/app/app.hpp"
 #include "levain/editor/editor.hpp"
+#include "levain/platform/input_script.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/ui/tr.hpp"
 
@@ -117,6 +118,8 @@ levain::app::StartFunction programOf(Run& run)
     return [&run](App& app) -> levain::core::Result<levain::app::FrameHooks>
     {
         app.world.entity("camera").set(levain::scene::Transform{}).set(levain::app::CameraLens{});
+        // Épinglée : une vraie fenêtre lirait la disposition de la machine (AZERTY chez Donnovan).
+        app.keyAtPosition = levain::platform::qwertyKeyAtPosition;
         run.app = &app;
         return levain::app::FrameHooks{};
     };

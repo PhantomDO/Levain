@@ -113,12 +113,20 @@ bool sceneHoveredIn(const app::App& app, const Editor& editor)
     return app.ui.panelsOpen ? editor.view.hovered : !ImGui::GetIO().WantCaptureMouse;
 }
 
+/// Les touches de la Vue valent (les outils, F, Ctrl+R) : la règle `viewActiveIn`, la même pour
+/// les gestes (F) et les raccourcis (`shortcutsPressed`), sur ce qu'ImGui a dit de la Vue à la
+/// dernière image qui l'a dessinée.
+bool viewActiveOf(const app::App& app, const Editor& editor)
+{
+    return viewActiveIn(app.ui.panelsOpen, editor.view.focused, editor.view.hovered);
+}
+
 /// Le contexte des gestes de cette image : ce qu'ImGui a dit de la Vue à l'image d'avant.
 GestureContext gestureContextOf(const app::App& app, const Editor& editor)
 {
     return {.region = gestureRegionOf(app, editor),
             .sceneHovered = sceneHoveredIn(app, editor),
-            .sceneFocused = app.ui.panelsOpen && editor.view.focused,
+            .viewActive = viewActiveOf(app, editor),
             .textInput = ImGui::GetIO().WantTextInput};
 }
 
@@ -127,6 +135,7 @@ GestureContext gestureContextOf(const app::App& app, const Editor& editor)
 /// se tient : un vol commencé ne survit pas au changement de mode, ni à la croix (`quit.hpp`).
 void frameGestures(app::App& app, Editor& editor)
 {
+    editor.presses.clear(); // les touches de l'Édition seulement, hors de la modale
     if (editor.mode.current != Mode::Edit)
     {
         editor.gestures = idleGestures(editor.gestures);
@@ -144,6 +153,8 @@ void frameGestures(app::App& app, Editor& editor)
         app.mouseCaptureOverPanels = false;
         return;
     }
+    // Avant `stepGestures` : `gestures.keys` est encore ce qui était tenu au début de l'image.
+    editor.presses = keyPressesOf(app.rawFrameEvents, editor.gestures.keys);
     const GestureContext context = gestureContextOf(app, editor);
     const bool wasFlying = capturesMouse(editor.gestures);
     const GestureStep step = stepGestures(editor.gestures, app.rawFrameEvents, context,
@@ -216,10 +227,21 @@ std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>&
     return std::move(menus.actions);
 }
 
-/// Atteint les actions des menus et de la barre d'outils : un seul chemin, `runAction`, qui fait
-/// l'action ou, grisée, la dit à la console.
-void runReachedActions(app::App& app, Editor& editor, const std::vector<Action>& reached)
+/// Atteint les actions des menus et de la barre d'outils, puis celles des raccourcis de l'image
+/// (`shortcutsPressed`) : un seul chemin, `runAction`, que le clic et la touche partagent. Les
+/// touches sont celles des événements bruts (`Editor::presses`, posées par `frameGestures`) ; la
+/// Vue est « active » selon `viewActiveOf`, et le vol est celui des gestes (`inFlight`), qui
+/// commande aussi la capture de la souris.
+void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reached)
 {
+    editor.lastShortcuts = shortcutsPressed({.table = editor.shortcuts,
+                                             .presses = editor.presses,
+                                             .editing = editor.mode.current == Mode::Edit,
+                                             .globalAllowed = globalChordsAllowed(editor.quit),
+                                             .viewActive = viewActiveOf(app, editor),
+                                             .flight = inFlight(editor.gestures),
+                                             .textInput = ImGui::GetIO().WantTextInput});
+    reached.insert(reached.end(), editor.lastShortcuts.begin(), editor.lastShortcuts.end());
     for (const Action action : reached)
     {
         if (const auto next = runAction(action, editor.actions, app.realTime, editor.mode.current))
@@ -311,6 +333,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .quit = {},
                    .camera = {},
                    .gestures = {},
+                   .presses = {},
                    .shortcuts = defaultShortcuts(),
                    .everything = app.world.query<const scene::WorldTransform>(),
                    .sceneBounds = {},
@@ -319,7 +342,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .help = {},
                    .toolbar = {},
                    .status = {},
-                   .realTimeEdit = true});
+                   .realTimeEdit = true,
+                   .lastShortcuts = {}});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -366,7 +390,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             std::optional<Mode> requested;
             // L'écriture de cette image seulement : `inspector.wrote` survit, panneaux fermés.
             bool wroteWorld = false;
-            // Ce que les menus et les barres atteignent à cette image.
+            // Ce que les menus, les barres et les raccourcis atteignent à cette image.
             std::vector<Action> reached;
             if (app.ui.panelsOpen)
             {
@@ -408,7 +432,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             {
                 app.quitRequested = true;
             }
-            runReachedActions(app, *editor, reached);
+            runReachedActions(app, *editor, std::move(reached));
             // La barre de mode : en calque de la Vue panneaux ouverts, bandeau flottant sinon (le
             // bandeau de « Jouer » et le rappel de la touche valent panneaux fermés aussi).
             // `modeRequested` décide, avec Alt+P, qui ne joue pas sous la modale.

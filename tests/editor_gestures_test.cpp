@@ -50,7 +50,7 @@ GestureContext sceneContext()
 {
     return {.region = {.x = 100.0f, .y = 50.0f, .width = 800.0f, .height = 600.0f},
             .sceneHovered = true,
-            .sceneFocused = false,
+            .viewActive = true,
             .textInput = false};
 }
 
@@ -351,8 +351,9 @@ TEST_CASE(
     CHECK(step({}, f).frameSelection);
     GestureContext elsewhere = sceneContext();
     elsewhere.sceneHovered = false;
+    elsewhere.viewActive = false; // ni survolée ni focalisée (`viewActiveIn`)
     CHECK_FALSE(step({}, f, elsewhere).frameSelection);
-    elsewhere.sceneFocused = true; // la Vue a le focus sans être survolée
+    elsewhere.viewActive = true; // la Vue a le focus sans être survolée
     CHECK(step({}, f, elsewhere).frameSelection);
     GestureContext typing = sceneContext();
     typing.textInput = true;

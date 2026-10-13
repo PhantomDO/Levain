@@ -106,6 +106,10 @@ struct Editor
     EditorCamera camera;
     /// Les gestes en cours (clic droit tenu, orbite, pan, dolly) et les touches tenues.
     GestureState gestures;
+    /// Les touches appuyées à cette image (`keyPressesOf`, lues dans `App::rawFrameEvents`) : ce
+    /// que les raccourcis de position (les outils) lisent dans `ui`. Vide hors de l'Édition et sous
+    /// la modale « Quitter ? ».
+    std::vector<KeyPress> presses;
     /// **La table des raccourcis** (ADR-0036, décision 13) : les défauts, que les gestes, le menu,
     /// la fenêtre Aide et les raccourcis lisent tous. Le morceau 16 la rend modifiable.
     ShortcutTable shortcuts;
@@ -113,7 +117,7 @@ struct Editor
     flecs::query<const scene::WorldTransform> everything;
     /// La boîte de la scène de la dernière image où elle a été refaite (`cachedSceneBoxOf`).
     SceneBoundsCache sceneBounds;
-    /// Les actions atteintes (menu, barre d'outils) : faites ou grisées et dites.
+    /// Les actions atteintes (menu, barre d'outils, raccourcis) : faites ou grisées et dites.
     ActionCounters actions;
     /// La barre de menus, où elle a été dessinée, et la fenêtre Aide (ADR-0036, décision 12).
     MenuBarLayout bar;
@@ -123,6 +127,9 @@ struct Editor
     StatusLine status;
     /// Le choix de « Temps réel » en Édition, gardé pendant qu'on joue (`switchRealTime`).
     bool realTimeEdit = true;
+    /// Les actions que les raccourcis seuls (ni les menus ni les barres) ont atteintes à la
+    /// dernière image : ce que les tests lisent.
+    std::vector<Action> lastShortcuts;
 };
 
 /// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web

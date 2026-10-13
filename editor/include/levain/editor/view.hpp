@@ -43,9 +43,12 @@ struct View
     app::ScreenRect image{}; ///< Où la dernière image a mis la scène.
     bool barDrawn = false;   ///< La barre de mode en calque a été dessinée à la dernière image.
     ImVec2 barAt{};          ///< Son coin haut gauche.
-    /// L'image de la scène est la fenêtre sous la souris à la dernière image : ni cachée par une
-    /// autre fenêtre ou un menu, ni sa barre de mode survolée. Là où un geste de caméra commence
-    /// (`GestureContext::sceneHovered`) ; lu à l'image suivante, avant que `ui` ne le refasse.
+    /// L'image de la scène est la fenêtre sous la souris à la dernière image, **au sens d'ImGui** :
+    /// ni cachée par une autre fenêtre ou un menu sous la souris, ni sa barre de mode survolée (un
+    /// popup ouvert ailleurs ne la bloque pas). Ce n'est pas un rectangle contre la souris, qui
+    /// ignorerait ce qui est posé par-dessus. Là où un geste de caméra commence
+    /// (`GestureContext::sceneHovered`, lu à l'image suivante, avant que `ui` ne le refasse), et
+    /// l'une des deux conditions des touches de la Vue (`viewActiveIn`).
     bool hovered = false;
     /// **Le menu du clic droit** (ADR-0036, décision 8) : ImGui voit la fin d'un vol comme un clic
     /// (il reçoit le relâchement sans les mouvements), le menu ne s'ouvre donc que si le clic droit
