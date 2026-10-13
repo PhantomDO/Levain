@@ -42,6 +42,7 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 | [`include/levain/ui/ui_pass.hpp`](include/levain/ui/ui_pass.hpp) | `UiPass`, `createUiPass`, `recordUi`, `updateUiTextures`, `destroyUiTextures`, `registerUiTexture`, `releaseUiTexture` ; les pièges `linearOnSrgbTarget`, `clampScissorToTarget` et `uiTextureRefusal` |
 | [`include/levain/ui/input.hpp`](include/levain/ui/input.hpp) | `feedInput`, `imguiKeyOf`, `PressedKeys` |
 | [`include/levain/ui/context.hpp`](include/levain/ui/context.hpp) | `UiContext`, `createUiContext`, `prepareUiFrame`, `followTextInput` |
+| [`include/levain/ui/fonts.hpp`](include/levain/ui/fonts.hpp) | `findFontFiles`, `addFonts`, `UiFonts` |
 | [`include/levain/ui/tr.hpp`](include/levain/ui/tr.hpp) | `tr`, `trf`, `textf`, `labelOf` : le catalogue des textes vu de l'interface, la table est dans `core` (ADR-0036) |
 
 Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées), et
@@ -107,6 +108,17 @@ journal en Release.
   de 73 % : un menu laissait voir le texte de la barre d'outils, la modale le damier. `createUiContext` rend donc
   `WindowBg`, `PopupBg` et `MenuBarBg` opaques (`ChildBg` reste transparent). **Pas encore** : mélanger l'interface en
   espace gamma, qui rendrait aussi leur sens aux autres alphas du style ; noté au morceau 17 de M7.7 (ADR-0036).
+- **Les polices ne sont pas dans le dépôt** (`fonts.hpp`, M7.7 morceau 17, ADR-0036 décision 15). `tools/fetch-assets.sh` met
+  dans `assets-cache/Fonts/` Inter (SIL OFL 1.1, `Inter-LICENSE.txt`), Noto Sans (OFL 1.1, `NotoSans-OFL.txt`) et Material
+  Symbols Outlined (Apache-2.0, `MaterialSymbols-LICENSE`) ; *Rando* les prend avec le préfixe `Fonts/`. `addFonts` en fait
+  la police de l'interface (Inter, puis Noto Sans en `MergeMode` pour un glyphe qu'Inter n'a pas) et celle de la console
+  (ProggyForever à chasse fixe, Inter derrière) : la première source qui a le glyphe répond.
+  `tests/ui_fonts_test.cpp` épingle l'ordre des sources.
+  **Une police absente est une erreur** : `findFontFiles` nomme le fichier absent et les racines cherchées (règle n°7).
+  Le sandbox et *Rando* gardent la police par défaut d'ImGui : un `UiContext`
+  seul n'ajoute aucune police, et leurs textes (`engine/app`, `engine/ui`) restent en Latin-1 (« œ » s'y dessinerait
+  « ? »). ProggyForever fusionne Inter derrière seulement avec une taille explicite (`SizePixels`) : une taille implicite
+  fait échouer une assertion d'ImGui (`AddFont`).
 - **La police par défaut s'arrête à Latin-1** : « … », « → », « — » s'y dessinent « ? ». `i18n.untranslated` refuse tout
   littéral hors de Latin-1 dans `editor/`, `engine/app` et `engine/ui` (écrire « ... ») jusqu'à la police complète du
   morceau 17.
@@ -118,6 +130,8 @@ journal en Release.
 | **Unreal** | Slate, rendu par le RHI | Le même cadre pour l'éditeur et le jeu ; en mode retenu, avec un arbre de widgets (**documenté**, ADR-0032). |
 | **Unity** | IMGUI (`OnGUI`), pour les outils | Un mode immédiat, comme ImGui ; déconseillé pour l'interface du joueur (**documenté**, ADR-0032). |
 | **Godot** | Les nœuds `Control` | L'éditeur est un programme du moteur, avec sa propre UI (**documenté**, ADR-0032). |
+
+Les polices : une police principale et des polices de repli pour les glyphes qu'elle n'a pas. Unreal : les *composite fonts* de Slate ; Unity : la liste de polices de repli de TextMesh Pro ; Godot : la propriété `fallbacks` d'une `Font` (**supposé** pour les trois : aucun n'est lu dans les sources). Ici, l'ordre des sources fusionnées dans une `ImFont` (`MergeMode`) joue ce rôle.
 
 Les textes : `FText`/`LOCTEXT` chez Unreal, le paquet Localization chez Unity, `tr()` et gettext chez Godot ; ici le français est la clé, comme le `msgid` de gettext (Godot **documenté**, ADR-0036 [8] ; Unreal et Unity **supposé**).
 
