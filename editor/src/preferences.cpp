@@ -5,9 +5,14 @@
 #include <charconv>
 #include <cmath>
 #include <format>
+#include <fstream>
+#include <ios>
 #include <map>
 #include <set>
+#include <system_error>
 
+#include "levain/assets/asset_id.hpp"
+#include "levain/core/file.hpp"
 #include "levain/editor/camera.hpp"
 #include "levain/editor/shortcuts.hpp"
 
@@ -316,6 +321,104 @@ core::Result<Preferences> parsePreferences(std::string_view text)
     // marque de fin manque (disque plein, copie coupée) et la disposition aurait été perdue.
     return std::unexpected(refused(
         lineNumber, std::format("fichier tronqué : {} attendue en fin de fichier", SectionLayout)));
+}
+
+core::Result<std::optional<Preferences>> loadPreferences(const std::filesystem::path& file)
+{
+    // `exists` avec un code d'erreur rend faux pour « introuvable » **et** pour « interdit » : seul
+    // le premier est une première session, le second ne se tait pas (règle n°7).
+    std::error_code probe;
+    const bool present = std::filesystem::exists(file, probe);
+    if (probe)
+    {
+        return std::unexpected(
+            core::Error{core::ErrorCode::FileNotFound,
+                        std::format("préférences {} : état du fichier illisible ({})",
+                                    file.generic_string(), probe.message())});
+    }
+    if (!present)
+    {
+        return std::optional<Preferences>{};
+    }
+    const auto bytes = core::readFile(file);
+    if (!bytes)
+    {
+        return std::unexpected(core::Error{
+            bytes.error().code,
+            std::format("préférences {} : {}", file.generic_string(), bytes.error().message)});
+    }
+    const std::string_view text{reinterpret_cast<const char*>(bytes->data()), bytes->size()};
+    auto parsed = parsePreferences(text);
+    if (!parsed)
+    {
+        return std::unexpected(core::Error{
+            parsed.error().code,
+            std::format("préférences {} : {}", file.generic_string(), parsed.error().message)});
+    }
+    return std::optional<Preferences>{std::move(*parsed)};
+}
+
+std::filesystem::path temporaryFileFor(const std::filesystem::path& file, std::string_view writer)
+{
+    std::filesystem::path temporary = file;
+    temporary += std::format(".{}.tmp", writer);
+    return temporary;
+}
+
+bool isFromNewerVersion(const core::Error& error)
+{
+    return error.code == core::ErrorCode::Unsupported;
+}
+
+core::Result<void> savePreferences(const std::filesystem::path& file,
+                                   const Preferences& preferences)
+{
+    // Le code reste `FileNotFound`, le plus proche des quatre de `ErrorCode` (volontairement
+    // courte) : c'est le message qui dit ce qui a échoué, « écriture » ou « renommage ».
+    const auto failure = [&file](std::string_view what, const std::string& why)
+    {
+        return std::unexpected(
+            core::Error{core::ErrorCode::FileNotFound,
+                        std::format("préférences {} : {} ({})", file.generic_string(), what, why)});
+    };
+    std::error_code error;
+    if (file.has_parent_path())
+    {
+        std::filesystem::create_directories(file.parent_path(), error);
+        if (error)
+        {
+            return failure("dossier non créé", error.message());
+        }
+    }
+    // Un nom par écriture : voir `temporaryFileFor`.
+    const std::filesystem::path temporary =
+        temporaryFileFor(file, assets::toString(assets::generateAssetId()));
+    // Un échec ne laisse pas son fichier voisin : le prochain enregistrement repart de zéro.
+    const auto failureWithoutTemporary = [&](std::string_view what, const std::string& why)
+    {
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        return failure(what, why);
+    };
+    bool written = false;
+    {
+        // Binaire : « \n » reste « \n » sous Windows, le texte d'ImGui se relit à l'identique.
+        std::ofstream out{temporary, std::ios::binary}; // `trunc` est implicite pour un ofstream
+        const std::string text = formatPreferences(preferences);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        out.flush();
+        written = static_cast<bool>(out);
+    } // fermé avant tout retrait : Windows ne retire pas un fichier ouvert
+    if (!written)
+    {
+        return failureWithoutTemporary("écriture échouée", "disque plein ou en lecture seule ?");
+    }
+    std::filesystem::rename(temporary, file, error);
+    if (error)
+    {
+        return failureWithoutTemporary("renommage échoué", error.message());
+    }
+    return {};
 }
 
 core::Result<std::optional<std::filesystem::path>>

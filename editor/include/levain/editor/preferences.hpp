@@ -84,6 +84,30 @@ struct Preferences
 /// Lit le texte d'un fichier. La première faute le refuse, avec son numéro de ligne.
 [[nodiscard]] core::Result<Preferences> parsePreferences(std::string_view text);
 
+/// Lit le fichier : rien s'il n'existe pas (une première session), une erreur qui nomme le fichier
+/// s'il est illisible, refusé, ou si le disque ne dit pas s'il existe (droits : ce n'est pas une
+/// première session, c'est un fichier qu'on ne sait pas lire).
+[[nodiscard]] core::Result<std::optional<Preferences>>
+loadPreferences(const std::filesystem::path& file);
+
+/// **Le fichier voisin d'un écrivain** : `<fichier>.<writer>.tmp`. Deux éditeurs lancés ensemble
+/// ne partagent pas un seul `.tmp` (l'un tronquait celui de l'autre, et le renommage posait un
+/// texte hybride, mesuré : 610 fichiers sur 2000 tours). `writer` est un identifiant propre à
+/// chaque écriture (`savePreferences` tire un `AssetId`).
+[[nodiscard]] std::filesystem::path temporaryFileFor(const std::filesystem::path& file,
+                                                     std::string_view writer);
+
+/// **Ce fichier vient d'une version plus récente** (`loadPreferences` rend alors `Unsupported`) :
+/// on ne le met pas de côté et on ne l'écrase pas, une branche plus ancienne le rétrograderait.
+[[nodiscard]] bool isFromNewerVersion(const core::Error& error);
+
+/// Écrit le fichier, dossier compris, par un fichier voisin renommé ensuite : un plantage du
+/// processus au milieu de l'écriture laisse l'ancien fichier, jamais un tronqué. C'est **à l'abri
+/// d'un plantage, pas d'une coupure de courant** (pas de `fsync` avant le renommage). Un échec
+/// retire le fichier voisin.
+[[nodiscard]] core::Result<void> savePreferences(const std::filesystem::path& file,
+                                                 const Preferences& preferences);
+
 /// **Où vont les préférences de cette exécution**, ou rien. Dans l'ordre :
 /// - **une exécution scriptée n'en a pas** (`scriptedRun`, `isScriptedRun`) : les réglages d'un
 ///   développeur fausseraient les clics des tests, et une session changerait la suivante
