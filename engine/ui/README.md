@@ -125,9 +125,11 @@ journal en Release.
   seul n'ajoute aucune police, et leurs textes (`engine/app`, `engine/ui`) restent en Latin-1 (« œ » s'y dessinerait
   « ? »). ProggyForever fusionne Inter derrière seulement avec une taille explicite (`SizePixels`) : une taille implicite
   fait échouer une assertion d'ImGui (`AddFont`).
-- **La police par défaut s'arrête à Latin-1** : « … », « → », « — » s'y dessinent « ? ». `i18n.untranslated` refuse tout
-  littéral hors de Latin-1 dans `editor/`, `engine/app` et `engine/ui` (écrire « ... ») jusqu'à la police complète du
-  morceau 17.
+- **Un caractère non ASCII d'un littéral de `editor/` doit être dans `tests/data/ui-glyphs.txt`**, et ceux d'`engine/app` et
+  d'`engine/ui` rester en Latin-1 (leur police ne dessine rien d'autre). `i18n.untranslated` refuse les autres ;
+  `tests/ui_fonts_test.cpp` charge les vraies polices et vérifie que chaque caractère de la liste a son glyphe, dans
+  l'interface (Inter) et dans la console, plus « œ », « — », « É » et chaque icône (dans la source des icônes). Une icône
+  s'écrit en échappement `\uXXXX` (`icons.hpp`) : le source reste ASCII.
 
 ## Équivalents ailleurs
 

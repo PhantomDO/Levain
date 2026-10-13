@@ -59,7 +59,7 @@ et seulement elle : leurs racines d'assets restent `data/`, sans le scan et les 
 ADR-0036, décisions 12 et 13). **La barre de menus** : Fichier, Édition, Entité, Fenêtre (celui du morceau 8, au
 milieu de la barre) et Aide ; chaque entrée montre le raccourci de la table, selon la disposition du clavier. **Une
 action grisée tant que son milestone n'est pas là** (`availabilityOf` : Enregistrer, Annuler, Rétablir en M7.3, les
-outils en M7.4, Simuler en M7.5, Entité > Créer... en M7.3, Préférences > Raccourcis... au morceau 16 ; trois points ASCII, la police par défaut n'a pas « … ») : le menu la montre
+outils en M7.4, Simuler en M7.5, Entité > Créer… en M7.3, Préférences > Raccourcis… au morceau 16) : le menu la montre
 éteinte, dit au survol « Arrive en M7.3 », et le clic ne fait rien. **Le choix pour Ctrl+S** : l'entrée est grisée
 *et* le raccourci reste routé vers l'action, qui, grisée, le dit à la console (« Enregistrer : arrive en M7.3 » ; la
 barre d'état le montre) et compte le refus (`ActionCounters::declined`). Un Ctrl+S qui ne répondrait rien laisserait

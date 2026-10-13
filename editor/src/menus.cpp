@@ -103,7 +103,7 @@ void drawEditMenu(const MenuBarInputs& inputs, MenuBarLayout& layout, MenuReques
     // Les préférences des raccourcis sont le morceau 16 : la place est faite, grisée.
     if (ImGui::BeginMenu(ui::labelOf("Préférences").c_str()))
     {
-        soonItem("Raccourcis...", "M7.7, morceau 16");
+        soonItem("Raccourcis…", "M7.7, morceau 16");
         ImGui::EndMenu();
     }
     ImGui::EndMenu();
@@ -118,7 +118,7 @@ void drawEntityMenu(MenuBarLayout& layout)
     {
         return;
     }
-    soonItem("Créer...", "M7.3");
+    soonItem("Créer…", "M7.3");
     layout.create = centerOfLastItem();
     ImGui::EndMenu();
 }
