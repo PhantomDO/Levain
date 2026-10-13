@@ -1,5 +1,7 @@
 #include "levain/editor/preferences.hpp"
 
+#include <algorithm>
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <format>
@@ -7,6 +9,7 @@
 #include <set>
 
 #include "levain/editor/camera.hpp"
+#include "levain/editor/shortcuts.hpp"
 
 namespace levain::editor
 {
@@ -16,6 +19,8 @@ namespace
 
 constexpr std::string_view HeaderName = "levain-editor";
 constexpr std::string_view SectionEditor = "[editeur]";
+constexpr std::string_view SectionWindows = "[fenetres]";
+constexpr std::string_view SectionShortcuts = "[raccourcis]";
 constexpr std::string_view SectionLayout = "[disposition]";
 
 core::Error refused(std::size_t line, std::string_view why)
@@ -60,6 +65,22 @@ std::optional<float> floatOf(std::string_view text)
     return value;
 }
 
+/// Les fenêtres par leur clé de fichier, dans l'ordre du menu. Un seul endroit pour les sept : le
+/// format, la lecture et l'écriture en dérivent.
+struct WindowKey
+{
+    std::string_view key;
+    bool OpenWindows::* member;
+};
+
+constexpr std::array<WindowKey, 7> WindowKeys{{{"hierarchie", &OpenWindows::hierarchy},
+                                               {"inspecteur", &OpenWindows::inspector},
+                                               {"console", &OpenWindows::console},
+                                               {"vue", &OpenWindows::view},
+                                               {"image", &OpenWindows::image},
+                                               {"passes", &OpenWindows::passes},
+                                               {"scene", &OpenWindows::scene}}};
+
 core::Result<void> readEditorKey(Preferences& preferences, std::string_view key,
                                  std::string_view value, std::size_t line)
 {
@@ -89,6 +110,58 @@ core::Result<void> readEditorKey(Preferences& preferences, std::string_view key,
     return std::unexpected(refused(line, std::format("clé inconnue dans [editeur] : « {} »", key)));
 }
 
+core::Result<void> readWindowKey(Preferences& preferences, std::string_view key,
+                                 std::string_view value, std::size_t line)
+{
+    const auto known = std::ranges::find(WindowKeys, key, &WindowKey::key);
+    if (known == WindowKeys.end())
+    {
+        return std::unexpected(
+            refused(line, std::format("fenêtre inconnue dans [fenetres] : « {} »", key)));
+    }
+    const auto flag = boolOf(value);
+    if (!flag)
+    {
+        return std::unexpected(
+            refused(line, std::format("{} : true ou false attendu, « {} » lu", key, value)));
+    }
+    preferences.windows.*(known->member) = *flag;
+    return {};
+}
+
+/// « Ctrl+Z, Ctrl+Y » : au plus deux accords, chacun un nom stable valide, ou rien (l'action sans
+/// accord). La valeur de l'action n'est pas jugée ici, le morceau 16 connaît la table.
+core::Result<void> readShortcut(Preferences& preferences, std::string_view key,
+                                std::string_view value, std::size_t line)
+{
+    ShortcutLine shortcut{.action = std::string{key}, .chords = {}};
+    std::string_view rest = value;
+    while (!trimmed(rest).empty())
+    {
+        const auto comma = rest.find(',');
+        const std::string_view token = trimmed(rest.substr(0, comma));
+        if (!chordFromToken(token))
+        {
+            return std::unexpected(
+                refused(line, std::format("{} : « {} » n'est pas un nom d'accord", key, token)));
+        }
+        shortcut.chords.emplace_back(token);
+        rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
+        if (comma != std::string_view::npos && trimmed(rest).empty())
+        {
+            // « Ctrl+Z, » : un accord attendu après la virgule, pas un accord de moins.
+            return std::unexpected(
+                refused(line, std::format("{} : accord attendu après la virgule", key)));
+        }
+    }
+    if (shortcut.chords.size() > 2)
+    {
+        return std::unexpected(refused(line, std::format("{} : deux accords au plus", key)));
+    }
+    preferences.shortcuts.push_back(std::move(shortcut));
+    return {};
+}
+
 } // namespace
 
 std::string formatPreferences(const Preferences& preferences)
@@ -96,6 +169,22 @@ std::string formatPreferences(const Preferences& preferences)
     std::string text = std::format("{} {}\n", HeaderName, PreferencesVersion);
     text += std::format("{}\nvitesse_camera = {}\ntemps_reel = {}\n", SectionEditor,
                         preferences.flySpeed, preferences.realTime);
+    text += std::format("{}\n", SectionWindows);
+    for (const WindowKey& window : WindowKeys)
+    {
+        text += std::format("{} = {}\n", window.key, preferences.windows.*(window.member));
+    }
+    // Toujours présente, souvent vide : l'absence d'une action, ce sont les défauts.
+    text += std::format("{}\n", SectionShortcuts);
+    for (const ShortcutLine& shortcut : preferences.shortcuts)
+    {
+        text += std::format("{} =", shortcut.action);
+        for (std::size_t i = 0; i < shortcut.chords.size(); ++i)
+        {
+            text += std::format("{} {}", i == 0 ? "" : ",", shortcut.chords.at(i));
+        }
+        text += '\n';
+    }
     // Dernière : tout ce qui suit la ligne est le texte d'ImGui, tel quel.
     text += std::format("{}\n", SectionLayout);
     text += preferences.layout;
@@ -167,7 +256,8 @@ core::Result<Preferences> parsePreferences(std::string_view text)
         }
         if (line.starts_with('['))
         {
-            if (line != SectionEditor && line != SectionLayout)
+            if (line != SectionEditor && line != SectionWindows && line != SectionShortcuts &&
+                line != SectionLayout)
             {
                 return std::unexpected(
                     refused(lineNumber, std::format("section inconnue : « {} »", line)));
@@ -207,7 +297,10 @@ core::Result<Preferences> parsePreferences(std::string_view text)
         {
             return std::unexpected(refused(lineNumber, std::format("clé en double : « {} »", key)));
         }
-        const auto read = readEditorKey(preferences, key, value, lineNumber);
+        const auto read =
+            section == SectionEditor    ? readEditorKey(preferences, key, value, lineNumber)
+            : section == SectionWindows ? readWindowKey(preferences, key, value, lineNumber)
+                                        : readShortcut(preferences, key, value, lineNumber);
         if (!read)
         {
             return std::unexpected(read.error());

@@ -7,11 +7,13 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 #include <doctest/doctest.h>
 
 #include "levain/assets/asset_id.hpp"
 #include "levain/editor/preferences.hpp"
+#include "levain/editor/shortcuts.hpp"
 
 using namespace levain::editor;
 namespace fs = std::filesystem;
@@ -25,15 +27,20 @@ Preferences changed()
     Preferences preferences;
     preferences.flySpeed = 12.5f;
     preferences.realTime = false;
+    preferences.windows.console = false;
+    preferences.windows.passes = false;
     preferences.layout = "[Window][Inspecteur###Inspecteur]\nPos=10,20\nSize=300,400\n\n"
                          "[Docking][Data]\nDockSpace ID=0x1 Pos=0,0 Size=1280,720\n";
     return preferences;
 }
 
 /// Un fichier valide, auquel les cas ajoutent ou changent une ligne.
-std::string valid(std::string_view editorLines = "vitesse_camera = 8\n")
+std::string valid(std::string_view editorLines = "vitesse_camera = 8\n",
+                  std::string_view windowLines = "console = false\n",
+                  std::string_view shortcutLines = "")
 {
-    return std::string{"levain-editor 1\n[editeur]\n"} + std::string{editorLines} +
+    return std::string{"levain-editor 1\n[editeur]\n"} + std::string{editorLines} + "[fenetres]\n" +
+           std::string{windowLines} + "[raccourcis]\n" + std::string{shortcutLines} +
            "[disposition]\n";
 }
 
@@ -103,6 +110,34 @@ TEST_CASE("préférences : relu puis réécrit, le texte ne change pas")
     CHECK(formatPreferences(*read) == once);
 }
 
+TEST_CASE("préférences : les défauts n'écrivent aucune action, la section des raccourcis est là")
+{
+    const std::string text = formatPreferences(Preferences{});
+
+    CHECK(text.starts_with("levain-editor 1\n"));
+    CHECK(text.find("[raccourcis]\n[disposition]\n") != std::string::npos);
+    const auto read = parsePreferences(text);
+    REQUIRE(read.has_value());
+    CHECK(read->shortcuts.empty());
+    CHECK(read->layout.empty());
+}
+
+TEST_CASE("préférences : un raccourci écrit par le morceau 16 se garde, deux accords au plus")
+{
+    Preferences preferences;
+    preferences.shortcuts = {
+        {.action = "Annuler", .chords = {tokenOf(letterChord('Z', {.ctrl = true})), "pos:26"}},
+        {.action = "Supprimer", .chords = {}}};
+
+    const auto read = parsePreferences(formatPreferences(preferences));
+
+    REQUIRE(read.has_value());
+    CHECK(read->shortcuts == preferences.shortcuts);
+    refuses(
+        valid("vitesse_camera = 8\n", "console = false\n", "Annuler = Ctrl+Z, Ctrl+Y, Ctrl+A\n"),
+        "deux accords au plus");
+}
+
 TEST_CASE("préférences : chaque refus nomme sa ligne et sa raison")
 {
     SUBCASE("vide, ou sans en-tête")
@@ -141,6 +176,9 @@ TEST_CASE("préférences : chaque refus nomme sa ligne et sa raison")
         refuses(valid("vitesse_camera = 1e9\n"), "entre");
         refuses(valid("temps_reel = oui\n"), "true ou false");
         refuses(valid("vitesse_camera = 8\nvolume = 3\n"), "clé inconnue");
+        refuses(valid("vitesse_camera = 8\n", "console = 1\n"), "true ou false");
+        refuses(valid("vitesse_camera = 8\n", "sphere = true\n"), "fenêtre inconnue");
+        refuses(valid("vitesse_camera = 8\n", "", "Annuler = Ctrl+W+Z\n"), "pas un nom d'accord");
     }
     SUBCASE("la ligne fautive est numérotée")
     {
@@ -242,4 +280,31 @@ TEST_CASE("préférences : un fichier tronqué est refusé, la section de la dis
     refuses("levain-editor 1\n[editeur]\nvitesse_camera = 8\n", "fichier tronqué");
     // La marque seule suffit : une disposition vide est une disposition.
     CHECK(parsePreferences(whole).has_value());
+}
+
+TEST_CASE("préférences : une virgule de trop dans un raccourci est refusée")
+{
+    refuses(valid("vitesse_camera = 8\n", "", "Annuler = Ctrl+Z,\n"), "après la virgule");
+    refuses(valid("vitesse_camera = 8\n", "", "Annuler = Ctrl+Z, Ctrl+Y,  \n"), "après la virgule");
+    refuses(valid("vitesse_camera = 8\n", "", "Annuler = ,Ctrl+Z\n"), "pas un nom d'accord");
+    CHECK(parsePreferences(valid("vitesse_camera = 8\n", "", "Annuler = Ctrl+Z, Ctrl+Y\n"))
+              .has_value());
+}
+
+TEST_CASE("préférences : un fichier écrit avec des fins de ligne Windows est relu")
+{
+    // Un éditeur de texte sous Windows réécrit les « \n » en « \r\n » : les lignes de l'en-tête et
+    // des sections s'en accommodent, la disposition (après sa ligne) est gardée telle quelle.
+    const auto read = parsePreferences("levain-editor 1\r\n[editeur]\r\nvitesse_camera = 3\r\n"
+                                       "temps_reel = false\r\n[fenetres]\r\nconsole = false\r\n"
+                                       "[raccourcis]\r\nAnnuler = Ctrl+Z\r\n[disposition]\r\n"
+                                       "[Window][X]\r\n");
+
+    REQUIRE(read.has_value());
+    CHECK(read->flySpeed == 3.0f);
+    CHECK_FALSE(read->realTime);
+    CHECK_FALSE(read->windows.console);
+    REQUIRE(read->shortcuts.size() == 1);
+    CHECK(read->shortcuts.front().chords == std::vector<std::string>{"Ctrl+Z"});
+    CHECK(read->layout == "[Window][X]\r\n");
 }

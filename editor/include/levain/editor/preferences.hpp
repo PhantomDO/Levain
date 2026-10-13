@@ -12,6 +12,8 @@
 // Le format, des lignes :
 //   levain-editor 1                  <- le nom et la version, rien d'autre sur la ligne
 //   [editeur]                        <- vitesse_camera = 8, temps_reel = true
+//   [fenetres]                       <- hierarchie, inspecteur, console, vue, image, passes, scene
+//   [raccourcis]                     <- action = accord, accord  (noms stables de `tokenOf`)
 //   [disposition]                    <- tout ce qui suit, tel quel : le texte d'ImGui
 // Les lignes vides et celles qui commencent par « # » sont ignorées avant `[disposition]`.
 // **Le fichier est refusé en entier à la première faute** (règle n°7) : version inconnue, section
@@ -25,6 +27,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "levain/core/error.hpp"
 
@@ -36,11 +40,38 @@ inline constexpr const char* PreferencesFileName = "preferences.cfg";
 /// La version que ce code écrit et lit. Un fichier d'une autre version est refusé, pas deviné.
 inline constexpr int PreferencesVersion = 1;
 
+/// Les fenêtres ouvertes ou fermées, dans l'ordre du menu « Fenêtre ».
+struct OpenWindows
+{
+    bool hierarchy = true;
+    bool inspector = true;
+    bool console = true;
+    bool view = true;
+    bool image = true;
+    bool passes = true;
+    bool scene = true;
+
+    bool operator==(const OpenWindows&) const = default;
+};
+
+/// Une ligne de `[raccourcis]` : le nom de l'action et ses accords (au plus deux), chacun un nom
+/// stable de `tokenOf`. Le morceau 15 ne l'écrit pas (absence = les défauts) mais la relit et la
+/// garde ; le morceau 16 la remplit.
+struct ShortcutLine
+{
+    std::string action;
+    std::vector<std::string> chords;
+
+    bool operator==(const ShortcutLine&) const = default;
+};
+
 /// Tout ce que le fichier tient.
 struct Preferences
 {
     float flySpeed = 8.0f; ///< `DefaultFlySpeed`, bornée par `clampFlySpeed`.
     bool realTime = true;
+    OpenWindows windows;
+    std::vector<ShortcutLine> shortcuts;
     /// Le texte de disposition d'ImGui. Vide : pas de disposition gardée, la défaut se construit.
     std::string layout;
 
