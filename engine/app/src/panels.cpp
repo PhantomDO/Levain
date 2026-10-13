@@ -16,6 +16,12 @@
 namespace levain::app
 {
 
+ImGuiID mainDockspaceId()
+{
+    // Un identifiant qui ne dépend pas de la fenêtre en cours, au contraire de `ImGui::GetID`.
+    return ImHashStr("levain");
+}
+
 DockNodes buildLayout(ImGuiID dockspace, ImVec2 size, bool editor)
 {
     ImGui::DockBuilderRemoveNode(dockspace);
@@ -184,8 +190,7 @@ void drawSceneWindow(App& app, bool& open, bool closable)
 void drawEnginePanels(App& app)
 {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    // Un identifiant qui ne dépend pas de la fenêtre en cours, au contraire de `ImGui::GetID`.
-    const ImGuiID dockspace = ImHashStr("levain");
+    const ImGuiID dockspace = mainDockspaceId();
     if (ImGui::DockBuilderGetNode(dockspace) == nullptr)
     {
         app.ui.dock = buildLayout(dockspace, viewport->Size, app.ui.editorLayout);

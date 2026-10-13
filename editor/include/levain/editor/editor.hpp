@@ -5,6 +5,7 @@
 // la page web n'en embarquent rien.
 
 #include <array>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -27,6 +28,7 @@
 #include "levain/editor/inspector.hpp"
 #include "levain/editor/menus.hpp"
 #include "levain/editor/mode.hpp"
+#include "levain/editor/preferences.hpp"
 #include "levain/editor/quit.hpp"
 #include "levain/editor/scene_bounds.hpp"
 #include "levain/editor/shortcuts.hpp"
@@ -49,6 +51,13 @@ struct EditorOptions
     /// d'essai de l'App (ADR-0036, morceau 2) y lit ce que les fenêtres ont dessiné, que la boucle
     /// ne montre pas de l'extérieur. Vide hors des tests.
     std::function<void(const Editor&)> afterUi;
+    /// **Pour les tests seulement** : le dossier des préférences, à la place de celui de
+    /// l'utilisateur (`platform::prefPath`). Une exécution scriptée ne les lit ni ne les écrit,
+    /// dossier injecté ou non (`isScriptedRun`) : un test qui veut les éprouver pose aussi
+    /// `AppSettings::testInteractive`, et **doit** injecter un dossier jetable. S'il l'oublie, il
+    /// n'a pas de préférences (`preferencesFileFor`) : le dossier de qui lance le test n'est ni lu
+    /// ni écrit. Aucune option de la ligne de commande ne le pose.
+    std::optional<std::filesystem::path> preferencesDirectory;
 };
 
 /// Le nombre de fenêtres du menu : le tableau du menu (`MaxWindowEntries`) doit les contenir
@@ -130,6 +139,12 @@ struct Editor
     /// Les actions que les raccourcis seuls (ni les menus ni les barres) ont atteintes à la
     /// dernière image : ce que les tests lisent.
     std::vector<Action> lastShortcuts;
+    /// **Les préférences** (ADR-0036, décision 10, `layout.hpp`) : le fichier, s'il y en a un (rien
+    /// sous une exécution scriptée, ni sous un test qui n'a pas injecté de dossier, ni quand un
+    /// fichier refusé n'a pu être mis de côté), les lignes de `[raccourcis]` relues (le morceau 16
+    /// les applique et les réécrit).
+    std::optional<std::filesystem::path> preferencesFile;
+    std::vector<ShortcutLine> shortcutLines;
 };
 
 /// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web
