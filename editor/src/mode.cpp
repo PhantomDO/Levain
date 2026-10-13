@@ -1,6 +1,5 @@
 #include "levain/editor/mode.hpp"
 
-#include <algorithm>
 #include <tuple>
 
 #include <imgui.h>
@@ -123,20 +122,10 @@ std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovere
 
 bool playShortcutPressed(const ShortcutTable& table)
 {
+    // Route globale : Alt+P marche quelle que soit la fenêtre qui a le focus, sauf un champ de
+    // texte actif (Alt+P ne joue pas pendant qu'on tape dans la recherche de l'Aide).
     const Binding* play = bindingOf(table, Action::Play);
-    if (play == nullptr)
-    {
-        return false;
-    }
-    // Route globale : l'accord marche quelle que soit la fenêtre qui a le focus (imgui.h,
-    // `Shortcut`). Les deux accords de l'action, ceux de lettre seulement (`imguiChordOf`).
-    return std::ranges::any_of(play->chords,
-                               [](const Chord& chord)
-                               {
-                                   const auto imgui = imguiChordOf(chord);
-                                   return imgui &&
-                                          ImGui::Shortcut(*imgui, ImGuiInputFlags_RouteGlobal);
-                               });
+    return play != nullptr && letterChordPressed(*play);
 }
 
 bool sceneHasFocus()

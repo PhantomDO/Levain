@@ -1,18 +1,26 @@
 // Les actions de l'éditeur (ADR-0036, décisions 12 et 13, morceau 12) : leur disponibilité, ce
-// qu'une action grisée dit à la console, le temps réel qui ne se règle qu'en Édition, et les
-// touches d'outil, lues par position dans les événements bruts de l'image (`keyPressesOf`) : dans
-// la Vue seulement, jamais en vol.
+// qu'une action grisée dit à la console, et les raccourcis qui les atteignent. Les raccourcis de
+// lettre passent par `ImGui::Shortcut`, que ce banc fait tourner dans un ImGui sans fenêtre :
+// Ctrl+S atteint son action, et un champ de texte actif garde son Ctrl+Z. Les touches d'outil
+// viennent des événements bruts de l'image (`keyPressesOf`), comme dans la boucle.
 
+#include <algorithm>
+#include <array>
 #include <bitset>
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <imgui.h>
 
 #include "levain/core/log_ring.hpp"
 #include "levain/editor/actions.hpp"
+#include "levain/platform/input_script.hpp"
 #include "levain/platform/window.hpp"
+#include "levain/ui/context.hpp"
 
 using namespace levain::editor;
 using levain::platform::KeyModifiers;
@@ -22,7 +30,7 @@ using levain::platform::UiEventType;
 namespace
 {
 
-constexpr std::uint16_t ScanW = 26, ScanR = 21, ScanSpace = 44;
+constexpr std::uint16_t ScanW = 26, ScanZ = 29, ScanR = 21, ScanSpace = 44;
 
 /// Un événement de touche brut, tel que la fenêtre le rend.
 UiEvent keyEvent(std::uint16_t scancode, std::uint32_t keycode, bool down,
@@ -33,6 +41,11 @@ UiEvent keyEvent(std::uint16_t scancode, std::uint32_t keycode, bool down,
             .scancode = scancode,
             .down = down,
             .modifiers = modifiers};
+}
+
+bool contains(const std::vector<Action>& actions, Action action)
+{
+    return std::ranges::find(actions, action) != actions.end();
 }
 
 } // namespace
@@ -128,6 +141,151 @@ TEST_CASE("une touche d'outil dans la Vue prend l'outil : en vol aucune (W vole,
     CHECK_FALSE(toolActionOf(table, w, elsewhere).has_value());
 }
 
+namespace
+{
+
+/// Un ImGui sans fenêtre où `shortcutsPressed` tourne chaque image, avec ou sans champ de texte.
+/// Les accords de lettre passent par ImGui (`chord`), les touches d'outil par les événements bruts
+/// de l'image (`tap`, lus par `keyPressesOf`), comme dans la boucle.
+struct ShortcutBench
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    ShortcutTable table = defaultShortcuts();
+    levain::platform::Events raw; ///< Les événements bruts de la prochaine image.
+    std::bitset<levain::platform::KeyCodeCount> held;
+    std::vector<Action> reached;
+    bool withField = false;
+    bool textInput = false;
+    bool flight = false;
+    bool allowed = true;
+    bool viewActive = true; ///< `viewActiveIn` : faux quand une fenêtre couvre la Vue
+    std::array<char, 64> buffer{};
+
+    void frame()
+    {
+        levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 640, .height = 480}, 1.0 / 60.0);
+        ImGui::NewFrame();
+        if (withField)
+        {
+            ImGui::SetNextWindowPos({0.0f, 0.0f});
+            ImGui::SetNextWindowSize({300.0f, 100.0f});
+            ImGui::Begin("champ");
+            if (!ImGui::IsAnyItemActive())
+            {
+                ImGui::SetKeyboardFocusHere();
+            }
+            ImGui::InputText("##texte", buffer.data(), buffer.size());
+            ImGui::End();
+        }
+        textInput = ImGui::GetIO().WantTextInput;
+        const std::vector<KeyPress> presses = keyPressesOf(raw, held);
+        for (const UiEvent& event : raw.ui)
+        {
+            if (event.type == UiEventType::Key)
+            {
+                held.set(event.scancode, event.down);
+            }
+        }
+        raw = {};
+        const auto now = shortcutsPressed({.table = table,
+                                           .presses = presses,
+                                           .editing = true,
+                                           .globalAllowed = allowed,
+                                           .viewActive = viewActive,
+                                           .flight = flight,
+                                           .textInput = textInput});
+        reached.insert(reached.end(), now.begin(), now.end());
+        ImGui::EndFrame();
+    }
+
+    void settle(int frames = 4)
+    {
+        for (int i = 0; i < frames; ++i)
+        {
+            frame();
+        }
+    }
+
+    /// Appuie sur une touche d'ImGui (la lettre), modificateurs tenus avant elle, puis la relâche.
+    void chord(ImGuiKey key, bool ctrl, bool shift = false)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        io.AddKeyEvent(ImGuiMod_Ctrl, ctrl);
+        io.AddKeyEvent(ImGuiMod_Shift, shift);
+        settle(2);
+        io.AddKeyEvent(key, true);
+        settle(3);
+        io.AddKeyEvent(key, false);
+        settle(2);
+        io.AddKeyEvent(ImGuiMod_Ctrl, false);
+        io.AddKeyEvent(ImGuiMod_Shift, false);
+        settle(2);
+    }
+
+    /// Appuie sur une touche par les événements bruts (la position et la lettre de la
+    /// disposition), une image, puis la relâche.
+    void tap(std::uint16_t scancode, std::uint32_t keycode, KeyModifiers modifiers = {})
+    {
+        raw.ui.push_back(keyEvent(scancode, keycode, true, modifiers));
+        frame();
+        raw.ui.push_back(keyEvent(scancode, keycode, false, modifiers));
+        settle(2);
+    }
+};
+
+} // namespace
+
+TEST_CASE("Ctrl+S atteint son action, une seule fois : Ctrl+Maj+Z est Rétablir : sous une modale "
+          "rien ne part")
+{
+    ShortcutBench bench;
+    bench.settle();
+    bench.chord(ImGuiKey_S, true);
+    CHECK(std::ranges::count(bench.reached, Action::Save) == 1);
+    CHECK(std::ranges::count(bench.reached, Action::Undo) == 0);
+
+    bench.reached.clear();
+    bench.chord(ImGuiKey_Z, true);
+    CHECK(bench.reached == std::vector<Action>{Action::Undo});
+
+    bench.reached.clear();
+    bench.chord(ImGuiKey_Z, true, true);
+    CHECK(bench.reached == std::vector<Action>{Action::Redo});
+
+    bench.reached.clear();
+    bench.allowed = false; // la modale « Quitter ? » est ouverte
+    bench.chord(ImGuiKey_S, true);
+    CHECK(bench.reached.empty());
+}
+
+TEST_CASE("Ctrl+R, dans la Vue, bascule le temps réel")
+{
+    ShortcutBench bench;
+    bench.settle();
+    bench.chord(ImGuiKey_R, true);
+    CHECK(bench.reached == std::vector<Action>{Action::RealTime});
+}
+
+TEST_CASE(
+    "Ctrl+R et les touches d'outil ne valent que dans une Vue active : une fenêtre par-dessus "
+    "les prive de la souris")
+{
+    ShortcutBench bench;
+    bench.viewActive = false; // la Vue est couverte (l'Aide, un menu) ou ni survolée ni focalisée
+    bench.settle();
+    bench.chord(ImGuiKey_R, true);
+    bench.tap(ScanW, 'w');
+    CHECK(bench.reached.empty());  // ni Temps réel ni outil
+    bench.chord(ImGuiKey_S, true); // le global vaut partout
+    CHECK(contains(bench.reached, Action::Save));
+
+    bench.reached.clear();
+    bench.viewActive = true;
+    bench.chord(ImGuiKey_R, true);
+    bench.tap(ScanW, 'w');
+    CHECK(bench.reached == (std::vector<Action>{Action::RealTime, Action::ToolMove}));
+}
+
 TEST_CASE("viewActiveIn : panneaux fermés toujours, ouverts le focus ou le survol d'ImGui")
 {
     CHECK(viewActiveIn(false, false, false));
@@ -161,6 +319,62 @@ TEST_CASE("le temps réel ne se règle qu'en Édition : jouer le force, revenir 
     switchRealTime(Mode::Edit, Mode::Edit, realTime, editChoice);
     CHECK(realTime);
     CHECK_FALSE(editChoice);
+}
+
+TEST_CASE("un champ de texte actif garde son Ctrl+Z : l'éditeur n'annule rien")
+{
+    {
+        ShortcutBench bench;
+        bench.withField = true;
+        bench.settle();
+        REQUIRE(bench.textInput); // le champ est actif
+        ImGui::GetIO().AddInputCharactersUTF8("abc");
+        bench.settle();
+        CHECK(std::string{bench.buffer.data()} == "abc");
+
+        bench.chord(ImGuiKey_Z, true);
+        CHECK_FALSE(contains(bench.reached, Action::Undo));
+        // Le Ctrl+Z est allé au champ : son historique a défait la frappe.
+        CHECK(std::string{bench.buffer.data()}.size() < 3);
+        // Ctrl+Maj+Z aussi est le Rétablir du champ, non celui de l'éditeur.
+        bench.chord(ImGuiKey_Z, true, true);
+        CHECK_FALSE(contains(bench.reached, Action::Redo));
+    }
+    // Contre-épreuve : la même touche, sans champ, est bien l'Annuler de l'éditeur.
+    ShortcutBench without;
+    without.settle();
+    without.chord(ImGuiKey_Z, true);
+    CHECK(contains(without.reached, Action::Undo));
+}
+
+TEST_CASE("les touches d'outil lues dans les événements bruts : par position, jamais en vol ni "
+          "avec Ctrl")
+{
+    // Un AZERTY : la touche à la place du W tape « z », celle à la place du Z tape « w ».
+    ShortcutBench bench;
+    bench.settle();
+    bench.tap(ScanW, 'z');
+    CHECK(bench.reached == std::vector<Action>{Action::ToolMove});
+
+    bench.reached.clear();
+    bench.flight = true; // le vol est en cours : la touche vole
+    bench.tap(ScanW, 'z');
+    CHECK(bench.reached.empty());
+
+    bench.flight = false;
+    bench.tap(ScanZ, 'w'); // la touche marquée W n'est plus à la place du W
+    CHECK(bench.reached.empty());
+    // Ctrl+Z : la lettre va à ImGui (Annuler), la position arrive avec Ctrl et ne prend pas
+    // d'outil.
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    bench.settle(2);
+    io.AddKeyEvent(ImGuiKey_Z, true);
+    bench.tap(ScanW, 'z', {.ctrl = true});
+    io.AddKeyEvent(ImGuiKey_Z, false);
+    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    bench.settle(2);
+    CHECK(bench.reached == std::vector<Action>{Action::Undo});
 }
 
 TEST_CASE("keyPressesOf rend la position, la lettre de la disposition et les modificateurs, et une "

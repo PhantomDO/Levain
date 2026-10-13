@@ -317,4 +317,15 @@ std::optional<ImGuiKeyChord> imguiChordOf(const Chord& chord)
     return static_cast<ImGuiKeyChord>(bits);
 }
 
+bool letterChordPressed(const Binding& binding)
+{
+    return std::ranges::any_of(binding.chords,
+                               [](const Chord& chord)
+                               {
+                                   const auto imgui = imguiChordOf(chord);
+                                   return imgui &&
+                                          ImGui::Shortcut(*imgui, ImGuiInputFlags_RouteGlobal);
+                               });
+}
+
 } // namespace levain::editor

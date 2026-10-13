@@ -6,6 +6,18 @@
 namespace levain::editor
 {
 
+namespace
+{
+
+/// L'action est celle que `playShortcutPressed` lit encore : la compter ici la ferait partir deux
+/// fois.
+bool readElsewhere(Action action)
+{
+    return action == Action::Play;
+}
+
+} // namespace
+
 void switchRealTime(Mode from, Mode to, bool& appRealTime, bool& editChoice)
 {
     if (from == Mode::Edit && to != Mode::Edit)
@@ -83,6 +95,40 @@ std::vector<KeyPress> keyPressesOf(const platform::Events& events,
         held.set(event.scancode, event.down);
     }
     return pressed;
+}
+
+std::vector<Action> shortcutsPressed(const ShortcutInputs& inputs)
+{
+    std::vector<Action> reached;
+    if (!inputs.globalAllowed) // sous une modale, aucun raccourci de l'éditeur ne part
+    {
+        return reached;
+    }
+    for (const Binding& binding : inputs.table.bindings)
+    {
+        const bool lettered = binding.context == Context::Global ||
+                              (binding.context == Context::View && inputs.viewActive);
+        if (lettered && !readElsewhere(binding.action) && letterChordPressed(binding))
+        {
+            reached.push_back(binding.action);
+        }
+    }
+    if (!inputs.editing)
+    {
+        return reached;
+    }
+    const ActiveContexts active{.flight = inputs.flight,
+                                .view = inputs.viewActive,
+                                .game = false,
+                                .textInput = inputs.textInput};
+    for (const KeyPress& press : inputs.presses)
+    {
+        if (const auto tool = toolActionOf(inputs.table, press, active))
+        {
+            reached.push_back(*tool);
+        }
+    }
+    return reached;
 }
 
 } // namespace levain::editor

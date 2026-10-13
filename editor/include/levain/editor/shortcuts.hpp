@@ -203,4 +203,11 @@ struct ActiveContexts
 /// Ctrl+Z est la touche marquée Z.
 [[nodiscard]] std::optional<ImGuiKeyChord> imguiChordOf(const Chord& chord);
 
+/// **Un accord de lettre de l'action vient d'être appuyé**, selon ImGui (`ImGui::Shortcut` sur
+/// chaque accord de `imguiChordOf`, en route globale : quelle que soit la fenêtre qui a le focus).
+/// Un champ de texte actif passe avant les routes (imgui.h, `ImGuiInputFlags_RouteGlobal`) : il
+/// garde son Ctrl+Z, et Alt+P ne joue pas pendant qu'on tape. Les accords de position ne comptent
+/// pas ici (`actionFor` les sert). « Rétablir » en a deux. À appeler dans une image d'ImGui.
+[[nodiscard]] bool letterChordPressed(const Binding& binding);
+
 } // namespace levain::editor
