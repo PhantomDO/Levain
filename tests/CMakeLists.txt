@@ -387,7 +387,7 @@ if(NOT EMSCRIPTEN)
                     -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
         set_tests_properties(editor.vue-pick-inside PROPERTIES
             ENVIRONMENT "${testVideo}"
-            PASS_REGULAR_EXPRESSION "[[]sandbox[]] sélection : ::crate_3_0_7 à [0-9.]+ m.*editor.mode mode=play"
+            PASS_REGULAR_EXPRESSION "[[]sandbox[]] sélection : ::crate_3_0_8 à [0-9.]+ m.*editor.mode mode=play"
             FAIL_REGULAR_EXPRESSION "${pickFailure}")
         add_test(NAME editor.vue-pick-outside
             COMMAND ${CMAKE_COMMAND}
@@ -469,7 +469,8 @@ set_tests_properties(gpu.app-loop.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 # de l'input suit le mode, Échap revient et rend la souris, dans la vraie boucle hors écran.
 add_executable(levain_editor_modes editor_modes_gpu.cpp)
 target_link_libraries(levain_editor_modes PRIVATE levain::editor levain::app levain::input levain::platform levain::scene)
-target_compile_definitions(levain_editor_modes PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_compile_definitions(levain_editor_modes PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
 add_test(NAME gpu.editor-modes.vulkan COMMAND levain_editor_modes vulkan)
 set_tests_properties(gpu.editor-modes.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
@@ -485,7 +486,8 @@ set_tests_properties(gpu.editor-shortcuts.vulkan PROPERTIES ENVIRONMENT "${testV
 # (QWERTY et AZERTY), la capture de la souris pendant le vol seulement, rien hors de la Vue, la molette, l'orbite, le pan, F.
 add_executable(levain_editor_gestures editor_gestures_gpu.cpp)
 target_link_libraries(levain_editor_gestures PRIVATE levain::editor levain::app levain::core levain::platform levain::render levain::scene)
-target_compile_definitions(levain_editor_gestures PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_compile_definitions(levain_editor_gestures PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
 add_test(NAME gpu.editor-gestures.vulkan COMMAND levain_editor_gestures vulkan)
 set_tests_properties(gpu.editor-gestures.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
@@ -493,7 +495,8 @@ set_tests_properties(gpu.editor-gestures.vulkan PROPERTIES ENVIRONMENT "${testVi
 # temps de la scène, Ctrl+S atteint son action, la barre d'outils règle la vitesse de la caméra, l'Aide liste les raccourcis.
 add_executable(levain_editor_menus editor_menus_gpu.cpp)
 target_link_libraries(levain_editor_menus PRIVATE levain::editor levain::app levain::core levain::platform levain::scene levain::ui)
-target_compile_definitions(levain_editor_menus PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_compile_definitions(levain_editor_menus PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
 add_test(NAME gpu.editor-menus.vulkan COMMAND levain_editor_menus vulkan)
 set_tests_properties(gpu.editor-menus.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
@@ -501,7 +504,8 @@ set_tests_properties(gpu.editor-menus.vulkan PROPERTIES ENVIRONMENT "${testVideo
 # Annuler garde l'éditeur, Quitter l'arrête, SIGTERM quitte sans demander, le titre reste en ASCII.
 add_executable(levain_editor_close editor_close_gpu.cpp)
 target_link_libraries(levain_editor_close PRIVATE levain::editor levain::app levain::platform levain::scene)
-target_compile_definitions(levain_editor_close PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_compile_definitions(levain_editor_close PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
 add_test(NAME gpu.editor-close.vulkan COMMAND levain_editor_close vulkan)
 set_tests_properties(gpu.editor-close.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
@@ -509,7 +513,8 @@ set_tests_properties(gpu.editor-close.vulkan PROPERTIES ENVIRONMENT "${testVideo
 # dessinée par withEditor sans cacher la hiérarchie, la case « Erreurs » cochée à la souris scriptée.
 add_executable(levain_editor_console editor_console_gpu.cpp)
 target_link_libraries(levain_editor_console PRIVATE levain::editor levain::app levain::core levain::platform levain::scene levain::ui)
-target_compile_definitions(levain_editor_console PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_compile_definitions(levain_editor_console PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
 add_test(NAME gpu.editor-console.vulkan COMMAND levain_editor_console vulkan)
 set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
@@ -521,7 +526,8 @@ set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVid
 set(editorPreferencesScenarios round-trip reset play central scripted refused)
 add_executable(levain_editor_preferences editor_preferences_gpu.cpp)
 target_link_libraries(levain_editor_preferences PRIVATE levain::editor levain::app levain::assets levain::core levain::platform levain::scene levain::ui)
-target_compile_definitions(levain_editor_preferences PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_compile_definitions(levain_editor_preferences PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
 foreach(scenario ${editorPreferencesScenarios})
     add_test(NAME gpu.editor-preferences-${scenario}.vulkan COMMAND levain_editor_preferences vulkan ${scenario})
     set_tests_properties(gpu.editor-preferences-${scenario}.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
@@ -531,7 +537,8 @@ endforeach()
 # égale à celle du contenu, le menu « Fenêtre » qui ferme la Vue (0 x 0, aucune scène) puis la rouvre.
 add_executable(levain_editor_view editor_view_gpu.cpp)
 target_link_libraries(levain_editor_view PRIVATE levain::editor levain::app levain::core levain::platform levain::scene levain::ui)
-target_compile_definitions(levain_editor_view PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_compile_definitions(levain_editor_view PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
 add_test(NAME gpu.editor-view.vulkan COMMAND levain_editor_view vulkan)
 set_tests_properties(gpu.editor-view.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 

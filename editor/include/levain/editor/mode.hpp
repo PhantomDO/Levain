@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 
 #include <imgui.h>
 
@@ -62,6 +63,11 @@ struct ModeState
 {
     return mode == Mode::Edit ? Mode::PlayWithoutReturn : Mode::Edit;
 }
+
+/// Le libellé du bouton qui mène au mode `target` : une icône (lecture, ou arrêt pour revenir à
+/// l'édition) et le texte traduit, avec l'identifiant de `labelOf`. La barre d'outils et la barre
+/// de la Vue le partagent.
+[[nodiscard]] std::string modeButtonLabel(Mode target);
 
 /// Ce qui demande un changement de mode à cette image : le bouton de la barre (le mode qu'il
 /// propose), Alt+P, le front d'Échap.

@@ -229,8 +229,10 @@ ImVec4 colorOf(core::LogLevel level)
 
 void drawRows(Console& console)
 {
-    // La police par défaut d'ImGui est à chasse fixe : la console la garde (ProggyForever,
-    // ADR-0036, décision 15) quand le morceau 17 change celle de l'interface.
+    // La console garde la police à chasse fixe d'ImGui (ProggyForever, ADR-0036, décision 15) quand
+    // l'interface passe à Inter : des colonnes alignées, et Inter derrière pour les « œ » des
+    // messages. Taille inchangée (0).
+    ImGui::PushFont(console.font, 0.0f);
     if (ImGui::BeginChild("##lignes", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders,
                           ImGuiWindowFlags_HorizontalScrollbar))
     {
@@ -259,6 +261,7 @@ void drawRows(Console& console)
         }
     }
     ImGui::EndChild();
+    ImGui::PopFont();
 }
 
 } // namespace

@@ -57,8 +57,7 @@ ToolbarResult drawToolbar(Mode mode, float flySpeed, bool realTime, ToolbarLayou
     }
     // Le mode d'abord : celui qu'on cherche le plus.
     const Mode target = otherMode(mode);
-    const char* modeLabel = target == Mode::Edit ? "Revenir à l'édition" : "Jouer (sans retour)";
-    if (ImGui::Button(ui::labelOf(modeLabel).c_str()))
+    if (ImGui::Button(modeButtonLabel(target).c_str()))
     {
         result.mode = target;
     }

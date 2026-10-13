@@ -121,6 +121,9 @@ struct Console
     float scrollY = 0.0f;
     float scrollMax = 0.0f;
     ConsoleLayout layout;
+    /// La police des lignes (ProggyForever à chasse fixe, ADR-0036 décision 15) ; nul : celle de la
+    /// fenêtre.
+    ImFont* font = nullptr;
 };
 
 /// La fenêtre « Console », ancrée au premier affichage au nœud `dock`. Le bouton Effacer vide

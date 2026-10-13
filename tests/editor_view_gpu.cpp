@@ -148,6 +148,7 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
     settings.adapter = backend.adapter;
     Run run;
     levain::editor::EditorOptions options;
+    options.fontRoots = {{LEVAIN_TEST_ASSETS_DIR}};
     options.afterUi = [&run, &poke](const levain::editor::Editor& editor)
     {
         run.seen.push_back(seenOf(*run.app, editor));

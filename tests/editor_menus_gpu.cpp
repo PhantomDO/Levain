@@ -225,6 +225,7 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
         return hooks;
     };
     levain::editor::EditorOptions options;
+    options.fontRoots = {{LEVAIN_TEST_ASSETS_DIR}};
     options.afterUi = [&run](const levain::editor::Editor& editor)
     {
         const levain::editor::StatusLine& status = editor.status;
