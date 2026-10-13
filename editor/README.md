@@ -25,7 +25,8 @@ d'entité et d'asset. Il n'a pas encore :
   (app.cpp:106-107) ;
 - **d'annulation** : `commitEdit` écrit la copie par `setComponentValue` sans garder l'ancienne valeur
   (editor/src/inspector.cpp:543-552) ;
-- ni menu, ni raccourci que Alt+P et Échap (invariant 16).
+- ni raccourci qui fasse quoi que ce soit d'autre que jouer, arrêter ou régler le temps réel : Ctrl+S, Ctrl+Z et les
+  outils sont grisés jusqu'à leur milestone (invariant 16 et le paragraphe des menus ci-dessous).
 
 **La console est écrite** (M7.7, morceau 14) : la fenêtre « Console » lit le journal du processus par un récepteur de
 `core::log` (`withEditor` le pose avant `runApp` : ce que la fenêtre et le device écrivent en s'ouvrant y est), dans un
@@ -40,11 +41,51 @@ action son nom (clé du catalogue), au plus deux accords, un contexte (vol, Vue,
 Vue, le jeu vaut seul sous sa route). Le vol et les outils vont **par position** (le scancode d'USB), les accords à
 Ctrl ou Alt **par lettre**. `displayNameOf` montre la touche de la disposition d'aujourd'hui (`App::keyAtPosition` :
 « Z » à la place du W sur un AZERTY) ; `tokenOf` et `chordFromToken` fixent le nom stable des préférences (`pos:26`,
-`Ctrl+S`, jamais un nom de SDL ou d'ImGui). **Branchée** (morceau 11) : les gestes lisent le vol et F par `positionHeld` et `actionFor` (`gestures.cpp`), Alt+P par
-`imguiChordOf` et Échap par `positionHeld` de l'action « Arrêter » (`mode.cpp`) ; les menus (12) appelleront aussi
-`actionFor` ; changer et enregistrer un accord sont les morceaux 15 et 16. Équivalents : les raccourcis d'éditeur d'Unreal, le *Shortcuts
+`Ctrl+S`, jamais un nom de SDL ou d'ImGui). **Branchée** (morceaux 11 et 12) : les gestes lisent le vol et F par
+`positionHeld` et `actionFor` (`gestures.cpp`), Alt+P par `letterChordPressed` et Échap par `positionHeld` de l'action
+« Arrêter » (`mode.cpp`), les raccourcis des menus par `letterChordPressed` et `toolActionOf` (`actions.cpp`). **En vol,
+la Vue se tait** (`actionFor`) : sous le clic droit tenu, ni R ni Espace ne changent d'outil, F ne recadre pas ; seul le
+global vaut encore (Ctrl+S). Changer et enregistrer un accord sont les morceaux 15 et 16. Équivalents : les raccourcis d'éditeur d'Unreal, le *Shortcuts
 Manager* d'Unity, les *Editor Settings > Shortcuts* de Godot. Test : `tests/editor_shortcuts_test.cpp`, et de bout en
 bout `gpu.editor-shortcuts.*`. **Le contrat avec ImGui** : `actionFor` sert les accords de position et le contexte *jeu* ; les accords de lettre passent par `ImGui::Shortcut(imguiChordOf(...))`, et un champ de texte actif (`ActiveContexts::textInput`) ne laisse rien au vol, à la Vue ni au global. Alt-Gr tenu ne vaut aucun accord. **Fait au morceau 11** : le relâchement d'un vol est un clic pour ImGui, et le menu contextuel de la Vue ne s'ouvre que si le clic droit n'a pas volé (`GestureState::flew` : bougé au-delà de `ClickSlopPixels`, une touche de vol ou la molette) ; `playFlightReleaseIsAClick` épingle toujours le comportement d'`app` seul, sans l'éditeur.
+
+**Les menus, les barres et la fenêtre Aide sont écrits** (M7.7, morceau 12, `menus.hpp`, `bars.hpp`, `actions.hpp`,
+ADR-0036, décisions 12 et 13). **La barre de menus** : Fichier, Édition, Entité, Fenêtre (celui du morceau 8, au
+milieu de la barre) et Aide ; chaque entrée montre le raccourci de la table, selon la disposition du clavier. **Une
+action grisée tant que son milestone n'est pas là** (`availabilityOf` : Enregistrer, Annuler, Rétablir en M7.3, les
+outils en M7.4, Simuler en M7.5, Entité > Créer... en M7.3, Préférences > Raccourcis... au morceau 16 ; trois points ASCII, la police par défaut n'a pas « … ») : le menu la montre
+éteinte, dit au survol « Arrive en M7.3 », et le clic ne fait rien. **Le choix pour Ctrl+S** : l'entrée est grisée
+*et* le raccourci reste routé vers l'action, qui, grisée, le dit à la console (« Enregistrer : arrive en M7.3 » ; la
+barre d'état le montre) et compte le refus (`ActionCounters::declined`). Un Ctrl+S qui ne répondrait rien laisserait
+croire qu'une scène est enregistrée (règle n°7) ; c'est aussi ce qui permet au test « Ctrl+S atteint son action » de
+l'observer. **La barre d'outils** (sous les menus) : le bouton de mode, Simuler (grisé), les trois outils (grisés), la
+vitesse de la caméra de l'éditeur (`Editor::camera.flySpeed`, un curseur logarithmique borné par `clampFlySpeed`) et
+la case **« Temps réel »**, la même action que Ctrl+R (`App::realTime` : décochée, le temps de la scène que lisent l'eau,
+l'herbe, les matériaux et les squelettes ne court plus, et repart d'où il s'était arrêté). **Le temps réel ne se règle qu'en Édition** : jouer le force à vrai et garde le choix de l'Édition, revenir le rend (`switchRealTime`) ; en jeu la case est grisée et Ctrl+R le dit à la console. Livré ici (morceau 12) ; le morceau 17 garde le menu Afficher. **La barre d'état** (au
+bas) : le dernier message du journal et les compteurs d'avertissements et d'erreurs, lus dans l'anneau de la console
+sous son mutex (`statusOf`). **La fenêtre Aide** (Aide > Raccourcis) liste une ligne par entrée de la table (l'action,
+son accord tel que la disposition d'aujourd'hui l'écrit, son contexte, la touche d'Unreal et celle d'Unity), avec une
+recherche (`helpRowsOf`, `helpRowMatches`). **Les raccourcis** (`shortcutsPressed`, appelé une fois par image après
+les fenêtres) : les accords de lettre par `ImGui::Shortcut` en route globale (la route du *focus* d'ImGui veut la
+fenêtre courante, que la Vue ne prête pas depuis `ui` : la Vue « active » est `viewActiveIn`, avec le survol d'ImGui de
+`View::hovered` : une fenêtre, un menu ou un popup sous la souris, par-dessus la Vue, la prive de W et de Ctrl+R), les
+touches d'outil par position, lues dans les événements bruts de l'image (`keyPressesOf` sur `App::rawFrameEvents` : la
+position, la lettre de la disposition, les modificateurs ; **une répétition n'est pas un appui**, une touche tenue ne
+prend l'outil qu'une fois). **Une seule règle pour les touches de la Vue** : `viewActiveIn` décide pour les outils,
+Ctrl+R et le F des gestes ; un geste de souris, lui, commence sous le pointeur (`GestureContext::sceneHovered` et le
+rectangle de la Vue), le focus n'y comptant pas : la Vue focalisée, un clic droit sur la hiérarchie ne vole pas.
+**Un champ de texte actif garde son Ctrl+Z** (l'élément actif passe avant la route globale ; Ctrl+Maj+Z de même, le test le montre), Alt+P ne joue pas non plus pendant qu'on tape, mais **Ctrl+S atteint Enregistrer même dans un champ** (voulu ; au M7.3 on valide le champ avant d'enregistrer), **en vol,
+aucune touche d'outil** (`toolActionOf`) : W vole (`actionFor` rend Avancer), R et Espace se taisent, le vol étant celui
+des gestes (`inFlight`, qui commande aussi la capture), non le bouton droit tel qu'ImGui le voit ; avec Ctrl, la touche
+ne prend pas d'outil. Alt+P reste lue par `playShortcutPressed` (mode.cpp), la table n'en compte pas deux. **Une seule
+caméra** (`Editor::camera`) : le curseur de la barre d'outils et la molette en vol règlent la même vitesse, bornée par
+`clampFlySpeed`, et le vol suivant va à cette vitesse. **La modale « Quitter ? »** ouverte, ni les menus, ni la barre
+d'outils, ni les raccourcis ne font rien (`globalChordsAllowed`, et la modale qui bloque les clics derrière elle).
+**Pas encore** : la touche d'outil n'a que le « refus à la console » jusqu'à M7.4. Équivalents : la barre
+de menus et la barre d'outils d'Unity et d'Unreal, « Editor Preferences > Keyboard Shortcuts » d'Unreal, le Shortcuts
+Manager d'Unity, le menu Aide de Godot. Tests : `tests/editor_actions_test.cpp` et `tests/editor_menus_test.cpp` (un
+ImGui sans fenêtre : Ctrl+S, le champ de texte, les clics des menus et des barres), et de bout en bout
+`gpu.editor-menus.*` (`tests/editor_menus_gpu.cpp`).
 
 **Sa caméra se pilote** (M7.7, morceaux 9 et 11, `camera.hpp`, `gestures.hpp`, invariant 20) : la logique est en
 fonctions libres, les gestes lisent l'input brut (`App::rawFrameEvents`) et `App::cameraOverride` en est la sortie.
@@ -165,8 +206,8 @@ M couverts par un test ».
     son image, que la route de l'input et le picking du sandbox lisent (`scenePixelAt`, avec `App::cursor`, la position
     des événements et non celle de SDL). **La disposition** : la hiérarchie à gauche, la Vue au centre, l'inspecteur à
     droite **seul sur son nœud** (donc toujours visible, la CI le compte), la console, Image, Passes et Scène en onglets
-    en bas (`DockNodes::left, center, inspector, bottom`). **Le menu « Fenêtre »** (`window_menu.hpp`), dans une barre
-    de menus qui n'a que lui (les autres sont du morceau 12), ferme et rouvre chaque fenêtre par son drapeau
+    en bas (`DockNodes::left, center, inspector, bottom`). **Le menu « Fenêtre »** (`window_menu.hpp`), un des cinq de
+    la barre de menus (morceau 12, `drawMenuBar`), ferme et rouvre chaque fenêtre par son drapeau
     (`windowEntriesOf`) ; les fenêtres sont fermées aussi par leur croix. La disposition n'est pas gardée (morceau 15) :
     une fenêtre fermée puis rouverte retrouve son nœud, ImGui gardant le `DockId` de la fenêtre fermée
     (`SetNextWindowDockID` en `FirstUseEver` ne sert qu'à la première ouverture). Le sandbox et *Rando* gardent leur
@@ -187,7 +228,8 @@ M couverts par un test ».
     un AZERTY), Maj court (×3), la molette règle la vitesse ; la souris est **capturée panneaux ouverts compris**
     (`App::mouseCaptureOverPanels`) et **seulement pendant ce vol** : l'orbite (Alt+clic gauche), le pan (bouton du
     milieu), le dolly (Alt+clic droit) lisent le mouvement relatif sans la prendre. Hors geste, la molette dans la Vue
-    zoome (`dollyCamera`). F cadre la sélection (`framingOf` sur `entityBoxOf` : la boîte de son mesh si le modèle est
+    zoome (`dollyCamera`). F cadre la sélection là où valent les touches de la Vue (`viewActiveIn`), jamais en vol
+    (`framingOf` sur `entityBoxOf` : la boîte de son mesh si le modèle est
     sur le GPU, sinon un cube de côté 1 à sa position), comme le double-clic sur une ligne de la hiérarchie et
     l'entrée du menu du clic droit. Les plans de découpe (`editorClipPlanes`) : le lointain d'abord, celui des bornes de la scène sans
     descendre sous le défaut (1000 m) ni passer 1e5 m ; le proche du seul rapport (lointain / 10 000), jamais de l'entité
@@ -240,9 +282,15 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   sous son nom stable (ADR-0036, décision 14), que la CI lit : l'éditeur lancé sans script est en Édition à zéro pas
   (`App::stepsPlayed`, tous les pas de la boucle).
 - `Action`, `Context`, `Chord`, `Binding`, `ShortcutTable`, `defaultShortcuts`, `bindingOf`, `nameOf`, `actionFor`,
-  `chordMatches`, `positionHeld`, `displayNameOf`, `tokenOf`, `chordFromToken`, `imguiChordOf` (`shortcuts.hpp`) : la
+  `chordMatches`, `positionHeld`, `displayNameOf`, `tokenOf`, `chordFromToken`, `imguiChordOf`, `letterChordPressed`
+  (`shortcuts.hpp`) : la
   table des raccourcis, en fonctions libres dont la disposition du clavier est un paramètre.
-- `drawView(view, app, mode)`, `View`, `sceneSizeOfContent`, `sceneFocusedIn` (`view.hpp`) ; `drawWindowMenu(entries,
+- `drawMenuBar(inputs, windowLayout, layout, help)`, `drawHelp`, `helpRowsOf`, `helpRowMatches`, `equivalentsOf`
+  (`menus.hpp`) ; `drawToolbar`, `drawStatusBar`, `statusOf` (`bars.hpp`) ; `availabilityOf`, `runAction`,
+  `shortcutsPressed`, `keyPressesOf`, `toolActionOf`, `viewActiveIn`, `switchRealTime`, `ActionCounters`
+  (`actions.hpp`) : les menus, les barres, la
+  fenêtre Aide et ce que les raccourcis atteignent, en fonctions libres.
+- `drawView(view, app, mode)`, `View`, `sceneSizeOfContent`, `sceneFocusedIn` (`view.hpp`) ; `drawWindowMenuItems(entries,
   layout)`, `WindowEntry` (`window_menu.hpp`) ; `windowEntriesOf(editor, app)` (`editor.hpp`) : la Vue, son menu. À la
   fin, `withEditor` écrit aussi `editor.view width=W height=H -- vue : W×H`, sous son nom stable.
 - `drawConsole(console, ring, dock, open)` : la fenêtre « Console ». Son modèle est en fonctions libres sur une copie de
