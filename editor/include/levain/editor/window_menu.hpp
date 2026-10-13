@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 
 #include <imgui.h>
@@ -34,6 +35,22 @@ struct WindowMenuLayout
     bool itemsShown = false;
     std::array<ImVec2, MaxWindowEntries> items{};
 };
+
+/// Le centre du dernier widget dessiné : l'endroit où cliquer.
+[[nodiscard]] ImVec2 centerOfLastItem();
+
+/// Où la bulle « Arrive en M7.x » se pose par rapport à l'entrée grisée : à droite d'une entrée de
+/// menu (dessous, elle couvrirait l'entrée suivante : « Quitter l'éditeur » sous « Enregistrer »),
+/// sous un bouton de la barre d'outils (à droite, elle couvrirait le bouton suivant).
+enum class SoonSide : std::uint8_t
+{
+    Right,
+    Below,
+};
+
+/// Au survol de la dernière entrée (grisée comprise), dit dans quel milestone elle arrive : sans
+/// elle, un grisé ne dirait pas pourquoi ni quand il s'éteint.
+void saySoon(const char* milestone, SoonSide side);
 
 /// Dessine la barre de menus et son menu « Fenêtre ». Une case cliquée inverse le drapeau de sa
 /// fenêtre. Panneaux ouverts seulement : la barre retire sa hauteur à l'espace d'ancrage, de

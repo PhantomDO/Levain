@@ -9,10 +9,6 @@
 namespace levain::editor
 {
 
-namespace
-{
-
-/// Le centre du dernier widget dessiné : l'endroit où cliquer.
 ImVec2 centerOfLastItem()
 {
     const ImVec2 min = ImGui::GetItemRectMin();
@@ -20,7 +16,19 @@ ImVec2 centerOfLastItem()
     return {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f};
 }
 
-} // namespace
+void saySoon(const char* milestone, SoonSide side)
+{
+    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        return;
+    }
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    constexpr float Gap = 6.0f;
+    ImGui::SetNextWindowPos(side == SoonSide::Right ? ImVec2(max.x + Gap, min.y)
+                                                    : ImVec2(min.x, max.y + Gap));
+    ImGui::SetTooltip("%s", ui::trf("Arrive en {}", milestone).c_str());
+}
 
 void drawWindowMenu(std::span<const WindowEntry> entries, WindowMenuLayout& layout)
 {
