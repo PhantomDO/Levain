@@ -14,6 +14,7 @@
 #include "levain/app/camera.hpp"
 #include "levain/core/error.hpp"
 #include "levain/core/log.hpp"
+#include "levain/editor/layout.hpp"
 #include "levain/editor/scene_bounds.hpp"
 #include "levain/scene/scene.hpp"
 #include "levain/ui/tr.hpp"
@@ -343,7 +344,9 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .toolbar = {},
                    .status = {},
                    .realTimeEdit = true,
-                   .lastShortcuts = {}});
+                   .lastShortcuts = {},
+                   .preferencesFile = {},
+                   .shortcutLines = {}});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -365,6 +368,9 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         {
             editor->camera = editorCameraFrom(*game);
         }
+        // Avant la première image de panneaux, et après la caméra du jeu, dont la vitesse n'est pas
+        // celle qu'on a gardée : la disposition relue, ou la défaut qui se construira.
+        startPreferences(app, *editor, options.preferencesDirectory);
         imposeCamera(app, *editor, true);
         hooks->frame = [frame = std::move(hooks->frame), editor](app::App& app)
         {
@@ -473,6 +479,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         };
         hooks->finish = [finish = std::move(hooks->finish), editor](app::App& app)
         {
+            savePreferencesNow(app, *editor);
             logEditor(app.world, *editor);
             logMode(app, *editor);
             logView(editor->view);

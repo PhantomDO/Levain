@@ -57,6 +57,12 @@ struct DockNodes
     ImGuiID bottom = 0;
 };
 
+/// L'identifiant de l'espace d'ancrage principal, celui de toute la disposition : l'éditeur y
+/// retrouve les nœuds d'une disposition relue (`DockBuilderGetNode`), et la sauvegarde ne garde le
+/// texte d'ImGui que s'il y existe (des panneaux jamais ouverts n'ont rien à dire de la
+/// disposition).
+[[nodiscard]] ImGuiID mainDockspaceId();
+
 /// Les fenêtres du moteur ouvertes ou fermées (le menu « Fenêtre » de l'éditeur les rouvre).
 struct EngineWindows
 {

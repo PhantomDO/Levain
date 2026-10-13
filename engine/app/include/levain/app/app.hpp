@@ -161,8 +161,9 @@ struct AppSettings
     /// exécution que `inputScript` rend scriptée, afin qu'un test du banc d'essai éprouve ce que
     /// seul un humain déclenche (la modale « Quitter ? », les préférences). Aucune option de la
     /// ligne de commande ne le pose.
-    /// **TODO morceau 15** : il débloquera aussi les préférences (`isScriptedRun` les coupe) : un
-    /// test qui s'en sert écrirait celles du développeur. Injecter un chemin de test d'abord.
+    /// Il débloque aussi les préférences de l'éditeur (`isScriptedRun` les coupe) : un test qui
+    /// s'en sert **injecte un dossier jetable** (`EditorOptions::preferencesDirectory`) ; sans lui,
+    /// l'éditeur n'a pas de préférences (jamais celles de qui lance le test).
     bool testInteractive = false;
 };
 
