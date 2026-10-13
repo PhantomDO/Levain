@@ -2,6 +2,7 @@
 // dans assets-cache/Fonts. Absentes, le test échoue en disant quoi lancer (règle n°7) : il ne se
 // contente pas de ne pas s'exécuter.
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -15,6 +16,7 @@
 #include "levain/assets/asset_id.hpp"
 #include "levain/ui/context.hpp"
 #include "levain/ui/fonts.hpp"
+#include "levain/ui/icons.hpp"
 
 namespace
 {
@@ -24,6 +26,7 @@ namespace fs = std::filesystem;
 /// Les sources de la police de l'interface, dans l'ordre où `addFonts` les fusionne.
 constexpr int InterSource = 0;
 constexpr int NotoSource = 1;
+constexpr int IconSource = 2;
 
 fs::path assetsDir()
 {
@@ -112,7 +115,7 @@ ImFontGlyph* glyphOf(ImFont* font, unsigned code)
     return font->GetFontBaked(15.0f)->FindGlyphNoFallback(static_cast<ImWchar>(code));
 }
 
-/// Les deux polices de assets-cache dans un contexte neuf, ou l'échec qui dit quoi lancer.
+/// Les trois polices de assets-cache dans un contexte neuf, ou l'échec qui dit quoi lancer.
 struct LoadedFonts
 {
     levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
@@ -136,14 +139,15 @@ TEST_CASE("ui.fonts : une police absente des racines est une erreur qui la nomme
     const TempDir dir;
     const std::string inter = interBytes();
     writeBytes(dir.path / levain::ui::UiFontFile, inter);
+    writeBytes(dir.path / levain::ui::FallbackFontFile, inter);
     const std::vector<fs::path> roots{dir.path};
     const auto missing = levain::ui::findFontFiles(roots);
     REQUIRE_FALSE(missing);
-    CHECK(missing.error().message.find("NotoSans") != std::string::npos);
+    CHECK(missing.error().message.find("MaterialSymbols") != std::string::npos);
     CHECK(missing.error().message.find("fetch-assets.sh") != std::string::npos);
     CHECK_MESSAGE(missing.error().message.find(dir.path.string()) != std::string::npos,
                   "l'erreur liste les racines cherchées");
-    writeBytes(dir.path / levain::ui::FallbackFontFile, inter);
+    writeBytes(dir.path / levain::ui::IconFontFile, inter);
     CHECK(levain::ui::findFontFiles(roots));
 }
 
@@ -166,19 +170,21 @@ TEST_CASE("ui.fonts : les vraies polices ont chaque glyphe de la liste, dans l'i
     }
 }
 
-TEST_CASE("ui.fonts : l'ordre et la source de chaque glyphe sont ceux de l'ADR (Inter, Noto)")
+TEST_CASE("ui.fonts : l'ordre et la source de chaque glyphe sont ceux de l'ADR (Inter, Noto, "
+          "icônes)")
 {
     const LoadedFonts loaded;
     ImFont* ui = loaded.fonts->ui;
     ImFont* console = loaded.fonts->console;
-    REQUIRE(ui->Sources.Size == 2);
+    REQUIRE(ui->Sources.Size == 3);
     CHECK(std::string{ui->Sources[InterSource]->Name}.starts_with("Inter-Regular.ttf"));
     CHECK(std::string{ui->Sources[NotoSource]->Name}.starts_with("NotoSans-Regular.ttf"));
+    CHECK(std::string{ui->Sources[IconSource]->Name}.starts_with("MaterialSymbols"));
     // La console : ProggyForever d'abord (chasse fixe), Inter derrière.
     REQUIRE(console->Sources.Size == 2);
     CHECK(std::string{console->Sources[0]->Name}.starts_with("ProggyForever"));
     CHECK(std::string{console->Sources[1]->Name}.starts_with("Inter-Regular.ttf"));
-    // Les lettres et la liste viennent d'Inter ; un glyphe d'Inter dans la
+    // Les lettres et la liste viennent d'Inter, jamais des icônes ; un glyphe d'Inter dans la
     // console vient de Proggy (Latin-1) ou d'Inter derrière.
     for (const unsigned code : listedGlyphs())
     {
@@ -195,6 +201,68 @@ TEST_CASE("ui.fonts : l'ordre et la source de chaque glyphe sont ceux de l'ADR (
         REQUIRE(glyphOf(console, code) != nullptr);
         CHECK(glyphOf(console, code)->SourceIdx == 0);
     }
+    // Les icônes : la source des icônes, et elle seule.
+    for (const char* icon : levain::ui::icon::All)
+    {
+        CAPTURE(codeOf(icon));
+        const ImFontGlyph* glyph = glyphOf(ui, codeOf(icon));
+        REQUIRE(glyph != nullptr);
+        CHECK(glyph->SourceIdx == IconSource);
+    }
+}
+
+/// Vrai si la source répondrait à ce code : sa liste d'exclusion (terminée par 0, des paires
+/// inclusives) ne le couvre pas. C'est la règle d'ImGui (imgui_draw.cpp, la liste est copiée par
+/// l'atlas), lue sur la config que l'atlas garde.
+bool sourceAccepts(const ImFontConfig& source, unsigned code)
+{
+    for (const ImWchar* range = source.GlyphExcludeRanges; range != nullptr && range[0] != 0;
+         range += 2)
+    {
+        if (code >= range[0] && code <= range[1])
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+TEST_CASE("ui.fonts : les icônes ne répondent que dans la zone d'usage privé, et elle est à elles")
+{
+    const LoadedFonts loaded;
+    const ImFont& ui = *loaded.fonts->ui;
+    // Material Symbols n'a le droit de répondre à aucun code hors de U+E000..U+F8FF (sinon un
+    // caractère qu'Inter et Noto n'ont pas se dessinerait en icône) ; Inter et Noto, à aucun code
+    // dedans (Inter y a 745 glyphes, qui masqueraient des icônes). Mesuré le 13/10/2026.
+    for (unsigned code = 1; code <= 0xFFFF; ++code)
+    {
+        const bool privateUse = code >= 0xE000 && code <= 0xF8FF;
+        CAPTURE(code);
+        CHECK(sourceAccepts(*ui.Sources[IconSource], code) == privateUse);
+        CHECK(sourceAccepts(*ui.Sources[InterSource], code) == !privateUse);
+        CHECK(sourceAccepts(*ui.Sources[NotoSource], code) == !privateUse);
+    }
+    // Et ce que l'atlas dessine : dans la zone, rien d'autre qu'une icône ; hors d'elle (de quoi
+    // couvrir les écritures que l'éditeur écrit), jamais une icône.
+    int answered = 0;
+    for (unsigned code = 1; code < 0x3000; ++code)
+    {
+        const ImFontGlyph* glyph = glyphOf(loaded.fonts->ui, code);
+        if (glyph != nullptr)
+        {
+            ++answered;
+            CHECK_MESSAGE(glyph->SourceIdx != IconSource, "U+", std::hex, code);
+        }
+    }
+    CHECK_MESSAGE(answered > 500, "le parcours doit voir les glyphes d'Inter et de Noto");
+    for (unsigned code = 0xE000; code <= 0xF8FF; ++code)
+    {
+        const ImFontGlyph* glyph = glyphOf(loaded.fonts->ui, code);
+        if (glyph != nullptr)
+        {
+            CHECK_MESSAGE(glyph->SourceIdx == IconSource, "U+", std::hex, code);
+        }
+    }
 }
 
 TEST_CASE("ui.fonts : Noto Sans comble un glyphe qu'Inter n'a pas")
@@ -205,4 +273,39 @@ TEST_CASE("ui.fonts : Noto Sans comble un glyphe qu'Inter n'a pas")
     const ImFontGlyph* glyph = glyphOf(loaded.fonts->ui, 0xA640);
     REQUIRE(glyph != nullptr);
     CHECK(glyph->SourceIdx == NotoSource);
+}
+
+TEST_CASE("ui.fonts : chaque icône est centrée sur les capitales et pas plus petite qu'elles")
+{
+    // À 125 %, l'icône Jouer faisait 9 px contre 12 px de capitales et flottait 4 px au-dessus de
+    // la ligne de base (revue de la pièce 17a). Les étendues verticales sont celles des glyphes
+    // rastérisés, relatives au haut de la ligne, comme celles de « H ». 15 px est la taille de
+    // l'éditeur, 19 px celle à 125 %.
+    const LoadedFonts loaded;
+    for (const float size : {15.0f, 19.0f})
+    {
+        ImFontBaked* baked = loaded.fonts->ui->GetFontBaked(size);
+        // Copiées : rastériser un glyphe de plus déplace le tableau de l'atlas, un pointeur gardé
+        // sur « H » pendrait.
+        const ImFontGlyph* found = baked->FindGlyphNoFallback('H');
+        REQUIRE(found != nullptr);
+        const float capitalTop = found->Y0;
+        const float capitalBottom = found->Y1;
+        const float capitalHeight = capitalBottom - capitalTop;
+        const float capitalCentre = (capitalTop + capitalBottom) / 2.0f;
+        for (const char* icon : levain::ui::icon::All)
+        {
+            const ImFontGlyph* glyph =
+                baked->FindGlyphNoFallback(static_cast<ImWchar>(codeOf(icon)));
+            REQUIRE(glyph != nullptr);
+            CAPTURE(size);
+            CAPTURE(codeOf(icon));
+            CHECK(glyph->Y0 < capitalBottom);
+            CHECK(glyph->Y1 > capitalTop);
+            // Les bords sont arrondis au pixel : trois quarts de pixel de tolérance sur le centre.
+            CHECK(std::abs((glyph->Y0 + glyph->Y1) / 2.0f - capitalCentre) <= 0.75f);
+            CHECK(glyph->Y1 - glyph->Y0 >= 0.85f * capitalHeight);
+            CHECK(glyph->AdvanceX >= size); // la chasse minimale : les libellés s'alignent
+        }
+    }
 }

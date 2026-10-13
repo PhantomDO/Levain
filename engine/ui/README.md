@@ -42,7 +42,7 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 | [`include/levain/ui/ui_pass.hpp`](include/levain/ui/ui_pass.hpp) | `UiPass`, `createUiPass`, `recordUi`, `updateUiTextures`, `destroyUiTextures`, `registerUiTexture`, `releaseUiTexture` ; les pièges `linearOnSrgbTarget`, `clampScissorToTarget` et `uiTextureRefusal` |
 | [`include/levain/ui/input.hpp`](include/levain/ui/input.hpp) | `feedInput`, `imguiKeyOf`, `PressedKeys` |
 | [`include/levain/ui/context.hpp`](include/levain/ui/context.hpp) | `UiContext`, `createUiContext`, `prepareUiFrame`, `followTextInput` |
-| [`include/levain/ui/fonts.hpp`](include/levain/ui/fonts.hpp) | `findFontFiles`, `addFonts`, `UiFonts` |
+| [`include/levain/ui/fonts.hpp`](include/levain/ui/fonts.hpp), [`icons.hpp`](include/levain/ui/icons.hpp) | `findFontFiles`, `addFonts`, `UiFonts` ; la table des icônes et `withIcon` |
 | [`include/levain/ui/tr.hpp`](include/levain/ui/tr.hpp) | `tr`, `trf`, `textf`, `labelOf` : le catalogue des textes vu de l'interface, la table est dans `core` (ADR-0036) |
 
 Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées), et
@@ -111,9 +111,13 @@ journal en Release.
 - **Les polices ne sont pas dans le dépôt** (`fonts.hpp`, M7.7 morceau 17, ADR-0036 décision 15). `tools/fetch-assets.sh` met
   dans `assets-cache/Fonts/` Inter (SIL OFL 1.1, `Inter-LICENSE.txt`), Noto Sans (OFL 1.1, `NotoSans-OFL.txt`) et Material
   Symbols Outlined (Apache-2.0, `MaterialSymbols-LICENSE`) ; *Rando* les prend avec le préfixe `Fonts/`. `addFonts` en fait
-  la police de l'interface (Inter, puis Noto Sans en `MergeMode` pour un glyphe qu'Inter n'a pas) et celle de la console
-  (ProggyForever à chasse fixe, Inter derrière) : la première source qui a le glyphe répond.
-  `tests/ui_fonts_test.cpp` épingle l'ordre des sources.
+  la police de l'interface (Inter, puis Noto Sans en `MergeMode` pour un glyphe qu'Inter n'a pas, puis les icônes de
+  `icons.hpp`) et celle de la console (ProggyForever à chasse fixe, Inter derrière). **Qui répond à quel code** : la
+  première source qui a le glyphe répond, et deux listes d'exclusion (`GlyphExcludeRanges`, la seule que le chargeur
+  d'ImGui 1.92 lit : `GlyphRanges` ne sert qu'au préchargement « legacy ») partagent le terrain. Inter et Noto Sans
+  n'ont aucun droit sur la zone d'usage privé U+E000..U+F8FF (Inter y a 745 glyphes, qui masqueraient des icônes), et
+  Material Symbols n'en a aucun hors d'elle (il y a des lettres et des chiffres, qu'un caractère manquant ne doit pas
+  faire dessiner en ligature). `tests/ui_fonts_test.cpp` épingle l'ordre des sources et leurs listes.
   **Une police absente est une erreur** : `findFontFiles` nomme le fichier absent et les racines cherchées (règle n°7).
   Le sandbox et *Rando* gardent la police par défaut d'ImGui : un `UiContext`
   seul n'ajoute aucune police, et leurs textes (`engine/app`, `engine/ui`) restent en Latin-1 (« œ » s'y dessinerait
@@ -131,7 +135,7 @@ journal en Release.
 | **Unity** | IMGUI (`OnGUI`), pour les outils | Un mode immédiat, comme ImGui ; déconseillé pour l'interface du joueur (**documenté**, ADR-0032). |
 | **Godot** | Les nœuds `Control` | L'éditeur est un programme du moteur, avec sa propre UI (**documenté**, ADR-0032). |
 
-Les polices : une police principale et des polices de repli pour les glyphes qu'elle n'a pas. Unreal : les *composite fonts* de Slate ; Unity : la liste de polices de repli de TextMesh Pro ; Godot : la propriété `fallbacks` d'une `Font` (**supposé** pour les trois : aucun n'est lu dans les sources). Ici, l'ordre des sources fusionnées dans une `ImFont` (`MergeMode`) joue ce rôle.
+Les polices : une police principale et des polices de repli pour les glyphes qu'elle n'a pas. Unreal : les *composite fonts* de Slate ; Unity : la liste de polices de repli de TextMesh Pro ; Godot : la propriété `fallbacks` d'une `Font` (**supposé** pour les trois : aucun n'est lu dans les sources). Ici, l'ordre des sources fusionnées dans une `ImFont` (`MergeMode`) joue ce rôle, et les icônes sont les glyphes d'une police à part.
 
 Les textes : `FText`/`LOCTEXT` chez Unreal, le paquet Localization chez Unity, `tr()` et gettext chez Godot ; ici le français est la clé, comme le `msgid` de gettext (Godot **documenté**, ADR-0036 [8] ; Unreal et Unity **supposé**).
 
