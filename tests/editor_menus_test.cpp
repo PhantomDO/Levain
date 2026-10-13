@@ -1,9 +1,12 @@
-// Les barres et la fenêtre Aide de l'éditeur (ADR-0036, décisions 12 et 13, morceau 12), dans un
-// ImGui sans fenêtre : la liste des raccourcis de l'Aide, la barre d'état, et les clics d'une
-// souris simulée sur la barre d'outils (la vitesse de la caméra bornée, la case « Temps réel »).
+// Les menus, les barres et la fenêtre Aide de l'éditeur (ADR-0036, décisions 12 et 13, morceau 12),
+// dans un ImGui sans fenêtre : la liste des raccourcis de l'Aide, la barre d'état, et les clics
+// d'une souris simulée sur la barre de menus (une entrée grisée ne rend rien au clic) et sur la
+// barre d'outils (la vitesse de la caméra bornée, la case « Temps réel »).
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -122,25 +125,37 @@ TEST_CASE("la barre d'état dit le dernier message et les compteurs")
 namespace
 {
 
-/// Les barres dans un ImGui sans fenêtre, comme l'éditeur les dessine : outils et état.
+/// Les barres dans un ImGui sans fenêtre, comme l'éditeur les dessine : menus, outils, état, Aide.
 struct BarBench
 {
     const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    ShortcutTable table = defaultShortcuts();
+    bool hierarchyOpen = true;
+    std::array<WindowEntry, 1> windows{{{"Hiérarchie", &hierarchyOpen}}};
+    WindowMenuLayout windowLayout;
+    MenuBarLayout bar;
+    HelpState help;
     ToolbarLayout toolbar;
     levain::core::LogRing ring{8};
     // Ce que les images ont rendu, accumulé.
     std::vector<Action> actions;
+    bool quit = false;
     std::vector<Mode> modes;
     std::vector<float> speeds;
     // Ce que les barres reçoivent.
     Mode mode = Mode::Edit;
     float flySpeed = DefaultFlySpeed;
     bool realTime = true;
+    std::function<std::uint32_t(std::uint16_t)> layout = levain::platform::qwertyKeyAtPosition;
 
     void frame()
     {
         levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 960, .height = 540}, 1.0 / 60.0);
         ImGui::NewFrame();
+        const MenuBarInputs inputs{.table = table, .keyAtPosition = layout, .windows = windows};
+        const MenuRequests requests = drawMenuBar(inputs, windowLayout, bar, help);
+        actions.insert(actions.end(), requests.actions.begin(), requests.actions.end());
+        quit = quit || requests.quit;
         const ToolbarResult tools = drawToolbar(mode, flySpeed, realTime, toolbar);
         actions.insert(actions.end(), tools.actions.begin(), tools.actions.end());
         if (tools.mode)
@@ -153,6 +168,7 @@ struct BarBench
             flySpeed = *tools.flySpeed;
         }
         drawStatusBar(statusOf(ring));
+        drawHelp(help, inputs);
         ImGui::EndFrame();
     }
 
@@ -177,6 +193,81 @@ struct BarBench
 };
 
 } // namespace
+
+TEST_CASE("le menu Fichier : Enregistrer est grisé et ne fait rien au clic, Quitter demande")
+{
+    BarBench bench;
+    bench.settle();
+    REQUIRE(bench.bar.file.x > 0.0f);
+    bench.click(bench.bar.file);
+    REQUIRE(bench.bar.fileOpen);
+    // Grisée : l'entrée montre son raccourci mais le clic ne l'atteint pas, et le menu reste
+    // ouvert.
+    bench.click(bench.bar.save);
+    CHECK(bench.actions.empty());
+    // Quitter l'éditeur est là.
+    bench.click(bench.bar.quit);
+    CHECK(bench.quit);
+    CHECK(bench.actions.empty());
+}
+
+TEST_CASE("Édition et Entité s'ouvrent, leurs entrées grisées ne rendent rien au clic")
+{
+    BarBench bench;
+    bench.settle();
+    bench.click(bench.bar.edit);
+    REQUIRE(bench.bar.editOpen);
+    bench.click(bench.bar.undo); // Annuler arrive en M7.3
+    CHECK(bench.actions.empty());
+    CHECK_FALSE(bench.quit);
+}
+
+TEST_CASE("Entité > Créer… arrive en M7.3 : grisé, il ne rend rien au clic")
+{
+    BarBench bench;
+    bench.settle();
+    bench.click(bench.bar.entity);
+    REQUIRE(bench.bar.entityOpen);
+    bench.click(bench.bar.create);
+    CHECK(bench.actions.empty());
+}
+
+TEST_CASE("le menu Fenêtre, maintenant dans la barre complète, ferme et rouvre sa fenêtre")
+{
+    BarBench bench;
+    bench.settle();
+    bench.click(bench.windowLayout.title);
+    REQUIRE(bench.windowLayout.itemsShown);
+    bench.click(bench.windowLayout.items.at(0));
+    CHECK_FALSE(bench.hierarchyOpen);
+}
+
+TEST_CASE("Aide > Raccourcis ouvre la fenêtre, qui liste tout et filtre à la frappe")
+{
+    BarBench bench;
+    bench.layout = azertyAt;
+    bench.settle();
+    CHECK(bench.help.total == 0); // fermée : rien dessiné
+    bench.click(bench.bar.help);
+    REQUIRE(bench.bar.helpOpen);
+    bench.click(bench.bar.helpShortcuts);
+    bench.settle();
+    REQUIRE(bench.help.open);
+    CHECK(bench.help.total == bench.table.bindings.size());
+    CHECK(bench.help.shown.size() == bench.help.total);
+    // Avancer s'y lit « Z » : la disposition est celle d'un AZERTY.
+    const HelpRow* forward = rowOf(bench.help.shown, Action::MoveForward);
+    REQUIRE(forward != nullptr);
+    CHECK(forward->chords == "Z");
+
+    // Chercher « enregistrer » dans le champ : une seule ligne reste.
+    bench.click(bench.help.searchAt);
+    ImGui::GetIO().AddInputCharactersUTF8("enregistrer");
+    bench.settle();
+    REQUIRE(bench.help.shown.size() == 1);
+    CHECK(bench.help.shown.front().action == Action::Save);
+    CHECK(bench.help.total == bench.table.bindings.size());
+}
 
 TEST_CASE("la barre d'outils : le mode, la vitesse bornée, Temps réel, et des outils grisés")
 {

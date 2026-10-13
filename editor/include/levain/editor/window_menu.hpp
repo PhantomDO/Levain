@@ -1,8 +1,8 @@
 #pragma once
 
 // Le menu « Fenêtre » de la barre de menus principale (ADR-0036, décision 10) : une case par
-// fenêtre, cochée tant qu'elle est ouverte, qui la ferme ou la rouvre. Les menus complets (Fichier,
-// Édition, Entité, Aide) sont du morceau 12 ; la barre n'a pour l'instant que celui-ci. Équivalents
+// fenêtre, cochée tant qu'elle est ouverte, qui la ferme ou la rouvre. La barre complète
+// (Fichier, Édition, Entité, Fenêtre, Aide) est `drawMenuBar` (menus.hpp, morceau 12). Équivalents
 // : Window d'Unity et d'Unreal, le menu Éditeur > Disposition de Godot.
 
 #include <array>
@@ -52,9 +52,14 @@ enum class SoonSide : std::uint8_t
 /// elle, un grisé ne dirait pas pourquoi ni quand il s'éteint.
 void saySoon(const char* milestone, SoonSide side);
 
-/// Dessine la barre de menus et son menu « Fenêtre ». Une case cliquée inverse le drapeau de sa
-/// fenêtre. Panneaux ouverts seulement : la barre retire sa hauteur à l'espace d'ancrage, de
-/// l'image suivante.
+/// Le menu « Fenêtre » seul, **dans une barre de menus déjà ouverte** (`BeginMainMenuBar`) : la
+/// barre complète (`drawMenuBar`) y met ses cinq menus. Une case cliquée inverse le drapeau de sa
+/// fenêtre ; `layout` retient où elle est.
+void drawWindowMenuItems(std::span<const WindowEntry> entries, WindowMenuLayout& layout);
+
+/// Dessine une barre de menus qui n'a que le menu « Fenêtre » (`drawWindowMenuItems`) : celle que
+/// `withEditor` dessine tant qu'il n'a pas la barre complète (`drawMenuBar`). Panneaux ouverts
+/// seulement : la barre retire sa hauteur à l'espace d'ancrage, de l'image suivante.
 void drawWindowMenu(std::span<const WindowEntry> entries, WindowMenuLayout& layout);
 
 } // namespace levain::editor

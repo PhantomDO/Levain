@@ -1,18 +1,27 @@
 #pragma once
 
-// Les lignes de la fenêtre Aide de l'éditeur (ADR-0036, décisions 12 et 13) : la fenêtre Aide liste
-// **chaque raccourci de la table** : l'action, son accord tel que la disposition d'aujourd'hui
-// l'écrit (« Z » à la place du W sur un AZERTY), son contexte, et la touche d'Unreal et d'Unity ;
-// une recherche la filtre. La logique est en fonctions libres dont toutes les dépendances sont des
-// paramètres (ADR-0011) : `helpRowsOf` et `helpRowMatches` ne touchent pas ImGui. Équivalents :
-// « Editor Preferences > Keyboard Shortcuts » d'Unreal, le Shortcuts Manager d'Unity, l'Aide de
-// Godot.
+// La barre de menus de l'éditeur et la fenêtre Aide (ADR-0036, décisions 12 et 13) : **Fichier,
+// Édition, Entité, Fenêtre, Aide**. Une action dont le milestone n'est pas là (`availabilityOf`) y
+// est grisée : elle montre son raccourci, dit au survol quand elle arrive, et ne fait rien au clic.
+// Chaque entrée montre le raccourci de la table (`displayNameOf`, selon la disposition du clavier).
+// La fenêtre Aide liste **chaque raccourci de la table** : l'action, son accord tel que la
+// disposition d'aujourd'hui l'écrit (« Z » à la place du W sur un AZERTY), son contexte, et la
+// touche d'Unreal et d'Unity ; une recherche la filtre. La logique est en fonctions libres dont
+// toutes les dépendances sont des paramètres (ADR-0011) : `helpRowsOf` et `helpRowMatches` ne
+// touchent pas ImGui. Équivalents : la barre de menus d'Unreal et d'Unity, « Editor Preferences >
+// Keyboard Shortcuts » d'Unreal, le Shortcuts Manager d'Unity, l'Aide de Godot.
 
+#include <array>
+#include <cstddef>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include <imgui.h>
+
 #include "levain/editor/shortcuts.hpp"
+#include "levain/editor/window_menu.hpp"
 #include "levain/platform/input.hpp"
 
 namespace levain::editor
@@ -114,5 +123,61 @@ struct HelpRow
 /// La ligne répond à la recherche : le texte est dans une de ses colonnes, sans tenir compte de la
 /// casse des lettres ASCII (comme la console). Une recherche vide les garde toutes.
 [[nodiscard]] bool helpRowMatches(const HelpRow& row, std::string_view search);
+
+/// Où la barre a été dessinée à la dernière image (le centre de chaque titre, en pixels de
+/// l'écran), pour que les tests la cliquent à la souris scriptée.
+struct MenuBarLayout
+{
+    ImVec2 file{};
+    ImVec2 edit{};
+    ImVec2 entity{};
+    ImVec2 help{};
+    ImVec2 save{};   ///< « Enregistrer », valable `fileOpen`.
+    ImVec2 undo{};   ///< « Annuler », valable `editOpen`.
+    ImVec2 create{}; ///< « Créer… », valable `entityOpen`.
+    bool editOpen = false;
+    bool entityOpen = false;
+    ImVec2 quit{};          ///< « Quitter l'éditeur », valable `fileOpen`.
+    ImVec2 helpShortcuts{}; ///< « Raccourcis », valable `helpOpen`.
+    bool fileOpen = false;
+    bool helpOpen = false;
+};
+
+/// La fenêtre Aide, ce qu'elle garde et ce qu'elle a montré.
+struct HelpState
+{
+    bool open = false;
+    /// Le texte cherché, terminé par un zéro (le tampon du champ d'ImGui).
+    std::array<char, 128> search{};
+    /// Les lignes montrées à la dernière image (`helpRowMatches`) : ce que les tests lisent.
+    std::vector<HelpRow> shown;
+    std::size_t total = 0; ///< Toutes les lignes, filtre ou non.
+    ImVec2 searchAt{};
+};
+
+/// Ce que la barre demande à l'image où l'on clique : les actions des entrées cliquées, et Quitter.
+struct MenuRequests
+{
+    std::vector<Action> actions;
+    bool quit = false;
+};
+
+/// Ce dont la barre a besoin, tout en paramètres.
+struct MenuBarInputs
+{
+    const ShortcutTable& table;
+    const platform::KeyAtPosition& keyAtPosition;
+    std::span<const WindowEntry> windows;
+};
+
+/// Dessine la barre de menus principale : Fichier, Édition, Entité, Fenêtre (`windowLayout`), Aide.
+/// Panneaux ouverts seulement : la barre retire sa hauteur à l'espace d'ancrage de l'image
+/// suivante.
+/// **Une entrée grisée ne rend rien au clic.**
+[[nodiscard]] MenuRequests drawMenuBar(const MenuBarInputs& inputs, WindowMenuLayout& windowLayout,
+                                       MenuBarLayout& layout, HelpState& help);
+
+/// La fenêtre Aide, si elle est ouverte : la recherche et le tableau des raccourcis.
+void drawHelp(HelpState& help, const MenuBarInputs& inputs);
 
 } // namespace levain::editor
