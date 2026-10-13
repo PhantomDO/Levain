@@ -8,10 +8,23 @@
 // Équivalents : les `EditorPerProjectUserSettings.ini` et `EditorLayout` d'Unreal, le dossier
 // `Library/` et les `.dwlt` de disposition d'Unity, `editor_layouts.cfg` et
 // `editor_settings-4.tres` de Godot.
+//
+// Le format, des lignes :
+//   levain-editor 1                  <- le nom et la version, rien d'autre sur la ligne
+//   [editeur]                        <- vitesse_camera = 8, temps_reel = true
+//   [disposition]                    <- tout ce qui suit, tel quel : le texte d'ImGui
+// Les lignes vides et celles qui commencent par « # » sont ignorées avant `[disposition]`.
+// **Le fichier est refusé en entier à la première faute** (règle n°7) : version inconnue, section
+// inconnue ou en double, clé inconnue ou en double, valeur illisible ou hors bornes, **fichier
+// tronqué** (`[disposition]` est la marque de fin : sans elle, la disposition aurait été perdue
+// sans un mot). L'éditeur le dit dans sa console et repart de la disposition par défaut, plutôt que
+// d'en lire la moitié.
 
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <string>
+#include <string_view>
 
 #include "levain/core/error.hpp"
 
@@ -20,6 +33,25 @@ namespace levain::editor
 
 /// Le nom du fichier, dans le dossier de l'utilisateur (`platform::prefPath`).
 inline constexpr const char* PreferencesFileName = "preferences.cfg";
+/// La version que ce code écrit et lit. Un fichier d'une autre version est refusé, pas deviné.
+inline constexpr int PreferencesVersion = 1;
+
+/// Tout ce que le fichier tient.
+struct Preferences
+{
+    float flySpeed = 8.0f; ///< `DefaultFlySpeed`, bornée par `clampFlySpeed`.
+    bool realTime = true;
+    /// Le texte de disposition d'ImGui. Vide : pas de disposition gardée, la défaut se construit.
+    std::string layout;
+
+    bool operator==(const Preferences&) const = default;
+};
+
+/// Le texte du fichier. Déterministe : relu puis réécrit, il ne change pas.
+[[nodiscard]] std::string formatPreferences(const Preferences& preferences);
+
+/// Lit le texte d'un fichier. La première faute le refuse, avec son numéro de ligne.
+[[nodiscard]] core::Result<Preferences> parsePreferences(std::string_view text);
 
 /// **Où vont les préférences de cette exécution**, ou rien. Dans l'ordre :
 /// - **une exécution scriptée n'en a pas** (`scriptedRun`, `isScriptedRun`) : les réglages d'un
