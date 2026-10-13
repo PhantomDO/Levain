@@ -145,6 +145,11 @@ struct Editor
     /// les applique et les réécrit).
     std::optional<std::filesystem::path> preferencesFile;
     std::vector<ShortcutLine> shortcutLines;
+    /// « Réinitialiser la disposition » a été cliquée : le `frame` de l'image suivante la fait
+    /// (entre `NewFrame` et l'espace d'ancrage), et `savePreferencesNext` réécrit le fichier à la
+    /// fin de `ui`, une fois les fenêtres sur leurs nœuds.
+    bool layoutResetRequested = false;
+    bool savePreferencesNext = false;
 };
 
 /// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web

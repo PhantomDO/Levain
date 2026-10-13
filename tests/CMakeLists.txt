@@ -511,9 +511,12 @@ target_compile_definitions(levain_editor_console PRIVATE LEVAIN_DATA_DIR="${CMAK
 add_test(NAME gpu.editor-console.vulkan COMMAND levain_editor_console vulkan)
 set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
-# La disposition et les préférences de l'éditeur (ADR-0036, morceau 15) dans la vraie boucle, une entrée par scénario : les
-# scénarios et leurs raisons sont dans l'en-tête de editor_preferences_gpu.cpp.
-set(editorPreferencesScenarios round-trip play central scripted)
+# La disposition et les préférences de l'éditeur (ADR-0036, morceau 15) dans la vraie boucle : écrire puis relire (vitesse, « Temps
+# réel », console fermée, inspecteur rangé en bas), « Réinitialiser la disposition », quitter en jeu, la Vue fermée, et les
+# contre-tests (une exécution scriptée n'écrit ni ne lit, un fichier refusé est dit et mis de côté). Un dossier jetable est injecté :
+# jamais celui de qui lance le test. **Une entrée par scénario** : chacun fait quatre ou cinq lancements de l'application, et la CI
+# donne 120 s par test (asan et WARP vont deux à trois fois plus lentement qu'un seul test de douze lancements ne le supporterait).
+set(editorPreferencesScenarios round-trip reset play central scripted refused)
 add_executable(levain_editor_preferences editor_preferences_gpu.cpp)
 target_link_libraries(levain_editor_preferences PRIVATE levain::editor levain::app levain::assets levain::core levain::platform levain::scene levain::ui)
 target_compile_definitions(levain_editor_preferences PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")

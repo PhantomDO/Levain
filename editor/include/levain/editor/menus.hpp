@@ -155,11 +155,13 @@ struct HelpState
     ImVec2 searchAt{};
 };
 
-/// Ce que la barre demande à l'image où l'on clique : les actions des entrées cliquées, et Quitter.
+/// Ce que la barre demande à l'image où l'on clique : les actions des entrées cliquées, Quitter, et
+/// « Réinitialiser la disposition » du menu Fenêtre.
 struct MenuRequests
 {
     std::vector<Action> actions;
     bool quit = false;
+    bool resetLayout = false;
 };
 
 /// Ce dont la barre a besoin, tout en paramètres.

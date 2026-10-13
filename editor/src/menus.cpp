@@ -182,7 +182,7 @@ MenuRequests drawMenuBar(const MenuBarInputs& inputs, WindowMenuLayout& windowLa
     drawFileMenu(inputs, layout, requests);
     drawEditMenu(inputs, layout, requests);
     drawEntityMenu(layout);
-    drawWindowMenuItems(inputs.windows, windowLayout);
+    requests.resetLayout = drawWindowMenuItems(inputs.windows, windowLayout);
     drawHelpMenu(layout, help);
     ImGui::EndMainMenuBar();
     return requests;

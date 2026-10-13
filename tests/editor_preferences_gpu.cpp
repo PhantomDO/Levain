@@ -8,9 +8,14 @@
 //   round-trip  la vitesse, « Temps réel », la console fermée par le menu et l'inspecteur rangé en
 //               bas sont relus à la session suivante, sans `buildLayout` ; la disposition réécrite
 //               à l'identique
+//   reset       « Réinitialiser la disposition » rend la défaut, rouvre la console, garde la
+//               vitesse et réécrit le fichier tout de suite
 //   play        quitter en jeu garde le choix de « Temps réel » de l'Édition
 //   central     la Vue fermée à la session d'avant : son nœud (le central) est retrouvé quand même
 //   scripted    --steps, --seconds et --input-script ne lisent ni n'écrivent rien
+//   refused     un fichier refusé est dit à la console et mis de côté (sauf un fichier d'une
+//               version plus récente, laissé tel quel, sans enregistrement) ; une disposition
+//               illisible est écartée, le reste gardé
 // Il faut un device, comme `levain_app_script`.
 //   levain_editor_preferences <vulkan|d3d12|d3d12-warp> <scénario>
 
@@ -406,6 +411,7 @@ struct Probe
     Seen seen;
     ImVec2 menuTitle{};
     ImVec2 consoleItem{};
+    ImVec2 resetItem{};
     ImVec2 speed{};
     ImVec2 realTime{};
 };
@@ -434,6 +440,7 @@ Probe probeOf(const levain::tests::TestBackend& backend, bool withMenu)
         throw std::runtime_error{"le sondage : le menu Fenêtre ne s'ouvre pas"};
     }
     probe.consoleItem = opened.seen.back().menu.items.at(ConsoleEntry);
+    probe.resetItem = opened.seen.back().menu.reset;
     return probe;
 }
 
@@ -538,6 +545,73 @@ int playRoundTrip(const levain::tests::TestBackend& backend)
                       saved2->realTime,
                   "relue puis réécrite, la disposition est la même et « Temps réel » recoché est "
                   "dans le fichier");
+}
+
+/// **« Réinitialiser la disposition »** (quatre lancements) : une session dérange la disposition
+/// (vitesse, console fermée, inspecteur en bas) puis la réinitialise ; la défaut revient, toutes
+/// les fenêtres rouvertes, la vitesse reste, et le fichier est réécrit tout de suite (avant la
+/// fermeture). La session d'après part de la défaut.
+int playReset(const levain::tests::TestBackend& backend)
+{
+    const TempDirectory directory{"reset"};
+    const Probe probe = probeOf(backend, true);
+    constexpr int Frames = 70;
+    constexpr std::size_t BeforeReset = 23; // image relevée, avant le clic de « Réinitialiser »
+    constexpr std::size_t AfterReset = 50;  // longtemps après, bien avant la fermeture
+    bool fileBefore = true;
+    std::optional<Preferences> onDiskRightAfter;
+    const std::function<void(std::size_t)> poke = [&](std::size_t recorded)
+    {
+        if (recorded == 20)
+        {
+            moveInspectorToBottom();
+        }
+        if (recorded == BeforeReset)
+        {
+            fileBefore = fs::exists(fileIn(directory.path));
+        }
+        if (recorded == AfterReset)
+        {
+            onDiskRightAfter = savedIn(directory.path);
+        }
+    };
+    const std::string script = clickScript(1, probe.speed) +
+                               menuClick(6, probe.menuTitle, probe.consoleItem) +
+                               menuClick(26, probe.menuTitle, probe.resetItem);
+    const Run run = play(backend, interactive(directory.path, Frames, script, poke));
+    if (run.exitCode != 0 || run.seen.size() != Frames)
+    {
+        return expect(false, "la réinitialisation : code 0 et une image relevée par image");
+    }
+    const Seen& before = run.seen.at(BeforeReset - 1);
+    const Seen& last = run.seen.back();
+    int failures = expect(inspectorIsInBottomTabs(before),
+                          "avant le clic, l'inspecteur est dans l'onglet du bas") +
+                   expect(!before.consoleOpen, "avant le clic, la console est fermée") +
+                   expect(before.flySpeed > levain::editor::DefaultFlySpeed,
+                          "avant le clic, la vitesse est réglée") +
+                   expect(!fileBefore, "avant le clic, rien n'est encore écrit (pas de fichier)") +
+                   expectDefaultLayout(last, "après « Réinitialiser »") +
+                   expect(last.consoleOpen && last.windows.at(ConsoleEntry).exists,
+                          "« Réinitialiser » rouvre la console") +
+                   expect(last.flySpeed == before.flySpeed,
+                          "« Réinitialiser » ne touche pas à la vitesse de la caméra") +
+                   expect(onDiskRightAfter && onDiskRightAfter->windows.console &&
+                              onDiskRightAfter->windows.inspector &&
+                              onDiskRightAfter->flySpeed == before.flySpeed,
+                          "le fichier est réécrit dès la réinitialisation, avant la fermeture");
+    failures += expectSaveRenamed(run, "la réinitialisation");
+    // La session d'après : la disposition par défaut revient d'elle-même.
+    const Run next = play(backend, interactive(directory.path, 12));
+    if (next.exitCode != 0 || next.seen.size() != 12)
+    {
+        return failures +
+               expect(false, "après la réinitialisation : code 0 et une image par image");
+    }
+    return failures + expectDefaultLayout(next.seen.back(), "la session suivante") +
+           expect(next.seen.back().consoleOpen, "la session suivante : la console est ouverte") +
+           expect(next.seen.back().flySpeed == before.flySpeed,
+                  "la session suivante : la vitesse est gardée");
 }
 
 /// **Quitter en jeu** (deux lancements) : « Temps réel » décoché en Édition, Alt+P joue (le jeu
@@ -659,6 +733,91 @@ int playScripted(const levain::tests::TestBackend& backend)
                   "contrôle : une exécution interactive lit ce même fichier");
 }
 
+/// **Un fichier refusé, une disposition illisible** (trois lancements) : le premier est dit à la
+/// console, mis de côté, la défaut se construit, et un fichier valide prend sa place à la
+/// fermeture ; la seconde est écartée (valide pour nous, sans espace d'ancrage), la console le dit
+/// et le reste des préférences est gardé ; un fichier refusé qu'on ne peut pas mettre de côté n'est
+/// pas écrasé à la fermeture.
+int playRefused(const levain::tests::TestBackend& backend)
+{
+    const TempDirectory directory{"refused"};
+    // Un format abandonné (version 0), pas une version plus récente : celle-ci n'est jamais mise de
+    // côté ni écrasée (voir plus bas).
+    const std::string broken = "levain-editor 0\n[editeur]\n";
+    std::ofstream{fileIn(directory.path), std::ios::binary} << broken;
+    const Run run = play(backend, interactive(directory.path, 12));
+    if (run.exitCode != 0 || run.seen.size() != 12)
+    {
+        return expect(false, "le fichier refusé : code 0 et une image relevée par image");
+    }
+    fs::path aside = fileIn(directory.path);
+    aside += ".bad";
+    int failures = expectDefaultLayout(run.seen.back(), "fichier refusé") +
+                   expect(consoleSays(run, "format abandonné"),
+                          "la console dit pourquoi le fichier est refusé") +
+                   expect(fs::exists(aside) && contentOf(aside) == broken,
+                          "le fichier refusé est gardé en .bad, intact") +
+                   expect(savedIn(directory.path).has_value(),
+                          "un fichier valide le remplace à la fermeture") +
+                   expectSaveRenamed(run, "le fichier refusé");
+
+    // Un `.bad` qui est un dossier non vide : le renommage échoue, partout et même en root.
+    const TempDirectory stuck{"stuck"};
+    std::ofstream{fileIn(stuck.path), std::ios::binary} << broken;
+    fs::path stuckAside = fileIn(stuck.path);
+    stuckAside += ".bad";
+    fs::create_directories(stuckAside);
+    std::ofstream{stuckAside / "occupe"} << "x";
+    const Run kept = play(backend, interactive(stuck.path, 12));
+    if (kept.exitCode != 0 || kept.seen.size() != 12)
+    {
+        return failures + expect(false, "le fichier qu'on ne peut pas mettre de côté : code 0");
+    }
+    failures +=
+        expect(consoleSays(kept, "pas d'enregistrement cette session"),
+               "la console dit que la session n'enregistre pas") +
+        expect(contentOf(fileIn(stuck.path)) == broken,
+               "le fichier refusé, mis de côté sans succès, n'est pas écrasé à la fermeture");
+
+    // Un fichier d'une version plus récente (une autre branche de l'éditeur l'a écrit) : ni mis
+    // de côté, ni écrasé par une v1 à la fermeture. La session n'enregistre pas, et le dit.
+    const TempDirectory newer{"newer"};
+    const std::string future = "levain-editor 2\n[editeur]\nvitesse_camera = 7\n";
+    std::ofstream{fileIn(newer.path), std::ios::binary} << future;
+    const Run kept2 = play(backend, interactive(newer.path, 12));
+    if (kept2.exitCode != 0 || kept2.seen.size() != 12)
+    {
+        return failures + expect(false, "le fichier d'une version plus récente : code 0");
+    }
+    fs::path newerAside = fileIn(newer.path);
+    newerAside += ".bad";
+    failures += expectDefaultLayout(kept2.seen.back(), "version plus récente") +
+                expect(consoleSays(kept2, "version plus récente") &&
+                           consoleSays(kept2, "pas d'enregistrement cette session"),
+                       "la console dit la version et que la session n'enregistre pas") +
+                expect(contentOf(fileIn(newer.path)) == future && !fs::exists(newerAside),
+                       "le fichier plus récent reste tel quel, sans .bad, après la fermeture");
+
+    const TempDirectory layout{"layout"};
+    Preferences preferences;
+    preferences.flySpeed = 20.0f;
+    preferences.layout = "n'importe quoi\n[Window][Inconnue]\nPos=1,1\n";
+    if (!levain::editor::savePreferences(fileIn(layout.path), preferences))
+    {
+        return failures + expect(false, "la disposition illisible : le fichier d'essai s'écrit");
+    }
+    const Run unreadable = play(backend, interactive(layout.path, 12));
+    if (unreadable.exitCode != 0 || unreadable.seen.size() != 12)
+    {
+        return failures + expect(false, "la disposition illisible : code 0 et une image par image");
+    }
+    return failures + expectDefaultLayout(unreadable.seen.back(), "disposition illisible") +
+           expect(consoleSays(unreadable, "aucun espace d'ancrage"),
+                  "la console dit que la disposition est illisible") +
+           expect(unreadable.seen.back().flySpeed == 20.0f,
+                  "le reste des préférences est gardé quand seule la disposition est illisible");
+}
+
 /// Un scénario par nom : `levain_editor_preferences <backend> <scénario>`.
 struct Scenario
 {
@@ -666,10 +825,12 @@ struct Scenario
     int (*run)(const levain::tests::TestBackend&);
 };
 
-constexpr std::array<Scenario, 4> Scenarios{{{"round-trip", playRoundTrip},
+constexpr std::array<Scenario, 6> Scenarios{{{"round-trip", playRoundTrip},
+                                             {"reset", playReset},
                                              {"play", playQuitWhilePlaying},
                                              {"central", playViewClosed},
-                                             {"scripted", playScripted}}};
+                                             {"scripted", playScripted},
+                                             {"refused", playRefused}}};
 
 } // namespace
 
@@ -687,7 +848,7 @@ int main(int argc, char** argv)
         if (!backend || scenario == Scenarios.end())
         {
             std::println(stderr, "usage : levain_editor_preferences <vulkan|d3d12|d3d12-warp> "
-                                 "<round-trip|play|central|scripted>");
+                                 "<round-trip|reset|play|central|scripted|refused>");
             return 2;
         }
         return scenario->run(*backend) == 0 ? 0 : 1;

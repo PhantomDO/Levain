@@ -61,6 +61,14 @@ DockNodes buildLayout(ImGuiID dockspace, ImVec2 size, bool editor)
     return {.left = left, .center = center, .inspector = right, .bottom = bottom};
 }
 
+DockNodes resetEditorLayout(App& app)
+{
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    app.ui.windows = {};
+    app.ui.dock = buildLayout(mainDockspaceId(), viewport->Size, true);
+    return app.ui.dock;
+}
+
 ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole, bool sceneBehind)
 {
     // Le trou du nœud central est ce qu'on voit de la scène (`PassthruCentralNode`) ; sans nœud

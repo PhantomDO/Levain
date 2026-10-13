@@ -61,4 +61,9 @@ void startPreferences(app::App& app, Editor& editor,
 /// arrêt : l'éditeur qui se ferme ne perd pas la session pour un disque plein.
 void savePreferencesNow(const app::App& app, const Editor& editor);
 
+/// **« Réinitialiser la disposition »** : la disposition par défaut sur l'espace d'ancrage, toutes
+/// les fenêtres rouvertes et ancrées sur leurs nœuds ; la vitesse et « Temps réel » restent. À
+/// appeler dans le `frame`, entre `NewFrame` et la soumission de l'espace d'ancrage.
+void resetLayout(app::App& app, Editor& editor);
+
 } // namespace levain::editor
