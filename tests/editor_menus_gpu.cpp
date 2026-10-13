@@ -52,7 +52,7 @@ constexpr int RealTimeFrames = 30;
 constexpr int FreezeFrom = 8;
 constexpr int FreezeUntil = 20;
 constexpr double FrozenTolerance = 1.0e-6;
-constexpr std::chrono::milliseconds FrozenFrameSleep{50}; // 12 images gelées : 0,6 s
+constexpr std::chrono::milliseconds FrozenFrameSleep{50}; // 12 images gelées : 0,6 s au moins
 
 /// « Temps réel » décoché de l'image `FreezeFrom` à `FreezeUntil` (exclue) : le temps de la scène
 /// que `record` reçoit ne bouge pas, puis repart de là sans sauter du temps gelé.
@@ -60,12 +60,24 @@ int playRealTime(const levain::tests::TestBackend& backend)
 {
     std::vector<double> seconds;
     int frame = 0;
+    // Le temps réel passé gelé, mesuré : la borne du « sans saut » en dépend, pas d'une durée
+    // fixe qu'une image lente d'une machine chargée dépasserait seule.
+    std::chrono::steady_clock::time_point frozeAt;
+    std::chrono::steady_clock::time_point thawedAt;
     const auto start = [&](App& app) -> levain::core::Result<levain::app::FrameHooks>
     {
         app.world.entity("camera").set(levain::scene::Transform{}).set(levain::app::CameraLens{});
         levain::app::FrameHooks hooks;
-        hooks.frame = [&frame](App& frameApp)
+        hooks.frame = [&frame, &frozeAt, &thawedAt](App& frameApp)
         {
+            if (frame == FreezeFrom)
+            {
+                frozeAt = std::chrono::steady_clock::now();
+            }
+            if (frame == FreezeUntil)
+            {
+                thawedAt = std::chrono::steady_clock::now();
+            }
             frameApp.realTime = !(frame >= FreezeFrom && frame < FreezeUntil);
             if (!frameApp.realTime)
             {
@@ -87,6 +99,7 @@ int playRealTime(const levain::tests::TestBackend& backend)
         return expect(false, "le temps réel : code 0 et une image enregistrée par image");
     }
     const auto at = [&seconds](int index) { return seconds.at(static_cast<std::size_t>(index)); };
+    const double frozenSeconds = std::chrono::duration<double>(thawedAt - frozeAt).count();
     bool frozen = true;
     for (int i = FreezeFrom; i < FreezeUntil; ++i)
     {
@@ -98,9 +111,9 @@ int playRealTime(const levain::tests::TestBackend& backend)
            expect(at(FreezeUntil) > at(FreezeUntil - 1) && at(FreezeUntil + 5) > at(FreezeUntil),
                   "recoché, il repart") +
            // Sans saut : le temps gelé n'est pas rattrapé (l'horloge compte le temps passé gelé).
-           // 0,3 s : la moitié du temps gelé (0,6 s) ; un rattrapage le dépasserait, une image
-           // lente d'une machine chargée n'y atteint pas.
-           expect(at(FreezeUntil) - at(FreezeFrom) < 0.3,
+           // La moitié du temps gelé mesuré : un rattrapage le dépasserait ; le pas d'une image,
+           // lui, n'en est qu'un douzième, si lente que soit la machine.
+           expect(at(FreezeUntil) - at(FreezeFrom) < frozenSeconds / 2.0,
                   "recoché, il repart d'où il s'était arrêté, sans rattraper le temps gelé");
 }
 
