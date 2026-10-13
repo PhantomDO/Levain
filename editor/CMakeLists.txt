@@ -2,7 +2,7 @@
 # plugin. Seuls les exécutables éditeur la lient : levain_check_plugin_boundaries refuse qu'une
 # cible du moteur ou la cible runtime d'un plugin le fasse, et build.no-editor vérifie que le
 # sandbox n'en contient rien.
-add_library(levain_editor STATIC src/actions.cpp src/camera.cpp src/console.cpp src/editor.cpp src/gestures.cpp src/hierarchy.cpp src/inspector.cpp src/menus.cpp src/mode.cpp src/quit.cpp src/scene_bounds.cpp src/shortcuts.cpp src/view.cpp src/window_menu.cpp)
+add_library(levain_editor STATIC src/actions.cpp src/bars.cpp src/camera.cpp src/console.cpp src/editor.cpp src/gestures.cpp src/hierarchy.cpp src/inspector.cpp src/menus.cpp src/mode.cpp src/quit.cpp src/scene_bounds.cpp src/shortcuts.cpp src/view.cpp src/window_menu.cpp)
 add_library(levain::editor ALIAS levain_editor)
 
 target_include_directories(levain_editor PUBLIC include)
