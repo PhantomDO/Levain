@@ -60,6 +60,18 @@ std::uint64_t generationOf(const LogRing& ring)
     return ring.generation;
 }
 
+std::optional<LogEntry> lastEntryOf(const LogRing& ring)
+{
+    const std::scoped_lock lock{ring.mutex};
+    return ring.entries.empty() ? std::nullopt : std::optional<LogEntry>{ring.entries.back()};
+}
+
+LogCounts countsOf(const LogRing& ring)
+{
+    const std::scoped_lock lock{ring.mutex};
+    return ring.counts;
+}
+
 LogCapture captureLog(std::size_t capacity)
 {
     LogCapture capture;

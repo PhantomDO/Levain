@@ -66,6 +66,23 @@ TEST_CASE("l'anneau garde sa taille, oublie le plus ancien, et ses comptes reste
     CHECK(snapshot.counts.infos == 5);
 }
 
+TEST_CASE(
+    "lastEntryOf rend le plus récent, rien si l'anneau est vide, et les comptes sont ceux de tout")
+{
+    LogRing ring{2};
+    CHECK_FALSE(levain::core::lastEntryOf(ring).has_value());
+    levain::core::pushLogEntry(ring, entryOf(LogLevel::Error, "a"));
+    levain::core::pushLogEntry(ring, entryOf(LogLevel::Info, "b"));
+    levain::core::pushLogEntry(ring, entryOf(LogLevel::Info, "c")); // « a » est oublié
+    const auto last = levain::core::lastEntryOf(ring);
+    CHECK(last.has_value());
+    CHECK(last.value_or(LogEntry{}).text == "c");
+    CHECK(levain::core::countsOf(ring).errors == 1); // l'erreur oubliée reste comptée
+    CHECK(levain::core::countsOf(ring).infos == 2);
+    levain::core::clearLogRing(ring);
+    CHECK_FALSE(levain::core::lastEntryOf(ring).has_value());
+}
+
 TEST_CASE("effacer vide l'anneau et les comptes, et change la génération que l'interface surveille")
 {
     LogRing ring{4};

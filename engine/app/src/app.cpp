@@ -544,6 +544,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .world = flecs::world{},
             .fixedStep = {},
             .simulationPaused = false,
+            .realTime = true,
             .stepsPlayed = 0,
             .recomposeAfterUi = false,
             .cameraOverride = std::nullopt,
@@ -890,6 +891,9 @@ struct Loop
     double periodEngineSeconds = 0.0;
     Clock::time_point loopStart;
     Clock::time_point previousFrameEnd;
+    /// Le temps de la scène passé « Temps réel » décoché (`App::realTime`) : la même horloge que
+    /// celle des squelettes, qui compte les images passées à l'arrêt.
+    AnimationClock realTimeClock;
     ShaderReload shaderReload;
     TextureReload textureReload;
     nvrhi::FramebufferInfo sceneTarget;
@@ -910,6 +914,7 @@ Loop startLoop(App& app)
                 .periodEngineSeconds = 0.0,
                 .loopStart = now,
                 .previousFrameEnd = now,
+                .realTimeClock = {},
                 .shaderReload = startShaderReload(app.settings.shaderBuild),
                 .textureReload = startTextureReload(app.registry),
                 .sceneTarget = render::sceneTargetInfo(),
@@ -926,9 +931,13 @@ double sceneSecondsOf(const Loop& loop)
 /// compte le temps de la scène que cette image passe à l'arrêt. `simulationPaused` est la valeur
 /// que `advanceWorld` a lue pour cette image, non celle d'après `ui` : un Lecture / Arrêt cliqué
 /// dans `ui` vaut à partir de l'image suivante pour la simulation comme pour les squelettes.
+/// **`App::realTime`, au contraire, est lu ici, après `ui`** : la case « Temps réel » ou Ctrl+R
+/// cliqués dans `ui` gèlent ou libèrent le temps de la scène dès cette même image.
 FrameClocks advanceClocks(Loop& loop, bool simulationPaused)
 {
-    const double scene = sceneSecondsOf(loop);
+    // Le temps réel d'abord : les squelettes suivent le temps de la scène, gelé ou non.
+    const double scene =
+        advanceAnimationClock(loop.realTimeClock, sceneSecondsOf(loop), !loop.app.realTime);
     return {.scene = scene,
             .skeletons =
                 advanceAnimationClock(loop.app.skinningState.clock, scene, simulationPaused)};
