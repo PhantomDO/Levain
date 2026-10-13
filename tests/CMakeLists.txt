@@ -40,6 +40,7 @@ set(nativeTests
     editor_actions_test.cpp
     editor_camera_test.cpp
     editor_gestures_test.cpp
+    editor_menus_test.cpp
     editor_shortcuts_test.cpp
     editor_test.cpp
     environment_test.cpp
