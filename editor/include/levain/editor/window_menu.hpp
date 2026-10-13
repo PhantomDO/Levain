@@ -57,9 +57,4 @@ void saySoon(const char* milestone, SoonSide side);
 /// fenêtre ; `layout` retient où elle est.
 void drawWindowMenuItems(std::span<const WindowEntry> entries, WindowMenuLayout& layout);
 
-/// Dessine une barre de menus qui n'a que le menu « Fenêtre » (`drawWindowMenuItems`) : celle que
-/// `withEditor` dessine tant qu'il n'a pas la barre complète (`drawMenuBar`). Panneaux ouverts
-/// seulement : la barre retire sa hauteur à l'espace d'ancrage, de l'image suivante.
-void drawWindowMenu(std::span<const WindowEntry> entries, WindowMenuLayout& layout);
-
 } // namespace levain::editor

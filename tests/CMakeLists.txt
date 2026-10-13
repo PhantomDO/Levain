@@ -485,10 +485,10 @@ target_compile_definitions(levain_editor_gestures PRIVATE LEVAIN_DATA_DIR="${CMA
 add_test(NAME gpu.editor-gestures.vulkan COMMAND levain_editor_gestures vulkan)
 set_tests_properties(gpu.editor-gestures.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
-# Le temps réel (ADR-0036, morceau 12) dans la vraie boucle : `App::realTime` faux fige le temps de la scène, vrai il repart
-# sans saut. Les menus et les barres de l'éditeur, qui le règlent, s'y ajoutent ensuite.
+# Les menus, les barres et le temps réel de l'éditeur (ADR-0036, morceau 12) dans la vraie boucle : « Temps réel » fige le
+# temps de la scène, la barre d'outils règle la vitesse de la caméra, l'Aide liste les raccourcis.
 add_executable(levain_editor_menus editor_menus_gpu.cpp)
-target_link_libraries(levain_editor_menus PRIVATE levain::app levain::core levain::scene)
+target_link_libraries(levain_editor_menus PRIVATE levain::editor levain::app levain::core levain::platform levain::scene levain::ui)
 target_compile_definitions(levain_editor_menus PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 add_test(NAME gpu.editor-menus.vulkan COMMAND levain_editor_menus vulkan)
 set_tests_properties(gpu.editor-menus.vulkan PROPERTIES ENVIRONMENT "${testVideo}")

@@ -174,7 +174,9 @@ void frameGestures(app::App& app, Editor& editor)
 /// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`).
 void changeMode(app::App& app, Editor& editor, Mode mode)
 {
+    const Mode from = editor.mode.current;
     enterMode(app, editor.mode, mode);
+    switchRealTime(from, mode, app.realTime, editor.realTimeEdit);
     editor.view.focusRequested = mode == Mode::PlayWithoutReturn;
     // Le jeu voit par sa caméra ; l'édition, par la sienne.
     if (mode == Mode::Edit)
@@ -184,6 +186,46 @@ void changeMode(app::App& app, Editor& editor, Mode mode)
     else
     {
         app.cameraOverride.reset();
+    }
+}
+
+/// La barre de menus, la barre d'outils et la barre d'état, et la fenêtre Aide : ce qu'elles
+/// atteignent (`MenuRequests`, la barre d'outils) revient, et le mode que le bouton propose va à
+/// `requested` si la Vue n'en a pas déjà demandé un.
+std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>& requested)
+{
+    const auto windows = windowEntriesOf(editor, app);
+    const MenuBarInputs inputs{
+        .table = editor.shortcuts, .keyAtPosition = app.keyAtPosition, .windows = windows};
+    MenuRequests menus = drawMenuBar(inputs, editor.menu, editor.bar, editor.help);
+    const ToolbarResult toolbar =
+        drawToolbar(editor.mode.current, editor.camera.flySpeed, app.realTime, editor.toolbar);
+    editor.status = statusOf(*editor.log->ring);
+    drawStatusBar(editor.status);
+    drawHelp(editor.help, inputs);
+    if (menus.quit)
+    {
+        askToQuit(editor.quit);
+    }
+    if (toolbar.flySpeed)
+    {
+        editor.camera.flySpeed = *toolbar.flySpeed;
+    }
+    requested = toolbar.mode;
+    menus.actions.insert(menus.actions.end(), toolbar.actions.begin(), toolbar.actions.end());
+    return std::move(menus.actions);
+}
+
+/// Atteint les actions des menus et de la barre d'outils : un seul chemin, `runAction`, qui fait
+/// l'action ou, grisée, la dit à la console.
+void runReachedActions(app::App& app, Editor& editor, const std::vector<Action>& reached)
+{
+    for (const Action action : reached)
+    {
+        if (const auto next = runAction(action, editor.actions, app.realTime, editor.mode.current))
+        {
+            changeMode(app, editor, *next);
+        }
     }
 }
 
@@ -271,7 +313,13 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .gestures = {},
                    .shortcuts = defaultShortcuts(),
                    .everything = app.world.query<const scene::WorldTransform>(),
-                   .sceneBounds = {}});
+                   .sceneBounds = {},
+                   .actions = {},
+                   .bar = {},
+                   .help = {},
+                   .toolbar = {},
+                   .status = {},
+                   .realTimeEdit = true});
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -318,10 +366,12 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             std::optional<Mode> requested;
             // L'écriture de cette image seulement : `inspector.wrote` survit, panneaux fermés.
             bool wroteWorld = false;
+            // Ce que les menus et les barres atteignent à cette image.
+            std::vector<Action> reached;
             if (app.ui.panelsOpen)
             {
-                // Le menu d'abord : la barre retire sa hauteur à l'espace d'ancrage.
-                drawWindowMenu(windowEntriesOf(*editor, app), editor->menu);
+                // Les barres d'abord : elles retirent leur hauteur à l'espace d'ancrage.
+                reached = drawBars(app, *editor, requested);
                 // Avant la hiérarchie : dessinée après elle, la console prendrait l'onglet visible
                 // de son nœud (ImGui montre le dernier venu, `DockNodeUpdateTabBar` dans
                 // imgui.cpp) ; elle ne partage plus de nœud avec elle, mais garde l'ordre. Elle
@@ -344,7 +394,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 editor->view.canFrame =
                     canFrameEntity(selectedIfAlive(app.world, editor->selected));
                 editor->view.frameShortcut = frameShortcutOf(*editor, app);
-                requested = drawView(editor->view, app, editor->mode.current);
+                if (const auto fromView = drawView(editor->view, app, editor->mode.current))
+                {
+                    requested = fromView; // le bouton de la Vue, avant celui de la barre d'outils
+                }
                 if (editor->view.frameRequested || editor->hierarchy.frameRequested)
                 {
                     frameSelection(app, *editor);
@@ -355,6 +408,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             {
                 app.quitRequested = true;
             }
+            runReachedActions(app, *editor, reached);
             // La barre de mode : en calque de la Vue panneaux ouverts, bandeau flottant sinon (le
             // bandeau de « Jouer » et le rappel de la touche valent panneaux fermés aussi).
             // `modeRequested` décide, avec Alt+P, qui ne joue pas sous la modale.
