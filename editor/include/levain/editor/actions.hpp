@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 #include "levain/editor/mode.hpp"
@@ -123,5 +124,34 @@ void switchRealTime(Mode from, Mode to, bool& appRealTime, bool& editChoice);
 {
     return !panelsOpen || focused || hovered;
 }
+
+/// Ce qu'une image sait des raccourcis : où ils valent.
+struct ShortcutInputs
+{
+    const ShortcutTable& table;
+    /// Les touches appuyées à cette image (`keyPressesOf`).
+    std::span<const KeyPress> presses;
+    bool editing = false;       ///< Édition : la Vue ne reçoit des outils qu'ici.
+    bool globalAllowed = false; ///< Aucune modale n'est ouverte (`globalChordsAllowed`).
+    bool viewActive = false;    ///< `viewActiveIn`.
+    bool flight = false;        ///< Le vol est en cours (`inFlight`, l'état des gestes).
+    bool textInput = false;     ///< Un champ de texte est actif (`io.WantTextInput`).
+};
+
+/// Les actions que les raccourcis atteignent à cette image : d'abord les accords de **lettre**
+/// (Ctrl+S, Ctrl+Z, Ctrl+R...) par `ImGui::Shortcut` (route globale pour le global, et pour la Vue
+/// à condition qu'elle soit active : la route du focus d'ImGui veut la fenêtre courante, que la
+/// Vue ne prête pas ici), puis les touches d'**outil** par position (`toolActionOf`), en Édition
+/// seulement et jamais en vol.
+/// **Un champ de texte actif garde son Ctrl+Z** : l'élément actif passe avant les routes d'ImGui
+/// (imgui.h, `ImGuiInputFlags_RouteGlobal`), donc aucune action n'est rendue pour ce raccourci,
+/// Ctrl+Maj+Z (Rétablir) compris (le test « un champ de texte actif » le montre : aucun filtre
+/// supplémentaire sur `textInput` n'est nécessaire).
+/// **Ctrl+S, lui, atteint Enregistrer même dans un champ** : ImGui ne le réserve pas au champ, et
+/// c'est voulu (enregistrer ne doit pas dépendre d'où est le curseur) ; au M7.3, valider le champ
+/// avant d'enregistrer.
+/// Alt+P (jouer) n'y est pas : `playShortcutPressed` le lit encore (mode.hpp).
+/// **À appeler une fois par image, après les fenêtres** : l'élément actif y est connu.
+[[nodiscard]] std::vector<Action> shortcutsPressed(const ShortcutInputs& inputs);
 
 } // namespace levain::editor

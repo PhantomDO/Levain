@@ -141,7 +141,7 @@ struct GestureStep
 };
 
 /// **Le vol est en cours** : le clic droit tenu, parti de la scène. C'est l'état que lisent la
-/// capture de la souris et les raccourcis (`ActiveContexts::flight` : en vol, la Vue se tait), non
+/// capture de la souris et les raccourcis (`ShortcutInputs::flight` : en vol, la Vue se tait), non
 /// le bouton droit tel qu'ImGui le voit, qu'un clic sur un panneau tient aussi.
 [[nodiscard]] constexpr bool inFlight(const GestureState& state)
 {
