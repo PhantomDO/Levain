@@ -31,7 +31,9 @@ struct FontFiles
 /// Cherche chaque police dans les racines d'assets, dans l'ordre. **Une police absente est une
 /// erreur** qui nomme le fichier, les racines cherchées et ce qu'il faut lancer (règle n°7) :
 /// l'éditeur ne retombe jamais sans bruit sur la police d'ImGui, dont les glyphes manquants se
-/// dessineraient « ? ».
+/// dessineraient « ? ». **Un fichier qui n'est pas une police** (trop court, ni TrueType ni
+/// OpenType : un téléchargement tronqué, une page d'erreur) est une erreur aussi, qui le nomme : en
+/// Debug, ImGui s'arrêterait sur une assertion.
 [[nodiscard]] core::Result<FontFiles> findFontFiles(std::span<const std::filesystem::path> roots);
 
 /// Les deux polices à poser : `ui` est la police par défaut, `console` celle de la console. Dans

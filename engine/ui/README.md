@@ -118,8 +118,10 @@ journal en Release.
   n'ont aucun droit sur la zone d'usage privé U+E000..U+F8FF (Inter y a 745 glyphes, qui masqueraient des icônes), et
   Material Symbols n'en a aucun hors d'elle (il y a des lettres et des chiffres, qu'un caractère manquant ne doit pas
   faire dessiner en ligature). `tests/ui_fonts_test.cpp` épingle l'ordre des sources et leurs listes.
-  **Une police absente est une erreur** : `findFontFiles` nomme le fichier absent et les racines cherchées (règle n°7).
-  Le sandbox et *Rando* gardent la police par défaut d'ImGui : un `UiContext`
+  **Une police absente est une erreur** : `findFontFiles` nomme le fichier absent et les racines cherchées, et
+  refuse aussi un fichier qui n'est pas une police (trop court, signature inconnue, table manquante ou qui dépasse la fin
+  du fichier : un téléchargement tronqué). ImGui, lui, s'arrête sur une assertion en Debug (`ImFontFlags_NoLoadError` ne
+  couvre que le fichier absent) ; règle n°7. Le sandbox et *Rando* gardent la police par défaut d'ImGui : un `UiContext`
   seul n'ajoute aucune police, et leurs textes (`engine/app`, `engine/ui`) restent en Latin-1 (« œ » s'y dessinerait
   « ? »). ProggyForever fusionne Inter derrière seulement avec une taille explicite (`SizePixels`) : une taille implicite
   fait échouer une assertion d'ImGui (`AddFont`).
