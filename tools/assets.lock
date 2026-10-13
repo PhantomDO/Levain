@@ -108,3 +108,14 @@ f4f9d9671c660f4e509e96d5da3091887dfd557e1353e313fa2d1dc789499ffd Textures/rocky_
 cce4b50517161264bdef196f5e247e328ca3739083cd6044ad3cc54d88cb82e2 Textures/rock_face_diff_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_diff_1k.jpg
 e2682e1286c8b6aca7e01ba7b8fe1726cb6606042b9ee70d097aa67470d410ef Textures/rock_face_nor_gl_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_nor_gl_1k.jpg
 70ddfc5d7f292909d18ad56dbb1ff7c3a65809dc031854356c7a6978cb446219 Textures/rock_face_rough_1k.jpg https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_rough_1k.jpg
+# Les polices de l'éditeur (M7.7, ADR-0036 décision 15), jamais versionnées. Inter et Noto Sans : SIL OFL 1.1 ; Material
+# Symbols : Apache-2.0. Chaque police est suivie de sa licence. Inter : le TTF statique du zip de la version 4.1 (le dépôt
+# n'a que des woff2) ; Noto Sans : le TTF hinté de notofonts.github.io au commit qui contient la v2.015 de NotoSans (la
+# version publiée de latin-greek-cyrillic ne le donne que dans un zip de 117 Mo), sa licence au tag NotoSans-v2.015 ;
+# Material Symbols : la police variable (Outlined), au commit de google/material-design-icons.
+40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82 Fonts/Inter-Regular.ttf https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip extras/ttf/Inter-Regular.ttf
+262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a Fonts/Inter-LICENSE.txt https://raw.githubusercontent.com/rsms/inter/v4.1/LICENSE.txt
+478c558ea716033cd60c03438f628dfa75694dcf6b5f6d505a2f05fd2b4f3823 Fonts/NotoSans-Regular.ttf https://raw.githubusercontent.com/notofonts/notofonts.github.io/28b15b4b43b7bed62b5cf6e6b0b5ff5846270535/fonts/NotoSans/hinted/ttf/NotoSans-Regular.ttf
+cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a Fonts/NotoSans-OFL.txt https://raw.githubusercontent.com/notofonts/latin-greek-cyrillic/NotoSans-v2.015/OFL.txt
+77ff1c20896afc6f1abf7d57fc408234dfd021ab050b63e0442e71d6c9f0d6b8 Fonts/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf https://raw.githubusercontent.com/google/material-design-icons/49d4db35df873165d6bd6ba09b063c7dafbac2f4/variablefont/MaterialSymbolsOutlined%5BFILL,GRAD,opsz,wght%5D.ttf
+58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd Fonts/MaterialSymbols-LICENSE https://raw.githubusercontent.com/google/material-design-icons/49d4db35df873165d6bd6ba09b063c7dafbac2f4/LICENSE
