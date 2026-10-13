@@ -2,11 +2,16 @@
 // puis relit, chaque refus du lecteur (règle n°7 : à la première faute, le fichier entier), le
 // fichier sur le disque, et la règle d'une exécution scriptée, qui n'a pas de préférences.
 
+#include <atomic>
 #include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -88,6 +93,18 @@ struct TempDirectory
     TempDirectory(const TempDirectory&) = delete;
     TempDirectory& operator=(const TempDirectory&) = delete;
 };
+
+/// Les fichiers voisins (« .tmp ») qui traînent dans ce dossier : un enregistrement n'en laisse
+/// aucun, réussi ou non. Compter plutôt que chercher un nom : le nom change à chaque écriture.
+std::size_t temporariesIn(const fs::path& directory)
+{
+    std::size_t count = 0;
+    for (const auto& entry : fs::directory_iterator{directory})
+    {
+        count += entry.path().extension() == ".tmp" ? 1U : 0U;
+    }
+    return count;
+}
 
 } // namespace
 
@@ -196,6 +213,142 @@ TEST_CASE(
     REQUIRE(read.has_value());
     CHECK(read->flySpeed == 3.0f);
     CHECK(read->layout == "# pas un commentaire : du texte d'ImGui\n[Window][X]\n");
+}
+
+TEST_CASE("préférences : sur le disque, écrites puis relues, sans fichier temporaire oublié")
+{
+    const TempDirectory directory{"disk"};
+    const fs::path file = directory.path / "sous-dossier" / PreferencesFileName;
+
+    REQUIRE(savePreferences(file, changed()).has_value());
+    const auto read = loadPreferences(file);
+
+    REQUIRE(presentIn(read) != nullptr);
+    CHECK(*presentIn(read) == changed());
+    CHECK(temporariesIn(file.parent_path()) == 0);
+}
+
+TEST_CASE("préférences : un fichier présent est remplacé par le suivant")
+{
+    const TempDirectory directory{"replace"};
+    const fs::path file = directory.path / PreferencesFileName;
+    Preferences first;
+    first.flySpeed = 3.0f;
+    Preferences second;
+    second.flySpeed = 12.0f;
+    REQUIRE(savePreferences(file, first).has_value());
+
+    const auto saved = savePreferences(file, second);
+
+    REQUIRE(saved.has_value());
+    const auto read = loadPreferences(file);
+    REQUIRE(presentIn(read) != nullptr);
+    CHECK(*presentIn(read) == second);
+    CHECK(temporariesIn(directory.path) == 0);
+}
+
+TEST_CASE("préférences : deux écrivains, deux fichiers voisins")
+{
+    const fs::path file = fs::path{"dossier"} / PreferencesFileName;
+
+    CHECK(temporaryFileFor(file, "a") != temporaryFileFor(file, "b"));
+    CHECK(temporaryFileFor(file, "a") == temporaryFileFor(file, "a"));
+    CHECK(temporaryFileFor(file, "a").parent_path() == file.parent_path());
+    CHECK(temporaryFileFor(file, "a").extension() == ".tmp");
+}
+
+TEST_CASE("préférences : deux éditeurs qui écrivent ensemble ne posent jamais un texte hybride")
+{
+    // Deux écrivains sur le même fichier, l'un long, l'autre court : avec un fichier voisin
+    // partagé, le renommage posait le début de l'un et la queue de l'autre (610 fichiers sur 2000
+    // tours, mesuré). Chaque lecture, pendant l'autre écriture, doit rendre l'un ou l'autre.
+    const TempDirectory directory{"concurrent"};
+    const fs::path file = directory.path / PreferencesFileName;
+    Preferences longOne;
+    longOne.flySpeed = 3.0f;
+    for (int i = 0; i < 4000; ++i)
+    {
+        longOne.layout += "[Window][Longue" + std::to_string(i) + "]\nPos=1,1\n";
+    }
+    Preferences shortOne;
+    shortOne.flySpeed = 12.0f;
+    shortOne.layout = "[Window][Courte]\n";
+    REQUIRE(savePreferences(file, longOne).has_value());
+
+    std::atomic<int> hybrids{0};
+    std::atomic<int> failedSaves{0};
+    const auto writer = [&](const Preferences& mine)
+    {
+        for (int round = 0; round < 150; ++round)
+        {
+            failedSaves += savePreferences(file, mine).has_value() ? 0 : 1;
+            // Lu d'un seul tenant par un fichier ouvert (et non `loadPreferences`, qui mesure le
+            // fichier par son chemin avant de l'ouvrir : un renommage entre les deux la ferait
+            // échouer, une course de la lecture et non de l'écriture que ce cas éprouve).
+            std::ifstream in{file, std::ios::binary};
+            const std::string text{std::istreambuf_iterator<char>{in},
+                                   std::istreambuf_iterator<char>{}};
+            const auto read = parsePreferences(text);
+            const Preferences* got = read ? &*read : nullptr;
+            hybrids += (got != nullptr && (*got == longOne || *got == shortOne)) ? 0 : 1;
+        }
+    };
+    std::thread other{writer, std::cref(shortOne)};
+    writer(longOne);
+    other.join();
+
+    CHECK(hybrids == 0);
+    CHECK(failedSaves == 0);
+    CHECK(temporariesIn(directory.path) == 0);
+}
+
+TEST_CASE("préférences : un fichier d'une version plus récente se reconnaît, pas un fichier abîmé")
+{
+    const TempDirectory directory{"newer"};
+    const fs::path file = directory.path / PreferencesFileName;
+
+    std::ofstream{file} << "levain-editor 2\n";
+    const auto newer = loadPreferences(file);
+    REQUIRE_FALSE(newer.has_value());
+    CHECK(isFromNewerVersion(newer.error()));
+
+    std::ofstream{file} << "levain-editor 0\n";
+    const auto abandoned = loadPreferences(file);
+    REQUIRE_FALSE(abandoned.has_value());
+    CHECK_FALSE(isFromNewerVersion(abandoned.error()));
+
+    std::ofstream{file} << "n'importe quoi\n";
+    const auto garbage = loadPreferences(file);
+    REQUIRE_FALSE(garbage.has_value());
+    CHECK_FALSE(isFromNewerVersion(garbage.error()));
+}
+
+TEST_CASE("préférences : pas de fichier, pas d'erreur, un fichier refusé nomme le fichier")
+{
+    const TempDirectory directory{"load"};
+    const fs::path file = directory.path / PreferencesFileName;
+
+    const auto absent = loadPreferences(file);
+    REQUIRE(absent.has_value());
+    CHECK_FALSE(absent->has_value());
+
+    std::ofstream{file} << "levain-editor 9\n";
+    const auto broken = loadPreferences(file);
+    REQUIRE_FALSE(broken.has_value());
+    CHECK(broken.error().message.find(PreferencesFileName) != std::string::npos);
+    CHECK(broken.error().message.find("version plus récente") != std::string::npos);
+}
+
+TEST_CASE("préférences : un dossier impossible à écrire est une erreur qui le dit")
+{
+    const TempDirectory directory{"unwritable"};
+    // Un fichier à la place du dossier : create_directories échoue partout, même en root.
+    std::ofstream{directory.path / "occupe"} << "x";
+
+    const auto saved = savePreferences(directory.path / "occupe" / PreferencesFileName, {});
+
+    REQUIRE_FALSE(saved.has_value());
+    CHECK(saved.error().message.find("dossier non créé") != std::string::npos);
 }
 
 TEST_CASE("préférences : une exécution scriptée n'a pas de fichier, et ne touche pas le dossier de "
@@ -307,4 +460,39 @@ TEST_CASE("préférences : un fichier écrit avec des fins de ligne Windows est 
     REQUIRE(read->shortcuts.size() == 1);
     CHECK(read->shortcuts.front().chords == std::vector<std::string>{"Ctrl+Z"});
     CHECK(read->layout == "[Window][X]\r\n");
+}
+
+#if !defined(_WIN32)
+TEST_CASE("préférences : un fichier dont l'état est illisible est une erreur, pas une première "
+          "session")
+{
+    const TempDirectory directory{"unreadable-state"};
+    const fs::path file = directory.path / PreferencesFileName;
+    // Un lien qui boucle sur lui-même : `stat` répond ELOOP, ni « absent » ni « présent ». (Un
+    // dossier sans droits ne ferait rien en root, que la CI peut être.)
+    std::error_code linked;
+    fs::create_symlink(file.filename(), file, linked);
+    REQUIRE_FALSE(linked);
+
+    const auto loaded = loadPreferences(file);
+
+    REQUIRE_FALSE(loaded.has_value());
+    CHECK(loaded.error().message.find("état du fichier illisible") != std::string::npos);
+    CHECK(loaded.error().message.find(PreferencesFileName) != std::string::npos);
+}
+#endif
+
+TEST_CASE("préférences : un enregistrement qui échoue ne laisse pas son fichier voisin")
+{
+    const TempDirectory directory{"failed-save"};
+    // Un dossier non vide à la place du fichier : le renommage échoue partout, même en root.
+    const fs::path file = directory.path / PreferencesFileName;
+    fs::create_directories(file);
+    std::ofstream{file / "occupe"} << "x";
+
+    const auto saved = savePreferences(file, {});
+
+    REQUIRE_FALSE(saved.has_value());
+    CHECK(saved.error().message.find("renommage échoué") != std::string::npos);
+    CHECK(temporariesIn(directory.path) == 0);
 }
