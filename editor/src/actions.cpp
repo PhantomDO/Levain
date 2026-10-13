@@ -52,4 +52,37 @@ std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& rea
     }
 }
 
+std::optional<Action> toolActionOf(const ShortcutTable& table, const KeyPress& press,
+                                   const ActiveContexts& active)
+{
+    const auto action = actionFor(table, press, active);
+    return action && isToolAction(*action) ? action : std::nullopt;
+}
+
+std::vector<KeyPress> keyPressesOf(const platform::Events& events,
+                                   std::bitset<platform::KeyCodeCount> held)
+{
+    std::vector<KeyPress> pressed;
+    for (const platform::UiEvent& event : events.ui)
+    {
+        if (event.type == platform::UiEventType::FocusLost)
+        {
+            held.reset(); // les relâchements ne viendront pas
+            continue;
+        }
+        if (event.type != platform::UiEventType::Key || event.scancode >= held.size())
+        {
+            continue;
+        }
+        if (event.down && !held.test(event.scancode)) // une répétition n'est pas un appui
+        {
+            pressed.push_back({.scancode = event.scancode,
+                               .keycode = event.keycode,
+                               .modifiers = event.modifiers});
+        }
+        held.set(event.scancode, event.down);
+    }
+    return pressed;
+}
+
 } // namespace levain::editor

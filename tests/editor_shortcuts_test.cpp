@@ -19,7 +19,7 @@ namespace
 {
 
 constexpr std::uint16_t ScanA = 4, ScanQ = 20, ScanW = 26, ScanZ = 29, ScanS = 22, ScanE = 8,
-                        ScanF1 = 58, ScanEscape = 41, ScanSpace = 44;
+                        ScanR = 21, ScanF = 9, ScanF1 = 58, ScanEscape = 41, ScanSpace = 44;
 
 /// Un AZERTY français pour ce qui change des lettres d'un QWERTY : A et Q, W et Z (le reste
 /// est celui du QWERTY).
@@ -212,7 +212,8 @@ TEST_CASE("Alt-Gr tenu ne vaut aucun accord : AltGr+E d'un AZERTY tape « € »
     CHECK(actionFor(table, pressOf(ScanE, qwerty), {.view = true}) == Action::ToolRotate);
 }
 
-TEST_CASE("la précédence : le vol avant la Vue avant le global, le jeu seul sous la route jeu")
+TEST_CASE("la précédence : le vol avant la Vue avant le global, le jeu seul sous la route jeu, la "
+          "Vue muette en vol")
 {
     const ShortcutTable table = defaultShortcuts();
     const auto at = azertyAt;
@@ -241,6 +242,12 @@ TEST_CASE("la précédence : le vol avant la Vue avant le global, le jeu seul so
     // F1 seule n'est à aucune action : c'est la touche des panneaux, réservée.
     CHECK_FALSE(actionFor(table, pressOf(ScanF1, at), game).has_value());
     CHECK(actionFor(table, pressOf(ScanSpace, at), {.view = true}) == Action::NextTool);
+    // En vol, la Vue se tait : ni R, ni Espace, ni F ne prennent un outil ou ne cadrent.
+    const ActiveContexts flight{.flight = true, .view = true};
+    CHECK_FALSE(actionFor(table, pressOf(ScanR, at), flight).has_value());
+    CHECK_FALSE(actionFor(table, pressOf(ScanSpace, at), flight).has_value());
+    CHECK_FALSE(actionFor(table, pressOf(ScanF, at), flight).has_value());
+    CHECK(actionFor(table, pressOf(ScanR, at), {.view = true}) == Action::ToolScale);
 }
 
 TEST_CASE("un champ de texte actif ne laisse rien au vol, à la Vue ni au global")

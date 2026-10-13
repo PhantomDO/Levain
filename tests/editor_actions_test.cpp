@@ -1,14 +1,41 @@
 // Les actions de l'éditeur (ADR-0036, décisions 12 et 13, morceau 12) : leur disponibilité, ce
-// qu'une action grisée dit à la console, et le temps réel qui ne se règle qu'en Édition.
+// qu'une action grisée dit à la console, le temps réel qui ne se règle qu'en Édition, et les
+// touches d'outil, lues par position dans les événements bruts de l'image (`keyPressesOf`) : dans
+// la Vue seulement, jamais en vol.
 
+#include <bitset>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #include <doctest/doctest.h>
 
 #include "levain/core/log_ring.hpp"
 #include "levain/editor/actions.hpp"
+#include "levain/platform/window.hpp"
 
 using namespace levain::editor;
+using levain::platform::KeyModifiers;
+using levain::platform::UiEvent;
+using levain::platform::UiEventType;
+
+namespace
+{
+
+constexpr std::uint16_t ScanW = 26, ScanR = 21, ScanSpace = 44;
+
+/// Un événement de touche brut, tel que la fenêtre le rend.
+UiEvent keyEvent(std::uint16_t scancode, std::uint32_t keycode, bool down,
+                 KeyModifiers modifiers = {})
+{
+    return {.type = UiEventType::Key,
+            .keycode = keycode,
+            .scancode = scancode,
+            .down = down,
+            .modifiers = modifiers};
+}
+
+} // namespace
 
 TEST_CASE("une action grisée dit son milestone, les autres sont là")
 {
@@ -68,6 +95,47 @@ TEST_CASE("les actions qui sont là : le temps réel bascule, jouer et arrêter 
     CHECK(levain::core::snapshotOf(*capture.ring).entries.empty()); // rien de grisé, rien de dit
 }
 
+TEST_CASE("une touche d'outil dans la Vue prend l'outil : en vol aucune (W vole, R et Espace se "
+          "taisent), avec Ctrl ou dans un champ de texte non plus")
+{
+    const ShortcutTable table = defaultShortcuts();
+    const KeyPress w{.scancode = ScanW, .keycode = 'w', .modifiers = {}};
+    const ActiveContexts inView{.flight = false, .view = true, .game = false, .textInput = false};
+    CHECK(toolActionOf(table, w, inView) == Action::ToolMove);
+    // Sur un AZERTY la touche à la place du W tape « z » : c'est la position qui compte.
+    CHECK(toolActionOf(table, {.scancode = ScanW, .keycode = 'z', .modifiers = {}}, inView) ==
+          Action::ToolMove);
+
+    ActiveContexts flying = inView;
+    flying.flight = true;
+    CHECK(actionFor(table, w, flying) == Action::MoveForward); // elle vole...
+    CHECK_FALSE(toolActionOf(table, w, flying).has_value());   // ...et ne prend pas l'outil
+    // R et Espace ne volent pas, mais en vol la Vue se tait : aucun changement d'outil.
+    const KeyPress r{.scancode = ScanR, .keycode = 'r', .modifiers = {}};
+    const KeyPress space{.scancode = ScanSpace, .keycode = ' ', .modifiers = {}};
+    CHECK(toolActionOf(table, r, inView) == Action::ToolScale);
+    CHECK(toolActionOf(table, space, inView) == Action::NextTool);
+    CHECK_FALSE(toolActionOf(table, r, flying).has_value());
+    CHECK_FALSE(toolActionOf(table, space, flying).has_value());
+
+    const KeyPress ctrlW{.scancode = ScanW, .keycode = 'w', .modifiers = {.ctrl = true}};
+    CHECK_FALSE(toolActionOf(table, ctrlW, inView).has_value());
+    ActiveContexts typing = inView;
+    typing.textInput = true;
+    CHECK_FALSE(toolActionOf(table, w, typing).has_value());
+    ActiveContexts elsewhere = inView;
+    elsewhere.view = false;
+    CHECK_FALSE(toolActionOf(table, w, elsewhere).has_value());
+}
+
+TEST_CASE("viewActiveIn : panneaux fermés toujours, ouverts le focus ou le survol d'ImGui")
+{
+    CHECK(viewActiveIn(false, false, false));
+    CHECK_FALSE(viewActiveIn(true, false, false));
+    CHECK(viewActiveIn(true, true, false));
+    CHECK(viewActiveIn(true, false, true));
+}
+
 TEST_CASE("le temps réel ne se règle qu'en Édition : jouer le force, revenir rend le choix")
 {
     levain::core::LogCapture capture = levain::core::captureLog(16);
@@ -93,4 +161,34 @@ TEST_CASE("le temps réel ne se règle qu'en Édition : jouer le force, revenir 
     switchRealTime(Mode::Edit, Mode::Edit, realTime, editChoice);
     CHECK(realTime);
     CHECK_FALSE(editChoice);
+}
+
+TEST_CASE("keyPressesOf rend la position, la lettre de la disposition et les modificateurs, et une "
+          "répétition n'est pas un appui")
+{
+    const KeyModifiers shift{.shift = true};
+    levain::platform::Events events;
+    events.ui = {keyEvent(ScanW, 'z', true, shift),
+                 keyEvent(ScanW, 'z', true, shift), // la répétition de SDL, touche tenue
+                 {.type = UiEventType::MouseMoved, .x = 3.0f, .y = 4.0f},
+                 keyEvent(ScanW, 'z', false, shift),
+                 keyEvent(ScanW, 'z', true)}; // un nouvel appui, sans Maj
+    const std::vector<KeyPress> presses = keyPressesOf(events, {});
+    REQUIRE(presses.size() == 2);
+    CHECK(presses.front().scancode == ScanW);
+    CHECK(presses.front().keycode == 'z');
+    CHECK(presses.front().modifiers == shift);
+    CHECK(presses.back().modifiers == KeyModifiers{});
+
+    // Tenue depuis l'image d'avant, la touche qui se répète n'est pas appuyée de nouveau.
+    std::bitset<levain::platform::KeyCodeCount> held;
+    held.set(ScanW);
+    levain::platform::Events repeat;
+    repeat.ui = {keyEvent(ScanW, 'z', true)};
+    CHECK(keyPressesOf(repeat, held).empty());
+    // La fenêtre qui perd le focus oublie les touches tenues : le prochain appui compte.
+    repeat.ui.insert(repeat.ui.begin(), UiEvent{.type = UiEventType::FocusLost});
+    CHECK(keyPressesOf(repeat, held).size() == 1);
+    // Rien d'appuyé : aucune touche rendue.
+    CHECK(keyPressesOf({}, {}).empty());
 }

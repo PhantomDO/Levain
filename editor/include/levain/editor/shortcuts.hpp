@@ -168,8 +168,8 @@ struct KeyPress
 /// Les contextes actifs à cette image. Le global l'est toujours.
 struct ActiveContexts
 {
-    bool flight = false; ///< Clic droit tenu dans la Vue.
-    bool view = false;   ///< La Vue est survolée ou a le focus.
+    bool flight = false; ///< Le vol est en cours (clic droit tenu, parti de la Vue : `inFlight`).
+    bool view = false;   ///< Les touches de la Vue valent : survolée ou focalisée (`viewActiveIn`).
     bool game = false;   ///< La route est *jeu* : seul le contexte *jeu* vaut alors.
     /// Un champ de texte est actif (`io.WantTextInput`) : taper « w » dedans n'est pas l'outil
     /// Déplacer. Ni le vol, ni la Vue, ni le global ne valent alors ; le contexte *jeu* n'a pas
@@ -180,6 +180,10 @@ struct ActiveContexts
 /// L'action qu'un appui déclenche, ou rien. **La précédence** : sous la route *jeu*, le contexte
 /// *jeu* seul ; sinon le vol, puis la Vue, puis le global, le premier contexte qui reconnaît
 /// l'appui l'emporte (clic droit tenu, W avance et ne prend pas l'outil Déplacer).
+/// **En vol, la Vue se tait** : une touche de position de la Vue que le vol n'a pas (R, Espace,
+/// F, G) ne fait rien tant que le clic droit est tenu. Le piège évité : R ou Espace qui
+/// changeraient d'outil au milieu d'un vol, F qui recadrerait sous la souris capturée ; Unreal
+/// réserve le clavier au vol pendant le clic droit (supposé). Le global vaut toujours (Ctrl+S).
 ///
 /// **Le contrat avec ImGui** : `actionFor` sert les accords de **position** (le vol, les outils)
 /// et le contexte *jeu*. Les accords de **lettre** (Ctrl+S, Ctrl+Z, Alt+P...) passent par

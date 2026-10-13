@@ -344,7 +344,8 @@ TEST_CASE("un clic droit qui ne vole pas reste un clic : le menu s'ouvrira, pas 
 }
 
 TEST_CASE(
-    "F cadre où elle vaut : la Vue survolée ou focalisée, hors champ de texte, sans modificateur")
+    "F cadre où elle vaut : la Vue survolée ou focalisée, hors champ de texte, sans modificateur, "
+    "jamais en vol")
 {
     const auto f = eventsOf({key(ScanF, true)});
     CHECK(step({}, f).frameSelection);
@@ -359,6 +360,8 @@ TEST_CASE(
     CHECK_FALSE(step({}, eventsOf({key(ScanF, true, {.ctrl = true})})).frameSelection);
     // Une touche relâchée ne cadre pas.
     CHECK_FALSE(step({}, eventsOf({key(ScanF, false)})).frameSelection);
+    // En vol, la Vue se tait : F ne recadre pas sous la souris capturée.
+    CHECK_FALSE(step(flying(), f).frameSelection);
 }
 
 TEST_CASE("la souris capturée n'a pas de position : le curseur ne suit pas pendant le vol")
