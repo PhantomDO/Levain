@@ -12,7 +12,8 @@ Il ne garde pas d'arbre de widgets. Ce module fait le reste :
 - **le rendu** (`ui_pass.hpp`) : une passe NVRHI de plus, sous Vulkan comme sous WebGPU, adaptée du renderer
   de Donut ;
 - **l'input** (`input.hpp`) : les événements de `platform` traduits pour ImGui ;
-- **le contexte** (`context.hpp`) : créé et réglé pour le moteur.
+- **le contexte** (`context.hpp`) : créé et réglé pour le moteur ;
+- **le style de l'éditeur** (`style.hpp`) : une fonction libre sur un `ImGuiStyle`, que l'éditeur seul appelle.
 
 La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI garde pour elle.
 
@@ -43,9 +44,11 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 | [`include/levain/ui/input.hpp`](include/levain/ui/input.hpp) | `feedInput`, `imguiKeyOf`, `PressedKeys` |
 | [`include/levain/ui/context.hpp`](include/levain/ui/context.hpp) | `UiContext`, `createUiContext`, `prepareUiFrame`, `followTextInput` |
 | [`include/levain/ui/fonts.hpp`](include/levain/ui/fonts.hpp), [`icons.hpp`](include/levain/ui/icons.hpp) | `findFontFiles`, `addFonts`, `UiFonts` ; la table des icônes et `withIcon` |
+| [`include/levain/ui/style.hpp`](include/levain/ui/style.hpp) | `applyEditorStyle`, `EditorAccent` (et ses deux nuances), `srgb8` |
 | [`include/levain/ui/tr.hpp`](include/levain/ui/tr.hpp) | `tr`, `trf`, `textf`, `labelOf` : le catalogue des textes vu de l'interface, la table est dans `core` (ADR-0036) |
 
-Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées), et
+Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées),
+`tests/ui_style_test.cpp` (le style de l'éditeur : fonds opaques, un seul accent), et
 `levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu]` (`gpu.ui.*` dans ctest, WARP compris), qui relit la couleur d'un rectangle
 dessiné dans une cible sRGB puis UNORM, puis un gris moyen montré par `ImGui::Image` dans chaque combinaison de formats,
 plusieurs textures dans la même image, une image libérée en vol, et la table des identifiants. `gpu.ui-released-id.*`
@@ -103,6 +106,21 @@ journal en Release.
   (`ConfigInputTrickleEventQueue`) : un clic très court reste visible au moins une image. Un test qui envoie
   plusieurs événements doit jouer plusieurs images.
 
+- **Le style de l'éditeur est ici, appelé par l'éditeur, pas par `createUiContext`** (M7.7 morceau 17b, ADR-0036 décision 15). Le
+  sandbox et *Rando* gardent le style par défaut d'ImGui : un HUD de jeu ne doit pas avoir l'air d'un outil, et les panneaux
+  de debug du moteur, que le sandbox dessine aussi, restent ce qu'ils étaient. `applyEditorStyle(style, displayScale)` vit
+  dans `ui` (pas dans `editor/`) parce que ses tests sont ceux d'un `ImGuiStyle` seul, sans fenêtre ni contexte.
+  **L'accent est un bleu**, `EditorAccent` (0, 112, 224) : celui de
+  l'éditeur d'Unreal 5, et un bleu aussi chez Unity et chez Godot (**supposé** pour les trois : leurs valeurs ne sont pas
+  lues dans leurs sources) ; un orange aurait fait un deuxième rouge à côté du X des vecteurs. Il ne désigne que le
+  **actif ou choisi** : l'onglet choisi (filet de 2 px), la case cochée, la poignée d'un curseur **tenue** (grise au repos,
+  comme un histogramme), la pression d'un bouton. Tout le reste est un gris neutre, et
+  `tests/ui_style_test.cpp` le tient : une couleur qui prendrait une teinte hors de sa liste est un deuxième accent.
+- **Les couleurs du style n'ont aucun alpha**, hors celles qui en ont besoin par nature (le voile de la modale, l'aperçu
+  d'ancrage, la cible d'un glisser-déposer, les trois « rien » : `ChildBg`, `BorderShadow`, `TableRowBg`) : l'interface se
+  mélange en linéaire sur une cible sRGB, où un alpha se lit trop fort (« Fonds opaques », ci-dessous). Le mélange en espace
+  gamma, s'il vient (décision de Donnovan à la clôture de M7.7), ne changera donc pas l'aspect du style.
+
 - **Fonds opaques, en attendant un mélange en espace gamma.** L'alpha de 94 % des fenêtres et des popups d'ImGui est
   pensé pour un mélange en espace sRGB ; l'interface se mélange ici en linéaire sur une cible sRGB, où 94 % se lit autour
   de 73 % : un menu laissait voir le texte de la barre d'outils, la modale le damier. `createUiContext` rend donc
@@ -138,6 +156,12 @@ journal en Release.
 | **Unreal** | Slate, rendu par le RHI | Le même cadre pour l'éditeur et le jeu ; en mode retenu, avec un arbre de widgets (**documenté**, ADR-0032). |
 | **Unity** | IMGUI (`OnGUI`), pour les outils | Un mode immédiat, comme ImGui ; déconseillé pour l'interface du joueur (**documenté**, ADR-0032). |
 | **Godot** | Les nœuds `Control` | L'éditeur est un programme du moteur, avec sa propre UI (**documenté**, ADR-0032). |
+
+Le style de l'éditeur : le thème de l'éditeur. Unreal : le style de Slate (`FAppStyle`, un `FSlateStyleSet`) ; Unity : les skins *Personal* et *Pro* (le sombre) de l'éditeur, et les feuilles de style USS
+d'UI Toolkit ; Godot : le thème de l'éditeur (*Editor Settings*, section *Interface > Theme* : couleur de base, couleur
+d'accent, contraste), un `Theme` de nœuds `Control` (**supposé** pour les trois : aucun n'est lu dans les sources ni dans
+la documentation pour ce morceau). Ici, une fonction sur un `ImGuiStyle`, sans fichier de thème : le jeu de couleurs et de
+tailles est dans le code, et l'accent est une constante.
 
 Les polices : une police principale et des polices de repli pour les glyphes qu'elle n'a pas. Unreal : les *composite fonts* de Slate ; Unity : la liste de polices de repli de TextMesh Pro ; Godot : la propriété `fallbacks` d'une `Font` (**supposé** pour les trois : aucun n'est lu dans les sources). Ici, l'ordre des sources fusionnées dans une `ImFont` (`MergeMode`) joue ce rôle, et les icônes sont les glyphes d'une police à part.
 
