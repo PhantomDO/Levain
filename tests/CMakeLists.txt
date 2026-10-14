@@ -61,6 +61,7 @@ set(nativeTests
     process_test.cpp
     shader_reload_test.cpp
     texture_test.cpp
+    ui_fonts_test.cpp
     ui_test.cpp
     water_test.cpp
     webgpu_test.cpp
@@ -129,6 +130,7 @@ set_source_files_properties(doctest_main.cpp
 target_compile_definitions(levain_tests PRIVATE
     LEVAIN_EXPECTED_VERSION="${PROJECT_VERSION}"
     LEVAIN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache"
     LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 
 # doctest_discover_tests lance le binaire à la compilation pour lister ses cas, et en
