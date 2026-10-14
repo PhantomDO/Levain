@@ -9,6 +9,7 @@
 #include "levain/assets/asset_ref.hpp"
 #include "levain/platform/input.hpp"
 #include "levain/platform/input_script.hpp"
+#include "levain/platform/window.hpp"
 
 using levain::platform::addScriptedEvents;
 using levain::platform::Events;
@@ -17,6 +18,9 @@ using levain::platform::InputEventType;
 using levain::platform::InputScript;
 using levain::platform::parseInputScript;
 using levain::platform::scriptLength;
+using levain::platform::UiEventType;
+using levain::platform::WindowEventType;
+using levain::platform::withoutRealInput;
 
 namespace
 {
@@ -69,6 +73,37 @@ TEST_CASE("un script ajoute ses événements à ceux de l'image, après les vrai
     CHECK(real.input[2].code == 3); // le bouton droit de SDL
     CHECK(real.ui.size() == 2);     // l'interface reçoit les mêmes, par la lettre et le bouton
     CHECK(scriptLength(InputScript{}) == 0);
+}
+
+TEST_CASE("sous un script, des vrais événements d'une image ne restent que ceux de la fenêtre")
+{
+    // Le vrai curseur, replacé par la fin d'un vol au point de l'appui, revenait sur le runner
+    // Windows après le déplacement scripté : sous un script, ni lui, ni une touche, ni le focus.
+    Events real;
+    real.window.push_back({.type = WindowEventType::Resized, .pixelSize = {640, 360}});
+    real.window.push_back({.type = WindowEventType::CloseRequested});
+    // Le zoom du système est la fenêtre, pas l'input : il refait le style sous un script aussi.
+    real.window.push_back({.type = WindowEventType::ScaleChanged, .displayScale = 1.25f});
+    real.input.push_back(
+        {.type = InputEventType::ButtonDown, .device = InputDevice::Keyboard, .code = 7});
+    real.input.push_back(
+        {.type = InputEventType::AxisMotion, .device = InputDevice::Mouse, .code = 0, .value = 3});
+    real.ui.push_back({.type = UiEventType::MouseMoved, .x = 635.0f, .y = 283.0f});
+    real.ui.push_back({.type = UiEventType::FocusLost});
+    real.ui.push_back({.type = UiEventType::KeymapChanged});
+    real.text = "a";
+
+    const Events kept = withoutRealInput(real);
+
+    REQUIRE(kept.window.size() == 3);
+    CHECK(kept.window[0].type == WindowEventType::Resized);
+    CHECK(kept.window[0].pixelSize.width == 640);
+    CHECK(kept.window[1].type == WindowEventType::CloseRequested);
+    CHECK(kept.window[2].type == WindowEventType::ScaleChanged);
+    CHECK(kept.window[2].displayScale == 1.25f);
+    CHECK(kept.input.empty());
+    CHECK(kept.ui.empty());
+    CHECK(kept.text.empty());
 }
 
 TEST_CASE("une touche a un scancode pour le jeu et un keycode pour ImGui : la paire AZERTY")

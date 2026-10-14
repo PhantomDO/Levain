@@ -625,10 +625,10 @@ int playFlightWithMenuOpen(const levain::tests::TestBackend& backend, const Layo
 /// Après un vol, le curseur revient au point où le clic droit a été pressé : l'éditeur le donne à
 /// l'App au début du vol (`App::mouseReturnTo`), qui le consomme en quittant la capture
 /// (`platform::warpMouse` avant le mode relatif). Sans cela SDL le replace décalé de tout le
-/// glissé, peut-être sur un panneau. **Le banc ne voit pas le warp de SDL** : le pilote hors écran
-/// n'a pas de focus de souris, `SDL_WarpMouseInWindow` n'y fait rien et `SDL_GetMouseState` reste
-/// à (0, 0). Le test épingle donc ce que l'App fait avant l'appel : le point est posé, est celui de
-/// l'appui, et est consommé exactement à la fin de la capture.
+/// glissé, peut-être sur un panneau. **Le banc ne voit pas le warp de SDL** : sous un script, les
+/// vrais événements, dont le curseur replacé, sont ignorés (invariant 12 d'`app`). Le test épingle
+/// donc ce que l'App fait avant l'appel : le point est posé, est celui de l'appui, et est consommé
+/// exactement à la fin de la capture.
 int playCursorReturn(const levain::tests::TestBackend& backend, const Layout& layout)
 {
     const Run run = play(backend,

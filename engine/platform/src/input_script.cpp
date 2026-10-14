@@ -9,6 +9,7 @@
 #include <ranges>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -442,6 +443,11 @@ void addScriptedEvents(Events& events, const InputScript& script, int frame)
         events.ui.insert(events.ui.end(), extra.ui.begin(), extra.ui.end());
         events.window.insert(events.window.end(), extra.window.begin(), extra.window.end());
     }
+}
+
+Events withoutRealInput(Events events)
+{
+    return Events{.window = std::move(events.window), .input = {}, .ui = {}, .text = {}};
 }
 
 } // namespace levain::platform

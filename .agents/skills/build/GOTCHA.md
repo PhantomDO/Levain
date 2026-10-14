@@ -3,6 +3,31 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Sous un script, le vrai curseur revenait après le déplacement scripté (2026-10-14)
+
+M7.7, `gpu.editor-gestures.vulkan`, rouge sur le runner Windows en Debug seulement (vraie fenêtre, lavapipe de
+mesa-dist-win), vert en Release sur le même runner, sur la 4070 et sur WARP : « un clic droit glissé, menu ouvert, vole et
+capture », « le glissé tourne le regard », « le vol ferme le menu, qui ne se rouvre pas au relâchement ».
+
+- **Le scénario** (`playFlightWithMenuOpen`) : clic droit au centre de la Vue (images 8 et 9, le menu s'ouvre sous le
+  curseur, vers le bas et la droite), la souris scriptée 120 px à gauche (image 10), puis un clic droit glissé (12 à 15).
+  Les trois échecs sont exactement ce que donne un clic **dans le menu** : il reste ouvert, aucun vol. Injecté au
+  portable, un seul `11 mouse move 635 283` (le point de l'appui) les rend tous les trois, et seulement eux.
+- **Cause** : la fin du vol de l'image 8 replace **le vrai curseur** au point de l'appui (`App::mouseReturnTo`,
+  `SDL_WarpMouseInWindow` → `SetCursorPos`, arrondi à 635), qui est le coin du menu qui vient de s'ouvrir ; or le banc
+  ajoutait le script aux vrais événements (invariant 12 d'`app`). Le système rapporte ce vrai curseur quand il veut :
+  SDL jette les `WM_MOUSEMOVE` datés du même tic que le warp (`GetTickCount`, 15,6 ms, `SDL_windowsevents.c:2631`), et
+  sur un runner chargé (Debug, couches de validation, lavapipe) il est arrivé à l'image 11, après le déplacement scripté
+  de l'image 10 : ImGui revenait sur le menu, et le clic de l'image 12 y tombait. Vu au portable : le vrai curseur
+  laissé par un warp revient en événement réel à la fenêtre suivante (`MouseMoved` 515, 283 à son image 0, le point du
+  warp d'avant), et Donnovan, souris sur la fenêtre, en envoie aussi. L'arrivée à l'image 11 sur le runner est déduite,
+  pas observée (pas de CI sans pousser).
+- **Parade** : sous un script, le script est la seule source d'input ; des vrais événements, la boucle ne garde que
+  ceux de la fenêtre (`platform::withoutRealInput`, invariant 12). Contre-tests, sous linux-debug : l'appel retiré de
+  `app.cpp`, « sous un script, le vrai curseur déplacé n'atteint pas ImGui » rouge (`gpu.app-script.vulkan`, qui
+  vérifie d'abord, sans script, que le warp atteint bien ImGui sur la machine) ; la fonction qui garde tout, le cas
+  doctest rouge.
+
 ## Windows refuse de remplacer un fichier ouvert, et d'ouvrir un fichier qu'on remplace (2026-10-14)
 
 M7.7, préférences (`préférences : deux éditeurs qui écrivent ensemble ne posent jamais un texte hybride`), rouge sur
