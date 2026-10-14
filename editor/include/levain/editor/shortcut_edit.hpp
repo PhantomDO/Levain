@@ -102,19 +102,29 @@ enum class CaptureOutcome : std::uint8_t
     Cancel,       ///< Échap : la saisie s'arrête, Échap n'est jamais capturée.
     ModifierOnly, ///< Ctrl ou Maj seuls : on attend la touche qui les suit.
     Reserved,     ///< F1 seule : elle ouvre et ferme les panneaux (`togglesPanels`).
-    Unbindable,   ///< Ce que `chordFromToken` refuse (une touche sans nom stable, Alt-Gr tenu).
+    Unbindable,   ///< Ce que `chordFromToken` refuse (une touche sans nom stable, Alt-Gr).
 };
 
 struct CaptureResult
 {
     CaptureOutcome outcome = CaptureOutcome::Unbindable;
     Chord chord;
+    /// Des modificateurs étaient tenus et l'accord n'en a pas : l'action est tenue
+    /// (`isHeldAction`), la fenêtre le dit. Sans sens hors de `CaptureOutcome::Chord`.
+    bool modifiersDropped = false;
 };
 
 /// **L'accord d'une touche appuyée pendant la saisie.** Il suit le genre par défaut de l'action
 /// (`kind`) : une position garde le scancode, une lettre le caractère selon la disposition. Il doit
 /// pouvoir s'écrire dans le fichier et s'y relire (`chordFromToken`), sinon il est refusé.
-[[nodiscard]] CaptureResult captureChord(const KeyPress& press, ChordKind kind);
+/// **Alt-Gr est refusé partout** : sous Windows il arrive comme Ctrl+Alt (SDL ne le distingue pas),
+/// et Ctrl+Alt+lettre y est refusée aussi, sous Linux comme sous Windows, pour que la même touche
+/// donne le même résultat : AltGr+E d'un AZERTY tape « € », ce n'est pas un accord. **Une action
+/// tenue** (`ignoresModifiers`, `isHeldAction`) ne lit aucun modificateur : ils sont retirés de
+/// l'accord (`CaptureResult::modifiersDropped`), qui devient la touche nue (Maj+E vaut E, et entre
+/// en conflit avec « Monter »).
+[[nodiscard]] CaptureResult captureChord(const KeyPress& press, ChordKind kind,
+                                         bool ignoresModifiers);
 
 /// Le genre des accords d'une action : celui de son premier accord par défaut.
 [[nodiscard]] ChordKind defaultKindOf(Action action);
@@ -132,8 +142,9 @@ struct AppliedLines
     /// gardées telles quelles pour que l'enregistrement ne les perde pas.
     std::vector<ShortcutLine> unknown;
     /// Les lignes d'une action connue qu'on n'a pas pu appliquer (accords illisibles, accord d'un
-    /// autre genre que l'action) : les défauts restent, **mais la ligne est gardée telle quelle**
-    /// pour que l'enregistrement ne perde pas ce qu'on a écrit à la main (`withKeptLines`).
+    /// autre genre que l'action, modificateur sur une action tenue) : les défauts restent, **mais
+    /// la ligne est gardée telle quelle** pour que l'enregistrement ne perde pas ce qu'on a écrit
+    /// à la main (`withKeptLines`).
     std::vector<ShortcutLine> refused;
     /// Ce qui a été refusé, une phrase par ligne : un accord illisible, une action écrite deux
     /// fois.
@@ -141,7 +152,9 @@ struct AppliedLines
 };
 
 /// Les défauts, puis les lignes par-dessus. Une ligne fautive est écartée **et dite** (règle n°7) :
-/// un accord illisible, ou d'un autre genre que celui de l'action (une lettre pour « Avancer »).
+/// un accord illisible, d'un autre genre que celui de l'action (une lettre pour « Avancer »), ou à
+/// modificateur sur une action tenue (`isHeldAction` : « Avancer = Shift+pos:8 » ne serait jamais
+/// lue ainsi).
 [[nodiscard]] AppliedLines shortcutsFromLines(const std::vector<ShortcutLine>& lines);
 
 /// Les lignes à écrire (`linesOf`) suivies de celles qu'on a gardées (`unknown`, `refused`), sauf

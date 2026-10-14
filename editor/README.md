@@ -308,8 +308,17 @@ M couverts par un test ».
     grisées). **La touche qui finit la saisie ne part pas aussi comme raccourci** : `ui` lit la saisie une fois, au
     début de l'image. Sont refusés (`captureChord`) : F1 seule
     (réservée, un message le dit), un modificateur seul (la saisie attend la touche suivante), ce que `chordFromToken` ne
-    relirait pas (une flèche pour une lettre, Alt-Gr tenu). **Le genre de l'accord suit celui de l'action** : une
-    position garde le scancode, une lettre le caractère de la touche (`defaultKindOf`). **Un conflit** (`conflictsOf`) est
+    relirait pas (une flèche pour une lettre), Alt-Gr (AltGr+E d'un AZERTY tape « € », ce n'est pas un accord) **et
+    Ctrl+Alt+lettre, sur toutes les plateformes** : sous Windows SDL ne distingue pas Alt-Gr d'un Ctrl+Alt (`altGr` y reste
+    faux), AltGr+E y aurait été lié « Ctrl+Alt+E » là où Linux le refusait ; la même frappe donne le même résultat, au prix
+    d'un Ctrl+Alt+lettre que Linux aurait accepté. **Une action tenue** (le vol, « Arrêter » : `isHeldAction`) **ne lit aucun
+    modificateur** (`positionHeld` : Maj accélère le vol sans le couper) : la saisie retire ceux qui sont tenus (Maj+E pour
+    « Avancer » est la touche E, en conflit avec « Monter » : le conflit est nommé, et la fenêtre dit sur sa ligne de message
+    que cette action ignore les modificateurs), et une ligne de fichier qui en met un sur l'une d'elles est refusée comme un
+    accord d'un autre genre (dite, gardée telle quelle, les défauts restent) : sans cela l'accord serait affiché et
+    enregistré sans jamais être lu comme tel, et prendrait en silence la touche nue d'une autre action. **Le genre de
+    l'accord suit celui de l'action** : une position garde le scancode, une lettre le caractère de la touche
+    (`defaultKindOf`). **Un conflit** (`conflictsOf`) est
     un accord déjà pris dans le même contexte, ou entre le global et n'importe quel autre contexte (le vol et la Vue ne se
     disputent rien, W vole et prend l'outil) ; une position se compare à une lettre par `keyAtPosition` (`chordsCollide` :
     sur un AZERTY la lettre Z est la position du W). Il est **nommé** (« Ctrl+S : Enregistrer ») et rien ne change avant
@@ -324,7 +333,7 @@ M couverts par un test ».
     (`shortcutsFromLines`, `applyShortcutLines`) un fichier qui se lit (`parsePreferences` refuse le fichier entier s'il
     est malformé) peut encore porter une ligne que le code refuse : accords illisibles, ligne écrite deux fois, **accord
     d'un autre genre que l'action** (une lettre pour « Avancer » ne partirait jamais : `positionHeld` ne lit que les
-    positions). Elle est écartée et dite, les défauts de l'action restent, et **la ligne est gardée telle quelle** à
+    positions), **modificateur sur une action tenue**. Elle est écartée et dite, les défauts de l'action restent, et **la ligne est gardée telle quelle** à
     l'enregistrement (`AppliedLines::refused`, `withKeptLines`) tant que l'action n'est pas changée ; **une action
     inconnue (un fichier d'une autre branche) est gardée et réécrite** de même ; un conflit du fichier est dit sans
     rien changer. Sous une
@@ -333,7 +342,7 @@ M couverts par un test ».
     et la fenêtre n'a pas de profils comme le Shortcuts Manager d'Unity. Tests : `tests/editor_shortcut_edit_test.cpp` (la
     logique) et, de bout en bout, `gpu.editor-shortcut-settings-*.*` (`tests/editor_shortcut_settings_gpu.cpp`, un
     ctest par scénario : changer et redémarrer, conflit, saisie, réinitialiser, menu, scripté, disposition, play, focus, leak,
-    azerty, resetconflict). Équivalents :
+    azerty, resetconflict, held). Équivalents :
     *Editor Preferences > Keyboard Shortcuts* d'Unreal (deux accords par commande, un conflit averti par *Override*,
     **documenté**), le *Shortcuts Manager* d'Unity (liste filtrable, conflits listés, profils, **documenté**), *Editor
     Settings > Shortcuts* de Godot (**supposé**, non relu).

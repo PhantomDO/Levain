@@ -193,8 +193,33 @@ struct ActiveContexts
 [[nodiscard]] std::optional<Action> actionFor(const ShortcutTable& table, const KeyPress& press,
                                               const ActiveContexts& active);
 
+/// **Une action tenue** : le jeu la lit comme une touche enfoncée (`positionHeld`), jamais comme un
+/// appui à modificateurs exacts. C'est le vol (Avancer, Reculer, Gauche, Droite, Monter, Descendre,
+/// que Maj tenu accélère sans les couper) et « Arrêter » (`stopPressed`). Un accord à modificateur
+/// sur l'une d'elles serait affiché et enregistré sans jamais être lu comme tel : Maj+E sur
+/// « Avancer » prendrait la touche E à « Monter » sans que rien ne le dise (invariant 22). La
+/// saisie retire donc les modificateurs (`captureChord`), et le fichier qui en porte est refusé
+/// (`shortcutsFromLines`).
+[[nodiscard]] constexpr bool isHeldAction(Action action)
+{
+    switch (action)
+    {
+    case Action::MoveForward:
+    case Action::MoveBackward:
+    case Action::MoveLeft:
+    case Action::MoveRight:
+    case Action::MoveUp:
+    case Action::MoveDown:
+    case Action::Stop:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /// Une touche de position de l'action est tenue, **modificateurs ignorés** : Maj tenu accélère le
-/// vol sans le couper. Les accords de lettre ne comptent pas ici (ImGui les décide).
+/// vol sans le couper (`isHeldAction` : les actions qui se lisent ainsi). Les accords de lettre ne
+/// comptent pas ici (ImGui les décide).
 [[nodiscard]] bool positionHeld(const Binding& binding,
                                 const std::bitset<platform::KeyCodeCount>& keys);
 

@@ -23,6 +23,22 @@ std::uint32_t lowerOf(std::uint32_t letter)
     return letter >= 'A' && letter <= 'Z' ? letter - 'A' + 'a' : letter;
 }
 
+bool hasModifier(const platform::KeyModifiers& modifiers)
+{
+    return modifiers != platform::KeyModifiers{};
+}
+
+/// **AltGr, tel qu'il arrive.** SDL le pose sous Linux (`altGr`), mais sous Windows il arrive comme
+/// Ctrl+Alt, indiscernable d'une vraie paire : AltGr+E d'un AZERTY y devenait « Ctrl+Alt+E » alors
+/// que Linux le refusait. Ctrl+Alt+lettre est refusée des deux côtés : la même frappe, le même
+/// résultat, au prix d'un accord Ctrl+Alt+lettre que Linux aurait accepté.
+bool typedWithAltGr(const KeyPress& press)
+{
+    const bool letter = (press.keycode >= 'a' && press.keycode <= 'z') ||
+                        (press.keycode >= 'A' && press.keycode <= 'Z');
+    return press.modifiers.altGr || (press.modifiers.ctrl && press.modifiers.alt && letter);
+}
+
 /// Ramène l'accord restant d'une action à la première place : une place vide n'est pas devant.
 void packChords(Binding& binding)
 {
@@ -206,34 +222,46 @@ std::vector<ConflictPair> conflictsIn(const ShortcutTable& table,
     return pairs;
 }
 
-CaptureResult captureChord(const KeyPress& press, ChordKind kind)
+CaptureResult captureChord(const KeyPress& typed, ChordKind kind, bool ignoresModifiers)
 {
-    if (press.scancode == ScanEscape)
+    if (typed.scancode == ScanEscape)
     {
-        return {.outcome = CaptureOutcome::Cancel, .chord = {}};
+        return {.outcome = CaptureOutcome::Cancel, .chord = {}, .modifiersDropped = false};
     }
-    if (press.scancode >= FirstModifierScancode && press.scancode <= LastModifierScancode)
+    if (typed.scancode >= FirstModifierScancode && typed.scancode <= LastModifierScancode)
     {
-        return {.outcome = CaptureOutcome::ModifierOnly, .chord = {}};
+        return {.outcome = CaptureOutcome::ModifierOnly, .chord = {}, .modifiersDropped = false};
     }
+    // Avant le retrait des modificateurs : AltGr+E n'est pas « la touche E » même pour le vol.
+    if (typedWithAltGr(typed))
+    {
+        return {.outcome = CaptureOutcome::Unbindable, .chord = {}, .modifiersDropped = false};
+    }
+    // Une action tenue ne lit aucun modificateur (`isHeldAction`) : l'accord est la touche nue, et
+    // c'est elle que F1, le conflit et le fichier jugent.
+    const KeyPress press{.scancode = typed.scancode,
+                         .keycode = typed.keycode,
+                         .modifiers =
+                             ignoresModifiers ? platform::KeyModifiers{} : typed.modifiers};
     if (press.scancode == ScanF1 && press.modifiers == platform::KeyModifiers{})
     {
-        return {.outcome = CaptureOutcome::Reserved, .chord = {}};
+        return {.outcome = CaptureOutcome::Reserved, .chord = {}, .modifiersDropped = false};
     }
     // Un accord de lettre a un seul caractère ASCII : le keycode d'une touche sans lettre (une
     // flèche, un F5) porte le bit 30, et ne s'écrirait pas dans le fichier.
     if (kind == ChordKind::Letter && press.keycode >= MaxAscii)
     {
-        return {.outcome = CaptureOutcome::Unbindable, .chord = {}};
+        return {.outcome = CaptureOutcome::Unbindable, .chord = {}, .modifiersDropped = false};
     }
     const Chord chord =
         kind == ChordKind::Position
             ? positionChord(press.scancode, press.modifiers)
             : letterChord(static_cast<char>(lowerOf(press.keycode)), press.modifiers);
     // Ce que le fichier saurait relire : un seul contrôle, celui du chargement.
-    const bool storable = !press.modifiers.altGr && chordFromToken(tokenOf(chord)) == chord;
+    const bool storable = chordFromToken(tokenOf(chord)) == chord;
     return {.outcome = storable ? CaptureOutcome::Chord : CaptureOutcome::Unbindable,
-            .chord = storable ? chord : Chord{}};
+            .chord = storable ? chord : Chord{},
+            .modifiersDropped = storable && ignoresModifiers && hasModifier(typed.modifiers)};
 }
 
 ChordKind defaultKindOf(Action action)
@@ -314,6 +342,20 @@ AppliedLines shortcutsFromLines(const std::vector<ShortcutLine>& lines)
             applied.problems.push_back(ui::trf(
                 "{} : un accord n'est pas du genre de l'action ({}), les défauts restent",
                 line.action, kind == ChordKind::Position ? ui::tr("position") : ui::tr("lettre")));
+            applied.refused.push_back(line);
+            continue;
+        }
+        // Une action tenue ne lit aucun modificateur (`positionHeld`) : l'accord serait affiché et
+        // jamais lu comme tel, et il prendrait en silence la touche nue d'une autre action.
+        const bool modified = isHeldAction(binding->action) &&
+                              std::ranges::any_of(chords, [](const Chord& chord)
+                                                  { return hasModifier(chord.modifiers); });
+        if (modified)
+        {
+            applied.problems.push_back(
+                ui::trf("{} : cette action se tient comme une touche, un accord à modificateur ne "
+                        "serait jamais lu, les défauts restent",
+                        line.action));
             applied.refused.push_back(line);
             continue;
         }

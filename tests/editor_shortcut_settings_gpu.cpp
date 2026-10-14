@@ -26,6 +26,9 @@
 //                  fichier et au vol après un redémarrage
 //   resetconflict  « Réinitialiser » d'un défaut pris nomme le conflit, rien ne change sans
 //                  « Remplacer »
+//   held           une action tenue (le vol, Arrêter) ne lit aucun modificateur : Maj+E pour «
+//   Avancer »
+//                  nomme « E : Monter », et le fichier qui lui en met un est refusé, dit et gardé
 //   levain_editor_shortcut_settings <vulkan|d3d12|d3d12-warp> <scénario>
 //
 #include <algorithm>
@@ -318,6 +321,13 @@ std::optional<Preferences> savedIn(const fs::path& directory)
     return *loaded;
 }
 
+/// Le fichier (écrit aussi à la fermeture) tient au moins une ligne de `[raccourcis]`.
+bool shortcutsSavedIn(const fs::path& directory)
+{
+    const auto saved = savedIn(directory);
+    return saved && !saved->shortcuts.empty();
+}
+
 bool loggedSays(const Run& run, std::string_view needle)
 {
     return std::ranges::any_of(run.logged,
@@ -348,12 +358,17 @@ const ShortcutRowSeen* rowOf(const Seen& seen, Action action)
     return found == seen.rows.end() ? nullptr : &*found;
 }
 
-/// Les touches d'un accord à Ctrl : Ctrl tenu une image avant la lettre, relâché une image après
-/// (SDL pose les modificateurs tenus sur la touche qui suit).
+/// Les touches d'un accord à modificateur : le modificateur tenu une image avant la lettre,
+/// relâché une image après (SDL pose les modificateurs tenus sur la touche qui suit).
+std::string modifiedKey(int frame, std::string_view modifier, std::string_view key)
+{
+    return std::format("{} key down {}\n{} key down {}\n{} key up {}\n{} key up {}\n", frame,
+                       modifier, frame + 1, key, frame + 2, key, frame + 3, modifier);
+}
+
 std::string ctrlKey(int frame, std::string_view key)
 {
-    return std::format("{} key down Left Ctrl\n{} key down {}\n{} key up {}\n{} key up Left Ctrl\n",
-                       frame, frame + 1, key, frame + 2, key, frame + 3);
+    return modifiedKey(frame, "Left Ctrl", key);
 }
 
 /// Un clic à `at` : la souris y va à l'image `frame`, le bouton s'enfonce deux images plus tard.
@@ -1022,6 +1037,74 @@ int playResetConflict(const levain::tests::TestBackend& backend)
                   "le fichier ne tient plus que Annuler, sans accord");
 }
 
+/// **Une action tenue ne lit aucun modificateur** (le vol, Arrêter) : Maj+E saisi pour « Avancer »
+/// est la touche E, que « Monter » tient : le conflit est nommé « E : Monter », la fenêtre dit que
+/// les modificateurs sont ignorés, et rien ne change avant « Remplacer ». Un fichier écrit à la
+/// main avec « Avancer = Shift+pos:8 » est refusé, dit à la console, et l'enregistrement qu'un
+/// autre changement fait garde la ligne.
+int playHeld(const levain::tests::TestBackend& backend)
+{
+    const TempDirectory directory{"held"};
+    const Seen rows = probeRows(backend);
+    Session real;
+    real.directory = directory.path;
+    real.frames = 30;
+    real.openAt = 2;
+    real.script =
+        clickScript(4, cellOf(rows, Action::MoveForward, 1)) + modifiedKey(10, "Left Shift", "E");
+    const Run run = play(backend, real);
+    if (run.exitCode != 0 || run.seen.size() != 30)
+    {
+        return expect(false, "l'action tenue : code 0 et une image par image");
+    }
+    const Seen& waiting = run.seen.back();
+    int failures =
+        expect(run.seen[9].capturing, "le clic démarre la saisie") +
+        expect(
+            waiting.pending && waiting.conflict == "E : Monter",
+            "Maj+E pour « Avancer » nomme le conflit « E : Monter » (Maj ne se lit pas en vol)") +
+        expect(waiting.message.contains("modificateur"),
+               "la fenêtre dit que cette action ignore les modificateurs") +
+        expect(waiting.table == run.seen.front().table, "rien ne change avant « Remplacer »") +
+        expect(!shortcutsSavedIn(directory.path), "aucune action n'est écrite");
+
+    // Le fichier écrit à la main : refusé, dit, gardé. Annuler change (Ctrl+K), ce qui enregistre.
+    const TempDirectory written{"held-file"};
+    Preferences preferences;
+    preferences.shortcuts = {{.action = "Avancer", .chords = {"Shift+pos:8"}}};
+    if (!levain::editor::savePreferences(fileIn(written.path), preferences))
+    {
+        return failures + expect(false, "le fichier d'essai s'écrit");
+    }
+    Session second;
+    second.directory = written.path;
+    second.frames = 30;
+    second.openAt = 2;
+    second.script = clickScript(4, cellOf(rows, Action::Undo)) + ctrlKey(10, "K");
+    const Run reread = play(backend, second);
+    if (reread.exitCode != 0 || reread.seen.size() != 30)
+    {
+        return failures + expect(false, "le fichier à la main : code 0 et une image par image");
+    }
+    const auto file = savedIn(written.path);
+    const levain::editor::ShortcutLine* kept = nullptr;
+    if (file)
+    {
+        const auto found =
+            std::ranges::find(file->shortcuts, "Avancer", &levain::editor::ShortcutLine::action);
+        kept = found == file->shortcuts.end() ? nullptr : &*found;
+    }
+    return failures +
+           expect(loggedSays(reread, "Avancer : cette action se tient comme une touche"),
+                  "la ligne à modificateur est dite à la console") +
+           expect(tableLine(reread.seen.front(), Action::MoveForward) == "Avancer = pos:26, ",
+                  "les défauts d'« Avancer » restent") +
+           expect(tableLine(reread.seen.back(), Action::Undo) == "Annuler = Ctrl+K, ",
+                  "l'autre changement est fait") +
+           expect(kept != nullptr && kept->chords == std::vector<std::string>{"Shift+pos:8"},
+                  "l'enregistrement garde la ligne refusée telle qu'écrite");
+}
+
 /// Un scénario par nom : `levain_editor_shortcut_settings <backend> <scénario>`.
 struct Scenario
 {
@@ -1029,7 +1112,7 @@ struct Scenario
     int (*run)(const levain::tests::TestBackend&);
 };
 
-constexpr std::array<Scenario, 12> Scenarios{{{"change", playChange},
+constexpr std::array<Scenario, 13> Scenarios{{{"change", playChange},
                                               {"conflict", playConflict},
                                               {"capture", playCapture},
                                               {"reset", playReset},
@@ -1040,7 +1123,8 @@ constexpr std::array<Scenario, 12> Scenarios{{{"change", playChange},
                                               {"focus", playFocus},
                                               {"leak", playLeak},
                                               {"azerty", playAzerty},
-                                              {"resetconflict", playResetConflict}}};
+                                              {"resetconflict", playResetConflict},
+                                              {"held", playHeld}}};
 
 } // namespace
 
@@ -1060,7 +1144,7 @@ int main(int argc, char** argv)
             std::println(stderr,
                          "usage : levain_editor_shortcut_settings <vulkan|d3d12|d3d12-warp> "
                          "<change|conflict|capture|reset|menu|scripted|layout|play|focus|leak|"
-                         "azerty|resetconflict>");
+                         "azerty|resetconflict|held>");
             return 2;
         }
         return scenario->run(*backend) == 0 ? 0 : 1;

@@ -17,6 +17,11 @@ namespace
 // Les refus de la saisie, des clés du catalogue.
 constexpr const char* ReservedMessage = "F1 est réservée : elle ouvre et ferme les panneaux";
 constexpr const char* UnbindableMessage = "Cette touche ne peut pas être liée à un raccourci";
+// Une action tenue (le vol, Arrêter) ne lit aucun modificateur : l'accord est la touche nue, et la
+// fenêtre le dit à côté du conflit qu'il fait peut-être (Maj+E pour « Avancer » est E, que « Monter
+// » tient).
+constexpr const char* ModifiersIgnoredMessage =
+    "Cette action se tient comme une touche : ses accords n'ont pas de modificateur";
 constexpr const char* KeymapMessage =
     "Le clavier a changé : l'accord en attente est abandonné, refaites la saisie";
 
@@ -70,6 +75,7 @@ void drawConflictBlock(ShortcutWindow& window, ShortcutTable& table,
     if (ImGui::Button(ui::labelOf("Annuler", "conflit").c_str()))
     {
         window.pending.reset();
+        window.message = nullptr; // la candidate est abandonnée, ce qu'on disait d'elle aussi
     }
     window.cancelAt = centerOfLastItem();
 }
@@ -135,7 +141,8 @@ bool stepCapture(ShortcutWindow& window, ShortcutTable& table,
             return false;
         }
         const ShortcutTarget target = *window.capturing;
-        const CaptureResult captured = captureChord(press, defaultKindOf(target.action));
+        const CaptureResult captured =
+            captureChord(press, defaultKindOf(target.action), isHeldAction(target.action));
         switch (captured.outcome)
         {
         case CaptureOutcome::Cancel:
@@ -154,7 +161,7 @@ bool stepCapture(ShortcutWindow& window, ShortcutTable& table,
             break;
         }
         window.capturing.reset();
-        window.message = nullptr;
+        window.message = captured.modifiersDropped ? ModifiersIgnoredMessage : nullptr;
         auto conflicts = conflictsOf(table, target.action, captured.chord, keyAtPosition);
         if (!conflicts.empty())
         {
