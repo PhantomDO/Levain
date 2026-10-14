@@ -24,6 +24,7 @@
 #include "levain/editor/camera.hpp"
 #include "levain/editor/console.hpp"
 #include "levain/editor/gestures.hpp"
+#include "levain/editor/grid.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
 #include "levain/editor/menus.hpp"
@@ -171,6 +172,9 @@ struct Editor
     /// Les changements de disposition du clavier déjà vus (`App::keymapChanges`) : un de plus, et
     /// la table est revérifiée.
     int keymapSeen = 0;
+    /// **La grille au sol** (`grid.hpp`) : sa passe de lignes et ce qu'elle a dessiné. Ce que la
+    /// Vue montre (`view.show`) en décide, avec `App::editorHelpersVisible`.
+    GridState grid;
 };
 
 /// Une saisie d'accord est en cours : aucun raccourci ne part, aucun geste ne commence.

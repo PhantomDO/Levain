@@ -16,6 +16,7 @@
 #include <glm/glm.hpp>
 
 #include "levain/render/debug_lines.hpp"
+#include "levain/render/stages.hpp"
 
 namespace levain::editor
 {
@@ -166,5 +167,21 @@ inline constexpr float GridFarFraction = 0.9f;
 /// Elles sont un gris moyen, entre le sol clair et le sol sombre : plus clair, il se perd dans une
 /// case claire.
 [[nodiscard]] std::vector<render::DebugLine> gridLinesFor(const GridView& view);
+
+/// Ce que la grille garde d'une image à l'autre : sa passe, et de quoi qu'un test voie qu'elle a
+/// dessiné (`framesDrawn` ne bouge que les images où des lignes sont parties).
+struct GridState
+{
+    std::optional<render::DebugLinesPass> pass;
+    int framesDrawn = 0;
+    /// Les lignes **envoyées** à la dernière image où l'étape a tourné (après la coupe au volume
+    /// de vue, `render::drawDebugLines`) ; 0 si cachée, ou si tout est tombé dehors.
+    int lastLines = 0;
+};
+
+/// L'étape Transparent de la grille : dessine si `visible` et que la passe existe, sinon note zéro
+/// ligne. `exposure` est celle que le tonemapper applique (`App::settings.tonemap`) ; le plan
+/// lointain est celui de `context.frustum`. Une ligne dans `withEditor`.
+void drawGrid(GridState& grid, const render::StageContext& context, bool visible, float exposure);
 
 } // namespace levain::editor

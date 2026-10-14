@@ -278,4 +278,31 @@ std::vector<render::DebugLine> gridLinesFor(const GridView& view)
     return lines;
 }
 
+void drawGrid(GridState& grid, const render::StageContext& context, bool visible, float exposure)
+{
+    if (!visible || !grid.pass)
+    {
+        grid.lastLines = 0;
+        return;
+    }
+    // L'image de la scène : sa taille en pixels est celle de la cible (la Vue la redimensionne).
+    const nvrhi::FramebufferInfoEx& target = context.target.getFramebufferInfo();
+    const std::vector<render::DebugLine> lines =
+        gridLinesFor({.cameraPosition = context.cameraPosition,
+                      .exposure = exposure,
+                      .farPlane = farDistanceOf(context.frustum, context.cameraPosition),
+                      .screen = GridScreen{.viewProjection = context.viewProjection,
+                                           .pixels = {static_cast<float>(target.width),
+                                                      static_cast<float>(target.height)}}});
+    // Mêlée par son opacité, après le ciel : la grille s'estompe dans l'image au lieu de noircir.
+    const std::size_t sent = render::drawDebugLines(
+        context.commandList, *grid.pass, context.target, context.viewProjection, lines,
+        render::DebugDepth::Tested, render::DebugBlend::Alpha);
+    // **Ce que `drawDebugLines` a envoyé, non la taille de la liste** : la coupe au volume de vue
+    // peut tout écarter (une caméra au-dessus du plan lointain), et un test qui compte la liste ne
+    // verrait jamais une grille coupée.
+    grid.lastLines = static_cast<int>(sent);
+    grid.framesDrawn += sent > 0 ? 1 : 0;
+}
+
 } // namespace levain::editor

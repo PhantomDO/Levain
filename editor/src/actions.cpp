@@ -130,7 +130,7 @@ std::vector<Action> shortcutsPressed(const ShortcutInputs& inputs)
                                 .textInput = inputs.textInput};
     for (const KeyPress& press : inputs.presses)
     {
-        if (const auto tool = toolActionOf(inputs.table, press, active))
+        if (const auto tool = viewKeyActionOf(inputs.table, press, active))
         {
             reached.push_back(*tool);
         }

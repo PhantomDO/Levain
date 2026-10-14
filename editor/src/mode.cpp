@@ -126,7 +126,7 @@ void drawModeBar(Mode current, const app::ScreenRect& scene, const std::string& 
     ImGui::End();
 }
 
-std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered,
+std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered, ImVec2& rectMax,
                                        const std::string& hint)
 {
     std::optional<Mode> requested;
@@ -146,6 +146,7 @@ std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovere
     ImGui::EndChild();
     ImGui::PopStyleColor();
     hovered = ImGui::IsItemHovered();
+    rectMax = ImGui::GetItemRectMax();
     return requested;
 }
 

@@ -16,6 +16,9 @@
 #include "levain/core/log.hpp"
 #include "levain/editor/layout.hpp"
 #include "levain/editor/scene_bounds.hpp"
+#include "levain/render/debug_lines.hpp"
+#include "levain/render/renderer.hpp"
+#include "levain/render/stages.hpp"
 #include "levain/scene/scene.hpp"
 #include "levain/ui/fonts.hpp"
 #include "levain/ui/tr.hpp"
@@ -95,10 +98,10 @@ core::Result<ui::UiFonts> loadEditorFonts(const app::App& app, const EditorOptio
     return ui::addFonts(ImGui::GetIO(), *files, FontSize);
 }
 
-/// L'accord affiché dans l'entrée « Cadrer la sélection » du menu, selon le clavier d'aujourd'hui.
-std::string frameShortcutOf(const Editor& editor, const app::App& app)
+/// L'accord affiché dans l'entrée de menu de l'action, selon le clavier d'aujourd'hui.
+std::string shortcutTextOf(const Editor& editor, const app::App& app, Action action)
 {
-    const Binding* binding = bindingOf(editor.shortcuts, Action::FrameSelection);
+    const Binding* binding = bindingOf(editor.shortcuts, action);
     return binding != nullptr ? displayNameOf(binding->chords.at(0), app.keyAtPosition)
                               : std::string{};
 }
@@ -295,11 +298,44 @@ void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reache
     reached.insert(reached.end(), editor.lastShortcuts.begin(), editor.lastShortcuts.end());
     for (const Action action : reached)
     {
+        // **« Vue de jeu » ne bascule que si `runAction` l'a faite** (comptée) : une action refusée
+        // (grisée, annoncée à la console) ne change rien.
+        const int before = editor.actions.performed.at(indexOf(action));
         if (const auto next = runAction(action, editor.actions, app.realTime, editor.mode.current))
         {
             changeMode(app, editor, *next);
         }
+        if (editor.actions.performed.at(indexOf(action)) > before)
+        {
+            applyShowAction(editor.view.show, action);
+        }
     }
+}
+
+/// **La grille** : sa passe pour la cible de la scène, créée une fois, et son étape dans l'étape
+/// Transparent, après le ciel et les opaques du programme (le test de profondeur la cache derrière
+/// eux ; elle se mêle à ce qui est dessous par son opacité). Une passe qui ne se crée pas est dite
+/// à la console, et la grille n'apparaît pas.
+void addGridStage(app::App& app, Editor& editor)
+{
+    auto pass = render::createDebugLinesPass(*app.gpu.nvrhi, render::sceneTargetInfo());
+    if (!pass)
+    {
+        core::log("editor", core::LogLevel::Error, "pas de grille : {}", pass.error().message);
+        return;
+    }
+    editor.grid.pass = std::move(*pass);
+    // **L'éditeur par pointeur, non par `shared_ptr`** : les étapes vivent dans le renderer,
+    // détruit après le monde, et un `shared_ptr` ferait survivre l'éditeur (et sa requête flecs) au
+    // monde qu'elle regarde. Les points d'accroche (`FrameHooks`) le possèdent et partent les
+    // premiers ; la boucle ne rend plus rien à ce moment-là, aucune étape n'est appelée.
+    render::addStageFunction(app.renderer.stages, render::RenderStage::Transparent, "grille",
+                             [&app, &editor](const render::StageContext& context)
+                             {
+                                 drawGrid(editor.grid, context,
+                                          gridVisibleIn(editor.view.show, app.editorHelpersVisible),
+                                          app.settings.tonemap.exposure);
+                             });
 }
 
 } // namespace
@@ -407,7 +443,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .layoutResetRequested = false,
                    .savePreferencesNext = false,
                    .shortcutWindow = {},
-                   .keymapSeen = 0});
+                   .keymapSeen = 0,
+                   .grid = {}});
         editor->console.font = fonts->console;
         if (options.select)
         {
@@ -433,6 +470,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         // Avant la première image de panneaux, et après la caméra du jeu, dont la vitesse n'est pas
         // celle qu'on a gardée : la disposition relue, ou la défaut qui se construira.
         startPreferences(app, *editor, options.preferencesDirectory);
+        addGridStage(app, *editor);
         editor->keymapSeen = app.keymapChanges;
         imposeCamera(app, *editor, true);
         hooks->frame = [frame = std::move(hooks->frame), editor](app::App& app)
@@ -496,7 +534,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 // La Vue en dernier : elle pose `App::sceneRect`, et sa barre de mode en calque.
                 editor->view.canFrame =
                     canFrameEntity(selectedIfAlive(app.world, editor->selected));
-                editor->view.frameShortcut = frameShortcutOf(*editor, app);
+                editor->view.frameShortcut = shortcutTextOf(*editor, app, Action::FrameSelection);
+                editor->view.gameViewShortcut = shortcutTextOf(*editor, app, Action::GameView);
                 editor->view.modeHint =
                     modeHintOf(editor->mode.current, editor->shortcuts, app.keyAtPosition);
                 if (const auto fromView = drawView(editor->view, app, editor->mode.current))
@@ -506,6 +545,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 if (editor->view.frameRequested || editor->hierarchy.frameRequested)
                 {
                     frameSelection(app, *editor);
+                }
+                if (editor->view.gameViewRequested)
+                {
+                    reached.push_back(Action::GameView); // le menu, comme la touche G
                 }
             }
             // Avant les raccourcis et la route, qui lisent si elle est ouverte.
@@ -535,6 +578,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 // Après les gestes, le cadrage et les écritures de l'image.
                 imposeCamera(app, *editor, wroteWorld);
             }
+            // Les aides se voient en Édition hors vue de jeu : la grille et le contour du
+            // programme.
+            app.editorHelpersVisible =
+                helpersVisibleIn(editor->mode.current, editor->view.show.gameView);
             // La route de l'image suivante : le focus ne se sait que maintenant (ADR-0036, 4).
             app.inputRoute = inputRouteWhileQuit(
                 editor->quit,
