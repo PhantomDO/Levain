@@ -2,7 +2,10 @@
 
 - **Statut** : accepté le 2026-10-10 par sondage, avec la ROADMAP v0.16 (« J'accepte l'ADR-0036 et la ROADMAP
   v0.16 ? » : « Accepter (Recommandé) ») ; les réponses aux sondages du 10/10 sont les choix de Donnovan, les
-  options 1A à 6A et le détail des décisions sont nos propositions, acceptées avec l'ADR
+  options 1A à 6A et le détail des décisions sont nos propositions, acceptées avec l'ADR ; amendé le 2026-10-14
+  (décision 15 : l'interface mélangée en espace gamma, sondage « Le faire en M7.7 ») ; **réalisé** le 2026-10-14,
+  M7.7 clos (journal) : des notes du même jour disent où le code s'écarte du texte (décisions 7 et 10, les contrôles,
+  les morceaux, ce qui reste, les conséquences), sans changer les décisions
 - **Modifie** : les invariants 4 et 7 d'`editor/README.md`, 6, 8 et 9 d'`engine/app/README.md` ; les ADR-0029,
   0032 et 0034 (détail plus bas) ; SPECS §5 (les polices)
 - **Date** : 2026-10-10
@@ -131,6 +134,12 @@ l'anglais de M7.8 ; des polices sous OFL, une console, une disposition gardée. 
    font partout. `App::sceneRect` publie le rectangle de la scène : le jeu y lit sa taille et le curseur, comme le
    picking de `steerDemo`, qui lit aujourd'hui la fenêtre (main.cpp:1218-1220). L'exécutable éditeur refuse
    `--gpu webgpu`, bruyamment (editor/README.md:28-29).
+   *Note du 2026-10-14, ce qui a été construit* : `sceneRect` ne porte pas le curseur. **`App::cursor`** le donne, en
+   pixels de l'image comme `sceneRect` : la position que les événements de l'image ont portée (un script d'input la
+   déplace), et non celle que lit SDL. **`scenePixelAt`** (`scene_view.hpp`) rend le point visé dans la scène : dans la
+   Vue, ramené au coin de son rectangle et lu à sa taille, la scène y étant étirée ; dans la fenêtre, comme avant ;
+   rien hors de la scène. Le picking du sandbox lit les deux (morceau 8). La texture reste au format de la swapchain,
+   UNORM partout depuis l'amendement de la décision 15 : le tonemapping y encode le sRGB, l'UI la montre telle quelle.
 8. **La souris pendant le vol** est capturée, panneaux ouverts compris (`mouseShouldBeCaptured` gagne ce cas). Le
    regard lit le mouvement brut ; ImGui ne reçoit plus que les relâchements, la règle de `gameInputOf`
    (ui_layer.hpp:81-86) : le clic droit du vol ne reste pas enfoncé pour lui, ses menus contextuels marchent encore.
@@ -145,6 +154,12 @@ l'anglais de M7.8 ; des polices sous OFL, une console, une disposition gardée. 
     par `platform`), relues sans `buildLayout` (panels.cpp:147-150). **Une exécution scriptée ne les lit ni ne les
     écrit** (`isScriptedRun` : `--seconds`, `--steps`, `--time`, `--capture`, `--input-script`) : les réglages d'un
     développeur fausseraient les clics des tests, et une session changerait la suivante (ADR-0032).
+    *Note du 2026-10-14, ce qui a été construit* : les fenêtres du moteur (Image, Passes, Scène) n'ont une croix que
+    sous un éditeur. Leur état, ouvert ou fermé, vit dans `UiLayer::windows` (`EngineWindows`), que le menu Fenêtre
+    rouvre ; `UiLayer::editorLayout`, posé par `withEditor`, choisit la disposition à colonnes. Le sandbox et *Rando*
+    gardent celle d'avant, sans croix : rien n'y rouvrirait une fenêtre fermée (F1 ferme tous les panneaux d'un coup).
+    « Réinitialiser la disposition » est `resetEditorLayout`. Un test lit et écrit les préférences malgré
+    `isScriptedRun` par `AppSettings::testInteractive`, toujours dans un dossier jetable, jamais celui de qui le lance.
 11. **Fermer, et le titre.** `FrameHooks::closeRequested` laisse le programme demander avant de quitter (M7.3 y
     proposera d'enregistrer), jamais sous `isScriptedRun`. Fermer la fenêtre ouvre la modale, une seule par image ;
     un signal (Ctrl+C, SIGTERM : platform/src/window.cpp:40-44) quitte sans demander. Le titre reste en ASCII,
@@ -250,6 +265,11 @@ Donnovan ne regardera pas : les tests prouvent tout, chaque contrôle nouveau av
   simule), par une API de test et `--input-script`, dans la vraie boucle hors écran (gpu/src/device.cpp:106-125)
   sous lavapipe. ImGui sans écran teste les widgets seuls (tests/editor_test.cpp:245), le GPU suit `levain_ui_gpu`
   (tests/CMakeLists.txt:374-376) ; app, render, ui, gpu et platform passent aussi au portable (sondage « Fenêtres »).
+  *Note du 2026-10-14* : sous un script, le script est la seule source d'input ; des vrais événements, la boucle ne
+  garde que ceux de la fenêtre (`platform::withoutRealInput`). Sur le runner Windows, la fin d'un vol replaçait le
+  vrai curseur, et le système le rapportait après un déplacement scripté. Un test en vraie fenêtre (Vulkan sous
+  Windows) dépend aussi de l'échelle de l'écran : il clique ce qu'ImGui a dessiné, jamais des pixels écrits à la main
+  (build/GOTCHA.md, entrées du 2026-10-14).
 - **La ligne de la CI** « éditeur : … » (editor.cpp:18-29 ; tools/ci-programs.sh:282-294) gagne `mode`, `pas` et
   `vue`, sous linux-debug, linux-asan (ci.yml:322-327) et windows-debug (ci.yml:880-884) ; `i18n.untranslated`
   suit le modèle de `deps.imgui-visibility`.
@@ -287,11 +307,50 @@ Les issues : #389 (0), #390 (1, 2, 4, 5), #391 (6 à 8), #392 (9 à 11, 16), #39
 | 17 | Polices, icônes et leurs licences (`fetch-assets.sh`, SETUP.md), style, X/Y/Z colorés, grille, menu Afficher (« Temps réel » est livré au morceau 12, avec la barre d'outils), l'interface mélangée en espace gamma (fonds opaques posés au morceau 12 ; livré au morceau 17d, voir l'amendement de la décision 15 : présentation UNORM, tonemapping qui encode) | ui, editor, tools, docs | 350 | « œ », « — », « É » et une icône, par `ImFont::IsGlyphInFont`, dans l'interface et dans la console ; police absente : arrêt qui la nomme ; la grille sans erreur de validation |
 | fin | Journal, critère, gestes couverts, READMEs, PR vers `main` et sa CI | docs | — | — |
 
+*Note du 2026-10-14, ce qui a été livré* : chaque morceau est entré dans `m7.7/atelier` en une ou plusieurs PR
+empilées, qui compilent chacune avec leurs tests : une pour chacun des morceaux 0 et 1, jusqu'à treize pour le
+morceau 16 ; 118 PR de #396 à #515 (#479 et #493 sont des issues). **Le morceau 17 est livré en quatre parties** :
+
+- **17a**, les polices et les icônes, leurs licences et `tools/fetch-assets.sh` (#473 à #478) ;
+- **17b**, le style de l'éditeur, qui suit l'échelle de l'écran, et les X, Y, Z colorés (#502 à #507) ;
+- **17c**, la grille au sol, le menu Afficher et G (#494 à #501) ;
+- **17d**, l'interface mélangée en espace gamma (l'amendement de la décision 15), qui corrige aussi #493 (#512, #513).
+
+Viennent ensuite les corrections propres à Windows qu'ont trouvées la CI lancée à la main le 14/10 et le portable
+(#508 à #511), celle de la fenêtre réduite sous Vulkan qu'a trouvée la clôture (#514), puis le morceau « fin » (#515).
+
+## Ce qui reste (note du 2026-10-14)
+
+Ce que M7.7 laisse, sans milestone pour l'instant :
+
+- **#479** : le plan proche coupe les maillages sous Vulkan et pas sous Direct3D 12 (`depthClipEnable`, que NVRHI
+  laisse à faux) ; les lignes de debug, elles, sont coupées au volume de vue avant le dessin (`clipToFrustum`, 17c) ;
+- **`core::readFile`** mesure la taille par le chemin, puis ouvre : un fichier remplacé entre les deux rend le début
+  de l'autre. Les préférences lisent le fichier ouvert jusqu'au bout depuis les corrections Windows ; ses autres
+  appelants gardent ce défaut, qui ne mord que sur un fichier remplacé pendant la lecture (le rechargement à chaud
+  surtout) ;
+- **la largeur des colonnes de la disposition** est une part de la fenêtre (`buildLayout`), qui ne suit pas
+  l'échelle de l'écran : à 150 %, la hiérarchie et l'inspecteur gardent leurs pixels et y logent moins de texte ;
+- **l'état du menu Afficher** (« Grille », « Vue de jeu ») est celui de la session : le fichier des préférences ne le
+  garde pas, une clé de plus demandant une décision de version ;
+- les « Pas encore » des README d'`editor` et d'`app`.
+
 ## Conséquences
 
 - **`app` gagne sept points nommés** (l'arrêt et l'horloge des squelettes, la recomposition, la caméra imposée, la
   route, la Vue et `sceneRect`, `closeRequested`, `isScriptedRun`) et une règle de capture. Le sandbox et *Rando*
   n'en posent aucun et gardent leur boucle, sans recomposition ; leurs contrôles de CI le vérifient déjà.
+  *Note du 2026-10-14, ce qui a été construit* : **`app` a gagné plus que ces sept points**, chacun commenté dans
+  son en-tête (`app.hpp`, `ui_layer.hpp`, `scene_view.hpp`) : `realTime` (« Temps réel », décisions 9 et 12),
+  `stepsPlayed` (le « pas : 0 » que lit la CI), `quitRequested` (la réponse à `closeRequested`), `keyAtPosition` et
+  `keymapChanges` (décision 5), `cursor` et `scenePixelAt` (décision 7), `rawFrameEvents` et `frameSeconds` (les
+  gestes lisent l'input brut, décision 6), `mouseCaptureOverPanels` (décision 8) et `mouseReturnTo` (le curseur rendu
+  au point de l'appui après un vol, comme dans Unreal, **supposé**), `editorHelpersVisible` (la vue de jeu, G),
+  `resetEditorLayout`, `UiLayer::windows` et `UiLayer::editorLayout` (décision 10), `UiLayer::panelsKeyBlocked` (F1
+  pendant la saisie d'un raccourci, décision 13), `setUiStyle` (le style de l'éditeur suit l'échelle de l'écran) ;
+  dans `AppSettings`, `inputScriptFile`, `inputScript` et `testInteractive` (le banc d'essai). Le sandbox en lit
+  trois, pour son picking et son contour (`sceneRect`, `cursor` par `scenePixelAt`, `editorHelpersVisible`) ; ni lui
+  ni *Rando* n'en posent aucun.
 - **M7.5 en hérite** : Play prend la route *jeu* et la caméra du jeu, et retire « Jouer (sans retour) ». **M7.4**
   dessine ses gizmos et lit ses clics dans le rectangle de la Vue, sans image de retard.
 - **La langue est celle du moteur entier** : en anglais (M7.8), la console, les erreurs et les journaux aussi ; chaque
