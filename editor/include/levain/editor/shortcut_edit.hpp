@@ -1,12 +1,14 @@
 #pragma once
 
-// Changer la table des raccourcis (ADR-0036, décision 13, morceau 16) : la logique **sans ImGui**.
-// Des fonctions libres dont toutes les dépendances sont des paramètres (ADR-0011) : la disposition
-// du clavier en est une (`platform::KeyAtPosition`), jamais lue ici. Chaque piège porte son nom :
-// `chordsCollide` (une position contre une lettre), `contextsOverlap` (global contre tout).
-// Équivalents : « Editor Preferences > Keyboard Shortcuts » d'Unreal (un conflit y est averti), le
-// « Shortcuts Manager » d'Unity (ses conflits sont listés, rien ne change sans choix), « Editor
-// Settings > Shortcuts » de Godot.
+// Changer la table des raccourcis (ADR-0036, décision 13, morceau 16) : la logique **sans ImGui**,
+// que la fenêtre « Raccourcis » (`shortcut_window.hpp`) appelle d'une ligne. Des fonctions libres
+// dont toutes les dépendances sont des paramètres (ADR-0011) : la disposition du clavier en est
+// une (`platform::KeyAtPosition`), jamais lue ici. Chaque piège porte son nom : `chordsCollide`
+// (une position contre une lettre), `contextsOverlap` (global contre tout), `captureChord` (F1 et
+// un modificateur seul ne se lient pas), `linesOf` (seul ce qui diffère des défauts s'écrit).
+// Équivalents : « Editor Preferences > Keyboard Shortcuts » d'Unreal (le *Override* est notre
+// `replaceChord`), le « Shortcuts Manager » d'Unity (ses conflits sont listés, rien ne change
+// sans choix), « Editor Settings > Shortcuts » de Godot.
 
 #include <cstddef>
 #include <cstdint>
