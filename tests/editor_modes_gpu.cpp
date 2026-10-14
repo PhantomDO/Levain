@@ -55,7 +55,8 @@ struct Seen
     bool barDrawn = false; ///< la barre de mode a été dessinée à l'image d'avant
     float barX = 0.0f;     ///< son coin haut gauche, à l'image d'avant
     float barY = 0.0f;
-    bool viewFocused = false; ///< la Vue a le focus à cette image (sa barre comprise)
+    bool viewFocused = false;         ///< la Vue a le focus à cette image (sa barre comprise)
+    levain::app::ScreenRect button{}; ///< le bouton de la barre, là où ImGui l'a dessiné
 };
 
 /// Le programme : une caméra, un « mover » que la simulation avance, un `frame` qui compte ses
@@ -186,6 +187,7 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
             seen.barX = editor.view.barAt.x;
             seen.barY = editor.view.barAt.y;
             seen.viewFocused = editor.view.focused;
+            seen.button = editor.view.modeBarButton;
         }
     };
     run.exitCode = levain::app::runApp(
@@ -354,25 +356,43 @@ int playWholeWindow(const levain::tests::TestBackend& backend)
     return failures;
 }
 
-/// Le bouton de la barre, cliqué à la souris scriptée : Édition, jeu, Édition. Les coordonnées
-/// viennent de la disposition (le coin du trou, la marge de la fenêtre, le bouton) : un premier
-/// passage sans script lit le trou.
+/// La Vue a publié le bouton de sa barre : un rectangle non vide, dans l'image de la scène.
+bool buttonPublished(const Seen& seen)
+{
+    const levain::app::ScreenRect& image = seen.rect;
+    const levain::app::ScreenRect& button = seen.button;
+    return seen.barDrawn && button.width > 0.0f && button.height > 0.0f && button.x >= image.x &&
+           button.y >= image.y && button.x + button.width <= image.x + image.width &&
+           button.y + button.height <= image.y + image.height;
+}
+
+/// **Où cliquer le bouton de la barre** : le carré de son icône, à gauche, relevé là où ImGui l'a
+/// dessiné (`View::modeBarButton`). Écrit à la main (« le coin du trou, plus 8, plus 8, plus 9 »),
+/// le point manquait le bouton d'un pixel à l'échelle 125 % du portable (une marge de 10 px, pas
+/// 8). Le bouton est le premier élément de la barre dans les deux modes, même coin et même
+/// hauteur ; seule sa largeur suit le libellé, que le carré de gauche ne regarde pas : relevé en
+/// Édition, il vise aussi « Revenir à l'édition ».
+ImVec2 buttonSpot(const Seen& seen)
+{
+    const float half = seen.button.height / 2.0f;
+    return {seen.button.x + half, seen.button.y + half};
+}
+
+/// Le bouton de la barre, cliqué à la souris scriptée : Édition, jeu, Édition. Un premier passage
+/// sans script relève où il est (`buttonSpot`).
 int playButton(const levain::tests::TestBackend& backend)
 {
     // (un script vide est refusé, bruyamment : un mouvement de souris loin de tout, pour rien.)
     const Run probe = play(backend, "0 mouse move 1 1\n", 3, true, false);
-    if (probe.seen.empty())
+    if (probe.seen.empty() || !buttonPublished(probe.seen.back()))
     {
-        return expect(false, "le passage qui lit le trou n'a relevé aucune image");
+        return expect(false, "le bouton : la Vue n'a pas publié le rectangle de son bouton");
     }
-    const levain::app::ScreenRect hole = probe.seen.back().rect;
-    // La barre est à 8 px du coin du trou, sa marge est de 8 px, le bouton fait environ 19 px.
-    const float x = hole.x + 8.0f + 8.0f + 20.0f;
-    const float y = hole.y + 8.0f + 8.0f + 9.0f;
+    const ImVec2 spot = buttonSpot(probe.seen.back());
     const std::string script = std::format("0 mouse move {} {}\n2 button down left\n"
                                            "3 button up left\n6 button down left\n"
                                            "7 button up left\n",
-                                           x, y);
+                                           spot.x, spot.y);
     const Run run = play(backend, script, 12, true, false);
     if (run.seen.size() != 12)
     {
@@ -388,29 +408,42 @@ int playButton(const levain::tests::TestBackend& backend)
 }
 
 /// Les points de la Vue, lus par un premier passage sans script : un point de l'image hors de la
-/// barre, et un point de la marge de la barre de mode (dans son enfant, à côté du bouton).
+/// barre, un point de la marge de la barre de mode (dans son enfant, à côté du bouton), et le
+/// bouton (`buttonSpot`).
 struct ViewSpots
 {
     float sceneX = 0.0f;
     float sceneY = 0.0f;
     float barX = 0.0f;
     float barY = 0.0f;
+    float buttonX = 0.0f;
+    float buttonY = 0.0f;
 };
 
 std::optional<ViewSpots> viewSpots(const levain::tests::TestBackend& backend)
 {
     const Run probe = play(backend, "0 mouse move 1 1\n", 3, true, false);
-    if (probe.seen.empty() || probe.seen.back().rect.width <= 0.0f)
+    if (probe.seen.empty() || probe.seen.back().rect.width <= 0.0f ||
+        !buttonPublished(probe.seen.back()))
     {
         return std::nullopt;
     }
-    const levain::app::ScreenRect hole = probe.seen.back().rect;
-    // La barre est à 8 px du coin, sa marge de 8 px : le point est dans l'enfant, hors du bouton.
-    // Hors de la barre, qui en jeu (avec son bandeau) couvre la Vue de 320 px : son coin bas droit.
-    return ViewSpots{.sceneX = hole.x + hole.width - 4.0f,
-                     .sceneY = hole.y + hole.height - 3.0f,
-                     .barX = hole.x + 8.0f + 3.0f,
-                     .barY = hole.y + 8.0f + 3.0f};
+    const Seen& last = probe.seen.back();
+    const levain::app::ScreenRect hole = last.rect;
+    // La marge : 3 px dans la barre, avant le bouton (sa marge vaut 8 px à l'échelle 1, plus
+    // au-delà). Hors de la barre, qui en jeu (avec son bandeau) couvre la Vue de 320 px : son coin
+    // bas droit.
+    const ViewSpots spots{.sceneX = hole.x + hole.width - 4.0f,
+                          .sceneY = hole.y + hole.height - 3.0f,
+                          .barX = last.barX + 3.0f,
+                          .barY = last.barY + 3.0f,
+                          .buttonX = buttonSpot(last).x,
+                          .buttonY = buttonSpot(last).y};
+    if (spots.barX >= last.button.x || spots.barY >= last.button.y)
+    {
+        return std::nullopt; // la marge ne serait plus la marge : le clic tomberait sur le bouton
+    }
+    return spots;
 }
 
 /// La barre de mode de la Vue, panneaux ouverts, de bout en bout : (1) en jeu, un clic sur la barre
@@ -423,14 +456,15 @@ int playBar(const levain::tests::TestBackend& backend)
     const auto spots = viewSpots(backend);
     if (!spots)
     {
-        return expect(false, "la barre : le passage qui lit la Vue n'a pas trouvé son image");
+        return expect(false, "la barre : le passage qui lit la Vue n'a pas trouvé son image, "
+                             "le bouton de sa barre ou sa marge");
     }
     constexpr std::string_view AltP =
         "2 key down Left Alt\n2 key down P\n3 key up P\n3 key up Left Alt\n";
     // (1) Jouer à l'image 2, puis un clic sur le bouton « Revenir à l'édition » (image 7) :
     // l'Édition, et le jeu n'a vu aucun bouton.
-    const float buttonX = spots->barX + 17.0f;
-    const float buttonY = spots->barY + 6.0f;
+    const float buttonX = spots->buttonX;
+    const float buttonY = spots->buttonY;
     const Run onBar = play(backend,
                            std::format("{}5 mouse move {} {}\n7 button down left\n"
                                        "8 button up left\n",

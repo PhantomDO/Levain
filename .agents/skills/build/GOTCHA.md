@@ -28,6 +28,22 @@ capture », « le glissé tourne le regard », « le vol ferme le menu, qui ne s
   vérifie d'abord, sans script, que le warp atteint bien ImGui sur la machine) ; la fonction qui garde tout, le cas
   doctest rouge.
 
+## Un clic de test écrit en pixels manque le bouton à l'échelle 125 % (2026-10-14)
+
+M7.7, `gpu.editor-modes.vulkan`, rouge sur la fenêtre réelle du portable (4070, écran à 125 %), vert sur le runner et
+sur WARP (échelle 1) : « la barre : le bouton « Revenir à l'édition » arrête le jeu ».
+
+- **Symptôme** : le clic visait `(trou + 8 + 3 + 17, trou + 8 + 3 + 6)`, des décalages écrits pour l'échelle 1 (une
+  barre à 8 px du coin, une marge de 8 px). Relevé (un `fprintf` dans `drawModeBarContents`) : échelle 1,25, marge
+  10 px, le bouton de (147, 113) à (314, 138), le clic en (157, 112) : **un pixel au-dessus du bouton**, et le jeu
+  continuait (11 pas à la fin). **Cause** : `createUiContext` applique l'échelle de l'écran au style
+  (`ScaleAllSizes`), donc aux marges et à la hauteur des boutons ; la police (Inter 15 px, morceau 17a) change aussi la
+  taille. **Parade** : la Vue publie le rectangle du bouton là où ImGui l'a dessiné (`ModeBarOverlay::button`,
+  `View::modeBarButton`), comme la hiérarchie publie ses lignes, et le test clique le carré de son icône
+  (`buttonSpot`) ; un rectangle absent ou hors de l'image arrête le test en le disant (`buttonPublished`). Contre-test,
+  sous linux-debug : la Vue qui ne publie plus le rectangle, « le bouton : la Vue n'a pas publié le rectangle de son
+  bouton » rouge. Un test qui vise un widget le vise par ce qu'ImGui en a dessiné, jamais par des pixels écrits à la main.
+
 ## Windows refuse de remplacer un fichier ouvert, et d'ouvrir un fichier qu'on remplace (2026-10-14)
 
 M7.7, préférences (`préférences : deux éditeurs qui écrivent ensemble ne posent jamais un texte hybride`), rouge sur

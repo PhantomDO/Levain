@@ -52,6 +52,7 @@ std::optional<Mode> drawView(View& view, app::App& app, Mode mode)
     view.focused = false;
     view.barDrawn = false;
     view.modeBarRect = {};
+    view.modeBarButton = {};
     view.barHovered = false;
     view.hovered = false;
     view.menuOpen = false;
@@ -96,16 +97,16 @@ std::optional<Mode> drawView(View& view, app::App& app, Mode mode)
                 const ImVec2 max = ImGui::GetItemRectMax();
                 view.image = {min.x, min.y, max.x - min.x, max.y - min.y};
                 app.sceneRect = view.image;
-                ImVec2 barMax{};
-                requestedMode =
-                    drawModeBarOverlay(mode, min, view.barHovered, barMax, view.modeHint);
-                view.modeBarRect = {min.x + 8.0f, min.y + 8.0f, barMax.x - min.x - 8.0f,
-                                    barMax.y - min.y - 8.0f};
+                const ModeBarOverlay overlay = drawModeBarOverlay(mode, min, view.modeHint);
+                requestedMode = overlay.requested;
+                view.barHovered = overlay.hovered;
+                view.modeBarRect = overlay.bar;
+                view.modeBarButton = overlay.button;
                 // Le menu « Afficher » à côté de la barre de mode, en Édition : jouer, c'est déjà
                 // la vue de jeu. Cliquer sa barre n'est pas cliquer la scène.
                 if (mode == Mode::Edit)
                 {
-                    const ImVec2 afterBar{barMax.x + 6.0f, min.y + 8.0f};
+                    const ImVec2 afterBar{overlay.bar.x + overlay.bar.width + 6.0f, overlay.bar.y};
                     view.gameViewRequested =
                         drawShowMenu(view.show, afterBar, view.gameViewShortcut, view.showMenu);
                     view.barHovered = view.barHovered || view.showMenu.hovered;

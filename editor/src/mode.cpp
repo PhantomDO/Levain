@@ -80,19 +80,30 @@ std::string modeButtonLabel(Mode target)
 namespace
 {
 
+/// Le dernier item qu'ImGui a dessiné, à l'écran : là où un test le vise, et d'où la Vue place ce
+/// qui le suit.
+app::ScreenRect lastItemRect()
+{
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    return {.x = min.x, .y = min.y, .width = max.x - min.x, .height = max.y - min.y};
+}
+
 /// Le contenu de la barre, dans la fenêtre ou le calque courant : le bouton qui montre où l'on va
 /// (seul il va dans les deux sens, `modeRequested`), le bandeau de « Jouer (sans retour) » et le
-/// rappel de la touche.
-std::optional<Mode> drawModeBarContents(Mode current, bool interactive, const std::string& hint)
+/// rappel de la touche. Rend le mode demandé et le rectangle du bouton, s'il y en a un (le reste
+/// est à l'appelant, qui tient l'enfant).
+ModeBarOverlay drawModeBarContents(Mode current, bool interactive, const std::string& hint)
 {
-    std::optional<Mode> requested;
+    ModeBarOverlay bar;
     if (interactive)
     {
         const Mode target = otherMode(current);
         if (ImGui::Button(modeButtonLabel(target).c_str()))
         {
-            requested = target;
+            bar.requested = target;
         }
+        bar.button = lastItemRect();
     }
     if (current == Mode::PlayWithoutReturn)
     {
@@ -109,7 +120,7 @@ std::optional<Mode> drawModeBarContents(Mode current, bool interactive, const st
         // sombre pour le texte (5,7 sur du blanc), pas pour un gris éteint (3,9 à 178).
         ImGui::TextUnformatted(hint.c_str());
     }
-    return requested;
+    return bar;
 }
 
 } // namespace
@@ -124,10 +135,9 @@ void drawModeBar(Mode current, const app::ScreenRect& scene, const std::string& 
     ImGui::End();
 }
 
-std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered, ImVec2& rectMax,
-                                       const std::string& hint)
+ModeBarOverlay drawModeBarOverlay(Mode current, ImVec2 corner, const std::string& hint)
 {
-    std::optional<Mode> requested;
+    ModeBarOverlay bar;
     // Un enfant de la fenêtre de la Vue, non une fenêtre flottante : une fenêtre flottante passe
     // derrière la Vue dès que celle-ci prend le focus (`BringWindowToDisplayFront`), et la barre
     // disparaîtrait au premier clic sur la scène.
@@ -140,13 +150,14 @@ std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovere
                           ui::withFlags(childFlags, ImGuiChildFlags_Borders),
                           ImGuiWindowFlags_NoScrollbar))
     {
-        requested = drawModeBarContents(current, true, hint);
+        bar = drawModeBarContents(current, true, hint);
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();
-    hovered = ImGui::IsItemHovered();
-    rectMax = ImGui::GetItemRectMax();
-    return requested;
+    // L'enfant est le dernier item : son survol et son rectangle, la barre entière.
+    bar.hovered = ImGui::IsItemHovered();
+    bar.bar = lastItemRect();
+    return bar;
 }
 
 bool playShortcutPressed(const ShortcutTable& table)

@@ -479,9 +479,7 @@ TEST_CASE("le bandeau de la barre de mode se dessine sur un gris de la palette, 
         ImGui::SetNextWindowPos({0.0f, 0.0f});
         ImGui::SetNextWindowSize({400.0f, 300.0f});
         ImGui::Begin("Vue");
-        bool hovered = false;
-        ImVec2 rectMax{};
-        std::ignore = drawModeBarOverlay(Mode::Edit, {10.0f, 10.0f}, hovered, rectMax, "Alt+P");
+        std::ignore = drawModeBarOverlay(Mode::Edit, {10.0f, 10.0f}, "Alt+P");
         ImGui::End();
         ImGui::Render();
     }
@@ -501,6 +499,57 @@ TEST_CASE("le bandeau de la barre de mode se dessine sur un gris de la palette, 
     const ImU32 dim = packed(ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
     CHECK(std::ranges::none_of(drawnVertices(),
                                [&](const ImDrawVert& vertex) { return sameRgb(vertex.col, dim); }));
+}
+
+TEST_CASE("la barre de mode en calque rend ses rectangles : la barre au coin demandé, son bouton "
+          "dedans, à l'échelle 1 comme à 125 %")
+{
+    // À 125 % (le portable), les marges du style ne sont plus celles de l'échelle 1 : un clic écrit
+    // en pixels y manquait le bouton (build/GOTCHA.md). La Vue place « Afficher » après la barre
+    // (`ModeBarOverlay::bar`), un test vise le bouton (`ModeBarOverlay::button`).
+    for (const float scale : {1.0f, 1.25f})
+    {
+        for (const Mode mode : {Mode::Edit, Mode::PlayWithoutReturn})
+        {
+            CAPTURE(scale);
+            CAPTURE(modeTokenOf(mode));
+            const levain::ui::UiContext context = levain::ui::createUiContext(scale);
+            levain::ui::applyEditorStyle(ImGui::GetStyle(), scale);
+            ModeBarOverlay overlay;
+            float frameHeight = 0.0f;
+            // Un enfant à la taille de son contenu n'a de taille qu'à la deuxième image.
+            for (int frame = 0; frame < 3; ++frame)
+            {
+                levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 900, .height = 480},
+                                           1.0 / 60.0);
+                ImGui::NewFrame();
+                ImGui::SetNextWindowPos({0.0f, 0.0f});
+                ImGui::SetNextWindowSize({880.0f, 300.0f});
+                ImGui::Begin("Vue");
+                overlay = drawModeBarOverlay(mode, {10.0f, 10.0f}, "Alt+P");
+                frameHeight = ImGui::GetFrameHeight();
+                ImGui::End();
+                ImGui::Render();
+            }
+            const levain::app::ScreenRect& bar = overlay.bar;
+            const levain::app::ScreenRect& button = overlay.button;
+            // La barre est à 8 px du coin demandé, l'enfant entier, non le dernier item dedans.
+            CHECK(bar.x == 18.0f);
+            CHECK(bar.y == 18.0f);
+            CHECK(bar.width > button.width);
+            CHECK(bar.height > button.height);
+            // Le bouton, non le rappel de la touche dessiné après lui : un item à cadre, dans la
+            // barre.
+            CHECK(button.height == doctest::Approx(frameHeight));
+            CHECK(button.width > 0.0f);
+            CHECK(button.x > bar.x);
+            CHECK(button.y > bar.y);
+            CHECK(button.x + button.width < bar.x + bar.width);
+            CHECK(button.y + button.height < bar.y + bar.height);
+            CHECK_FALSE(overlay.requested.has_value());
+            CHECK_FALSE(overlay.hovered);
+        }
+    }
 }
 
 TEST_CASE("la barre « Afficher » : sur un gris de la palette, et le menu s'ouvre sous son bouton")
