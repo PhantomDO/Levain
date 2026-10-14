@@ -47,6 +47,32 @@ std::uint32_t lowerOf(std::uint32_t letter)
     return letter >= 'A' && letter <= 'Z' ? letter - 'A' + 'a' : letter;
 }
 
+/// Les touches qu'une saisie peut lier à une action de position et qui ont un nom à elles : sans
+/// lui, la fenêtre dirait « pos:82 » pour la flèche du haut. Clé du catalogue, ou rien.
+const char* namedKeyOf(std::uint32_t keycode)
+{
+    constexpr std::uint32_t ScanRight = 79, ScanLeft = 80, ScanDown = 81, ScanUp = 82;
+    switch (keycode)
+    {
+    case '\t':
+        return "Tab";
+    case '\r':
+        return "Entrée";
+    case '\b':
+        return "Retour arrière";
+    case ScancodeMask | ScanRight:
+        return "Droite";
+    case ScancodeMask | ScanLeft:
+        return "Gauche";
+    case ScancodeMask | ScanDown:
+        return "Bas";
+    case ScancodeMask | ScanUp:
+        return "Haut";
+    default:
+        return nullptr;
+    }
+}
+
 /// Une position que le moteur se réserve : un modificateur seul ne se lie pas, et F1 sans
 /// modificateur ouvre les panneaux (`togglesPanels`).
 bool reservedPosition(std::uint32_t scancode, const platform::KeyModifiers& modifiers)
@@ -230,6 +256,10 @@ std::string displayNameOf(const Chord& chord, const platform::KeyAtPosition& key
     if (keycode == 0x1B)
     {
         return name + ui::tr("Échap");
+    }
+    if (const char* named = namedKeyOf(keycode))
+    {
+        return name + ui::tr(named);
     }
     if (keycode > ' ' && keycode < 0x7F)
     {
