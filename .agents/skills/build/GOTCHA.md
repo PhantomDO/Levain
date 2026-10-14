@@ -120,6 +120,28 @@ M7.7, morceau 16 (revue du passage réel).
 - **Symptôme** : une fenêtre en pixels fixes (190 px par bouton, 820 × 640) coupe « Réinitialiser » et cache cinq lignes sur vingt à 125 %. **Cause** : l'échelle de l'écran grandit la police et le style, pas les nombres du code ; `ImGuiStyle::ScaleAllSizes` tronque ses marges à l'entier (3 × 1,25 devient 3), la hauteur d'une ligne grandit de moins de 25 %. **Parade** : tout en multiples de `ImGui::GetFontSize()` et du style lu, dans une fonction pure testable sans contexte (`shortcutWindowFit`).
 - **Symptôme** : un bouton sous le tableau saute d'une ligne quand un message paraît, et le clic scripté, pris sans message, le rate. **Parade** : la ligne du message est toujours réservée (`Dummy`).
 
+## Le portable bridé : tout dépasse son temps, sans faute du code (2026-10-13)
+
+M7.7, la nuit du 12 au 13/10, la vérification du morceau 12 sur le portable.
+
+- **Symptôme** : tous les tests GPU sous lavapipe dépassent les 120 s de ctest ; les ombres prennent 600 ms par image
+  au lieu de 7 ; sous Windows, la création du device Direct3D 12 ou Vulkan prend 38 s, et `powershell.exe` reste muet
+  60 s. Aucun échec réel : seulement des dépassements de temps.
+- **Cause** : l'hôte Windows bridait le processeur, et la bride suivait la charge (sur secteur ; la mesure ci-dessous
+  en 0,05 s au repos, en 1,0 s avec deux builds). Donnovan, le 13/10 à 8 h 15, tel qu'il l'a écrit : « Tu peux
+  reprendre ou tu en était j'ai du éteint le pc car il surchauffait vu que j'avais baissé les ventilateurs au max.
+  Maintenant qu'ils sont en turbo tu peux recommencer. » Les ventilateurs au minimum : la surchauffe, la bride
+  thermique, puis l'arrêt du PC.
+- **Parade** : mesurer avant de conclure d'un dépassement de temps. Un million de carrés en Python prennent environ
+  0,07 s d'ordinaire, 1,4 s bridé :
+
+  ```bash
+  python3 -I -c "import time;t=time.perf_counter();sum(i*i for i in range(10**6));print(f'{time.perf_counter()-t:.2f}')"
+  ```
+
+  Au-dessus de 0,25 s, un dépassement de temps n'est pas un échec : le dire à Donnovan (les ventilateurs) plutôt que
+  d'attendre la nuit entière, puis relancer seuls les tests qui ont dépassé. La nuit, un seul travail lourd à la fois.
+
 ## Un test de pixels compare des pixels de texte d'ImGui : ils changent d'une exécution à l'autre (2026-10-14)
 
 M7.7, morceau 17c (la grille du sol, passage de relecture).
