@@ -12,13 +12,13 @@ ConstantBuffer<DebugLineConstants> lines : register(b0);
 struct VertexInput
 {
     float3 position : POSITION;
-    float3 color : COLOR;
+    float4 color : COLOR;
 };
 
 struct VertexOutput
 {
     float4 position : SV_Position;
-    float3 color : COLOR;
+    float4 color : COLOR;
 };
 
 [shader("vertex")]
@@ -33,5 +33,5 @@ VertexOutput vertexMain(VertexInput input)
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target
 {
-    return float4(input.color, 1.0);
+    return input.color;
 }

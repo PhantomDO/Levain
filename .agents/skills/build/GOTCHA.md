@@ -11,6 +11,20 @@ M7.7, morceau 16 (revue du passage réel).
 - **Symptôme** : une fenêtre en pixels fixes (190 px par bouton, 820 × 640) coupe « Réinitialiser » et cache cinq lignes sur vingt à 125 %. **Cause** : l'échelle de l'écran grandit la police et le style, pas les nombres du code ; `ImGuiStyle::ScaleAllSizes` tronque ses marges à l'entier (3 × 1,25 devient 3), la hauteur d'une ligne grandit de moins de 25 %. **Parade** : tout en multiples de `ImGui::GetFontSize()` et du style lu, dans une fonction pure testable sans contexte (`shortcutWindowFit`).
 - **Symptôme** : un bouton sous le tableau saute d'une ligne quand un message paraît, et le clic scripté, pris sans message, le rate. **Parade** : la ligne du message est toujours réservée (`Dummy`).
 
+## Le plan proche n'écrête pas pareil sous Vulkan et Direct3D 12 : écrêter soi-même les lignes (2026-10-13)
+
+M7.7, morceau 17c (la grille du sol, relecture).
+
+- **Symptôme** : une ligne de debug qui part loin devant la caméra et finit loin derrière elle (les lignes Z de la
+  grille, 100 pas de long, centrées sous la caméra) disparaît ou s'affiche en désordre (coins noirs, lignes manquantes) ;
+  le résultat n'est pas le même d'un backend à l'autre. **Cause** : NVRHI laisse `RasterState::depthClipEnable` à
+  `false` : sous Direct3D 12 cela donne `DepthClipEnable = FALSE` (`d3d12-graphics.cpp`), sous Vulkan le champ n'est
+  jamais lu (pas de `depthClampEnable`, `vulkan-graphics.cpp`) et la profondeur est écrêtée. Le bout derrière l'œil, projeté
+  à des dizaines de milliers de pixels hors écran, ou une profondeur hors de [0, 1], n'est donc pas traité de la même
+  façon. **Parade** : ne jamais compter sur l'écrêtage du matériel pour des primitives qui traversent le plan proche :
+  `render::clipToFrustum` coupe chaque ligne au volume de vue avant le dessin (`drawDebugLines`). Pour toute autre passe
+  qui dessine des primitives très longues, la même précaution, ou fixer `depthClipEnable` explicitement.
+
 ## Deux fenêtres dans un nœud d'ancrage : l'ordre des `Begin` choisit l'onglet visible (2026-10-11)
 
 M7.7, morceau 14 (la console, `gpu.editor-console.*`).
