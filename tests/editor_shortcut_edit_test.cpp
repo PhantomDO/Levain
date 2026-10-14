@@ -12,6 +12,7 @@
 
 #include "levain/editor/preferences.hpp"
 #include "levain/editor/shortcut_edit.hpp"
+#include "levain/editor/shortcut_window.hpp"
 #include "levain/platform/input_script.hpp"
 
 using namespace levain::editor;
@@ -152,7 +153,10 @@ TEST_CASE(
     // Rétablir tient [Ctrl+Y, Ctrl+Maj+Z] : Ctrl+Y sur la seconde place n'est en conflit avec
     // personne, pas même avec Rétablir.
     CHECK(conflictsOf(table, Action::Redo, letterChord('y', Ctrl), Qwerty).empty());
-    CHECK(replaceChord(table, Action::Redo, 1, letterChord('y', Ctrl), Qwerty).empty());
+    ShortcutWindow window;
+    beginCapture(window, {Action::Redo, 1});
+    CHECK(stepCapture(window, table, Qwerty, std::vector{letterPress('y', Ctrl)}));
+    CHECK_FALSE(window.pending.has_value());
     // Ctrl+Y n'est plus qu'une fois, devant ; Ctrl+Maj+Z est perdu avec la place qu'il tenait.
     CHECK(chordsOf(table, Action::Redo)[0] == letterChord('y', Ctrl));
     CHECK_FALSE(isBound(chordsOf(table, Action::Redo)[1]));
@@ -217,6 +221,144 @@ TEST_CASE("saisie : le genre de l'accord suit celui de l'action")
     CHECK(letter.chord == letterChord('z', Ctrl));
     CHECK(defaultKindOf(Action::MoveForward) == ChordKind::Position);
     CHECK(defaultKindOf(Action::Redo) == ChordKind::Letter);
+}
+
+TEST_CASE("saisie : un conflit attend, la table ne bouge pas avant « Remplacer »")
+{
+    ShortcutTable table = defaultShortcuts();
+    ShortcutWindow window;
+    beginCapture(window, {Action::Undo, 0});
+    const std::vector<KeyPress> presses{letterPress('s', Ctrl)};
+    CHECK_FALSE(stepCapture(window, table, Qwerty, presses));
+    REQUIRE(window.pending.has_value());
+    CHECK_FALSE(window.capturing.has_value());
+    const std::vector<ChordConflict> waiting =
+        window.pending ? window.pending->conflicts : std::vector<ChordConflict>{};
+    REQUIRE(waiting.size() == 1);
+    CHECK(waiting.front().action == Action::Save);
+    CHECK(isDefault(table, Action::Undo));
+    CHECK(isDefault(table, Action::Save));
+    // « Annuler » : la candidate tombe, rien n'a changé.
+    window.pending.reset();
+    CHECK(isDefault(table, Action::Save));
+    // « Remplacer » : l'accord passe.
+    beginCapture(window, {Action::Undo, 0});
+    CHECK_FALSE(stepCapture(window, table, Qwerty, presses));
+    const auto removed = acceptPending(window, table, Qwerty);
+    REQUIRE(removed.size() == 1);
+    CHECK(chordsOf(table, Action::Undo)[0] == letterChord('s', Ctrl));
+    CHECK_FALSE(isBound(chordsOf(table, Action::Save)[0]));
+    CHECK_FALSE(window.pending.has_value());
+}
+
+TEST_CASE(
+    "saisie : sans conflit l'accord est posé, F1 et un modificateur laissent la saisie ouverte")
+{
+    ShortcutTable table = defaultShortcuts();
+    ShortcutWindow window;
+    beginCapture(window, {Action::Save, 1});
+    const KeyPress f1{.scancode = ScanF1, .keycode = 0x4000003A, .modifiers = {}};
+    const KeyPress ctrl{.scancode = ScanLeftCtrl, .keycode = 0x400000E0, .modifiers = Ctrl};
+    CHECK_FALSE(stepCapture(window, table, Qwerty, std::vector{f1, ctrl}));
+    CHECK(window.capturing.has_value());
+    REQUIRE(window.message != nullptr);
+    CHECK(std::string{window.message}.contains("F1"));
+    CHECK(isDefault(table, Action::Save));
+    // La touche qui suit le Ctrl seul est l'accord.
+    CHECK(stepCapture(window, table, Qwerty, std::vector{letterPress('q', Ctrl)}));
+    CHECK_FALSE(window.capturing.has_value());
+    CHECK(chordsOf(table, Action::Save)[1] == letterChord('q', Ctrl));
+    // Échap annule et n'est jamais capturée.
+    beginCapture(window, {Action::Save, 1});
+    const KeyPress escape{.scancode = ScanEscape, .keycode = 0x1B, .modifiers = {}};
+    CHECK_FALSE(stepCapture(window, table, Qwerty, std::vector{escape}));
+    CHECK_FALSE(window.capturing.has_value());
+    CHECK(chordsOf(table, Action::Save)[1] == letterChord('q', Ctrl));
+}
+
+TEST_CASE("saisie : un conflit en attente tombe quand le clavier change")
+{
+    ShortcutTable table = defaultShortcuts();
+    ShortcutWindow window;
+    beginCapture(window, {Action::Undo, 0});
+    CHECK_FALSE(stepCapture(window, table, Qwerty, std::vector{letterPress('s', Ctrl)}));
+    REQUIRE(window.pending.has_value());
+    dropPendingAfterKeymapChange(window);
+    CHECK_FALSE(window.pending.has_value());
+    CHECK(window.message != nullptr);
+}
+
+TEST_CASE("la saisie ne dure que là où elle lit le clavier")
+{
+    const CaptureSurroundings fine{
+        .editing = true, .windowFocused = true, .textInput = false, .appFocused = true};
+    CHECK(captureAllowed(fine));
+    // Jouer : les touches de l'éditeur n'arrivent plus à la saisie.
+    auto around = fine;
+    around.editing = false;
+    CHECK_FALSE(captureAllowed(around));
+    // Un onglet caché, une modale : la fenêtre n'a plus le focus.
+    around = fine;
+    around.windowFocused = false;
+    CHECK_FALSE(captureAllowed(around));
+    // Le filtre, ou le champ d'un autre panneau : « s » tapé n'est pas un accord.
+    around = fine;
+    around.textInput = true;
+    CHECK_FALSE(captureAllowed(around));
+    // Alt+Tab.
+    around = fine;
+    around.appFocused = false;
+    CHECK_FALSE(captureAllowed(around));
+    // Abandonner ne touche pas à la table et efface tout ce qui attendait.
+    ShortcutTable table = defaultShortcuts();
+    ShortcutWindow window;
+    beginCapture(window, {Action::Undo, 0});
+    CHECK_FALSE(stepCapture(window, table, Qwerty, std::vector{letterPress('s', Ctrl)}));
+    REQUIRE(window.pending.has_value());
+    beginCapture(window, {Action::Undo, 1});
+    window.message = "x";
+    abandonCapture(window);
+    CHECK_FALSE(window.capturing.has_value());
+    CHECK_FALSE(window.pending.has_value());
+    CHECK(window.message == nullptr);
+    CHECK(isDefault(table, Action::Undo));
+}
+
+TEST_CASE("réinitialiser un défaut pris attend « Remplacer », comme une saisie")
+{
+    ShortcutTable table = defaultShortcuts();
+    ShortcutWindow window;
+    replaceChord(table, Action::Undo, 0, letterChord('s', Ctrl), Qwerty); // Enregistrer le perd
+    const ShortcutTable before = table;
+    // Rien ne change : le conflit est nommé, la table est la même.
+    CHECK_FALSE(requestReset(window, table, Action::Save, Qwerty));
+    REQUIRE(window.pending.has_value());
+    const bool resets = window.pending.has_value() && window.pending->resets;
+    CHECK(resets);
+    const std::vector<ChordConflict> waiting =
+        window.pending ? window.pending->conflicts : std::vector<ChordConflict>{};
+    REQUIRE(waiting.size() == 1);
+    CHECK(waiting.front().action == Action::Undo);
+    CHECK(conflictName(waiting.front(), Qwerty) == "Ctrl+S : Annuler");
+    CHECK(linesOf(table) == linesOf(before));
+    // « Annuler » : la candidate tombe, la table n'a pas bougé.
+    window.pending.reset();
+    CHECK(linesOf(table) == linesOf(before));
+    // « Remplacer » : Enregistrer reprend Ctrl+S, Annuler le perd.
+    CHECK_FALSE(requestReset(window, table, Action::Save, Qwerty));
+    const auto removed = acceptPending(window, table, Qwerty);
+    REQUIRE(removed.size() == 1);
+    CHECK(isDefault(table, Action::Save));
+    CHECK_FALSE(isBound(chordsOf(table, Action::Undo)[0]));
+    CHECK(conflictsIn(table, Qwerty).empty());
+    // Sans défaut pris, la réinitialisation est immédiate et rend vrai.
+    table = defaultShortcuts();
+    replaceChord(table, Action::Save, 0, letterChord('k', Ctrl), Qwerty);
+    beginCapture(window, {Action::Save, 1});
+    CHECK(requestReset(window, table, Action::Save, Qwerty));
+    CHECK(isDefault(table, Action::Save));
+    CHECK_FALSE(window.pending.has_value());
+    CHECK_FALSE(window.capturing.has_value()); // la saisie de cette action s'arrête avec
 }
 
 TEST_CASE("conflit né d'un changement de disposition : trouvé, jamais rebranché")
