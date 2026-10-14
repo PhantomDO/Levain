@@ -334,15 +334,18 @@ M couverts par un test ».
     est malformé) peut encore porter une ligne que le code refuse : accords illisibles, ligne écrite deux fois, **accord
     d'un autre genre que l'action** (une lettre pour « Avancer » ne partirait jamais : `positionHeld` ne lit que les
     positions), **modificateur sur une action tenue**. Elle est écartée et dite, les défauts de l'action restent, et **la ligne est gardée telle quelle** à
-    l'enregistrement (`AppliedLines::refused`, `withKeptLines`) tant que l'action n'est pas changée ; **une action
-    inconnue (un fichier d'une autre branche) est gardée et réécrite** de même ; un conflit du fichier est dit sans
+    l'enregistrement (`AppliedLines::refused`, `withKeptLines`) tant que la fenêtre n'a pas écrit son action : une saisie,
+    « Remplacer » (pour l'action et pour celles qu'il dépouille), « Réinitialiser » ou « Tout réinitialiser » l'oublient
+    pour de bon (`forgetWrittenLines`), sans quoi « Avancer = Z » revenait après un changement puis « Réinitialiser » et se
+    refusait de nouveau à chaque démarrage ; **une action inconnue (un fichier d'une autre branche) est gardée et
+    réécrite** de même, jamais oubliée ; un conflit du fichier est dit sans
     rien changer. Sous une
     exécution scriptée (pas de dossier de préférences) : les défauts, jamais écrits. Limites : les accords de
     position d'une action ne sont posés que par la touche physique (pas de saisie « par lettre » d'une action de position),
     et la fenêtre n'a pas de profils comme le Shortcuts Manager d'Unity. Tests : `tests/editor_shortcut_edit_test.cpp` (la
     logique) et, de bout en bout, `gpu.editor-shortcut-settings-*.*` (`tests/editor_shortcut_settings_gpu.cpp`, un
     ctest par scénario : changer et redémarrer, conflit, saisie, réinitialiser, menu, scripté, disposition, play, focus, leak,
-    azerty, resetconflict, held). Équivalents :
+    azerty, resetconflict, held, refusedreset). Équivalents :
     *Editor Preferences > Keyboard Shortcuts* d'Unreal (deux accords par commande, un conflit averti par *Override*,
     **documenté**), le *Shortcuts Manager* d'Unity (liste filtrable, conflits listés, profils, **documenté**), *Editor
     Settings > Shortcuts* de Godot (**supposé**, non relu).

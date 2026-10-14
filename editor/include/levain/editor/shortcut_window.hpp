@@ -83,6 +83,10 @@ struct ShortcutWindow
     ImVec2 cancelAt{};
     ImVec2 confirmAllAt{}; ///< Le bouton de la confirmation de « Tout réinitialiser ».
     bool confirmShown = false;
+    /// Les actions que la fenêtre a écrites depuis la dernière relève (`forgetWrittenLines`) :
+    /// celle qu'une saisie, « Remplacer » ou « Réinitialiser » a changée, celles que « Remplacer »
+    /// a dépouillées, toutes pour « Tout réinitialiser ».
+    std::vector<Action> written;
 };
 
 /// Démarre la saisie de cette place : plus rien d'autre n'est en attente.
@@ -126,6 +130,17 @@ bool requestReset(ShortcutWindow& window, ShortcutTable& table, Action action,
 /// conflit. Rend ce qui a été retiré.
 std::vector<ChordConflict> acceptPending(ShortcutWindow& window, ShortcutTable& table,
                                          const platform::KeyAtPosition& keyAtPosition);
+
+/// « Tout réinitialiser », confirmé : toutes les actions rendent leurs défauts (et sont toutes
+/// écrites : leurs lignes gardées s'oublient, `forgetWrittenLines`), la saisie et la candidate en
+/// attente sont abandonnées.
+void resetEverything(ShortcutWindow& window, ShortcutTable& table);
+
+/// **Relève les actions écrites** par la fenêtre et en oublie les lignes gardées (`withoutLinesOf`)
+/// : une ligne que le code a refusée au chargement n'est gardée que tant que l'utilisateur n'a pas
+/// choisi pour son action, après quoi le fichier ne la rend plus (« Avancer = Z » ne revient pas
+/// après un changement puis « Réinitialiser »). À appeler après chaque image de la fenêtre.
+void forgetWrittenLines(ShortcutWindow& window, std::vector<ShortcutLine>& kept);
 
 /// La disposition du clavier a changé : une candidate en attente se refait sur la nouvelle, ou
 /// est abandonnée avec son message (ses conflits ne sont plus ceux qu'on a lus).

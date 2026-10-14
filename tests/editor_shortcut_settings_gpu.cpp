@@ -29,6 +29,8 @@
 //   held           une action tenue (le vol, Arrêter) ne lit aucun modificateur : Maj+E pour «
 //   Avancer »
 //                  nomme « E : Monter », et le fichier qui lui en met un est refusé, dit et gardé
+//   refusedreset   une ligne refusée au chargement ne revient pas une fois son action écrite par la
+//                  fenêtre (changer puis « Réinitialiser »)
 //   levain_editor_shortcut_settings <vulkan|d3d12|d3d12-warp> <scénario>
 //
 #include <algorithm>
@@ -1105,6 +1107,64 @@ int playHeld(const levain::tests::TestBackend& backend)
                   "l'enregistrement garde la ligne refusée telle qu'écrite");
 }
 
+/// **Une ligne refusée ne revient pas** : « Avancer = Z » (une lettre pour le vol) est refusée au
+/// chargement et gardée ; dès que la fenêtre écrit « Avancer » (une saisie), la ligne est oubliée,
+/// et « Réinitialiser » ne la rend pas : le fichier n'a plus d'« Avancer », le redémarrage ne
+/// journalise plus l'erreur. La ligne d'une action inconnue, elle, reste.
+int playRefusedReset(const levain::tests::TestBackend& backend)
+{
+    const TempDirectory directory{"refused-reset"};
+    const Seen rows = probeRows(backend);
+    Preferences preferences;
+    preferences.shortcuts = {{.action = "Avancer", .chords = {"Z"}},
+                             {.action = "Action d'une autre branche", .chords = {"Ctrl+Q"}}};
+    if (!levain::editor::savePreferences(fileIn(directory.path), preferences))
+    {
+        return expect(false, "le fichier d'essai s'écrit");
+    }
+    Session first;
+    first.directory = directory.path;
+    first.frames = 40;
+    first.openAt = 2;
+    first.peekFileAt = 20;
+    first.script = clickScript(4, cellOf(rows, Action::MoveForward)) + tapKey(10, "Z") +
+                   clickScript(24, rowOf(rows, Action::MoveForward)->resetAt);
+    const Run one = play(backend, first);
+    if (one.exitCode != 0 || one.seen.size() != 40)
+    {
+        return expect(false, "la première session : code 0 et une image par image");
+    }
+    const auto after = savedIn(directory.path);
+    const auto hasLine = [](const std::optional<Preferences>& file, std::string_view action)
+    {
+        return file && std::ranges::any_of(file->shortcuts, [action](const auto& line)
+                                           { return line.action == action; });
+    };
+    int failures = expect(loggedSays(one, "Avancer : un accord n'est pas du genre de l'action"),
+                          "« Avancer = Z » est refusée au chargement") +
+                   expect(tableLine(one.seen.front(), Action::MoveForward) == "Avancer = pos:26, ",
+                          "les défauts d'« Avancer » restent") +
+                   expect(tableLine(one.seen[16], Action::MoveForward) == "Avancer = pos:29, ",
+                          "la saisie change « Avancer » (la touche à la place du Z)") +
+                   expect(one.fileAtPeek.contains("Avancer = pos:29") &&
+                              !one.fileAtPeek.contains("Avancer = Z"),
+                          "le fichier écrit la saisie, plus la ligne refusée") +
+                   expect(tableLine(one.seen.back(), Action::MoveForward) == "Avancer = pos:26, ",
+                          "« Réinitialiser » rend les défauts") +
+                   expect(!hasLine(after, "Avancer"),
+                          "« Avancer = Z » ne revient pas à l'écriture après « Réinitialiser »") +
+                   expect(hasLine(after, "Action d'une autre branche"),
+                          "la ligne d'une action inconnue est gardée");
+    // Le redémarrage : plus d'erreur à journaliser pour « Avancer ».
+    Session second;
+    second.directory = directory.path;
+    second.frames = 10;
+    const Run two = play(backend, second);
+    return failures + expect(two.exitCode == 0 && two.seen.size() == 10, "la seconde session") +
+           expect(!loggedSays(two, "Avancer : un accord n'est pas du genre de l'action"),
+                  "le redémarrage ne journalise plus le refus");
+}
+
 /// Un scénario par nom : `levain_editor_shortcut_settings <backend> <scénario>`.
 struct Scenario
 {
@@ -1112,7 +1172,7 @@ struct Scenario
     int (*run)(const levain::tests::TestBackend&);
 };
 
-constexpr std::array<Scenario, 13> Scenarios{{{"change", playChange},
+constexpr std::array<Scenario, 14> Scenarios{{{"change", playChange},
                                               {"conflict", playConflict},
                                               {"capture", playCapture},
                                               {"reset", playReset},
@@ -1124,7 +1184,8 @@ constexpr std::array<Scenario, 13> Scenarios{{{"change", playChange},
                                               {"leak", playLeak},
                                               {"azerty", playAzerty},
                                               {"resetconflict", playResetConflict},
-                                              {"held", playHeld}}};
+                                              {"held", playHeld},
+                                              {"refusedreset", playRefusedReset}}};
 
 } // namespace
 
@@ -1144,7 +1205,7 @@ int main(int argc, char** argv)
             std::println(stderr,
                          "usage : levain_editor_shortcut_settings <vulkan|d3d12|d3d12-warp> "
                          "<change|conflict|capture|reset|menu|scripted|layout|play|focus|leak|"
-                         "azerty|resetconflict|held>");
+                         "azerty|resetconflict|held|refusedreset>");
             return 2;
         }
         return scenario->run(*backend) == 0 ? 0 : 1;
