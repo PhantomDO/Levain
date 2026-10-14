@@ -22,11 +22,13 @@
 // sans un mot). L'éditeur le dit dans sa console et repart de la disposition par défaut, plutôt que
 // d'en lire la moitié.
 
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -83,6 +85,47 @@ struct Preferences
 
 /// Lit le texte d'un fichier. La première faute le refuse, avec son numéro de ligne.
 [[nodiscard]] core::Result<Preferences> parsePreferences(std::string_view text);
+
+/// **Windows refuse un instant un fichier qu'un autre tient ouvert** : un lecteur qui l'a ouvert
+/// sans partager la suppression (`std::ifstream` de Microsoft, un antivirus, un indexeur) empêche
+/// de le remplacer (`MoveFileExW` : « Access is denied », 5), et un remplacement en cours empêche
+/// de l'ouvrir (« sharing violation », 32). Mesuré sur le portable, deux écrivains qui relisent le
+/// même fichier : 98 à 131 remplacements refusés sur 300, 3 à 8 ouvertures refusées. Le remède est
+/// celui d'`ImportantFileWriter` de Chromium (crbug.com/1099284) : attendre un peu et réessayer,
+/// **ce refus-là seulement** (`isTransientlyBusy`) et **pendant un temps**, mesuré sur une horloge
+/// monotone, non un nombre d'attentes : `sleep_for(10 ms)` dure environ 15,6 ms sous Windows (le
+/// pas de son horloge), et sous la charge d'un build le portable a vu un remplacement refusé
+/// jusqu'à 2 s (l'antivirus qui examine le fichier neuf est le suspect plausible, non prouvé).
+/// Toute autre erreur (un droit sous Linux, un dossier absent, un disque plein) échoue aussitôt.
+struct BusyFileRetry
+{
+    /// Le temps pendant lequel un refus passager est réessayé, depuis le premier essai. Zéro : un
+    /// seul essai.
+    std::chrono::milliseconds budget{0};
+    std::chrono::milliseconds pause{0}; ///< L'attente demandée entre deux essais.
+};
+
+/// Celui des préférences : 3 s de refus au plus, un essai toutes les 10 ms (demandées), à
+/// l'ouverture ou à l'enregistrement d'une session.
+inline constexpr BusyFileRetry PreferencesFileRetry{.budget = std::chrono::milliseconds{3000},
+                                                    .pause = std::chrono::milliseconds{10}};
+
+/// **Un refus qui passera** : le fichier est tenu par un autre un instant. Sous Windows, les codes
+/// Win32 que rendent `std::filesystem` de Microsoft (catégorie `system_category`) et la CRT à
+/// l'ouverture (`_doserrno`) : `ERROR_ACCESS_DENIED` (5), `ERROR_SHARING_VIOLATION` (32),
+/// `ERROR_LOCK_VIOLATION` (33). Windows rend aussi le premier pour un vrai droit refusé, qu'on ne
+/// sait pas distinguer : celui-là n'est dit qu'au bout du délai. **Sous Linux, jamais** : `rename`
+/// y remplace un fichier ouvert, et un `EACCES` est un droit qui ne reviendra pas.
+[[nodiscard]] bool isTransientlyBusy(const std::error_code& error);
+
+/// Rappelle `attempt` tant qu'il est refusé un instant (`busy`, `isTransientlyBusy` hors des
+/// tests) et que `retry.budget` n'est pas écoulé, mesuré sur `steady_clock`, avec
+/// `sleep(retry.pause)` entre deux essais. Rend la dernière erreur, vide si un essai a réussi. Une
+/// erreur que `busy` ne reconnaît pas rend tout de suite, sans attendre.
+[[nodiscard]] std::error_code
+retryWhileBusy(BusyFileRetry retry, const std::function<std::error_code()>& attempt,
+               const std::function<bool(const std::error_code&)>& busy,
+               const std::function<void(std::chrono::milliseconds)>& sleep);
 
 /// Lit le fichier : rien s'il n'existe pas (une première session), une erreur qui nomme le fichier
 /// s'il est illisible, refusé, ou si le disque ne dit pas s'il existe (droits : ce n'est pas une

@@ -449,8 +449,8 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   `--select`, en ouvre les ancêtres, ajoute la hiérarchie et l'inspecteur aux fenêtres, et écrit à la fin le
   bilan que lit la CI, « éditeur : N entités, M champs dessinés ; sélection : chemin », N étant les lignes de la
   hiérarchie et M les champs de la sélection à la dernière image.
-- `Preferences`, `formatPreferences`, `parsePreferences`, `loadPreferences`, `savePreferences`, `preferencesFileFor`
-  (`preferences.hpp`, sans ImGui) ; `startPreferences`, `savePreferencesNow`, `preferencesOf`, `applyPreferences`,
+- `Preferences`, `formatPreferences`, `parsePreferences`, `loadPreferences`, `savePreferences`, `BusyFileRetry`,
+  `isTransientlyBusy`, `retryWhileBusy`, `preferencesFileFor` (`preferences.hpp`, sans ImGui) ; `startPreferences`, `savePreferencesNow`, `preferencesOf`, `applyPreferences`,
   `dockNodesOfSavedLayout`, `resetLayout` (`layout.hpp`) : le fichier des préférences et son branchement sur ImGui.
 - `QuitState`, `askToQuit`, `shouldOpenQuitModal`, `drawQuitModal` (`quit.hpp`) : la modale de fermeture.
 - `Mode`, `ModeState`, `ModeRequests`, `modeRequested`, `enterMode`, `stopPressed`, `inputRouteFor`,
