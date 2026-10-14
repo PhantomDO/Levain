@@ -309,15 +309,15 @@ Les issues : #389 (0), #390 (1, 2, 4, 5), #391 (6 à 8), #392 (9 à 11, 16), #39
 
 *Note du 2026-10-14, ce qui a été livré* : chaque morceau est entré dans `m7.7/atelier` en une ou plusieurs PR
 empilées, qui compilent chacune avec leurs tests : une pour les morceaux 0 et 1, jusqu'à treize pour le morceau 16 ;
-104 PR de #396 à #501 (#479 et #493 sont des issues), puis #… . **Le morceau 17 est livré en quatre parties** :
+118 PR de #396 à #515 (#479 et #493 sont des issues). **Le morceau 17 est livré en quatre parties** :
 
 - **17a**, les polices et les icônes, leurs licences et `tools/fetch-assets.sh` (#473 à #478) ;
-- **17b**, le style de l'éditeur, qui suit l'échelle de l'écran, et les X, Y, Z colorés (#…) ;
+- **17b**, le style de l'éditeur, qui suit l'échelle de l'écran, et les X, Y, Z colorés (#502 à #507) ;
 - **17c**, la grille au sol, le menu Afficher et G (#494 à #501) ;
-- **17d**, l'interface mélangée en espace gamma (l'amendement de la décision 15), qui corrige aussi #493 (#…).
+- **17d**, l'interface mélangée en espace gamma (l'amendement de la décision 15), qui corrige aussi #493 (#512, #513).
 
-Viennent ensuite les corrections propres à Windows qu'a trouvées la CI lancée à la main le 14/10 (#…), puis le
-morceau « fin » (#…).
+Viennent ensuite les corrections propres à Windows qu'a trouvées la CI lancée à la main le 14/10 (#508 à #511), celle de la
+fenêtre réduite sous Vulkan qu'a trouvée la clôture (#514), puis le morceau « fin » (#515).
 
 ## Ce qui reste (note du 2026-10-14)
 

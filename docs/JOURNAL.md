@@ -45,18 +45,22 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   `Claude-Session` dans les commits du milestone), ses agents dans plusieurs worktrees à la fois.
 - Définition de « terminé » (SPECS §9) :
   - l'éditeur lancé sur la 4070, fenêtré : en Direct3D 12, 1 918 images sans un message de la couche de debug ; en
-    Vulkan, 1 268 images (relecture du morceau 8). 17d change l'image de présentation : … (SPECS §10, point 2 :
-    `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`) ;
+    Vulkan, 1 268 images (relecture du morceau 8). 17d change l'image de présentation : la fenêtre redimensionnée,
+    réduite et restaurée passe en Direct3D 12 et en Vulkan, pour le sandbox et pour l'éditeur (SPECS §10, point 2,
+    `tools/wsl/resize-sandbox.sh`). En Vulkan, ce contrôle, jamais lancé jusque-là, a trouvé un défaut plus ancien que
+    M7.7 : la swapchain recréée en 0 × 0 à la réduction, une erreur de validation ; corrigé par #514 ;
   - les critères de M7.7 sont des tests (ci-dessous), aucun n'est chiffré ; les coûts mesurés l'ont été sur le portable,
     indicatifs : la machine de référence n'a pas servi (règle n°6) ;
-  - CI verte : le run … de #…, la PR vers `main` ;
+  - CI : celle de la PR vers `main` est la porte de la fusion (règle n°1) ; le passage lancé à la main le 14/10
+    (run 38545818223) avait trouvé trois défauts propres à Windows, corrigés par #508 à #511 ;
   - les README de chaque module touché, mis à jour par les PR du milestone : `core`, `platform`, `ui`, `app`, `render`,
     `scene`, `gpu`, `editor` (`git diff --stat 499e9f0 HEAD -- '*README.md'`) ;
   - pas d'étude : E7 vient avec M7.6 ;
-  - le board, ci-dessus ; le tag `m7.7` sur …, la [release](https://github.com/PhantomDO/Levain/releases/tag/m7.7), le
-    milestone fermé : 5 issues (#389 à #393) et … PR.
+  - le board, ci-dessus ; le tag `m7.7` et la
+    [release](https://github.com/PhantomDO/Levain/releases/tag/m7.7) suivent la fusion dans `main` ; le milestone se
+    ferme avec ses 5 issues (#389 à #393) et 118 PR.
 - Fait, du 10 au 14/10, en mode autonome : **l'éditeur devient un atelier**, en 18 morceaux (ADR-0036, « Les
-  morceaux ») et 104 PR dans `m7.7/atelier` de #396 à #501 (#479 et #493 sont des issues), puis #… :
+  morceaux ») et 118 PR dans `m7.7/atelier` de #396 à #515 (#479 et #493 sont des issues) :
   - **le mode Édition** (morceaux 4 et 5, #404 à #408, #417 à #420) : l'éditeur s'ouvre simulation arrêtée, et le jeu
     ne reçoit rien ; Alt+P lance « Jouer (sans retour) », le jeu d'avant, jusqu'à Play et Stop (M7.5), Échap revient ;
     une valeur tapée dans l'inspecteur se voit dans son image, pas dans la suivante ;
@@ -83,17 +87,17 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
     l'anglais de M7.8 ; la CI refuse un texte qui lui échappe (`i18n.untranslated`) ;
   - **les polices et les icônes** (17a, #473 à #478) : Inter, Noto Sans derrière, les icônes Material Symbols,
     téléchargées avec leurs licences (`tools/fetch-assets.sh`) ; une police absente arrête l'éditeur en la nommant ;
-  - **le style** (17b, #…) : sombre et plat, un seul accent bleu, qui suit l'échelle de l'écran ; X, Y, Z en rouge,
-    vert et bleu dans l'inspecteur ;
+  - **le style** (17b, #502-#507) : sombre et plat, un seul accent bleu, qui suit l'échelle de l'écran ; X, Y, Z en
+    rouge, vert et bleu dans l'inspecteur ;
   - **la grille au sol, le menu Afficher et G** (17c, #494 à #501) : l'écart des lignes suit la hauteur de la caméra,
     en fondu d'une puissance de 10 à l'autre ; G cache les aides, comme la *Game View* d'Unreal ;
-  - **l'interface mélangée en espace gamma** (17d, #…) : l'image de présentation en UNORM sur tous les backends, le
-    tonemapping qui encode lui-même le sRGB ; lavapipe et la 4070 donnent la même image (ferme #493) ;
+  - **l'interface mélangée en espace gamma** (17d, #512, #513) : l'image de présentation en UNORM sur tous les backends,
+    le tonemapping qui encode lui-même le sRGB ; lavapipe et la 4070 donnent la même image (ferme #493) ;
   - **les deux bancs d'essai** (morceaux 1 et 2, #397 à #401) : le tableau des gestes d'Unity et d'Unreal
     (`editor/GESTES.md`), et le banc de l'App, qui rejoue des événements écrits, en QWERTY ou en AZERTY, dans la
     vraie boucle, hors écran : c'est lui qui prouve tout ce qui précède ;
-  - **les corrections propres à Windows** (#…, plus bas) ; l'ADR-0036 et la ROADMAP v0.16 (#396) ; cette clôture
-    (#…), qui met à jour l'ADR-0036 (réalisé, des notes datées sur ce qui a été construit, « Ce qui reste »).
+  - **les corrections propres à Windows** (#508-#511, #514, plus bas) ; l'ADR-0036 et la ROADMAP v0.16 (#396) ; cette
+    clôture (#515), qui met à jour l'ADR-0036 (réalisé, des notes datées sur ce qui a été construit, « Ce qui reste »).
 - Mesures :
   - **le critère de M7.7** (ADR-0036, « Les contrôles » ; ROADMAP), point par point. Les tests GPU tournent sous
     lavapipe (Linux, et la CI Windows) et sous WARP (leur variante `d3d12-warp`) :
@@ -121,10 +125,10 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
       l'interface et le rendu, un autre build tournant à côté (`tools/recompose-cost.sh`, texte de #408) ;
 
     Les trois chiffres sont à reprendre sur la machine de référence avant la clôture de la phase 7 ;
-  - **les tests** : … Debug, … Release, … ASan, … web (`tools/verify.sh`, sur le dernier morceau), contre 389 par
-    preset Linux et 191 web au début du milestone (l'entrée de #19) ; les tests `d3d12-warp` passent de 8 à 42 par
-    configuration Windows (`tests/CMakeLists.txt`) ; la CI de la PR vers `main` : windows-debug …, windows-release …
-    (run …) ;
+  - **les tests** : 708 Debug, 708 Release, 708 ASan, 198 web (`tools/verify.sh`, sur le dernier morceau), contre 389
+    par preset Linux et 191 web au début du milestone (l'entrée de #19) ; les tests `d3d12-warp` passent de 8 à 42 par
+    configuration Windows (`tests/CMakeLists.txt`) ; la suite unitaire Windows entière passe sur le portable (588 cas,
+    hors écran) ; la CI de la PR vers `main` en est la porte ;
   - **la CI lancée à la main**, deux fois, aux étapes risquées : le 11/10 après le morceau 7 (la scène dans une
     texture), verte en 30 min (run 38128696798) ; le 14/10 après 17a (`ci.yml` et le téléchargement des polices),
     rouge sous Windows : 2 tests sur 584 en windows-debug, 1 sur 580 en windows-release (run 38545818223, plus bas).
@@ -168,10 +172,11 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   - **les coûts sans la machine de référence** : toute la session a tourné sur le portable ; ses chiffres restent
     indicatifs (règle n°6) ;
   - **issues ouvertes pendant le milestone** : #479, le plan proche qui coupe les maillages sous Vulkan et pas sous
-    Direct3D 12 (ouverte, hors milestone) ; #493, la scène trois fois trop sombre sous lavapipe, une swapchain UNORM
-    qui recevait du linéaire (fermée par 17d, #…). Ce que M7.7 laisse d'autre : l'ADR-0036, « Ce qui reste ».
+    Direct3D 12 (ouverte, hors milestone) ; #493, la scène trois fois trop sombre sous lavapipe, une swapchain UNORM qui
+    recevait du linéaire (corrigée par 17d, #513 ; fermée avec la PR vers `main`). Ce que M7.7 laisse d'autre :
+    l'ADR-0036, « Ce qui reste ».
 - Prochaine étape :
-  - la PR de `m7.7/atelier` vers `main` (#…), sa CI pour porte, la fusion en merge commit ; puis le tag `m7.7`, sa
+  - la PR de `m7.7/atelier` vers `main`, sa CI pour porte, la fusion en merge commit ; puis le tag `m7.7`, sa
     release, le milestone fermé, le board ; Donnovan essaie l'éditeur ;
   - puis M7.5, Play/Stop : son ADR d'abord (Stop restaure la scène en place, sans relire de fichier), et le sondage
     « Simuler » (garder Alt+S ou non).
