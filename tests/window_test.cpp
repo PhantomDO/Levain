@@ -80,13 +80,27 @@ TEST_CASE("waitEvents rend la main à l'échéance quand aucun événement n'arr
     // Ce que la création a mis dans la file : sinon l'attente reviendrait tout de suite.
     (void)levain::platform::pollEvents(*window);
 
-    const auto start = std::chrono::steady_clock::now();
-    const levain::platform::Events events = levain::platform::waitEvents(*window, 0.05);
-    const auto elapsed = std::chrono::steady_clock::now() - start;
+    // `waitEvents` rend la main au premier événement SDL, même un que le moteur ne traduit pas (le
+    // pilote offscreen sonde toutes les millisecondes, et une souris branchée ou un focus perdu
+    // arrive dans la file) : une attente écourtée n'a rien à dire de l'échéance (`Events::woken`).
+    // On recommence jusqu'à une attente que rien n'a écourtée, et on exige qu'il y en ait une : le
+    // test ne devient pas muet quand des événements parasites arrivent (règle n°7).
+    bool slept = false;
+    for (int attempt = 0; attempt < 20 && !slept; ++attempt)
+    {
+        const auto start = std::chrono::steady_clock::now();
+        const levain::platform::Events events = levain::platform::waitEvents(*window, 0.05);
+        const auto elapsed = std::chrono::steady_clock::now() - start;
 
-    CHECK(events.window.empty());
-    CHECK(elapsed >= 40ms); // a bien dormi, pas une attente nulle
-    CHECK(elapsed < 5s);
+        CHECK(events.window.empty());
+        if (!events.woken)
+        {
+            CHECK(elapsed >= 40ms); // a bien dormi, pas une attente nulle
+            CHECK(elapsed < 5s);
+            slept = true;
+        }
+    }
+    REQUIRE(slept);
 }
 
 TEST_CASE("ce qu'une interface demande à la fenêtre : l'échelle, le presse-papiers, la saisie")

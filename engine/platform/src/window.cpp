@@ -202,6 +202,7 @@ Events waitEvents(const Window& window, double maxSeconds)
     SDL_Event event{};
     if (SDL_WaitEventTimeout(&event, timeoutMs))
     {
+        events.woken = true;
         appendEvent(events, event, windowId);
     }
     else if (timeoutMs < 0)
