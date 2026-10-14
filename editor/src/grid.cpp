@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <optional>
 
 namespace levain::editor
 {
@@ -92,23 +94,32 @@ float chordHalfLength(float offset, float reach)
     return std::sqrt(std::max(reach * reach - offset * offset, 0.0f));
 }
 
-/// Ce qui règle l'opacité le long d'une ligne : la distance au centre de la grille.
+/// Ce qui règle l'opacité le long d'une ligne : la distance au centre de la grille, et l'écart que
+/// la ligne voisine a à l'écran (`screen`, s'il y en a un ; `alongLine`, la direction de la ligne ;
+/// `toNeighbour`, où est sa voisine).
 struct Fade
 {
     glm::vec2 center;
     float reach;
+    glm::vec3 alongLine;
+    glm::vec3 toNeighbour;
+    const std::optional<GridScreen>& screen;
 };
 
 /// Une ligne de `from` à `to`, coupée en `GridSegments` tronçons dont l'opacité suit la distance
-/// au centre de `fade` : le rasterizer interpole l'opacité à l'intérieur d'un tronçon, et la ligne
-/// entière s'estompe, y compris dans sa longueur.
+/// au centre de `fade` et, avec une image, l'écart des lignes à l'écran : le rasterizer interpole
+/// l'opacité à l'intérieur d'un tronçon, et la ligne entière s'estompe, y compris dans sa longueur.
 void appendFadedLine(std::vector<render::DebugLine>& lines, const glm::vec3& from,
                      const glm::vec3& to, const LineStyle& style, const Fade& fade)
 {
     const auto alphaAt = [&](const glm::vec3& point)
     {
         const float toCenter = glm::distance(glm::vec2{point.x, point.z}, fade.center);
-        return style.alpha * fadeAt(toCenter, fade.reach);
+        const float onScreen = fade.screen
+                                   ? spacingFade(projectedSpacing(point, fade.alongLine,
+                                                                  fade.toNeighbour, *fade.screen))
+                                   : 1.0f;
+        return style.alpha * fadeAt(toCenter, fade.reach) * onScreen;
     };
     // **`from + (to - from) * t`, pas `glm::mix`** : mix(a, a, t) = a(1-t) + a t peut différer de
     // `a` d'un ulp, et une ligne le long de X ne serait plus exactement à z constant (ni sur la
@@ -128,6 +139,48 @@ void appendFadedLine(std::vector<render::DebugLine>& lines, const glm::vec3& fro
 }
 
 } // namespace
+
+float spacingFade(float pixels)
+{
+    return std::clamp((pixels - GridMinPixels) / GridFadePixels, 0.0f, 1.0f);
+}
+
+float projectedSpacing(const glm::vec3& point, const glm::vec3& alongLine,
+                       const glm::vec3& toNeighbour, const GridScreen& screen)
+{
+    // Un point de l'écran en pixels, ou rien s'il est derrière l'œil (w ≤ 0) ou sur lui : la
+    // division par w renverrait le point de l'autre côté de l'écran.
+    constexpr float BehindTheEye = 1.0e-4f;
+    const auto onScreen = [&screen](const glm::vec3& world) -> std::optional<glm::vec2>
+    {
+        const glm::vec4 clip = screen.viewProjection * glm::vec4{world, 1.0f};
+        if (clip.w <= BehindTheEye)
+        {
+            return std::nullopt;
+        }
+        // L'espace de découpe va de −1 à 1 : la moitié de la taille de l'image fait un pixel.
+        return glm::vec2{clip} / clip.w * 0.5f * screen.pixels;
+    };
+    const std::optional<glm::vec2> here = onScreen(point);
+    const std::optional<glm::vec2> there = onScreen(point + toNeighbour);
+    const std::optional<glm::vec2> ahead = onScreen(point + alongLine);
+    if (!here || !there || !ahead)
+    {
+        return std::numeric_limits<float>::infinity();
+    }
+    const glm::vec2 direction = *ahead - *here;
+    const glm::vec2 across = *there - *here;
+    const float length = glm::length(direction);
+    // La distance de la voisine à la droite portée par la ligne : |direction × across| /
+    // |direction|. Une ligne vue par le bout n'a pas de direction à l'écran : on mesure alors les
+    // deux points.
+    constexpr float EndOn = 1.0e-3f;
+    if (length < EndOn)
+    {
+        return glm::length(across);
+    }
+    return std::abs(direction.x * across.y - direction.y * across.x) / length;
+}
 
 float gridReachFor(float step, float cameraHeight, float farPlane)
 {
@@ -201,12 +254,14 @@ std::vector<render::DebugLine> gridLevelLines(const GridView& view, const GridLe
         const std::int64_t ix = centerX + i;
         const float x = static_cast<float>(ix) * step;
         appendFadedLine(lines, {x, y, z0 - chord}, {x, y, z0 + chord},
-                        styleOf(ix, AxisZTarget, level, view.exposure), {center, reach});
+                        styleOf(ix, AxisZTarget, level, view.exposure),
+                        {center, reach, {0.0f, 0.0f, step}, {step, 0.0f, 0.0f}, view.screen});
         // Une ligne le long de X, à z constant : à z = 0 c'est l'axe X (rouge).
         const std::int64_t iz = centerZ + i;
         const float z = static_cast<float>(iz) * step;
         appendFadedLine(lines, {x0 - chord, y, z}, {x0 + chord, y, z},
-                        styleOf(iz, AxisXTarget, level, view.exposure), {center, reach});
+                        styleOf(iz, AxisXTarget, level, view.exposure),
+                        {center, reach, {step, 0.0f, 0.0f}, {0.0f, 0.0f, step}, view.screen});
     }
     return lines;
 }

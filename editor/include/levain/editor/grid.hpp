@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -76,8 +77,17 @@ struct GridLevel
 /// pas envoyée : elle ne changerait aucun pixel.
 inline constexpr float MinGridVisibility = 0.005f;
 
-/// Ce que la grille lit de la vue : où est la caméra, l'exposition du tonemapper et jusqu'où elle
-/// voit (le plan lointain). Rien d'autre : la logique ne touche ni le GPU ni ImGui.
+/// Ce que la grille sait de l'image : la projection de la caméra et la taille en pixels de l'image
+/// de la scène, de quoi mesurer l'écart que deux lignes voisines ont à l'écran.
+struct GridScreen
+{
+    glm::mat4 viewProjection{1.0f};
+    glm::vec2 pixels{0.0f}; ///< largeur et hauteur de l'image de la scène
+};
+
+/// Ce que la grille lit de la vue : où est la caméra, l'exposition du tonemapper, jusqu'où elle
+/// voit (le plan lointain) et, si on le lui donne, l'image. Rien d'autre : la logique ne touche ni
+/// le GPU ni ImGui.
 struct GridView
 {
     glm::vec3 cameraPosition{0.0f};
@@ -86,7 +96,35 @@ struct GridView
     /// La distance de l'œil au plan lointain (`farDistanceOf`), en mètres. Rien de la grille ne
     /// doit en dépasser les neuf dixièmes : voir `gridReachFor`.
     float farPlane = 1000.0f;
+    /// L'image : avec elle, les lignes trop serrées pour l'écran s'effacent (`spacingFade`) ; sans
+    /// elle (un test de la géométrie), elles restent telles quelles.
+    std::optional<GridScreen> screen;
 };
+
+/// **Sous `GridMinPixels` de l'écart entre deux lignes voisines, la grille ne se voit plus** ;
+/// l'opacité remonte jusqu'à `GridMinPixels + GridFadePixels`. Une ligne de 1 pixel, sans
+/// anti-crénelage, que sa voisine suit à 2 ou 3 pixels (le sol vu de biais, vers l'horizon) forme
+/// des marches d'escalier qui crépitent dès que la caméra bouge : on les efface avant qu'elles ne
+/// se touchent.
+inline constexpr float GridMinPixels = 2.0f;
+inline constexpr float GridFadePixels = 4.0f;
+
+/// L'opacité que l'écart de `pixels` entre deux lignes voisines laisse à la grille : 0 jusqu'à
+/// `GridMinPixels`, 1 à partir de `GridMinPixels + GridFadePixels`, linéaire entre les deux.
+[[nodiscard]] float spacingFade(float pixels);
+
+/// **L'écart, en pixels de l'image, entre la ligne qui passe par `point` et sa voisine**, à
+/// `toNeighbour` mètres de là, la ligne allant dans la direction `alongLine` : la distance
+/// *perpendiculaire* des deux lignes à l'écran, non celle de deux points. Sur une ligne qui file
+/// de biais (le long de X, vue du dessus d'un sol), les points correspondants sont aussi décalés
+/// le long de la ligne, ce qui gonflerait l'écart et laisserait des lignes collées à 1 pixel
+/// (c'est ce qu'une première version, mesurant deux points, laissait passer). `alongLine` ne doit
+/// pas traverser le plan de l'œil : sa longueur est celle d'un pas. **Un point derrière l'œil, ou
+/// sa voisine, n'a pas d'écart à l'écran** : l'infini, la ligne n'a rien à y perdre
+/// (`clipToFrustum` en coupera le bout derrière l'œil). Une ligne vue par le bout (qui se projette
+/// en un point : l'axe de la caméra) a pour écart celui des deux points.
+[[nodiscard]] float projectedSpacing(const glm::vec3& point, const glm::vec3& alongLine,
+                                     const glm::vec3& toNeighbour, const GridScreen& screen);
 
 /// La part du plan lointain que la grille garde : au-delà, une ligne serait coupée net par le plan
 /// lointain, et l'horizon aurait une clôture au lieu de se fondre dans le ciel.
