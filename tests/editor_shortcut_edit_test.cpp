@@ -2,6 +2,7 @@
 // disposition du clavier est un paramètre (le QWERTY du banc d'essai, puis un AZERTY qui échange W
 // et Z, A et Q), la fenêtre n'est pas dessinée.
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -11,7 +12,9 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <imgui.h>
 
+#include "levain/editor/actions.hpp"
 #include "levain/editor/mode.hpp"
 #include "levain/editor/preferences.hpp"
 #include "levain/editor/shortcut_edit.hpp"
@@ -653,4 +656,68 @@ TEST_CASE("le filtre : le nom de l'action ou l'un de ses accords")
     CHECK(count("ctrl+maj+z") == 1); // le second accord de Rétablir
     CHECK(count("introuvable") == 0);
     CHECK(count("Vue") == 1); // « Vue de jeu » : le contexte seul ne répond pas au filtre
+}
+
+TEST_CASE("l'Aide dit « (aucun) » d'une action sans accord, comme la fenêtre des raccourcis")
+{
+    ShortcutTable table = defaultShortcuts();
+    for (Binding& binding : table.bindings)
+    {
+        if (binding.action == Action::Save)
+        {
+            binding.chords = {};
+        }
+    }
+    const auto rows = helpRowsOf(table, Qwerty);
+    const auto saved = std::ranges::find(rows, Action::Save, &HelpRow::action);
+    REQUIRE(saved != rows.end());
+    CHECK(saved->chords == "(aucun)"); // pas une cellule vide
+    // Une action qui en a un le montre, et ne dit pas « (aucun) » à côté.
+    const auto undone = std::ranges::find(rows, Action::Undo, &HelpRow::action);
+    REQUIRE(undone != rows.end());
+    CHECK(undone->chords == "Ctrl+Z");
+}
+
+TEST_CASE("une action que rien ne lit encore ne se change pas : Simuler et Rendre la souris")
+{
+    CHECK_FALSE(rebindableFrom(Action::Simulate).available);
+    CHECK(std::string_view{rebindableFrom(Action::Simulate).milestone} == "M7.5");
+    CHECK_FALSE(rebindableFrom(Action::GiveMouseBack).available);
+    CHECK(std::string_view{rebindableFrom(Action::GiveMouseBack).milestone} == "M7.5");
+    // Les autres se changent, y compris celles que leur milestone grise dans les menus : leur
+    // raccourci atteint déjà `runAction`, qui le dit à la console.
+    for (const Action action : {Action::MoveForward, Action::Save, Action::Undo, Action::ToolMove,
+                                Action::Play, Action::Stop})
+    {
+        CHECK(rebindableFrom(action).available);
+    }
+}
+
+TEST_CASE("la fenêtre des raccourcis se cale sur la police, pas sur des pixels")
+{
+    constexpr ImVec2 Plenty{4000.0f, 4000.0f};
+    const ImGuiStyle style; // le style d'ImGui à 100 %, sans contexte
+    ImGuiStyle scaled;
+    scaled.ScaleAllSizes(1.25f); // ce que fait `createUiContext` à 125 % de l'écran
+    constexpr float Font = 15.0f;
+    constexpr std::size_t Rows = static_cast<std::size_t>(Action::Count);
+    const ShortcutWindowFit small = shortcutWindowFit(style, Font, Rows, Plenty);
+    const ShortcutWindowFit big = shortcutWindowFit(scaled, Font * 1.25f, Rows, Plenty);
+    // À 125 % tout grandit : un bouton de 190 px fixes coupait « Réinitialiser ». Les marges
+    // d'ImGui s'arrondissent à l'entier (`ScaleAllSizes`), la hauteur grandit donc un peu moins de
+    // 25 %.
+    CHECK(big.chordWidth == doctest::Approx(small.chordWidth * 1.25f));
+    CHECK(big.size.x == doctest::Approx(small.size.x * 1.25f).epsilon(0.02));
+    CHECK(big.size.y > small.size.y * 1.15f);
+    CHECK(big.size.y < small.size.y * 1.26f);
+    // La hauteur vient des lignes : une de plus, une ligne de plus (et celle d'un bouton, pas
+    // moins).
+    const float row = Font + (style.FramePadding.y * 2.0f) + (style.CellPadding.y * 2.0f);
+    CHECK(shortcutWindowFit(style, Font, Rows + 1, Plenty).size.y - small.size.y ==
+          doctest::Approx(row));
+    CHECK(small.size.y > static_cast<float>(Rows) * row); // les vingt lignes, plus le reste
+    // Un petit écran borne la fenêtre : le tableau défile plutôt que de la laisser sortir.
+    const ShortcutWindowFit cramped = shortcutWindowFit(style, Font, Rows, {500.0f, 300.0f});
+    CHECK(cramped.size.x == doctest::Approx(500.0f));
+    CHECK(cramped.size.y == doctest::Approx(300.0f));
 }

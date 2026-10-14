@@ -3,6 +3,14 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un `const std::function` global échoue à clang-tidy sous Windows seulement ; `ScaleAllSizes` arrondit (2026-10-13)
+
+M7.7, morceau 16 (revue du passage réel).
+
+- **Symptôme** : `bugprone-throwing-static-initialization` sur `const KeyAtPosition Qwerty = …` (un `std::function` global d'un test), seulement par la base `windows-debug` ; `bugprone-signed-bitwise` sur `Mask | 82` (un masque non signé et un littéral signé), sur les deux. **Parade** : `constexpr auto Qwerty = &fonction;` (le `std::function` se construit à l'appel), `82U`.
+- **Symptôme** : une fenêtre en pixels fixes (190 px par bouton, 820 × 640) coupe « Réinitialiser » et cache cinq lignes sur vingt à 125 %. **Cause** : l'échelle de l'écran grandit la police et le style, pas les nombres du code ; `ImGuiStyle::ScaleAllSizes` tronque ses marges à l'entier (3 × 1,25 devient 3), la hauteur d'une ligne grandit de moins de 25 %. **Parade** : tout en multiples de `ImGui::GetFontSize()` et du style lu, dans une fonction pure testable sans contexte (`shortcutWindowFit`).
+- **Symptôme** : un bouton sous le tableau saute d'une ligne quand un message paraît, et le clic scripté, pris sans message, le rate. **Parade** : la ligne du message est toujours réservée (`Dummy`).
+
 ## Deux fenêtres dans un nœud d'ancrage : l'ordre des `Begin` choisit l'onglet visible (2026-10-11)
 
 M7.7, morceau 14 (la console, `gpu.editor-console.*`).

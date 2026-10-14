@@ -56,6 +56,23 @@ struct Availability
     }
 }
 
+/// **Une action que rien ne lit encore** : sa touche ne se change pas, la fenêtre « Raccourcis » la
+/// grise avec son « Arrive en M7.5 », comme les menus grisent leurs entrées (`availabilityOf`).
+/// « Simuler » (Alt+S) arrive avec Play et Stop en M7.5 ; « Rendre la souris » (Maj+F1 en jeu) n'a
+/// pas de lecteur avant : un accord qu'on y poserait ne ferait rien, sans que rien ne le dise.
+[[nodiscard]] constexpr Availability rebindableFrom(Action action)
+{
+    switch (action)
+    {
+    case Action::Simulate:
+        return availabilityOf(action);
+    case Action::GiveMouseBack:
+        return {.available = false, .milestone = "M7.5"};
+    default:
+        return {};
+    }
+}
+
 /// Une touche d'outil : Déplacer, Tourner, Mettre à l'échelle, ou le suivant.
 [[nodiscard]] constexpr bool isToolAction(Action action)
 {

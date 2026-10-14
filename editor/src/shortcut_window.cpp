@@ -1,9 +1,11 @@
 #include "levain/editor/shortcut_window.hpp"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 
 #include "levain/core/log.hpp"
+#include "levain/editor/actions.hpp"
 #include "levain/editor/console.hpp"
 #include "levain/editor/window_menu.hpp"
 #include "levain/ui/tr.hpp"
@@ -25,7 +27,21 @@ constexpr const char* ModifiersIgnoredMessage =
 constexpr const char* KeymapMessage =
     "Le clavier a changé : l'accord en attente est abandonné, refaites la saisie";
 
-constexpr float ChordButtonWidth = 190.0f;
+// Les tailles, en multiples de la police (`ImGui::GetFontSize()`) : à 125 % de l'écran la police et
+// le style grandissent, un nombre de pixels non. Les largeurs ont été prises sur la police de
+// l'éditeur (Inter) : « Outil mettre à l'échelle » fait 9 polices, « Vol (clic droit tenu) » 7,5, «
+// Réinitialiser » 6,5 plus ses marges ; le bouton d'accord montre « Appuyez sur une touche... » en
+// entier.
+constexpr float ChordButtonFonts = 13.0f;
+constexpr float ActionColumnFonts = 10.0f;
+constexpr float ContextColumnFonts = 9.0f;
+constexpr float ResetColumnFonts = 7.5f;
+// Le pied sous le tableau : un message, un conflit (sa phrase, ses deux boutons), « Tout
+// réinitialiser ».
+constexpr float FooterLines = 4.0f;
+constexpr float Columns = 5.0f;
+// Le marge de la fenêtre au bord de l'espace libre, en polices.
+constexpr float WindowMarginFonts = 1.0f;
 
 /// La console dit ce que « Remplacer » ou « Réinitialiser » a retiré à d'autres actions : rien ne
 /// se déplace en silence.
@@ -56,15 +72,16 @@ void noteWritten(ShortcutWindow& window, Action action, const std::vector<ChordC
 }
 
 /// Un bouton de largeur fixe, dont le texte change sans changer l'identifiant (`##`).
-bool cellButton(const std::string& text, const char* id)
+bool cellButton(const std::string& text, const char* id, float width)
 {
-    return ImGui::Button((text + id).c_str(), {ChordButtonWidth, 0.0f});
+    return ImGui::Button((text + id).c_str(), {width, 0.0f});
 }
 
 void drawConflictBlock(ShortcutWindow& window, ShortcutTable& table,
                        const platform::KeyAtPosition& keyAtPosition, bool& changed)
 {
     window.conflictShown.clear();
+    window.conflictSentence.clear();
     if (!window.pending)
     {
         return;
@@ -74,7 +91,18 @@ void drawConflictBlock(ShortcutWindow& window, ShortcutTable& table,
         window.conflictShown +=
             (window.conflictShown.empty() ? "" : ", ") + conflictName(conflict, keyAtPosition);
     }
-    ui::textf("Accord déjà pris, rien ne change : {}", window.conflictShown);
+    // La phrase nomme l'action qui voudrait l'accord : « Annuler » à côté de « Ctrl+Z : Annuler »
+    // (le bouton, puis l'action qui tient Ctrl+Z) se lisait de deux façons.
+    const PendingChord& pending = *window.pending;
+    const std::string target = ui::tr(nameOf(pending.target.action));
+    const std::string sentence =
+        pending.resets
+            ? ui::trf("{} voudrait ses accords par défaut, déjà pris, rien ne change : {}", target,
+                      window.conflictShown)
+            : ui::trf("{} voudrait {}, déjà pris, rien ne change : {}", target,
+                      displayNameOf(pending.chord, keyAtPosition), window.conflictShown);
+    window.conflictSentence = sentence;
+    ImGui::TextWrapped("%s", sentence.c_str());
     if (ImGui::Button(ui::labelOf("Remplacer").c_str()))
     {
         logRemoved(acceptPending(window, table, keyAtPosition), keyAtPosition);
@@ -96,6 +124,9 @@ void drawResetAll(ShortcutWindow& window, ShortcutTable& table, bool& changed)
     if (ImGui::Button(ui::labelOf("Tout réinitialiser").c_str()))
     {
         window.resetAllAsked = true;
+        // La confirmation est modale : une saisie qui continuerait dessous lirait ce qu'on y tape
+        // (Ctrl+J devenait l'accord d'« Enregistrer », Entrée aurait lié une action de position).
+        abandonCapture(window);
     }
     window.resetAllAt = centerOfLastItem();
     if (std::exchange(window.resetAllAsked, false))
@@ -125,6 +156,26 @@ void drawResetAll(ShortcutWindow& window, ShortcutTable& table, bool& changed)
 }
 
 } // namespace
+
+ShortcutWindowFit shortcutWindowFit(const ImGuiStyle& style, float fontSize, std::size_t rows,
+                                    ImVec2 workSize)
+{
+    const float frameHeight = fontSize + (style.FramePadding.y * 2.0f);
+    const float rowHeight = frameHeight + (style.CellPadding.y * 2.0f);
+    const float headerHeight = fontSize + (style.CellPadding.y * 2.0f);
+    const float line = frameHeight + style.ItemSpacing.y;
+    const float chordWidth = fontSize * ChordButtonFonts;
+    const float width = (fontSize * (ActionColumnFonts + ContextColumnFonts + ResetColumnFonts)) +
+                        (2.0f * chordWidth) + (Columns * 2.0f * style.CellPadding.x) +
+                        (2.0f * style.WindowPadding.x) + style.ScrollbarSize;
+    // Le titre, les marges, le filtre, l'en-tête, les lignes, le pied ; une marge pour le contour
+    // du tableau (qu'une ligne de moins ferait défiler d'une ligne : vérifié à 100 % et 125 %).
+    const float height = frameHeight + (2.0f * style.WindowPadding.y) + line + headerHeight +
+                         (static_cast<float>(rows) * rowHeight) + (FooterLines * line) +
+                         style.ItemSpacing.y;
+    return {.chordWidth = chordWidth,
+            .size = {std::min(width, workSize.x), std::min(height, workSize.y)}};
+}
 
 void beginCapture(ShortcutWindow& window, ShortcutTarget target)
 {
@@ -272,6 +323,8 @@ bool drawShortcutWindow(ShortcutWindow& window, ShortcutTable& table,
 {
     window.rows.clear();
     window.conflictShown.clear();
+    window.conflictSentence.clear();
+    window.messageLine.clear();
     window.confirmShown = false;
     if (!window.open)
     {
@@ -292,10 +345,21 @@ bool drawShortcutWindow(ShortcutWindow& window, ShortcutTable& table,
         abandonCapture(window);
     }
     bool changed = stepCapture(window, table, keyAtPosition, presses);
-    // Assez haute pour les vingt lignes sans défiler à la première ouverture.
-    ImGui::SetNextWindowPos({40.0f, 40.0f}, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize({820.0f, 640.0f}, ImGuiCond_FirstUseEver);
+    // Une première ouverture sous la barre d'outils (l'espace libre de la fenêtre principale, que
+    // la barre de menus et les bandes ne couvrent pas), assez grande pour toutes les lignes sans
+    // défiler, le tout selon la police : à 125 % de l'écran tout grandit avec elle.
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float margin = ImGui::GetFontSize() * WindowMarginFonts;
+    const ShortcutWindowFit fit = shortcutWindowFit(
+        ImGui::GetStyle(), ImGui::GetFontSize(), table.bindings.size(),
+        {viewport->WorkSize.x - (2.0f * margin), viewport->WorkSize.y - (2.0f * margin)});
+    ImGui::SetNextWindowPos({viewport->WorkPos.x + margin, viewport->WorkPos.y + margin},
+                            ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(fit.size, ImGuiCond_FirstUseEver);
     const bool visible = ImGui::Begin(ui::labelOf(ShortcutWindowTitle).c_str(), &window.open);
+    window.windowMin = ImGui::GetWindowPos();
+    window.windowMax = {window.windowMin.x + ImGui::GetWindowSize().x,
+                        window.windowMin.y + ImGui::GetWindowSize().y};
     window.focused = visible && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
     if (!visible)
     {
@@ -311,7 +375,7 @@ bool drawShortcutWindow(ShortcutWindow& window, ShortcutTable& table,
             static_cast<ImGuiTableFlags>(static_cast<unsigned>(ImGuiTableFlags_RowBg) |
                                          static_cast<unsigned>(ImGuiTableFlags_ScrollY) |
                                          static_cast<unsigned>(ImGuiTableFlags_SizingFixedFit));
-        const float footer = ImGui::GetFrameHeightWithSpacing() * 3.0f;
+        const float footer = ImGui::GetFrameHeightWithSpacing() * FooterLines;
         if (ImGui::BeginTable("##accords", 5, Flags, {0.0f, -footer}))
         {
             for (const char* column : {"Action", "Accord", "Accord 2", "Contexte", ""})
@@ -328,29 +392,45 @@ bool drawShortcutWindow(ShortcutWindow& window, ShortcutTable& table,
                 const Binding* binding = bindingOf(table, row.action);
                 ShortcutRowSeen seen{
                     .action = row.action, .chordAt = {}, .resetAt = {}, .chords = row.chords};
+                // Une action que rien ne lit encore est grisée avec son « Arrive en M7.5 », comme
+                // dans les menus : un accord qu'on y poserait ne ferait rien.
+                const Availability rebinding = rebindableFrom(row.action);
                 ImGui::PushID(static_cast<int>(row.action));
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
+                // Le texte à la hauteur du texte des boutons de la ligne, pas au-dessus d'eux.
+                ImGui::AlignTextToFramePadding();
+                ImGui::BeginDisabled(!rebinding.available);
                 ImGui::TextUnformatted(row.name.c_str());
+                ImGui::EndDisabled();
+                seen.nameAt = centerOfLastItem();
+                if (!rebinding.available)
+                {
+                    saySoon(rebinding.milestone, SoonSide::Right);
+                }
                 for (std::size_t slot = 0; slot < 2; ++slot)
                 {
                     ImGui::TableNextColumn();
                     const bool capturingHere = window.capturing == ShortcutTarget{row.action, slot};
                     const std::string text =
-                        capturingHere
-                            ? std::string{ui::tr("Appuyez sur une touche... (Échap annule)")}
-                            : chordCellText(binding->chords.at(slot), keyAtPosition);
+                        capturingHere ? std::string{ui::tr("Appuyez sur une touche...")}
+                                      : chordCellText(binding->chords.at(slot), keyAtPosition);
                     // Hors de l'Édition les touches n'arrivent pas à la saisie : pas de cases à
                     // cliquer.
-                    ImGui::BeginDisabled(!editing);
-                    if (cellButton(text, slot == 0 ? "##c0" : "##c1"))
+                    ImGui::BeginDisabled(!editing || !rebinding.available);
+                    if (cellButton(text, slot == 0 ? "##c0" : "##c1", fit.chordWidth))
                     {
                         beginCapture(window, {row.action, slot});
                     }
                     ImGui::EndDisabled();
+                    if (!rebinding.available)
+                    {
+                        saySoon(rebinding.milestone, SoonSide::Right);
+                    }
                     seen.chordAt.at(slot) = centerOfLastItem();
                 }
                 ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted(row.context.c_str());
                 ImGui::TableNextColumn();
                 ImGui::BeginDisabled(isDefault(table, row.action));
@@ -365,9 +445,23 @@ bool drawShortcutWindow(ShortcutWindow& window, ShortcutTable& table,
             }
             ImGui::EndTable();
         }
+        // Un refus ou une remarque en orange ; pendant la saisie, ce que fait Échap (dans le bouton
+        // il ne tenait pas à 125 %).
+        window.messageLine.clear();
         if (window.message != nullptr)
         {
-            ImGui::TextColored({1.0f, 0.75f, 0.2f, 1.0f}, "%s", ui::tr(window.message));
+            window.messageLine = ui::tr(window.message);
+            ImGui::TextColored({1.0f, 0.75f, 0.2f, 1.0f}, "%s", window.messageLine.c_str());
+        }
+        else if (window.capturing)
+        {
+            window.messageLine = ui::tr("Échap annule la saisie");
+            ImGui::TextDisabled("%s", window.messageLine.c_str());
+        }
+        else
+        {
+            // La ligne reste réservée : le bouton du dessous ne saute pas quand un message paraît.
+            ImGui::Dummy({0.0f, ImGui::GetTextLineHeight()});
         }
         drawConflictBlock(window, table, keyAtPosition, changed);
         drawResetAll(window, table, changed);

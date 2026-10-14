@@ -340,7 +340,12 @@ M couverts par un test ».
     refusait de nouveau à chaque démarrage ; **une action inconnue (un fichier d'une autre branche) est gardée et
     réécrite** de même, jamais oubliée ; un conflit du fichier est dit sans
     rien changer. Sous une
-    exécution scriptée (pas de dossier de préférences) : les défauts, jamais écrits. Limites : les accords de
+    exécution scriptée (pas de dossier de préférences) : les défauts, jamais écrits. **La fenêtre** se cale sur la police
+    (`shortcutWindowFit` : largeurs et hauteur en multiples de `ImGui::GetFontSize()`, toutes les lignes visibles à 125 %), s'ouvre
+    sur l'espace libre (`WorkPos`, sous la barre d'outils), nomme dans sa phrase de conflit l'action qui voudrait l'accord,
+    dit sur sa ligne de message ce que fait Échap pendant la saisie, abandonne la saisie quand « Tout réinitialiser » est
+    cliqué, et grise « Simuler » et « Rendre la souris » (`rebindableFrom`, « Arrive en M7.5 ») : rien ne les lit encore.
+    L'Aide écrit « (aucun) » d'une action sans accord, comme la fenêtre. Limites : les accords de
     position d'une action ne sont posés que par la touche physique (pas de saisie « par lettre » d'une action de position),
     et la fenêtre n'a pas de profils comme le Shortcuts Manager d'Unity. Tests : `tests/editor_shortcut_edit_test.cpp` (la
     logique) et, de bout en bout, `gpu.editor-shortcut-settings-*.*` (`tests/editor_shortcut_settings_gpu.cpp`, un
