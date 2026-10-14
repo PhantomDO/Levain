@@ -1,22 +1,34 @@
 #pragma once
 
-// La fenêtre « Raccourcis » (ADR-0036, décision 13, morceau 16) : son état, et la logique de sa
-// saisie, sans ImGui. **Un clic sur un accord, puis la touche** : la saisie (`capturing`) prend le
-// premier appui qui compte. Un accord déjà pris est un conflit, nommé ; rien ne change avant
-// « Remplacer » (`stepCapture`, `acceptPending`). Le dessin s'y ajoutera.
+// La fenêtre « Raccourcis » (ADR-0036, décision 13, morceau 16), que rien n'ouvre encore
+// (`open`) : chaque action de la table, ses deux accords tels que le clavier d'aujourd'hui
+// les écrit, son contexte ; un filtre par nom d'action ou par accord. **Un clic sur un accord, puis
+// la touche** : la saisie (`capturing`) prend le premier appui qui compte. Un accord
+// déjà pris est un conflit, nommé ; rien ne change avant « Remplacer ». La logique de la saisie
+// (`stepCapture`, `acceptPending`) ne touche pas ImGui ; `drawShortcutWindow` n'est que le dessin.
 // Équivalents : « Editor Preferences > Keyboard Shortcuts » d'Unreal, le Shortcuts Manager d'Unity,
 // « Editor Settings > Shortcuts » de Godot.
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
+#include <imgui.h>
+
+#include "levain/editor/menus.hpp"
 #include "levain/editor/shortcut_edit.hpp"
 #include "levain/editor/shortcuts.hpp"
 
 namespace levain::editor
 {
+
+/// La clé de catalogue du titre de la fenêtre.
+inline constexpr const char* ShortcutWindowTitle = "Raccourcis";
 
 /// Une place d'accord : l'action et laquelle de ses deux places.
 struct ShortcutTarget
@@ -38,13 +50,39 @@ struct PendingChord
     bool resets = false;
 };
 
+/// Où une ligne a été dessinée (le centre de ses boutons, en pixels de l'écran), pour que les tests
+/// la cliquent à la souris scriptée.
+struct ShortcutRowSeen
+{
+    Action action = Action::Count;
+    std::array<ImVec2, 2> chordAt{};
+    ImVec2 resetAt{};
+    std::string chords; ///< Le texte des deux accords, comme la fenêtre l'écrit.
+};
+
 struct ShortcutWindow
 {
+    bool open = false;
+    /// Le texte cherché, terminé par un zéro (le tampon du champ d'ImGui).
+    std::array<char, 128> filter{};
     /// La saisie en cours.
     std::optional<ShortcutTarget> capturing;
     std::optional<PendingChord> pending;
+    /// La fenêtre avait le focus à la dernière image qui l'a dessinée : la saisie ne lit le clavier
+    /// que là (`captureAllowed`).
+    bool focused = false;
     /// La clé de catalogue du dernier refus (F1, une touche sans nom), ou rien.
     const char* message = nullptr;
+    bool resetAllAsked = false;
+    /// Ce que la dernière image a dessiné : ce que les tests lisent.
+    std::vector<ShortcutRowSeen> rows;
+    std::string conflictShown; ///< « Ctrl+S : Enregistrer » tant qu'un conflit attend.
+    ImVec2 filterAt{};
+    ImVec2 resetAllAt{};
+    ImVec2 replaceAt{};
+    ImVec2 cancelAt{};
+    ImVec2 confirmAllAt{}; ///< Le bouton de la confirmation de « Tout réinitialiser ».
+    bool confirmShown = false;
 };
 
 /// Démarre la saisie de cette place : plus rien d'autre n'est en attente.
@@ -92,5 +130,22 @@ std::vector<ChordConflict> acceptPending(ShortcutWindow& window, ShortcutTable& 
 /// La disposition du clavier a changé : une candidate en attente se refait sur la nouvelle, ou
 /// est abandonnée avec son message (ses conflits ne sont plus ceux qu'on a lus).
 void dropPendingAfterKeymapChange(ShortcutWindow& window);
+
+/// Dit à la console chaque conflit de la table (`conflictsIn`), avec la cause (`when` : le fichier
+/// relu, ou la disposition du clavier changée). **Rien n'est rebranché en silence** : les deux
+/// actions gardent leur accord. Rend le nombre de conflits. `when` est une clé de catalogue.
+std::size_t logShortcutConflicts(const ShortcutTable& table,
+                                 const platform::KeyAtPosition& keyAtPosition, const char* when);
+
+/// La ligne répond au filtre : le nom de l'action ou l'un de ses accords, sans tenir compte de la
+/// casse des lettres ASCII.
+[[nodiscard]] bool shortcutRowMatches(const HelpRow& row, std::string_view search);
+
+/// Dessine la fenêtre si elle est ouverte. Vrai si la table a changé à cette image (la saisie
+/// ou un bouton). `editing` : hors de l'Édition les
+/// cases des accords sont grisées, les touches de l'éditeur n'arrivent plus à la saisie.
+[[nodiscard]] bool drawShortcutWindow(ShortcutWindow& window, ShortcutTable& table,
+                                      const platform::KeyAtPosition& keyAtPosition,
+                                      std::span<const KeyPress> presses, bool editing);
 
 } // namespace levain::editor
