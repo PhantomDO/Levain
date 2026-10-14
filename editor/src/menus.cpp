@@ -14,7 +14,7 @@ namespace levain::editor
 namespace
 {
 
-/// Les accords d'une entrée de la table, séparés par « / ».
+/// Les accords d'une entrée de la table, séparés par « / », ou « (aucun) ».
 std::string chordsText(const Binding& binding, const platform::KeyAtPosition& keyAtPosition)
 {
     std::string text;
@@ -25,7 +25,9 @@ std::string chordsText(const Binding& binding, const platform::KeyAtPosition& ke
             text += (text.empty() ? "" : " / ") + displayNameOf(chord, keyAtPosition);
         }
     }
-    return text;
+    // Une action sans accord le dit : une cellule vide ne dit pas si l'action en a un. La fenêtre
+    // « Raccourcis » écrit « (aucun) » pour chaque place vide, l'Aide doit s'accorder avec elle.
+    return text.empty() ? std::string{ui::tr("(aucun)")} : text;
 }
 
 /// Le raccourci qu'une entrée de menu montre : le premier accord de l'action, selon la disposition.

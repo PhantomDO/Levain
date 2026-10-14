@@ -55,6 +55,7 @@ struct PendingChord
 struct ShortcutRowSeen
 {
     Action action = Action::Count;
+    ImVec2 nameAt{}; ///< Le centre du nom : à la hauteur des boutons de la ligne, pas au-dessus.
     std::array<ImVec2, 2> chordAt{};
     ImVec2 resetAt{};
     std::string chords; ///< Le texte des deux accords, comme la fenêtre l'écrit.
@@ -77,17 +78,44 @@ struct ShortcutWindow
     /// Ce que la dernière image a dessiné : ce que les tests lisent.
     std::vector<ShortcutRowSeen> rows;
     std::string conflictShown; ///< « Ctrl+S : Enregistrer » tant qu'un conflit attend.
+    /// La phrase que la fenêtre écrit pour ce conflit : elle nomme l'action qui voudrait l'accord.
+    std::string conflictSentence;
+    /// Ce que la ligne de message montre : le refus ou la remarque, ou, pendant la saisie, ce que
+    /// fait Échap ; vide sinon (la ligne reste réservée).
+    std::string messageLine;
     ImVec2 filterAt{};
     ImVec2 resetAllAt{};
     ImVec2 replaceAt{};
     ImVec2 cancelAt{};
     ImVec2 confirmAllAt{}; ///< Le bouton de la confirmation de « Tout réinitialiser ».
     bool confirmShown = false;
+    /// Le rectangle de la fenêtre à la dernière image (en pixels de l'écran) : ce que les tests
+    /// évitent de cliquer à côté, la fenêtre se calant sur la police et l'écran.
+    ImVec2 windowMin{};
+    ImVec2 windowMax{};
     /// Les actions que la fenêtre a écrites depuis la dernière relève (`forgetWrittenLines`) :
     /// celle qu'une saisie, « Remplacer » ou « Réinitialiser » a changée, celles que « Remplacer »
     /// a dépouillées, toutes pour « Tout réinitialiser ».
     std::vector<Action> written;
 };
+
+/// Ce que la fenêtre prend de place : tout en **multiples de la police** (`ImGui::GetFontSize()`,
+/// qui suit l'échelle de l'écran), pas en pixels. À 125 % des tailles fixes coupaient «
+/// Réinitialiser » en « Réiniti » et le défilement cachait cinq lignes sur vingt.
+struct ShortcutWindowFit
+{
+    float chordWidth =
+        0.0f;      ///< La largeur d'un bouton d'accord (assez pour « Appuyez sur une touche... »).
+    ImVec2 size{}; ///< La taille à la première ouverture : toutes les lignes, sans défiler.
+};
+
+/// **Les dimensions d'après la police** : la largeur est celle des cinq colonnes, la hauteur celle
+/// de `rows` lignes plus le filtre, l'en-tête et le pied (un message, un conflit et ses deux
+/// boutons, « Tout réinitialiser »). Bornées à `workSize` (l'espace libre de la fenêtre principale)
+/// : sur un petit écran le tableau défile plutôt que de sortir. Tout est paramètre (ADR-0011) : le
+/// style, la police, le nombre de lignes, l'espace.
+[[nodiscard]] ShortcutWindowFit shortcutWindowFit(const ImGuiStyle& style, float fontSize,
+                                                  std::size_t rows, ImVec2 workSize);
 
 /// Démarre la saisie de cette place : plus rien d'autre n'est en attente.
 void beginCapture(ShortcutWindow& window, ShortcutTarget target);

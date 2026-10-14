@@ -111,6 +111,8 @@ struct Seen
     bool capturing = false;
     bool pending = false;
     std::string conflict;
+    std::string sentence;
+    std::string messageLine;
     std::string message;
     levain::editor::Mode mode = levain::editor::Mode::Edit;
     std::vector<ShortcutRowSeen> rows;
@@ -125,6 +127,7 @@ struct Seen
     levain::editor::EditorCamera camera;
     levain::app::ScreenRect viewImage{};
     ImVec2 filterAt{};
+    ImVec2 windowMax{}; ///< le coin bas droit de la fenêtre « Raccourcis »
 };
 
 std::string tableText(const levain::editor::ShortcutTable& table)
@@ -148,6 +151,8 @@ Seen seenOf(const App& app, const Editor& editor)
             .capturing = window.capturing.has_value(),
             .pending = window.pending.has_value(),
             .conflict = window.conflictShown,
+            .sentence = window.conflictSentence,
+            .messageLine = window.messageLine,
             .message = window.message != nullptr ? window.message : "",
             .mode = editor.mode.current,
             .rows = window.rows,
@@ -161,7 +166,8 @@ Seen seenOf(const App& app, const Editor& editor)
             .toolbarMode = editor.toolbar.mode,
             .camera = editor.camera,
             .viewImage = editor.view.image,
-            .filterAt = window.filterAt};
+            .filterAt = window.filterAt,
+            .windowMax = window.windowMax};
 }
 
 struct Run
@@ -513,6 +519,9 @@ int playConflict(const levain::tests::TestBackend& backend)
     int failures =
         expect(waiting.pending && waiting.conflict == "Ctrl+S : Enregistrer",
                "le conflit est nommé « Ctrl+S : Enregistrer »") +
+        expect(waiting.sentence ==
+                   "Annuler voudrait Ctrl+S, déjà pris, rien ne change : Ctrl+S : Enregistrer",
+               "la phrase nomme l'action qui voudrait l'accord, pas seulement celle qui le tient") +
         expect(waiting.table == defaults, "rien ne change tant qu'on n'a pas remplacé") +
         expect(!cancelled.pending && cancelled.table == defaults,
                "« Annuler » abandonne la candidate, la table est inchangée") +
@@ -551,9 +560,13 @@ int playCapture(const levain::tests::TestBackend& backend)
     real.directory = directory.path;
     real.frames = 60;
     real.openAt = 2;
+    // Fin du scénario : un clic sur « Simuler » puis sur « Rendre la souris », que rien ne lit
+    // encore : leurs cases sont grisées, aucune saisie ne démarre.
     real.script = clickScript(4, undo) + ctrlKey(10, "S") + clickScript(16, undo) +
                   "22 key down Left Alt\n23 key down P\n24 key up P\n25 key up Left Alt\n" +
-                  clickScript(28, undo) + tapKey(34, "F1") + tapKey(40, "Escape");
+                  clickScript(28, undo) + tapKey(34, "F1") + tapKey(40, "Escape") +
+                  clickScript(46, cellOf(rows, Action::Simulate)) +
+                  clickScript(52, cellOf(rows, Action::GiveMouseBack));
     const Run run = play(backend, real);
     if (run.exitCode != 0 || run.seen.size() != 60)
     {
@@ -567,7 +580,15 @@ int playCapture(const levain::tests::TestBackend& backend)
                                              { return seen.mode != levain::editor::Mode::Edit; });
     const bool panelsAlwaysOpen =
         std::ranges::all_of(run.seen, [](const Seen& seen) { return seen.panelsOpen; });
-    return expect(run.seen[8].capturing, "le clic démarre la saisie") +
+    // Le nom d'une ligne est à la hauteur de ses boutons (AlignTextToFramePadding), pas au-dessus.
+    const bool aligned =
+        std::ranges::all_of(rows.rows, [](const ShortcutRowSeen& row)
+                            { return std::abs(row.nameAt.y - row.chordAt.at(0).y) < 1.0f; });
+    return expect(aligned, "le nom de chaque ligne est à la hauteur de ses boutons") +
+           expect(run.seen[8].capturing && run.seen[8].messageLine.contains("Échap"),
+                  "pendant la saisie la ligne de message dit ce que fait Échap") +
+           expect(!run.seen[44].capturing && run.seen[44].messageLine.empty(),
+                  "la saisie finie, la ligne de message est vide") +
            expect(run.seen[14].pending && run.seen[14].conflict == "Ctrl+S : Enregistrer",
                   "Ctrl+S pendant la saisie est la candidate, en conflit avec Enregistrer") +
            expect(!anySave, "Ctrl+S n'a pas enregistré pendant la saisie") +
@@ -578,6 +599,9 @@ int playCapture(const levain::tests::TestBackend& backend)
            expect(panelsAlwaysOpen, "F1 pendant la saisie ne ferme pas les panneaux") +
            expect(!run.seen[44].capturing && run.seen[44].table == defaults,
                   "Échap annule la saisie sans rien changer") +
+           expect(std::ranges::none_of(std::span{run.seen}.subspan(46),
+                                       [](const Seen& seen) { return seen.capturing; }),
+                  "« Simuler » et « Rendre la souris » ne démarrent aucune saisie (grisées)") +
            expect(run.seen.back().table == defaults, "aucun accord n'a changé");
 }
 
@@ -606,13 +630,16 @@ int playReset(const levain::tests::TestBackend& backend)
 
     Session real;
     real.directory = directory.path;
-    real.frames = 70;
+    real.frames = 80;
     real.openAt = 2;
+    // Une saisie est en cours (Enregistrer) quand « Tout réinitialiser » est cliqué : Ctrl+L tapé
+    // sous la confirmation ne doit pas devenir l'accord d'Enregistrer.
     real.script = clickScript(4, save) + ctrlKey(10, "K") + clickScript(16, resetSave) +
                   clickScript(22, save) + ctrlKey(28, "K") + clickScript(34, undo) +
-                  ctrlKey(40, "J") + clickScript(46, rows.resetAllAt) + clickScript(52, confirm);
+                  ctrlKey(40, "J") + clickScript(44, save) + clickScript(50, rows.resetAllAt) +
+                  ctrlKey(56, "L") + clickScript(62, confirm);
     const Run run = play(backend, real);
-    if (run.exitCode != 0 || run.seen.size() != 70)
+    if (run.exitCode != 0 || run.seen.size() != 80)
     {
         return expect(false, "réinitialiser : code 0 et une image par image");
     }
@@ -624,8 +651,13 @@ int playReset(const levain::tests::TestBackend& backend)
            expect(tableLine(run.seen[44], Action::Save) == "Enregistrer = Ctrl+K, " &&
                       tableLine(run.seen[44], Action::Undo) == "Annuler = Ctrl+J, ",
                   "deux actions sont changées") +
-           expect(run.seen[50].confirmShown && run.seen[50].table != defaults,
+           expect(run.seen[48].capturing, "une saisie est en cours avant « Tout réinitialiser »") +
+           expect(run.seen[60].confirmShown && run.seen[60].table != defaults,
                   "« Tout réinitialiser » demande confirmation et ne change rien avant") +
+           expect(
+               !run.seen[60].capturing && !run.seen[60].pending &&
+                   tableLine(run.seen[60], Action::Save) == "Enregistrer = Ctrl+K, ",
+               "la saisie est abandonnée sous la confirmation : Ctrl+L n'est pas devenu l'accord") +
            expect(run.seen.back().table == defaults,
                   "confirmé, toutes les actions rendent leurs défauts") +
            expect(file && file->shortcuts.empty(), "le fichier ne tient plus aucune action");
@@ -771,8 +803,9 @@ ImVec2 viewSpotOf(const Seen& probe)
 {
     const ImVec2 spot{probe.viewImage.x + probe.viewImage.width - 40.0f,
                       probe.viewImage.y + probe.viewImage.height * 0.5f};
-    constexpr float WindowRight = 40.0f + 820.0f; // `drawShortcutWindow`, à la première ouverture
-    if (probe.viewImage.width <= 0.0f || spot.x <= WindowRight)
+    // La fenêtre se cale sur la police et l'espace libre (`shortcutWindowFit`) : son bord est
+    // relevé.
+    if (probe.viewImage.width <= 0.0f || spot.x <= probe.windowMax.x)
     {
         throw std::runtime_error{
             "le sondage : le bord de la Vue est sous la fenêtre « Raccourcis »"};
@@ -1025,6 +1058,10 @@ int playResetConflict(const levain::tests::TestBackend& backend)
                   "Annuler a pris Ctrl+S à Enregistrer") +
            expect(waiting.pending && waiting.conflict == "Ctrl+S : Annuler",
                   "« Réinitialiser » nomme le conflit « Ctrl+S : Annuler »") +
+           expect(waiting.sentence ==
+                      "Enregistrer voudrait ses accords par défaut, déjà pris, rien "
+                      "ne change : Ctrl+S : Annuler",
+                  "la phrase nomme l'action qui reprend ses défauts") +
            expect(waiting.table == taken.table, "rien ne change tant qu'on n'a pas remplacé") +
            expect(!cancelled.pending && cancelled.table == taken.table,
                   "« Annuler » abandonne : la table est inchangée") +
