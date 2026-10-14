@@ -38,7 +38,8 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
   `ui`, rend l'identifiant de l'image à montrer par `ImGui::Image` ; la scène se rend alors dans cette texture, la
   swapchain est effacée et seule l'UI y est dessinée (`scene_view.hpp`). Voir l'invariant 15 ;
 - **le banc d'essai** (ADR-0036) : `--input-script f` (ou `AppSettings::inputScript`, pour un test) rejoue les
-  `platform::Events` d'un script dans la vraie boucle, hors écran. Voir l'invariant 12.
+  `platform::Events` d'un script dans la vraie boucle, hors écran (une vraie fenêtre sous Windows), à la place des vrais
+  événements d'input. Voir l'invariant 12.
 
 ## Invariants
 
@@ -83,14 +84,19 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    le ramène à deux fois le proche s'il ne le passe pas (`farBeyondNear`) : l'inspecteur laisse taper n'importe
    quel couple, et `far = near` donnerait un viewport d'une seule couleur, sans un mot.
 
-12. **Un script d'input s'ajoute aux vrais événements, juste après `pollEvents`** : tout ce qui suit (ImGui,
-   `gameInputOf`, `PlayerInput`, `frame`) ne sait pas d'où ils viennent. Sans `--steps` ni `--seconds`, le script
-   mène la boucle, qui s'arrête après son dernier événement ; avec l'un d'eux, la première fin gagne, et un script
-   que la boucle n'a pas fini de jouer fait échouer le programme (règle n°7) : un test ne passe pas sans avoir rejoué
-   ce qu'il dit. **Pour un résultat qui se reproduise**, `--steps N` avec N au moins la longueur du script : sans lui,
-   le monde avance du temps réel de chaque image. `inputScriptOf` lit le fichier avant la fenêtre ; un script
-   illisible, refusé ou vide arrête `runApp`. Sans option, rien n'est touché. `tests/app_script_gpu.cpp` est le banc :
-   un appui atteint `PlayerInput` par sa position, ImGui par sa lettre, du fichier comme de l'API.
+12. **Un script d'input est la seule source d'input, juste après `pollEvents`** : des vrais événements, seuls ceux de la
+   fenêtre restent (fermeture, signal, taille, échelle, masquée, montrée ; `platform::withoutRealInput`), puis viennent
+   ceux du script, et tout ce qui suit (ImGui, `gameInputOf`, `PlayerInput`, `frame`) ne sait pas d'où ils viennent. Sur
+   un vrai bureau (les tests Windows, où lavapipe n'a pas de surface hors écran), le vrai curseur n'est pas celui du
+   script : la fin d'un vol le replace au point de l'appui (`mouseReturnTo`), le système le rapporte quand il veut, et
+   sur le runner en Debug il revenait après le déplacement scripté suivant (`tests/app_script_gpu.cpp`, « le vrai
+   curseur »). Sans `--steps` ni `--seconds`, le script mène la boucle, qui s'arrête après son dernier événement ; avec
+   l'un d'eux, la première fin gagne, et un script que la boucle n'a pas fini de jouer fait échouer le programme (règle
+   n°7) : un test ne passe pas sans avoir rejoué ce qu'il dit. **Pour un résultat qui se reproduise**, `--steps N` avec
+   N au moins la longueur du script : sans lui, le monde avance du temps réel de chaque image. `inputScriptOf` lit le
+   fichier avant la fenêtre ; un script illisible, refusé ou vide arrête `runApp`. Sans option, rien n'est touché.
+   `tests/app_script_gpu.cpp` est le banc : un appui atteint `PlayerInput` par sa position, ImGui par sa lettre, du
+   fichier comme de l'API.
 
 13. **La simulation s'arrête par `App::simulationPaused`** (ADR-0036), lu une fois par image, avant `advanceWorld`
    (un arrêt posé dans `ui` vaut pour l'image suivante, simulation et squelettes), `startApp` compris : aucun pas,

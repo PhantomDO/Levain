@@ -28,7 +28,7 @@ clavier, de la souris et des manettes, avec la résolution des noms de SDL dont 
 | Fichier | Contenu |
 |---|---|
 | [`include/levain/platform/window.hpp`](include/levain/platform/window.hpp) | `createWindow` (et `GraphicsSurface`, la surface que la fenêtre annonce), `windowPixelSize`, `pollEvents`, `waitEvents`, `setWindowTitle` |
-| [`include/levain/platform/input_script.hpp`](include/levain/platform/input_script.hpp) | `InputScript`, `parseInputScript`, `loadInputScript`, `addScriptedEvents` : des événements écrits dans un fichier, rejoués image par image (ADR-0036) |
+| [`include/levain/platform/input_script.hpp`](include/levain/platform/input_script.hpp) | `InputScript`, `parseInputScript`, `loadInputScript`, `addScriptedEvents`, `withoutRealInput` : des événements écrits dans un fichier, rejoués image par image (ADR-0036) |
 | [`include/levain/platform/paths.hpp`](include/levain/platform/paths.hpp) | `prefPath` : le dossier des préférences de l'utilisateur (`SDL_GetPrefPath` : `%APPDATA%\<org>\<app>\` sous Windows, `$XDG_DATA_HOME` sous Linux), créé, et un échec qui dit pourquoi (ADR-0036, décision 10) |
 | [`include/levain/platform/process.hpp`](include/levain/platform/process.hpp) | `runProcess` — lance un programme, attend sa fin, rend sa sortie (standard et erreur mêlées) et son code de retour |
 | [`include/levain/platform/input.hpp`](include/levain/platform/input.hpp) | `InputEvent` (appuis, axes, souris), `keyCodeFromName` et ses cousines, `setMouseCaptured`, `warpMouse` (le curseur remis avant de quitter la capture), `cursorPosition` (la souris en pixels de la swapchain, pour viser à l'écran) ; pour une interface (ADR-0032) : `UiEvent`, `startTextInput`, `stopTextInput`, `clipboardText`, `setClipboardText`, `displayScale` |
@@ -71,7 +71,10 @@ Le jeu lit des actions ; une interface (ImGui, `engine/ui`) a besoin d'autre cho
 ## Le banc d'essai de l'input (ADR-0036)
 
 `parseInputScript` lit un fichier d'événements (format dans `input_script.hpp`) et `addScriptedEvents` les ajoute,
-image par image, à ceux de `pollEvents` : ImGui, `gameInputOf` et les actions ne savent pas d'où ils viennent. **Une
+image par image, à ceux de `pollEvents` : ImGui, `gameInputOf` et les actions ne savent pas d'où ils viennent. **Sous un
+script, la boucle de l'App ne garde des vrais que ceux de la fenêtre** (`withoutRealInput`) : sur un vrai bureau, le vrai
+curseur n'est pas celui du script, et le système le rapporte quand il veut (le runner Windows, en Debug, le rapportait
+après le déplacement scripté suivant). **Une
 touche y a deux identités**, comme chez SDL : sa position (le scancode, que lit le jeu) et sa lettre (le keycode, que
 lit ImGui) ; `key down W as z` simule un AZERTY. Sans `as`, la lettre est celle d'un QWERTY américain, par une table à
 nous : `SDL_GetKeyFromScancode` lit la disposition de la machine, et le même script doit donner les mêmes touches

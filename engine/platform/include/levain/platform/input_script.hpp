@@ -75,4 +75,15 @@ struct InputScript
 /// réserve, après les leurs. Sans événement pour cette image, ne fait rien.
 void addScriptedEvents(Events& events, const InputScript& script, int frame);
 
+/// **Sous un script, le script est la seule source d'input** : des événements d'une image, ne
+/// garde que ceux de la fenêtre (fermeture, signal, taille, échelle, masquée, montrée). Le vrai
+/// curseur n'est pas celui du script, et sur un vrai bureau (Windows, où lavapipe n'a pas de
+/// surface hors écran) le système le rapporte quand il veut : la fin d'un vol le replace au point
+/// de l'appui (`App::mouseReturnTo`), et sur le runner Windows en Debug ce point revenait deux
+/// images plus tard, après le déplacement scripté suivant, posant le clic suivant sur le menu
+/// ouvert là. Le focus, la sortie de la souris, le texte et la disposition du clavier en sont
+/// aussi : un script qui en a besoin les écrit (`keymap changed`). L'échelle, elle, est la
+/// fenêtre : un vrai changement de zoom refait le style sous un script aussi.
+[[nodiscard]] Events withoutRealInput(Events events);
+
 } // namespace levain::platform

@@ -1030,10 +1030,12 @@ bool runFrame(Loop& loop)
         LEVAIN_PROFILE_SCOPE_NAMED("événements");
 
         platform::Events events = platform::pollEvents(app.window);
-        // Le banc d'essai : les événements du script s'ajoutent aux vrais, et la suite de l'image
-        // (ImGui, `gameInputOf`, les actions) ne sait pas d'où ils viennent.
+        // Le banc d'essai : sous un script, il est la seule source d'input (invariant 12). Des
+        // vrais événements ne restent que ceux de la fenêtre, puis viennent ceux du script, et la
+        // suite de l'image (ImGui, `gameInputOf`, les actions) ne sait pas d'où ils viennent.
         if (settings.inputScript)
         {
+            events = platform::withoutRealInput(std::move(events));
             platform::addScriptedEvents(events, *settings.inputScript, app.frameCount);
         }
         for (const auto& event : events.window)
