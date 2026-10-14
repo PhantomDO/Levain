@@ -900,7 +900,9 @@ bool selectAt(DemoScene& scene, glm::vec2 size, glm::vec2 pixel)
 /// Le contour du corps sélectionné, en jaune, à sa pose interpolée, celle qu'on voit.
 void drawSelection(const DemoScene& scene, const levain::render::StageContext& context)
 {
-    if (!scene.debugLines || !scene.selected || !scene.selected.is_alive())
+    // Une aide de l'éditeur : cachée en vue de jeu et en Play (`App::editorHelpersVisible`).
+    if (!scene.app.editorHelpersVisible || !scene.debugLines || !scene.selected ||
+        !scene.selected.is_alive())
     {
         return;
     }

@@ -146,6 +146,12 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
    d'ancrage est soumis avant `ui`, où la Vue demande, et perd `PassthruCentralNode` (`dockspaceFlagsFor`) une image
    après que la scène a quitté la fenêtre, comme la route de l'input (invariant 14). `tests/scene_view_gpu.cpp`
    est le banc (`gpu.scene-view.*`).
+16. **Les aides de l'éditeur : un drapeau, `App::editorHelpersVisible`** (ADR-0036, décision 15, morceau 17), vrai au
+   départ. L'éditeur le pose à la fin de `ui` : faux en vue de jeu (touche G) et en Play, vrai sinon. Les étapes du
+   rendu qui dessinent une aide (le contour de la sélection du bac à sable, la grille de l'éditeur) le lisent et ne
+   dessinent rien s'il est faux. C'est tout ce que le moteur sait de l'éditeur : un programme sans éditeur ne le pose
+   jamais et garde ses aides. Équivalent : le *Game View* d'Unreal (touche G), qui cache de même ce que le jeu ne
+   montre pas.
 
 ## Fermer, et `isScriptedRun` (ADR-0036, décisions 10 et 11)
 
@@ -199,7 +205,7 @@ attend le code 1.
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `realTime`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `inputRoute`, `sceneRect`, `cursor`, `rawFrameEvents`, `frameSeconds`, `mouseCaptureOverPanels`, `mouseReturnTo`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `realTime`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `editorHelpersVisible`, `inputRoute`, `sceneRect`, `cursor`, `rawFrameEvents`, `frameSeconds`, `mouseCaptureOverPanels`, `mouseReturnTo`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
 | [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf`, `renderCameraOr` (la caméra imposée d'abord) : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
