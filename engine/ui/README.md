@@ -155,6 +155,10 @@ journal en Release.
   hors d'atteinte sans passer sous 4,5 en gamma. `tests/ui_style_test.cpp` tient les deux, avec `blendInGamma` et
   `blendInLinear` ; `tests/editor_menus_test.cpp` lit la liste de dessin (aucun sommet de `Text` entre 0 et 100 % dans
   un menu ouvert).
+- **Les repères X, Y, Z des champs de vecteur** (`ImGuiSliderFlags_ColorMarkers`, ImGui 1.92.8, imgui.h:2033) : ImGui choisit
+  lui-même les couleurs, dans l'ordre (`GDefaultRgbaColorMarkers`, imgui_widgets.cpp : rouge, vert, bleu, gris pour une
+  quatrième composante), et les trace sur `ImGuiStyle::ColorMarkerSize` (3 px, **0 les supprime sans rien dire** : le test
+  le borne). Le style ne les colorie donc pas ; l'inspecteur pose le drapeau (editor/README).
 
 - **Fonds opaques, en attendant un mélange en espace gamma.** L'alpha de 94 % des fenêtres et des popups d'ImGui est
   pensé pour un mélange en espace sRGB ; l'interface se mélange ici en linéaire sur une cible sRGB, où 94 % se lit autour
