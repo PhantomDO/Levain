@@ -44,12 +44,13 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 | [`include/levain/ui/input.hpp`](include/levain/ui/input.hpp) | `feedInput`, `imguiKeyOf`, `PressedKeys` |
 | [`include/levain/ui/context.hpp`](include/levain/ui/context.hpp) | `UiContext`, `createUiContext`, `prepareUiFrame`, `followTextInput` |
 | [`include/levain/ui/fonts.hpp`](include/levain/ui/fonts.hpp), [`icons.hpp`](include/levain/ui/icons.hpp) | `findFontFiles`, `addFonts`, `UiFonts` ; la table des icônes et `withIcon` |
-| [`include/levain/ui/style.hpp`](include/levain/ui/style.hpp) | `applyEditorStyle`, `EditorAccent` (et ses deux nuances), `srgb8` ; les pièges `relativeLuminance` et `contrastRatio` |
+| [`include/levain/ui/flags.hpp`](include/levain/ui/flags.hpp) | `withFlags` : combiner deux jeux de drapeaux d'ImGui (des `int` signés) sans `bugprone-signed-bitwise` |
+| [`include/levain/ui/style.hpp`](include/levain/ui/style.hpp) | `applyEditorStyle`, `pushSelectedRowColors`, `overlayBackground`, `EditorAccent` (et ses trois nuances), `srgb8` ; les pièges `relativeLuminance` et `contrastRatio` |
 | [`include/levain/ui/tr.hpp`](include/levain/ui/tr.hpp) | `tr`, `trf`, `textf`, `labelOf` : le catalogue des textes vu de l'interface, la table est dans `core` (ADR-0036) |
 
 Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées),
 `tests/ui_style_test.cpp` (le style de l'éditeur : fonds opaques, un seul accent, tailles à deux échelles, contraste du texte
-grisé), et
+grisé, la ligne choisie), et
 `levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu]` (`gpu.ui.*` dans ctest, WARP compris), qui relit la couleur d'un rectangle
 dessiné dans une cible sRGB puis UNORM, puis un gris moyen montré par `ImGui::Image` dans chaque combinaison de formats,
 plusieurs textures dans la même image, une image libérée en vol, et la table des identifiants. `gpu.ui-released-id.*`
@@ -115,8 +116,12 @@ journal en Release.
   l'éditeur d'Unreal 5, et un bleu aussi chez Unity et chez Godot (**supposé** pour les trois : leurs valeurs ne sont pas
   lues dans leurs sources) ; un orange aurait fait un deuxième rouge à côté du X des vecteurs. Il ne désigne que le
   **actif ou choisi** : l'onglet choisi (filet de 2 px), la case cochée, la poignée d'un curseur **tenue** (grise au repos,
-  comme un histogramme), la pression d'un bouton. Tout le reste est un gris neutre, et
-  `tests/ui_style_test.cpp` le tient : une couleur qui prendrait une teinte hors de sa liste est un deuxième accent.
+  comme un histogramme), la pression d'un bouton, la ligne choisie de la hiérarchie et d'une liste
+  (`pushSelectedRowColors`). Tout le reste est un gris neutre, et
+  `tests/ui_style_test.cpp` le tient : une couleur qui prendrait une teinte hors de sa liste est un deuxième accent. Un
+  en-tête de composant (`CollapsingHeader`) reste gris : `Header*` sert à la fois à lui et aux lignes choisies, d'où la
+  poussée locale, qui pousse les **trois** couleurs (le survol d'une ligne choisie reprend `HeaderHovered`, et le bleu
+  virerait au gris sous la souris).
 - **Repartir d'un `ImGuiStyle` neuf, toujours** : `ScaleAllSizes` **tronque** chaque taille à l'entier (`ImTrunc` : à 0,75 un
   bord d'un pixel tombe à 0), et sur un style déjà mis à l'échelle (celui de `createUiContext`) il tronque deux fois ; les
   tailles qu'`applyEditorStyle` ne règle pas (le rembourrage des barres de défilement, `DockingSeparatorSize`) seraient

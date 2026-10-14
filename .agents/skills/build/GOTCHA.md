@@ -71,7 +71,7 @@ M7.7, morceau 17b (revue : `tests/ui_style_test.cpp`, `editor/src/bars.cpp`).
   sombre) ; un test de contraste qui compose en gamma est le pire des deux cas (le linéaire n'éclaircit que plus un
   avant-plan plus clair que son fond), donc sûr pour les deux.
 
-## Un grisé qui passe le test de lisibilité mais ne se voit pas (2026-10-14)
+## Un grisé qui passe le test de lisibilité mais ne se voit pas, un calque qui s'éclaircit en linéaire (2026-10-14)
 
 M7.7, morceau 17b (revue d'exécution sur la 4070, `tests/ui_style_test.cpp`, `editor/src/menus.cpp`).
 
@@ -80,6 +80,10 @@ M7.7, morceau 17b (revue d'exécution sur la 4070, `tests/ui_style_test.cpp`, `e
   texte ; `MenuItem` grisé multiplie le libellé par `DisabledAlpha`, et le mélange linéaire de la 4070 le garde clair (rapport de
   1,22). **Parade** : dessiner les entrées de menu de l'éditeur comme les boutons grisés (`TextDisabled` plein, `DisabledAlpha`
   à 1), et tester les deux bornes, lisible (>= 4,5) **et** « se voit grisé » (>= 1,8 contre le texte), sous les deux mélanges.
+- **Symptôme** : le rappel de touche de la barre de mode sort à 3,85 sur un nuage à la 4070, alors que « le gamma est le pire
+  cas ». **Cause** : c'est vrai d'un texte clair sur fond sombre ; pour un fond sombre translucide sur une scène claire, le
+  mélange **linéaire** est le pire (le fond monte à 131 sur du blanc à un alpha de 0,78). **Parade** : alpha 0,93 (78) et rappel
+  en `Text` (5,7) ; le test pose le calque sur du blanc, mélangé en linéaire comme en gamma.
 
 ## Un style d'ImGui mis à l'échelle deux fois (2026-10-13)
 

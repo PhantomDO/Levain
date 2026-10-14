@@ -4,6 +4,7 @@
 
 #include "levain/core/assert.hpp"
 #include "levain/platform/input.hpp"
+#include "levain/ui/flags.hpp"
 
 namespace levain::ui
 {
@@ -24,12 +25,6 @@ const char* clipboardOf(ImGuiContext*)
 void setClipboardOf(ImGuiContext*, const char* text)
 {
     platform::setClipboardText(text != nullptr ? text : "");
-}
-
-/// Les drapeaux d'ImGui sont des `int` : les combiner en non signé, comme des bits qu'ils sont.
-int withFlags(int flags, int added)
-{
-    return static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(added));
 }
 
 } // namespace

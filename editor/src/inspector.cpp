@@ -22,6 +22,7 @@
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/scene/reflection.hpp"
+#include "levain/ui/style.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -225,11 +226,13 @@ bool comboEnum(const flecs::world& world, const char* label, flecs::entity_t typ
         {
             const void* bytes = valueOf(world, *constants, constant);
             const bool selected = current != nullptr && std::string_view{current} == constant.name;
+            const int accent = ui::pushSelectedRowColors(selected);
             if (ImGui::Selectable(constant.name, selected) && bytes != nullptr)
             {
                 std::memcpy(value, bytes, constants->size);
                 chosen = true;
             }
+            ImGui::PopStyleColor(accent);
         }
         ImGui::EndCombo();
     }

@@ -5,12 +5,14 @@
 #include <doctest/doctest.h>
 #include <imgui.h>
 
+#include "levain/ui/context.hpp"
 #include "levain/ui/style.hpp"
 
 using levain::ui::applyEditorStyle;
 using levain::ui::contrastRatio;
 using levain::ui::EditorAccent;
 using levain::ui::EditorAccentDark;
+using levain::ui::EditorAccentHover;
 using levain::ui::EditorAccentLight;
 
 namespace
@@ -109,7 +111,7 @@ TEST_CASE(
     }
     // Aucune autre couleur que celles de la liste n'a de teinte : une couleur qui sortirait du gris
     // sans y être serait un deuxième accent. Celles de la liste portent une des trois nuances du
-    // style.
+    // style (`EditorAccentHover` ne sert qu'à `pushSelectedRowColors`).
     for (int color = 0; color < ImGuiCol_COUNT; ++color)
     {
         INFO("couleur " << ImGui::GetStyleColorName(color));
@@ -344,4 +346,60 @@ TEST_CASE("contrastRatio linéarise l'sRGB : le noir sur le blanc fait 21, un gr
     // Le gris sRGB de 50 % n'a que 21,4 % de la lumière du blanc ; sans la linéarisation, 50 %.
     CHECK(levain::ui::relativeLuminance({0.5f, 0.5f, 0.5f, 1.0f}) ==
           doctest::Approx(0.2140f).epsilon(0.001));
+}
+
+TEST_CASE("une ligne choisie prend l'accent le temps d'une ligne, les trois couleurs de survol et "
+          "de clic")
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    ImGuiStyle& style = ImGui::GetStyle();
+    applyEditorStyle(style, 1.0f);
+    const ImVec4 greyHeader = style.Colors[ImGuiCol_Header];
+    const ImVec4 greyHovered = style.Colors[ImGuiCol_HeaderHovered];
+    CHECK(isNeutral(greyHovered));
+
+    // Pas choisie : rien n'est poussé, l'en-tête reste gris.
+    CHECK(levain::ui::pushSelectedRowColors(false) == 0);
+    CHECK(sameColor(ImGui::GetStyleColorVec4(ImGuiCol_Header), greyHeader));
+
+    const int pushed = levain::ui::pushSelectedRowColors(true);
+    CHECK(pushed == 3);
+    CHECK(sameColor(ImGui::GetStyleColorVec4(ImGuiCol_Header), EditorAccentDark));
+    // Le survol d'une ligne choisie reprend `HeaderHovered` : bleu aussi, sinon la ligne virerait
+    // au gris.
+    CHECK(sameColor(ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered), EditorAccentHover));
+    CHECK(sameColor(ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive), EditorAccent));
+    ImGui::PopStyleColor(pushed);
+    CHECK(sameColor(ImGui::GetStyleColorVec4(ImGuiCol_Header), greyHeader));
+    CHECK(sameColor(ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered), greyHovered));
+}
+
+TEST_CASE("le fond d'un calque sur la scène est un gris de la palette, presque opaque")
+{
+    const ImVec4 overlay = levain::ui::overlayBackground();
+    CHECK(isNeutral(overlay)); // pas de teinte : le bandeau de mode n'est pas un deuxième accent
+    CHECK(overlay.w == levain::ui::OverlayAlpha);
+    CHECK(overlay.w < 1.0f);
+    CHECK(overlay.w >= 0.93f);
+    // Le gris de la barre des menus et des onglets : celui de la palette, pas un bleu-gris de plus.
+    const ImGuiStyle style = editorStyleAt(1.0f);
+    CHECK(sameRgb(overlay, style.Colors[ImGuiCol_MenuBarBg]));
+}
+
+TEST_CASE("le rappel de touche d'un calque reste lisible sur une scène blanche, mélangé en "
+          "linéaire comme en gamma")
+{
+    const ImGuiStyle style = editorStyleAt(1.0f);
+    const ImVec4 overlay = levain::ui::overlayBackground();
+    const ImVec4 white = levain::ui::srgb8(255, 255, 255);
+    const ImVec4 hint = style.Colors[ImGuiCol_Text]; // `drawModeBarContents` : le rappel en Text
+    // Un fond sombre translucide s'éclaircit plus en linéaire (131 à 0,78 sur du blanc, 78 à 0,93)
+    // qu'en gamma : c'est ce mélange le pire, contrairement au texte clair sur fond sombre.
+    const ImVec4 inLinear =
+        blendInLinear({overlay.x, overlay.y, overlay.z, 1.0f}, white, overlay.w);
+    const ImVec4 inGamma = blendInGamma({overlay.x, overlay.y, overlay.z, 1.0f}, white, overlay.w);
+    CHECK(contrastRatio(hint, inLinear) >= Readable);
+    CHECK(contrastRatio(hint, inGamma) >= Readable);
+    // Le contrôle du contrôle : le gris éteint de l'ancien rappel (178) n'y suffisait pas.
+    CHECK(contrastRatio(levain::ui::srgb8(178, 178, 178), inLinear) < Readable);
 }

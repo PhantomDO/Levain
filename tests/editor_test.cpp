@@ -27,6 +27,7 @@
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
 #include "levain/ui/context.hpp"
+#include "levain/ui/style.hpp"
 
 namespace
 {
@@ -608,6 +609,64 @@ TEST_CASE("les angles tapés restent affichés d'une modification à l'autre, la
     typing.type<editor_test::Facing>(entity, "10");
     CHECK(sameRotation(rotation(), levain::editor::rotationFromEuler({10.0f, 100.0f, 0.0f})));
     CHECK(typing.sets == 3); // une fois par modification, jamais par image
+}
+
+namespace
+{
+
+/// La couleur d'un sommet sans son alpha : les franges de l'anticrénelage sont transparentes, et
+/// c'est la teinte qui compte.
+bool sameRgb(ImU32 a, ImU32 b)
+{
+    return (a & ~static_cast<ImU32>(IM_COL32_A_MASK)) == (b & ~static_cast<ImU32>(IM_COL32_A_MASK));
+}
+
+/// Une couleur dans ce qu'ImGui a dessiné à la dernière image (`Render` a tout rassemblé).
+bool drawn(ImU32 color)
+{
+    const ImDrawData* data = ImGui::GetDrawData();
+    for (const ImDrawList* list : data->CmdLists)
+    {
+        for (const ImDrawVert& vertex : list->VtxBuffer)
+        {
+            if (sameRgb(vertex.col, color))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("la ligne choisie de la hiérarchie prend l'accent, les autres restent grises")
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    flecs::world world;
+    world.entity("première").set(levain::scene::Transform{});
+    const flecs::entity second = world.entity("seconde").set(levain::scene::Transform{});
+    levain::editor::Hierarchy hierarchy = levain::editor::createHierarchy(world);
+    const ImU32 accent = ImGui::ColorConvertFloat4ToU32(levain::ui::EditorAccentDark);
+    const auto frames = [&](flecs::entity_t selected)
+    {
+        for (int frame = 0; frame < 3; ++frame) // une fenêtre neuve se montre à la deuxième image
+        {
+            uiFrame(world,
+                    [&]
+                    {
+                        ImGui::SetNextWindowPos({0.0f, 0.0f});
+                        ImGui::SetNextWindowSize({300.0f, 200.0f});
+                        levain::editor::drawHierarchy(world, hierarchy, selected, 0);
+                    });
+            ImGui::Render();
+        }
+    };
+    frames(0);
+    CHECK_FALSE(drawn(accent));
+    frames(second.id());
+    CHECK(drawn(accent));
 }
 
 TEST_CASE("une entité se lit comme un flecs::entity, par son chemin, vivante ou non")

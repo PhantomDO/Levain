@@ -30,6 +30,19 @@ inline constexpr ImVec4 EditorAccentLight = srgb8(88, 166, 255);
 /// Le même, foncé : le fond d'une ligne choisie, sous un texte clair.
 inline constexpr ImVec4 EditorAccentDark = srgb8(24, 80, 148);
 
+/// Le même, entre le foncé et le franc : le survol d'une ligne déjà choisie
+/// (`pushSelectedRowColors`).
+inline constexpr ImVec4 EditorAccentHover = srgb8(32, 98, 176);
+
+/// L'opacité d'un calque posé sur la scène (le bandeau de mode de la Vue) : presque opaque. Sur une
+/// cible qui mélange en linéaire (D3D12, Vulkan sur la 4070), un fond sombre translucide sur une
+/// scène claire s'éclaircit bien plus qu'en gamma : à 0,78 le fond montait à 131 sur du blanc ; à
+/// 0,93 il reste à 78, et le texte (`Text`) à 5,7 de contraste.
+inline constexpr float OverlayAlpha = 0.93f;
+
+/// Le fond d'un tel calque : un gris de la palette (celui des barres), à `OverlayAlpha`.
+[[nodiscard]] ImVec4 overlayBackground();
+
 /// Règle le style de l'éditeur : couleurs, rondeurs, espacements, pour Inter à 15 px, à l'échelle
 /// de l'écran. **Repart d'un style neuf** : `ScaleAllSizes` tronque chaque taille à l'entier
 /// (`ImTrunc` : à 0,75 un bord d'un pixel tombe à 0), et appelé sur un style déjà mis à l'échelle
@@ -45,6 +58,13 @@ inline constexpr ImVec4 EditorAccentDark = srgb8(24, 80, 148);
 /// `MenuBarBg` sont donc opaques comme ceux de `createUiContext`, et le reste aussi : le mélange en
 /// espace gamma, s'il vient, ne changera pas l'aspect.
 void applyEditorStyle(ImGuiStyle& style, float displayScale);
+
+/// Colorie, le temps d'une ligne, une ligne **choisie** (hiérarchie, liste) en accent : `Header`,
+/// `HeaderHovered`, `HeaderActive` valent aussi les en-têtes de composant de l'inspecteur, qui
+/// restent gris. Rend le nombre de couleurs poussées, à passer à `ImGui::PopStyleColor` : 0 pour
+/// une ligne qui n'est pas choisie. Les trois, car un survol d'une ligne choisie reprend
+/// `HeaderHovered` (`Selectable`, imgui_widgets.cpp) : le bleu virerait au gris sous la souris.
+[[nodiscard]] int pushSelectedRowColors(bool selected);
 
 /// La luminance relative d'une couleur sRGB (WCAG 2.x) : les canaux **linéarisés** d'abord, puis
 /// pondérés par la sensibilité de l'œil. Moyenner des valeurs sRGB brutes donne un rapport faux :

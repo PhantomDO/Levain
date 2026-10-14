@@ -12,6 +12,7 @@
 #include "levain/editor/camera.hpp"
 #include "levain/editor/console.hpp"
 #include "levain/editor/window_menu.hpp"
+#include "levain/ui/flags.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -19,11 +20,6 @@ namespace levain::editor
 
 namespace
 {
-
-int withFlags(int flags, int added)
-{
-    return static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(added));
-}
 
 /// Un contrôle grisé jusqu'à son milestone : sans fond ni contour et en texte éteint, donc
 /// visiblement autre chose qu'un bouton qui répond (le fond atténué seul se lisait « cliquable »),
@@ -56,8 +52,8 @@ ToolbarResult drawToolbar(Mode mode, float flySpeed, bool realTime, ToolbarLayou
 {
     ToolbarResult result;
     const int flags =
-        withFlags(withFlags(ImGuiWindowFlags_NoScrollbar, ImGuiWindowFlags_NoSavedSettings),
-                  ImGuiWindowFlags_NoDecoration);
+        ui::withFlags(ui::withFlags(ImGuiWindowFlags_NoScrollbar, ImGuiWindowFlags_NoSavedSettings),
+                      ImGuiWindowFlags_NoDecoration);
     if (!ImGui::BeginViewportSideBar(
             ui::labelOf("Barre d'outils").c_str(), ImGui::GetMainViewport(), ImGuiDir_Up,
             ImGui::GetFrameHeight() + 2.0f * ImGui::GetStyle().WindowPadding.y, flags))
@@ -129,8 +125,8 @@ StatusLine statusOf(const core::LogRing& ring)
 void drawStatusBar(const StatusLine& line)
 {
     const int flags =
-        withFlags(withFlags(ImGuiWindowFlags_NoScrollbar, ImGuiWindowFlags_NoSavedSettings),
-                  ImGuiWindowFlags_NoDecoration);
+        ui::withFlags(ui::withFlags(ImGuiWindowFlags_NoScrollbar, ImGuiWindowFlags_NoSavedSettings),
+                      ImGuiWindowFlags_NoDecoration);
     if (ImGui::BeginViewportSideBar(
             ui::labelOf("Barre d'état").c_str(), ImGui::GetMainViewport(), ImGuiDir_Down,
             ImGui::GetFrameHeight() + 2.0f * ImGui::GetStyle().WindowPadding.y, flags))
