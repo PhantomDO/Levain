@@ -12,6 +12,7 @@
 
 #include <imgui.h>
 
+#include "levain/app/ui_layer.hpp"
 #include "levain/editor/mode.hpp"
 #include "levain/editor/shortcuts.hpp"
 
@@ -34,6 +35,9 @@ struct ShowMenuLayout
     ImVec2 gameViewItem{}; ///< valable `open`
     bool open = false;     ///< le menu est ouvert à la dernière image
     bool hovered = false;  ///< la souris est sur la barre « Afficher »
+    /// Le rectangle de la barre « Afficher » à l'écran, nul tant qu'elle n'est pas dessinée : ce
+    /// qu'un test de pixels de la scène laisse de côté (le texte d'ImGui n'est pas stable).
+    app::ScreenRect bar{};
 };
 
 /// Les aides de l'éditeur se voient : en Édition, hors vue de jeu. Jouer est la vue de jeu.

@@ -44,6 +44,11 @@ struct View
     app::ScreenRect image{}; ///< Où la dernière image a mis la scène.
     bool barDrawn = false;   ///< La barre de mode en calque a été dessinée à la dernière image.
     ImVec2 barAt{};          ///< Son coin haut gauche.
+    /// **Les rectangles que le texte d'ImGui recouvre dans l'image de la scène** : la barre de mode
+    /// et la barre « Afficher », à l'écran, nuls tant qu'ils ne sont pas dessinés. Un test qui
+    /// compare des pixels de la scène les laisse de côté : les glyphes de l'atlas d'ImGui ne sont
+    /// pas les mêmes pixels d'une exécution à l'autre (build/GOTCHA.md).
+    app::ScreenRect modeBarRect{};
     /// L'image de la scène est la fenêtre sous la souris à la dernière image, **au sens d'ImGui** :
     /// ni cachée par une autre fenêtre ou un menu sous la souris, ni sa barre de mode survolée (un
     /// popup ouvert ailleurs ne la bloque pas). Ce n'est pas un rectangle contre la souris, qui
