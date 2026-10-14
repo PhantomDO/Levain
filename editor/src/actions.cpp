@@ -71,6 +71,13 @@ std::optional<Action> toolActionOf(const ShortcutTable& table, const KeyPress& p
     return action && isToolAction(*action) ? action : std::nullopt;
 }
 
+std::optional<Action> viewKeyActionOf(const ShortcutTable& table, const KeyPress& press,
+                                      const ActiveContexts& active)
+{
+    const auto action = actionFor(table, press, active);
+    return action && (isToolAction(*action) || *action == Action::GameView) ? action : std::nullopt;
+}
+
 std::vector<KeyPress> keyPressesOf(const platform::Events& events,
                                    std::bitset<platform::KeyCodeCount> held)
 {

@@ -119,6 +119,12 @@ void switchRealTime(Mode from, Mode to, bool& appRealTime, bool& editChoice);
 [[nodiscard]] std::optional<Action> toolActionOf(const ShortcutTable& table, const KeyPress& press,
                                                  const ActiveContexts& active);
 
+/// Une touche de position de la Vue qui atteint une action ici : un outil (`toolActionOf`) ou « Vue
+/// de jeu » (G). F (cadrer) est aux gestes (`stepGestures`), qui connaissent la souris. Mêmes
+/// garde-fous : ni en vol, ni avec un modificateur, ni dans un champ de texte.
+[[nodiscard]] std::optional<Action>
+viewKeyActionOf(const ShortcutTable& table, const KeyPress& press, const ActiveContexts& active);
+
 /// **Les touches appuyées à cette image**, lues dans ses événements bruts (`App::rawFrameEvents`,
 /// avant la route et la capture), dans leur ordre : la position (le scancode), la lettre que la
 /// disposition y met (le keycode de l'événement) et les modificateurs tenus avec elle. Sous la

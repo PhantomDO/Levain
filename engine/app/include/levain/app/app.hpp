@@ -293,6 +293,12 @@ struct App
     /// après `hooks.ui`, où l'éditeur la bouge. Sans elle, zéro ou plusieurs arrêtent toujours la
     /// boucle (règle n°7).
     std::optional<render::Camera> cameraOverride;
+    /// **Les aides de l'éditeur** : cachées en vue de jeu (touche G) et en Play, visibles sinon.
+    /// L'éditeur la pose à la fin de `ui` ; les étapes du rendu qui dessinent une aide (le contour
+    /// de la sélection du bac à sable, la grille de l'éditeur) la lisent et ne dessinent rien si
+    /// elle est fausse. Le moteur ne sait rien de plus de l'éditeur. Vrai au départ : un
+    /// programme sans éditeur garde ses aides.
+    bool editorHelpersVisible = true;
     /// La caméra du rendu de la dernière image, relue sur l'unique entité qui porte un
     /// `CameraLens` (camera.hpp), ou imposée (`cameraOverride`) : le programme la lit, pour viser à
     /// la souris par exemple.

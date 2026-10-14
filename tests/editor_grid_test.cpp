@@ -5,12 +5,17 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
 
+#include "levain/editor/actions.hpp"
 #include "levain/editor/grid.hpp"
+#include "levain/editor/mode.hpp"
+#include "levain/editor/shortcuts.hpp"
+#include "levain/editor/show.hpp"
 #include "levain/render/camera.hpp"
 #include "levain/render/culling.hpp"
 #include "levain/render/debug_lines.hpp"
@@ -20,6 +25,8 @@ using namespace levain::editor;
 
 namespace
 {
+
+constexpr std::uint16_t ScanG = 10, ScanF = 9;
 
 /// La vue d'une caméra en `position` : exposition 1, plan lointain à 1 km (celui du sandbox), sans
 /// image (les tests de la géométrie ne mesurent pas l'écart des lignes à l'écran).
@@ -589,4 +596,53 @@ TEST_CASE("la grille est centrée sur le point du sol sous la caméra, calé sur
         const float across = line.from.x == line.to.x ? line.from.x : line.from.z;
         CHECK(across == std::round(across));
     }
+}
+
+TEST_CASE("G bascule la vue de jeu dans la Vue, ni en vol, ni dans un champ de texte, ni ailleurs")
+{
+    const ShortcutTable table = defaultShortcuts();
+    const KeyPress g{.scancode = ScanG, .keycode = 'g', .modifiers = {}};
+    const ActiveContexts inView{.flight = false, .view = true, .game = false, .textInput = false};
+    CHECK(viewKeyActionOf(table, g, inView) == Action::GameView);
+    // La touche est à la position, pas à la lettre : sur un AZERTY elle ne change pas de place.
+    CHECK(viewKeyActionOf(table, {.scancode = ScanG, .keycode = 'x', .modifiers = {}}, inView) ==
+          Action::GameView);
+    ActiveContexts flying = inView;
+    flying.flight = true;
+    CHECK_FALSE(viewKeyActionOf(table, g, flying).has_value());
+    ActiveContexts typing = inView;
+    typing.textInput = true;
+    CHECK_FALSE(viewKeyActionOf(table, g, typing).has_value());
+    ActiveContexts elsewhere = inView;
+    elsewhere.view = false;
+    CHECK_FALSE(viewKeyActionOf(table, g, elsewhere).has_value());
+    // F reste aux gestes, qui connaissent la souris.
+    CHECK_FALSE(viewKeyActionOf(table, {.scancode = ScanF, .keycode = 'f', .modifiers = {}}, inView)
+                    .has_value());
+}
+
+TEST_CASE("la vue de jeu et Jouer cachent les aides, la grille suit")
+{
+    CHECK(helpersVisibleIn(Mode::Edit, false));
+    CHECK_FALSE(helpersVisibleIn(Mode::Edit, true));
+    CHECK_FALSE(helpersVisibleIn(Mode::PlayWithoutReturn, false));
+    CHECK_FALSE(helpersVisibleIn(Mode::PlayWithoutReturn, true));
+
+    ShowState show;
+    CHECK(gridVisibleIn(show, true));
+    CHECK_FALSE(gridVisibleIn(show, false)); // aides cachées : pas de grille
+    show.grid = false;
+    CHECK_FALSE(gridVisibleIn(show, true)); // « Grille » décochée
+}
+
+TEST_CASE("seule l'action « Vue de jeu » bascule la vue de jeu")
+{
+    ShowState show;
+    CHECK_FALSE(applyShowAction(show, Action::FrameSelection));
+    CHECK_FALSE(show.gameView);
+    CHECK(applyShowAction(show, Action::GameView));
+    CHECK(show.gameView);
+    CHECK(applyShowAction(show, Action::GameView));
+    CHECK_FALSE(show.gameView);
+    CHECK(show.grid); // la grille n'est pas touchée
 }
