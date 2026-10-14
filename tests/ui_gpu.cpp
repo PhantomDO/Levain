@@ -34,12 +34,14 @@
 #include "gpu_test_backend.hpp"
 
 #include "levain/core/assert.hpp"
+#include "levain/core/color.hpp"
 #include "levain/core/error.hpp"
 #include "levain/gpu/device.hpp"
 #include "levain/gpu/webgpu.hpp"
 #include "levain/platform/process.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/readback.hpp"
+#include "levain/render/tonemap.hpp"
 #include "levain/ui/context.hpp"
 #include "levain/ui/ui_pass.hpp"
 
@@ -176,6 +178,13 @@ enum class Release : std::uint8_t
     AfterRecording, ///< Après `recordUi`, avant la soumission : la Vue lâche l'ancienne image.
     BeforeDrawing,  ///< Avant `ImGui::Image` : l'identifiant est périmé quand on le dessine.
 };
+
+/// L'opacité du voile de `tonemapThenOverlay`, sur 255.
+constexpr int OverlayAlpha = 128;
+
+/// Le gris du voile : pas du noir, qui ne distinguerait pas un voile linéarisé à tort sur une cible
+/// UNORM (le noir reste noir).
+constexpr int OverlayGrey = 128;
 
 constexpr int ImageSize = 32;
 constexpr int ImageStep = 40;
@@ -420,6 +429,112 @@ int checkSeveralAndInFlight(nvrhi::IDevice& device)
                              std::abs(drawn->levels[index] - expected[index]));
                 ++failures;
             }
+        }
+    }
+    return failures;
+}
+
+/// Ce que relit `tonemapThenOverlay` : le fond tonemappé seul, puis sous un voile gris à moitié
+/// transparent.
+struct OverlayRead
+{
+    int background;
+    int blended;
+};
+
+/// Une lumière grise de 0,5 linéaire, tonemappée (Clip, exposition 1) dans une cible de
+/// `targetFormat`, puis l'UI par-dessus : un carré gris (128) d'alpha 128/255 (ADR-0036, décision
+/// 15). La cible UNORM reçoit du tonemapping des octets sRGB (188), et l'UI s'y mélange en espace
+/// gamma ; la cible sRGB reçoit du linéaire et l'encode elle-même.
+std::optional<OverlayRead> tonemapThenOverlay(nvrhi::IDevice& device, nvrhi::Format targetFormat)
+{
+    const nvrhi::TextureHandle texture = createTarget(device, targetFormat);
+    const nvrhi::FramebufferHandle target =
+        device.createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(texture));
+    auto tonemapPass = levain::render::createTonemapPass(device, target->getFramebufferInfo());
+    auto uiPass = levain::ui::createUiPass(device, target->getFramebufferInfo());
+    if (!tonemapPass || !uiPass)
+    {
+        std::println(stderr, "{}", (tonemapPass ? uiPass.error() : tonemapPass.error()).message);
+        return std::nullopt;
+    }
+    constexpr float Light = 0.5f;
+    const nvrhi::Color light(Light, Light, Light, 1.0f);
+    levain::render::HdrTarget hdr;
+    if (levain::render::ensureHdrTarget(device, *tonemapPass, hdr, Width, Height, light) == nullptr)
+    {
+        std::println(stderr, "image HDR refusée");
+        return std::nullopt;
+    }
+
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = Width, .height = Height}, 1.0 / 60.0);
+    ImGui::NewFrame();
+    ImGui::GetForegroundDrawList()->AddRectFilled(
+        ImVec2(16.0f, 16.0f), ImVec2(48.0f, 48.0f),
+        IM_COL32(OverlayGrey, OverlayGrey, OverlayGrey, OverlayAlpha));
+    ImGui::Render();
+
+    const nvrhi::CommandListHandle commandList = device.createCommandList();
+    commandList->open();
+    commandList->clearTextureFloat(hdr.texture, nvrhi::AllSubresources, light);
+    levain::render::tonemap(*commandList, *tonemapPass, hdr, *target,
+                            {.exposure = 1.0f, .tonemapper = levain::render::Tonemapper::Clip});
+    levain::ui::recordUi(device, *commandList, *uiPass, *ImGui::GetDrawData(), *target);
+    const nvrhi::StagingTextureHandle staging =
+        levain::render::copyForReadback(device, *commandList, *texture);
+    commandList->close();
+    device.executeCommandList(commandList);
+    levain::ui::destroyUiTextures(*uiPass, ImGui::GetPlatformIO().Textures);
+
+    auto image = levain::render::readBack(device, *staging);
+    if (!image)
+    {
+        std::println(stderr, "{}", image.error().message);
+        return std::nullopt;
+    }
+    const auto red = [&](std::size_t x, std::size_t y)
+    { return static_cast<int>(image->rgba[((y * Width) + x) * 4]); };
+    return OverlayRead{.background = red(80, 32), .blended = red(32, 32)};
+}
+
+/// Le tonemapping encode en sRGB sur une cible UNORM, et l'interface s'y mélange en espace gamma :
+/// le même octet à l'écran qu'une cible sRGB pour le fond, et la moyenne des octets (et non des
+/// lumières) sous le voile. Le même attendu sur tous les backends : c'est la parité de #493.
+int checkGammaBlend(nvrhi::IDevice& device)
+{
+    // L'attendu vient de la fonction CPU, pas du shader qu'on vérifie.
+    const int background =
+        static_cast<int>(std::lround(levain::core::srgbFromLinear(0.5f) * 255.0f));
+    const float alpha = static_cast<float>(OverlayAlpha) / 255.0f;
+    const int gammaBlend =
+        static_cast<int>(std::lround((static_cast<float>(OverlayGrey) * alpha) +
+                                     (static_cast<float>(background) * (1.0f - alpha))));
+    int failures = 0;
+    for (const nvrhi::Format format : {nvrhi::Format::RGBA8_UNORM, nvrhi::Format::SRGBA8_UNORM})
+    {
+        const auto read = tonemapThenOverlay(device, format);
+        if (!read)
+        {
+            ++failures;
+            continue;
+        }
+        std::println("{} : fond {} pour {}, sous le voile {} pour {} (gamma)",
+                     nvrhi::getFormatInfo(format).name, read->background, background, read->blended,
+                     gammaBlend);
+        if (std::abs(read->background - background) > 2)
+        {
+            std::println(stderr, "fond tonemappé : écart de {} niveaux",
+                         std::abs(read->background - background));
+            ++failures;
+        }
+        // Le mélange gamma n'est exigé que sur la cible UNORM, celle où le tonemapping encode : une
+        // cible sRGB mélange en linéaire (137), ce que l'interface ne veut pas.
+        if (format == nvrhi::Format::RGBA8_UNORM && std::abs(read->blended - gammaBlend) > 2)
+        {
+            std::println(stderr, "voile : écart de {} niveaux au mélange gamma",
+                         std::abs(read->blended - gammaBlend));
+            ++failures;
         }
     }
     return failures;
@@ -696,7 +811,7 @@ int check(nvrhi::IDevice& device, Mode mode)
         return releaseTwice(device);
     }
     return compareTargets(device) + checkGreyAcrossFormats(device) +
-           checkSeveralAndInFlight(device) + checkIdTable(device);
+           checkSeveralAndInFlight(device) + checkGammaBlend(device) + checkIdTable(device);
 }
 
 int run(const levain::tests::TestBackend& backend, Mode mode)

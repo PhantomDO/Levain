@@ -29,6 +29,7 @@ de modification (le hot-reload des shaders, M2.3).
 | [`include/levain/core/error.hpp`](include/levain/core/error.hpp) | `Result<T>` = `std::expected<T, Error>`, pour les échecs qui ne sont pas des bugs |
 | [`include/levain/core/linear_allocator.hpp`](include/levain/core/linear_allocator.hpp) | `LinearAllocator` — arène vidée d'un coup, **9,4× plus rapide que `malloc`** |
 | [`include/levain/core/pool_allocator.hpp`](include/levain/core/pool_allocator.hpp) | `PoolAllocator` — blocs de taille fixe rendus dans n'importe quel ordre, **5,9×** |
+| [`include/levain/core/color.hpp`](include/levain/core/color.hpp) | `srgbFromLinear` — la fonction exacte, copie CPU du shader du tonemapping, pour écrire ce qu'une image UNORM doit contenir |
 | [`include/levain/core/frame_time.hpp`](include/levain/core/frame_time.hpp) | `recordFrame` — moyenne, minimum et **maximum** par période : c'est le maximum qui montre une saccade |
 | [`include/levain/core/file.hpp`](include/levain/core/file.hpp) | `readFile` — un fichier entier en mémoire, ou un `Result` en échec ; `pathForC` — un chemin pour une bibliothèque C en `char*` (ktx, stb) ; `FileWatch`, `watchDirectory`, `takeChangedFiles` — les fichiers d'un dossier créés ou modifiés depuis la dernière fois |
 | [`include/levain/core/environment.hpp`](include/levain/core/environment.hpp) | `environmentVariable` — une variable d'environnement, ou `std::nullopt`, sans l'API que la CRT de Microsoft déconseille |

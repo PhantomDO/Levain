@@ -60,6 +60,7 @@
 #include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
 #include "levain/render/shader.hpp"
+#include "levain/render/tonemap.hpp"
 
 namespace levain::ui
 {
@@ -266,7 +267,7 @@ core::Result<UiPass> createUiPass(nvrhi::IDevice& device, const nvrhi::Framebuff
 
 bool linearOnSrgbTarget(nvrhi::Format format)
 {
-    return nvrhi::getFormatInfo(format).isSRGB;
+    return render::targetIsSrgb(format);
 }
 
 std::optional<nvrhi::Rect> clampScissorToTarget(const ImVec4& clip, std::uint32_t width,

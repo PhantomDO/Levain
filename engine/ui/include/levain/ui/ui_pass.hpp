@@ -73,7 +73,8 @@ struct UiDrawStats
 
 /// Une cible sRGB convertit en écrivant : les couleurs d'ImGui, déjà en sRGB, doivent alors être
 /// linéarisées, sinon l'UI est délavée (`linearOnSrgbTarget`). Le format se lit sur la cible, pas
-/// sur la plateforme : la swapchain native est sRGB, son repli ne l'est pas.
+/// sur la plateforme : la swapchain native est sRGB, son repli ne l'est pas. Même fonction que le
+/// tonemapping (`targetIsSrgb`).
 [[nodiscard]] bool linearOnSrgbTarget(nvrhi::Format format);
 
 /// Le rectangle de découpe d'une commande d'ImGui, borné à la cible. ImGui en donne qui sortent de

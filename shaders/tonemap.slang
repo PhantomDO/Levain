@@ -7,8 +7,10 @@ struct TonemapConstants
 {
     float exposure;
     uint tonemapper; ///< Tonemapper (tonemap.hpp) : 0 coupe, 1 ACES, 2 AgX, 3 Khronos PBR Neutral.
-    float padding1;
-    float padding2;
+    /// 1 quand la cible n'est pas sRGB (`tonemapEncodesSrgb`, tonemap.hpp) : le shader encode lui-même,
+    /// la cible ne le fera pas (ADR-0036, décision 15).
+    uint encodeSrgb;
+    float padding;
 };
 
 ConstantBuffer<TonemapConstants> settings : register(b0);
@@ -32,9 +34,22 @@ VertexOutput vertexMain(uint vertexId: SV_VertexID)
     return output;
 }
 
+/// La fonction exacte de linéaire vers sRGB, par composante : l'inverse de `linearFromSrgb` de ui.slang.
+float3 srgbFromLinear(float3 color)
+{
+    return select(color <= 0.0031308, color * 12.92, 1.055 * pow(color, 1.0 / 2.4) - 0.055);
+}
+
+/// Ce que la cible attend : la lumière linéaire telle quelle sur une cible sRGB, qui l'encode en
+/// écrivant, ou déjà encodée sur une cible UNORM, qui garde les octets tels quels.
+float4 forTarget(float3 linearColor)
+{
+    return float4(settings.encodeSrgb != 0 ? srgbFromLinear(linearColor) : linearColor, 1.0);
+}
+
 /// ACES, par l'approximation de Stephen Hill (BakingLab, licence MIT) : les transformations RRT et
 /// ODT d'ACES ajustées par une fraction rationnelle, entre deux changements d'espace de couleur. Le
-/// résultat est linéaire, prêt pour une cible sRGB.
+/// résultat est linéaire ; `forTarget` l'encode ou non selon la cible.
 float3 aces(float3 color)
 {
     const float3x3 input = float3x3(0.59719, 0.35458, 0.04823, 0.07600, 0.90834, 0.01566, 0.02840,
@@ -68,7 +83,7 @@ float3 agx(float3 color)
     const float3 v4 = v2 * v2;
     v = 15.5 * v4 * v2 - 40.14 * v4 * v + 31.96 * v4 - 6.868 * v2 * v + 0.4298 * v2 + 0.1191 * v -
         0.00232;
-    // La courbe rend une image pour l'écran (gamma 2,2) : de retour en linéaire pour la cible sRGB.
+    // La courbe rend une image pour l'écran (gamma 2,2) : de retour en linéaire ; `forTarget` encode ensuite selon la cible.
     return pow(saturate(mul(v, outset)), 2.2);
 }
 
@@ -102,13 +117,13 @@ float4 fragmentMain(VertexOutput input) : SV_Target
     switch (settings.tonemapper)
     {
     case 1:
-        return float4(aces(light), 1.0);
+        return forTarget(aces(light));
     case 2:
-        return float4(agx(light), 1.0);
+        return forTarget(agx(light));
     case 3:
-        return float4(khronosPbrNeutral(light), 1.0);
+        return forTarget(khronosPbrNeutral(light));
     default:
         // La lumière au-delà de 1 est coupée net : ce que faisait le moteur avant M5.2.
-        return float4(saturate(light), 1.0);
+        return forTarget(saturate(light));
     }
 }
