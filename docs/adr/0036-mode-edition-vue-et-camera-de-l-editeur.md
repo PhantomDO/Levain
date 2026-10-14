@@ -167,9 +167,11 @@ l'anglais de M7.8 ; des polices sous OFL, une console, une disposition gardée. 
     « Remplacer », qui le retire à l'autre action, comme l'*Override* d'Unreal [3]. Conflit dans un même contexte,
     et entre *global* et tout autre ; une position se compare à une lettre par `keyAtPosition`, de nouveau quand la
     disposition change (un conflit né ainsi va à la console). F1 est réservée ; « Réinitialiser » rend les défauts,
-    d'une action ou de toutes. La table s'enregistre avec les préférences : une position par son numéro de scancode
-    (l'usage USB, le même partout), une lettre par notre nom (« Ctrl+S »), jamais par les noms de SDL ou d'ImGui,
-    instables (SDL_keyboard.h:275-282 ; imgui.h:1102). La fenêtre Aide la liste. Les défauts :
+    d'une action ou de toutes (un défaut qu'une autre action tient est un conflit nommé, comme une saisie).
+    **Échap annule la saisie : aucune action ne peut la tenir par un clic.** « Arrêter » peut s'en éloigner, et la
+    retrouve par « Réinitialiser ». La table s'enregistre avec les préférences : une position par son numéro de
+    scancode (l'usage USB, le même partout), une lettre par notre nom (« Ctrl+S »), jamais par les noms de SDL ou
+    d'ImGui, instables (SDL_keyboard.h:275-282 ; imgui.h:1102). La fenêtre Aide la liste. Les défauts :
 
     | Action | Défaut | Par | Contexte | Source |
     |---|---|---|---|---|

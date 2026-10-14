@@ -619,7 +619,7 @@ void beginUiFrame(App& app, const platform::Events& events, double frameSeconds)
     countKeymapChanges(app, events);
     const platform::KeyModifiers held{
         .ctrl = io.KeyCtrl, .shift = io.KeyShift, .alt = io.KeyAlt, .super = io.KeySuper};
-    if (togglesPanels(ImGui::IsKeyPressed(ImGuiKey_F1, false), held))
+    if (!app.ui.panelsKeyBlocked && togglesPanels(ImGui::IsKeyPressed(ImGuiKey_F1, false), held))
     {
         app.ui.panelsOpen = !app.ui.panelsOpen;
     }

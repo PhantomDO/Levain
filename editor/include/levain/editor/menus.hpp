@@ -132,10 +132,13 @@ struct MenuBarLayout
     ImVec2 edit{};
     ImVec2 entity{};
     ImVec2 help{};
-    ImVec2 save{};   ///< « Enregistrer », valable `fileOpen`.
-    ImVec2 undo{};   ///< « Annuler », valable `editOpen`.
-    ImVec2 create{}; ///< « Créer… », valable `entityOpen`.
+    ImVec2 save{};           ///< « Enregistrer », valable `fileOpen`.
+    ImVec2 undo{};           ///< « Annuler », valable `editOpen`.
+    ImVec2 create{};         ///< « Créer… », valable `entityOpen`.
+    ImVec2 preferences{};    ///< « Préférences », valable `editOpen`.
+    ImVec2 shortcutsEntry{}; ///< « Raccourcis… », valable `preferencesOpen`.
     bool editOpen = false;
+    bool preferencesOpen = false;
     bool entityOpen = false;
     ImVec2 quit{};          ///< « Quitter l'éditeur », valable `fileOpen`.
     ImVec2 helpShortcuts{}; ///< « Raccourcis », valable `helpOpen`.
@@ -162,6 +165,7 @@ struct MenuRequests
     std::vector<Action> actions;
     bool quit = false;
     bool resetLayout = false;
+    bool openShortcuts = false; ///< « Préférences > Raccourcis… » (morceau 16).
 };
 
 /// Ce dont la barre a besoin, tout en paramètres.

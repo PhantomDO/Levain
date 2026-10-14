@@ -45,7 +45,7 @@ Ctrl ou Alt **par lettre**. `displayNameOf` montre la touche de la disposition d
 `positionHeld` et `actionFor` (`gestures.cpp`), Alt+P par `letterChordPressed` et Échap par `positionHeld` de l'action
 « Arrêter » (`mode.cpp`), les raccourcis des menus par `letterChordPressed` et `toolActionOf` (`actions.cpp`). **En vol,
 la Vue se tait** (`actionFor`) : sous le clic droit tenu, ni R ni Espace ne changent d'outil, F ne recadre pas ; seul le
-global vaut encore (Ctrl+S). Changer et enregistrer un accord sont les morceaux 15 et 16. Équivalents : les raccourcis d'éditeur d'Unreal, le *Shortcuts
+global vaut encore (Ctrl+S). La fenêtre « Raccourcis » (morceau 16, invariant 22) les change et les enregistre. Équivalents : les raccourcis d'éditeur d'Unreal, le *Shortcuts
 Manager* d'Unity, les *Editor Settings > Shortcuts* de Godot. Test : `tests/editor_shortcuts_test.cpp`, et de bout en
 bout `gpu.editor-shortcuts.*`. **Le contrat avec ImGui** : `actionFor` sert les accords de position et le contexte *jeu* ; les accords de lettre passent par `ImGui::Shortcut(imguiChordOf(...))`, et un champ de texte actif (`ActiveContexts::textInput`) ne laisse rien au vol, à la Vue ni au global. Alt-Gr tenu ne vaut aucun accord. **Fait au morceau 11** : le relâchement d'un vol est un clic pour ImGui, et le menu contextuel de la Vue ne s'ouvre que si le clic droit n'a pas volé (`GestureState::flew` : bougé au-delà de `ClickSlopPixels`, une touche de vol ou la molette) ; `playFlightReleaseIsAClick` épingle toujours le comportement d'`app` seul, sans l'éditeur.
 
@@ -59,7 +59,7 @@ et seulement elle : leurs racines d'assets restent `data/`, sans le scan et les 
 ADR-0036, décisions 12 et 13). **La barre de menus** : Fichier, Édition, Entité, Fenêtre (celui du morceau 8, au
 milieu de la barre) et Aide ; chaque entrée montre le raccourci de la table, selon la disposition du clavier. **Une
 action grisée tant que son milestone n'est pas là** (`availabilityOf` : Enregistrer, Annuler, Rétablir en M7.3, les
-outils en M7.4, Simuler en M7.5, Entité > Créer… en M7.3, Préférences > Raccourcis… au morceau 16) : le menu la montre
+outils en M7.4, Simuler en M7.5, Entité > Créer… en M7.3) : le menu la montre
 éteinte, dit au survol « Arrive en M7.3 », et le clic ne fait rien. **Le choix pour Ctrl+S** : l'entrée est grisée
 *et* le raccourci reste routé vers l'action, qui, grisée, le dit à la console (« Enregistrer : arrive en M7.3 » ; la
 barre d'état le montre) et compte le refus (`ActionCounters::declined`). Un Ctrl+S qui ne répondrait rien laisserait
@@ -229,8 +229,8 @@ M couverts par un test ».
     (`%APPDATA%\Levain\Editor\` sous Windows, `$XDG_DATA_HOME/Levain/Editor/` sous Linux), un fichier texte versionné
     (`levain-editor 1`) : `[editeur]` (la vitesse de la caméra, le choix de « Temps réel » en Édition), `[fenetres]` (les
     sept fenêtres ouvertes ou non), `[raccourcis]` (vide tant que personne n'en change : l'absence d'une action, ce sont
-    les défauts ; le morceau 16 y écrit les accords par leurs noms stables `tokenOf`, et les lignes relues sont déjà
-    gardées et réécrites) et, **à la fin, tel quel**, `[disposition]` : le texte d'ImGui (`SaveIniSettingsToMemory`), dont
+    les défauts ; le morceau 16 y écrit, pour les seules actions changées, les accords par leurs noms stables `tokenOf`,
+    invariant 22) et, **à la fin, tel quel**, `[disposition]` : le texte d'ImGui (`SaveIniSettingsToMemory`), dont
     l'`imgui.ini` n'est pas écrit (ADR-0032 : il changerait d'une exécution à l'autre). Le lecteur refuse le fichier
     entier à la première faute (version inconnue ou plus récente, section ou clé inconnue ou en double, valeur hors
     bornes, accord illisible), avec le numéro de ligne. **Au démarrage**, `withEditor` relit le fichier avant la première
@@ -292,6 +292,49 @@ M couverts par un test ».
     la souris (le curseur butte au bord de l'écran, Unreal le cache), la touche F n'agit pas hiérarchie focalisée,
     et le sens du pan n'est pas un réglage. Tests : `tests/editor_gestures_test.cpp` et, de bout en bout,
     `gpu.editor-gestures.*`.
+22. **Changer les raccourcis** (M7.7, morceau 16, ADR-0036, décision 13 ; `shortcut_edit.hpp`, `shortcut_window.hpp`).
+    Édition > Préférences > Raccourcis… ouvre la fenêtre « Raccourcis » : une ligne par action de la table (son nom, ses
+    deux accords selon la disposition du clavier d'aujourd'hui, son contexte), un filtre par nom d'action ou par accord
+    (`shortcutRowMatches`), « Réinitialiser » par ligne et « Tout réinitialiser » (une confirmation). **Un clic sur un
+    accord, puis la touche** : la saisie (`ShortcutWindow::capturing`) coupe tout le reste pour sa durée, ni
+    `ImGui::Shortcut` (`ShortcutInputs::globalAllowed`), ni les touches de position (`Editor::presses` ne va qu'à la saisie),
+    ni les gestes (`GestureContext`), ni Alt+P, ni Échap qui arrête le jeu, ni **F1** (`UiLayer::panelsKeyBlocked` : elle ne ferme pas
+    les panneaux, donc pas la fenêtre qui la lit). **Échap annule la saisie et n'est jamais capturée** : aucune action ne peut la tenir par un clic ;
+    « Arrêter » (Échap par défaut) peut s'en éloigner, et la retrouve par « Réinitialiser » (ADR-0036, décision 13). **La
+    saisie ne dure que là où elle lit le clavier** (`captureAllowed`) : elle est abandonnée (`abandonCapture`) dès que la
+    fenêtre n'a plus le focus (un onglet caché, la modale « Quitter ? »), qu'un champ de texte est actif (le filtre, ou
+    celui d'un autre panneau : « s » tapé n'est pas un accord), que l'application perd le focus du système, ou que le mode
+    change (`changeMode` : en jeu les touches de l'éditeur ne lui parviennent plus, et les cases des accords sont
+    grisées). **La touche qui finit la saisie ne part pas aussi comme raccourci** : `ui` lit la saisie une fois, au
+    début de l'image. Sont refusés (`captureChord`) : F1 seule
+    (réservée, un message le dit), un modificateur seul (la saisie attend la touche suivante), ce que `chordFromToken` ne
+    relirait pas (une flèche pour une lettre, Alt-Gr tenu). **Le genre de l'accord suit celui de l'action** : une
+    position garde le scancode, une lettre le caractère de la touche (`defaultKindOf`). **Un conflit** (`conflictsOf`) est
+    un accord déjà pris dans le même contexte, ou entre le global et n'importe quel autre contexte (le vol et la Vue ne se
+    disputent rien, W vole et prend l'outil) ; une position se compare à une lettre par `keyAtPosition` (`chordsCollide` :
+    sur un AZERTY la lettre Z est la position du W). Il est **nommé** (« Ctrl+S : Enregistrer ») et rien ne change avant
+    « Remplacer » (`replaceChord`, l'*Override* d'Unreal : l'accord est retiré à l'autre action, qui garde son second accord
+    à la première place) ; « Annuler » l'abandonne. L'autre place de la même action n'est pas un conflit : l'accord y est
+    vidé. **« Réinitialiser » suit la même règle** (`requestReset`) : si un défaut est tenu maintenant par une autre
+    action, le conflit est nommé et rien ne change avant « Remplacer ». Quand la disposition change (`App::keymapChanges`), la table est
+    revérifiée (`conflictsIn`) : un conflit né ainsi va à la console, **aucun accord n'est rebranché en silence** ; une
+    candidate en attente est abandonnée. **Le fichier** : `[raccourcis]` tient une ligne `action = accord, accord` par action
+    qui diffère des défauts (`linesOf`, le nom de l'action est sa clé de catalogue ; une action sans accord s'écrit sans
+    rien après le « = »), écrite tout de suite après un changement (`savePreferencesNext`) et à la fermeture. À la lecture
+    (`shortcutsFromLines`, `applyShortcutLines`) un fichier qui se lit (`parsePreferences` refuse le fichier entier s'il
+    est malformé) peut encore porter une ligne que le code refuse : accords illisibles, ligne écrite deux fois, **accord
+    d'un autre genre que l'action** (une lettre pour « Avancer » ne partirait jamais : `positionHeld` ne lit que les
+    positions). Elle est écartée et dite, les défauts de l'action restent, et **la ligne est gardée telle quelle** à
+    l'enregistrement (`AppliedLines::refused`, `withKeptLines`) tant que l'action n'est pas changée ; **une action
+    inconnue (un fichier d'une autre branche) est gardée et réécrite** de même ; un conflit du fichier est dit sans
+    rien changer. Sous une
+    exécution scriptée (pas de dossier de préférences) : les défauts, jamais écrits. Limites : les accords de
+    position d'une action ne sont posés que par la touche physique (pas de saisie « par lettre » d'une action de position),
+    et la fenêtre n'a pas de profils comme le Shortcuts Manager d'Unity. Tests : `tests/editor_shortcut_edit_test.cpp` (la
+    logique). Équivalents :
+    *Editor Preferences > Keyboard Shortcuts* d'Unreal (deux accords par commande, un conflit averti par *Override*,
+    **documenté**), le *Shortcuts Manager* d'Unity (liste filtrable, conflits listés, profils, **documenté**), *Editor
+    Settings > Shortcuts* de Godot (**supposé**, non relu).
 
 ## Fermer l'éditeur (ADR-0036, décision 11)
 
@@ -330,6 +373,9 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   `chordMatches`, `positionHeld`, `displayNameOf`, `tokenOf`, `chordFromToken`, `imguiChordOf`, `letterChordPressed`
   (`shortcuts.hpp`) : la
   table des raccourcis, en fonctions libres dont la disposition du clavier est un paramètre.
+- `conflictsOf`, `replaceChord`, `resetAction`, `resetAll`, `conflictsIn`, `captureChord`, `linesOf`,
+  `shortcutsFromLines` (`shortcut_edit.hpp`, sans ImGui) ; `ShortcutWindow`, `beginCapture`, `stepCapture`,
+  `acceptPending`, `drawShortcutWindow`, `shortcutCaptureActive` (`shortcut_window.hpp`, `editor.hpp`) : changer la table.
 - `drawMenuBar(inputs, windowLayout, layout, help)`, `drawHelp`, `helpRowsOf`, `helpRowMatches`, `equivalentsOf`
   (`menus.hpp`) ; `drawToolbar`, `drawStatusBar`, `statusOf` (`bars.hpp`) ; `availabilityOf`, `runAction`,
   `shortcutsPressed`, `keyPressesOf`, `toolActionOf`, `viewActiveIn`, `switchRealTime`, `ActionCounters`
@@ -461,6 +507,9 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
 | **Godot** | L'éditeur, un programme du moteur | Il tourne sur le moteur et son UI (**documenté**, ADR-0032) ; le jeu s'exporte avec des modèles d'export compilés sans l'éditeur (**supposé**). |
 | **Unreal**, la console | L'Output Log | Les messages du journal par catégorie, les erreurs en rouge (**documenté**, *Logging in Unreal Engine*) ; ses filtres de catégorie et de verbosité sont **supposés** : ici, trois niveaux et une recherche qui lit aussi la catégorie. |
 | **Unity**, la console | La fenêtre Console | Des filtres par type avec leurs compteurs, une recherche et *Collapse* (**documenté**, manuel, *Console Window*) : Réduire ici fusionne les messages identiques *qui se suivent*, là où Unity fusionne tous les identiques (**supposé** : non relu dans le manuel). |
+| **Unreal**, les raccourcis | Editor Preferences > Keyboard Shortcuts | Deux accords par commande, un conflit averti avec *Override* (**documenté**, *Customizing Keyboard Shortcuts*) : « Remplacer » en est la copie. Le détail de la saisie (Échap, F1) est notre choix. |
+| **Unity**, les raccourcis | Le Shortcuts Manager | Une fenêtre qui liste, filtre et change les raccourcis, avec des profils (**documenté**, manuel, *Shortcuts Manager*) : pas de profil ici. |
+| **Godot**, les raccourcis | Editor Settings > Shortcuts | Les raccourcis de l'éditeur se changent dans les réglages (**supposé**, non relu pour ce morceau). |
 | **Unreal**, la hiérarchie | L'Outliner (*World Outliner* jusqu'à UE4) | « Hierarchical tree view of all Actors within the current Level. Used for selection, attachment, and more » (**documenté**, *Outliner in Unreal Engine*). Un acteur sans position y figure aussi ; ici, seules les entités placées, les autres en M7.3. |
 | **Unity**, la hiérarchie | La fenêtre Hierarchy | Pour « arrange the GameObjects in your scenes, group them into parent-child hierarchies » (**documenté**, manuel, *Hierarchy window*). |
 | **Godot**, la hiérarchie | Le dock Scène | Il « lists the active scene's nodes » (**documenté**, *First look at the editor*) ; un nœud est un objet, pas une entité d'ECS : pas de singletons à part. |

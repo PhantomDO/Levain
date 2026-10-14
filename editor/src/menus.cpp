@@ -100,10 +100,13 @@ void drawEditMenu(const MenuBarInputs& inputs, MenuBarLayout& layout, MenuReques
         layout.undo = action == Action::Undo ? centerOfLastItem() : layout.undo;
     }
     ImGui::Separator();
-    // Les préférences des raccourcis sont le morceau 16 : la place est faite, grisée.
-    if (ImGui::BeginMenu(ui::labelOf("Préférences").c_str()))
+    const bool preferences = ImGui::BeginMenu(ui::labelOf("Préférences").c_str());
+    layout.preferences = centerOfLastItem();
+    if (preferences)
     {
-        soonItem("Raccourcis…", "M7.7, morceau 16");
+        layout.preferencesOpen = true;
+        requests.openShortcuts = ImGui::MenuItem(ui::labelOf("Raccourcis…").c_str());
+        layout.shortcutsEntry = centerOfLastItem();
         ImGui::EndMenu();
     }
     ImGui::EndMenu();
@@ -172,6 +175,7 @@ MenuRequests drawMenuBar(const MenuBarInputs& inputs, WindowMenuLayout& windowLa
     MenuRequests requests;
     layout.fileOpen = false;
     layout.editOpen = false;
+    layout.preferencesOpen = false;
     layout.entityOpen = false;
     layout.helpOpen = false;
     windowLayout.itemsShown = false;

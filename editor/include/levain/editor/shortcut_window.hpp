@@ -1,9 +1,9 @@
 #pragma once
 
-// La fenêtre « Raccourcis » (ADR-0036, décision 13, morceau 16), que rien n'ouvre encore
-// (`open`) : chaque action de la table, ses deux accords tels que le clavier d'aujourd'hui
+// La fenêtre « Raccourcis » (ADR-0036, décision 13, morceau 16), ouverte par Édition > Préférences
+// > Raccourcis… : chaque action de la table, ses deux accords tels que le clavier d'aujourd'hui
 // les écrit, son contexte ; un filtre par nom d'action ou par accord. **Un clic sur un accord, puis
-// la touche** : la saisie (`capturing`) prend le premier appui qui compte. Un accord
+// la touche** : pendant cette saisie aucun raccourci ne part (l'éditeur lit `capturing`). Un accord
 // déjà pris est un conflit, nommé ; rien ne change avant « Remplacer ». La logique de la saisie
 // (`stepCapture`, `acceptPending`) ne touche pas ImGui ; `drawShortcutWindow` n'est que le dessin.
 // Équivalents : « Editor Preferences > Keyboard Shortcuts » d'Unreal, le Shortcuts Manager d'Unity,
@@ -65,7 +65,7 @@ struct ShortcutWindow
     bool open = false;
     /// Le texte cherché, terminé par un zéro (le tampon du champ d'ImGui).
     std::array<char, 128> filter{};
-    /// La saisie en cours.
+    /// La saisie en cours : l'éditeur ne laisse partir aucun raccourci tant qu'elle dure.
     std::optional<ShortcutTarget> capturing;
     std::optional<PendingChord> pending;
     /// La fenêtre avait le focus à la dernière image qui l'a dessinée : la saisie ne lit le clavier
@@ -89,8 +89,8 @@ struct ShortcutWindow
 void beginCapture(ShortcutWindow& window, ShortcutTarget target);
 
 /// Abandonne la saisie et la candidate en attente, sans toucher à la table : la fenêtre se ferme,
-/// le mode change, le clavier est pris ailleurs. Une saisie qui survivrait couperait les
-/// raccourcis sans que rien ne puisse plus la finir.
+/// le mode change, le clavier est pris ailleurs. Une saisie qui survivrait coupe les raccourcis
+/// (`shortcutCaptureActive`) sans que rien ne puisse plus la finir.
 void abandonCapture(ShortcutWindow& window);
 
 /// Où est le clavier à cette image : la saisie ne le lit que si rien d'autre ne l'a.
@@ -142,7 +142,7 @@ std::size_t logShortcutConflicts(const ShortcutTable& table,
 [[nodiscard]] bool shortcutRowMatches(const HelpRow& row, std::string_view search);
 
 /// Dessine la fenêtre si elle est ouverte. Vrai si la table a changé à cette image (la saisie
-/// ou un bouton). `editing` : hors de l'Édition les
+/// ou un bouton) : l'éditeur enregistre alors tout de suite. `editing` : hors de l'Édition les
 /// cases des accords sont grisées, les touches de l'éditeur n'arrivent plus à la saisie.
 [[nodiscard]] bool drawShortcutWindow(ShortcutWindow& window, ShortcutTable& table,
                                       const platform::KeyAtPosition& keyAtPosition,

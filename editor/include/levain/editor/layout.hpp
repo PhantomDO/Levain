@@ -13,6 +13,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <vector>
 
 #include <imgui.h>
 
@@ -40,6 +41,12 @@ inline constexpr const char* PreferencesApplication = "Editor";
 /// Temps réel » en Édition (celui d'avant, pendant qu'on joue), les fenêtres ouvertes et les
 /// raccourcis relus.
 [[nodiscard]] Preferences preferencesOf(const app::App& app, const Editor& editor);
+
+/// **Les lignes de `[raccourcis]` posées sur la table** : les défauts, puis ce qu'elles changent.
+/// Une ligne fautive est écartée et dite à la console, une action inconnue est gardée pour
+/// l'enregistrement, un conflit est dit sans que rien soit rebranché.
+void applyShortcutLines(const app::App& app, Editor& editor,
+                        const std::vector<ShortcutLine>& lines);
 
 /// Pose les préférences relues sur l'éditeur, avant la première image. Une disposition qui ne
 /// crée pas l'espace d'ancrage (un texte vide de sens) est écartée et dite à la console : la

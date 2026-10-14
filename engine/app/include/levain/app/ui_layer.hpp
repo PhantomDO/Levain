@@ -81,6 +81,10 @@ struct UiLayer
     render::GpuTimer timer{};
     /// Les panneaux de debug du moteur, ouverts par F1 ou `--ui on`.
     bool panelsOpen = false;
+    /// Un client (l'éditeur, quand il capture une touche pour un raccourci, ADR-0036, décision 13)
+    /// pose ceci pour que F1 ne ferme pas les panneaux : F1 y est une touche qu'on refuse, et les
+    /// fermer ferait disparaître la fenêtre qui la lit. Remis à chaque image par le client.
+    bool panelsKeyBlocked = false;
     DockNodes dock{};
     EngineWindows windows{};
     /// **Un éditeur enveloppe ce programme** (`withEditor`) : la disposition à colonnes
