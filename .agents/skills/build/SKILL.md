@@ -57,6 +57,13 @@ de l'appelant) : le `offscreen` du shell ne les protège pas (build/GOTCHA.md). 
 swapchain ou de la présentation (`swapchain_d3d12.cpp`) : ni WARP ni le hors-écran ne les exercent. Donnovan permet ces
 fenêtres courtes sur le portable (sondage du 2026-10-10).
 
+**La suite unitaire Windows aussi, pour chaque morceau** : `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER
+build/windows-debug/tests/levain_tests.exe` (les cas doctest, hors écran, sans fenêtre). Un test de fichiers, de threads
+ou de la plateforme peut passer sous Linux et échouer sous Windows : M7.7 l'a appris au premier passage de la CI qui
+l'a lancé (run 38545818223, le 2026-10-14), où un test d'écritures concurrentes du morceau 15 n'avait jamais tourné sous
+Windows, faute d'être dans `-R d3d12-warp`. Un test en vraie fenêtre dépend aussi de l'échelle d'affichage (125 % sur le
+portable) : le lancer par son nom exact quand un morceau touche ce qu'il clique.
+
 Un exe Windows n'ouvre ni la fenêtre de la CRT ni celle d'une exception quand il échoue (assertion, STL, `abort()`,
 paramètre invalide, plantage) : le message va sur stderr, puis le programme s'arrête en Debug (code non nul), ou, en
 Release, Windows Error Reporting (WER) reçoit l'échec et le code de sortie reste celui de Windows (0xC0000409 après un
