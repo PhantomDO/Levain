@@ -528,7 +528,7 @@ int checkGammaBlend(nvrhi::IDevice& device)
                          std::abs(read->background - background));
             ++failures;
         }
-        // Le mélange gamma n'est exigé que sur la cible UNORM, celle où le tonemapping encode : une
+        // Le mélange gamma n'est exigé que sur la cible UNORM, celle de tous les backends : une
         // cible sRGB mélange en linéaire (137), ce que l'interface ne veut pas.
         if (format == nvrhi::Format::RGBA8_UNORM && std::abs(read->blended - gammaBlend) > 2)
         {
@@ -837,6 +837,14 @@ int run(const levain::tests::TestBackend& backend, Mode mode)
     if (!gpu)
     {
         std::println(stderr, "{}", gpu.error().message);
+        return 1;
+    }
+    // L'image de présentation est UNORM sur tous les backends, hors écran comme en fenêtre
+    // (ADR-0036, décision 15) : une sRGB ici ferait mélanger l'interface en linéaire.
+    if (mode == Mode::All && nvrhi::getFormatInfo(levain::gpu::swapchainFormat(*gpu)).isSRGB)
+    {
+        std::println(stderr, "la présentation est en sRGB : {}",
+                     nvrhi::getFormatInfo(levain::gpu::swapchainFormat(*gpu)).name);
         return 1;
     }
     return check(*gpu->nvrhi, mode) == 0 ? 0 : 1;

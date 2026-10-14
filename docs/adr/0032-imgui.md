@@ -167,6 +167,7 @@ version du moteur.
   et un canevas de téléphone peut être en `RGBA8`. Le mélange se fait alors en espace linéaire : les fonds
   translucides et le bord des lettres diffèrent un peu du rendu habituel d'ImGui. La vérification porte sur
   un pixel **opaque** connu, dans une capture native et dans celle de `web-smoke`.
+  *(Amendé le 2026-10-14, ADR-0036 décision 15 : la swapchain native est en UNORM sur tous les backends, le tonemapping encode et l'UI se mélange en gamma ; le paragraphe ci-dessus décrit l'état avant 17d.)*
 - **`clampScissorToTarget`** : les rectangles de découpe d'ImGui peuvent sortir de l'image ou être négatifs.
   Passés tels quels, ils sont une erreur de validation, sous WebGPU comme sous Vulkan (règle n°4). Chacun est
   borné à la cible, et un rectangle vide n'est pas dessiné.

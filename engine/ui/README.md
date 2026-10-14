@@ -141,17 +141,17 @@ journal en Release.
   WCAG 1.4.11, éléments qui ne sont pas du texte) contre la barre.
 - **Les couleurs du style n'ont aucun alpha**, hors celles qui en ont besoin par nature (le voile de la modale, l'aperçu
   d'ancrage, la cible d'un glisser-déposer, les trois « rien » : `ChildBg`, `BorderShadow`, `TableRowBg`) : l'interface se
-  mélange en linéaire sur une cible sRGB, où un alpha se lit trop fort (« Fonds opaques », ci-dessous). Le mélange en espace
-  gamma, s'il vient (décision de Donnovan à la clôture de M7.7), ne changera donc pas l'aspect du style.
+  mélangeait en linéaire sur une cible sRGB (avant 17d), où un alpha se lit trop fort (« Fonds opaques », ci-dessous) ; elle se mélange
+  maintenant en gamma (17d), et ce choix de style reste.
 - **Le texte grisé, tel qu'il est dessiné** (revue du morceau 17b, puis sa revue d'exécution) : `ImGui::BeginDisabled`
   multiplie l'alpha de tout ce qu'il enveloppe par `DisabledAlpha`, et les menus d'ImGui s'en servent pour toute entrée
   grisée (le libellé en `Text`, le raccourci en `TextDisabled`, l'un et l'autre à cet alpha). À 0,8, sur une cible qui
-  mélange en linéaire (la 4070), le libellé d'« Annuler » sortait à 196 contre 215 au texte : le test annonçait 4,5 de
+  mélangeait en linéaire (la 4070 avant 17d, le pire cas d'une future cible sRGB), le libellé d'« Annuler » sortait à 196 contre 215 au texte : le test annonçait 4,5 de
   lisibilité, l'entrée ne semblait pas grisée. Donc **deux chemins** : les entrées de menu et les boutons de l'éditeur
   (`greyedMenuItem`, `disabledButton`) se dessinent en `TextDisabled` **plein** (150, `DisabledAlpha` poussé à 1 le temps de
   l'appel) : 4,59 contre le menu (le pire), 2,06 contre le texte ; les widgets d'ImGui lui-même grisés (les champs d'une
   donnée en lecture seule) passent par `DisabledAlpha` = **0,62** : le texte y reste à 4,5 contre le menu en gamma (le
-  pire pour la lisibilité) et se distingue à 2,1 en gamma, mais **1,56 seulement en linéaire** : un rapport de 1,8 y est
+  pire pour la lisibilité) et se distingue à 2,1 en gamma, mais **1,56 seulement en linéaire** (avant 17d) : un rapport de 1,8 y est
   hors d'atteinte sans passer sous 4,5 en gamma. `tests/ui_style_test.cpp` tient les deux, avec `blendInGamma` et
   `blendInLinear` ; `tests/editor_menus_test.cpp` lit la liste de dessin (aucun sommet de `Text` entre 0 et 100 % dans
   un menu ouvert).
@@ -160,22 +160,17 @@ journal en Release.
   quatrième composante), et les trace sur `ImGuiStyle::ColorMarkerSize` (3 px, **0 les supprime sans rien dire** : le test
   le borne). Le style ne les colorie donc pas ; l'inspecteur pose le drapeau (editor/README).
 
-- **Fonds opaques, en attendant un mélange en espace gamma.** L'alpha de 94 % des fenêtres et des popups d'ImGui est
-  pensé pour un mélange en espace sRGB ; l'interface se mélange ici en linéaire sur une cible sRGB, où 94 % se lit autour
-  de 73 % : un menu laissait voir le texte de la barre d'outils, la modale le damier. `createUiContext` rend donc
-  `WindowBg`, `PopupBg` et `MenuBarBg` opaques (`ChildBg` reste transparent). **Pas encore** : mélanger l'interface en
-  espace gamma, qui rendrait aussi leur sens aux autres alphas du style ; noté au morceau 17 de M7.7 (ADR-0036).
-  **Mesuré le 2026-10-14, et pas partout pareil** : le cadre `FrameBg` du style par défaut, (41, 74, 122) à 54 % sur le
-  fond (15, 15, 15) (`levain_sandbox --view physics --ui on --capture`), se lit (29, 47, 73) sous lavapipe, le mélange en
-  **gamma** (0,54 × 122 + 0,46 × 15 = 72,8 en bleu), et (32, 56, 92) sur la 4070 en Direct3D 12 (`--gpu d3d12`, hors écran),
-  le mélange en **linéaire** (92 en bleu) que le paragraphe décrit. Une capture lavapipe, celle des aperçus d'un morceau et
-  des tests Vulkan de la CI, montre donc un alpha plus faible que celui d'un vrai GPU (un texte grisé à 60 % y sort plus
-  sombre) : elle ne dit rien de l'aspect d'un alpha sur la machine de Donnovan. **Cause (relue à la revue d'exécution, issue
-  #493)** : ce n'est pas `OffscreenFormat`, que le device n'utilise que **sans** swapchain (D3D12 hors écran). Sous Vulkan,
-  le pilote `offscreen` de SDL reçoit une vraie swapchain sur `VK_EXT_headless_surface` (`device_vk.cpp`), dont la cible
-  de lavapipe est un `B8G8R8A8_UNORM` (le repli de `swapchain_vk.cpp`) : la passe d'interface, qui ne linéarise que pour une
-  cible sRGB, mélange donc en gamma, et la scène y sort environ 3 fois trop sombre (le ciel du bac à sable : (38, 42, 124) sous
-  lavapipe, (109, 114, 186) sur la 4070 en D3D12). **Diagnostic non corrigé ici** : la swapchain reste à traiter (#493).
+- **Fonds opaques : un choix de style, plus un remède.** L'interface se mélange en **espace gamma** sur tous les backends
+  (M7.7 morceau 17d, ADR-0036 décision 15, amendement du 2026-10-14) : l'image de présentation est UNORM (Vulkan, Direct3D
+  12, WebGPU, hors écran) et le tonemapping y écrit des octets sRGB (`tonemapEncodesSrgb`). La passe d'interface ne
+  linéarise donc rien (`linearOnSrgbTarget` reste vraie pour une cible sRGB future) et ImGui mélange comme son style le
+  suppose. Les fonds opaques (`WindowBg`, `PopupBg`, `MenuBarBg`) étaient posés au morceau 12 parce qu'en linéaire 94 %
+  se lisait autour de 73 % ; **cette raison a disparu**, ils restent opaques parce que le style n'a voulu aucun alpha
+  (17b). **Histoire** : avant 17d, la cible sRGB de la 4070 (Direct3D 12) mélangeait en linéaire, celle de lavapipe (UNORM
+  sous `VK_EXT_headless_surface`) en gamma et sortait la scène trois fois trop sombre (le ciel du bac à sable (38, 42, 124)
+  contre (109, 114, 186), #493) ; `FrameBg`, (41, 74, 122) à 54 % sur (15, 15, 15), se lisait (29, 47, 73) sous lavapipe et
+  (32, 56, 92) sur la 4070. Maintenant lavapipe, WARP et la 4070 mélangent pareil : `levain_ui_gpu` mesure un voile noir à
+  50 % sur 188 (94 attendu, 137 en linéaire) sur chaque backend.
 - **Les polices ne sont pas dans le dépôt** (`fonts.hpp`, M7.7 morceau 17, ADR-0036 décision 15). `tools/fetch-assets.sh` met
   dans `assets-cache/Fonts/` Inter (SIL OFL 1.1, `Inter-LICENSE.txt`), Noto Sans (OFL 1.1, `NotoSans-OFL.txt`) et Material
   Symbols Outlined (Apache-2.0, `MaterialSymbols-LICENSE`) ; *Rando* les prend avec le préfixe `Fonts/`. `addFonts` en fait

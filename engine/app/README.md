@@ -136,7 +136,7 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
 15. **La scène va dans la fenêtre, dans la texture de la Vue, ou nulle part** (`SceneOutput`, ADR-0036, décision 7),
    selon ce que `ui` a demandé cette image par `requestScene`. **Rien demandé : la fenêtre**, le rendu d'avant la Vue,
    que le sandbox, *Rando* et l'éditeur panneaux fermés (F1) gardent sans rien savoir. **Une taille : la texture**, au
-   format de la swapchain (la conversion sRGB de l'UI, `linearOnSrgbTarget`, ne se fait alors qu'une fois), cible de
+   format de la swapchain (le tonemapping y encode en sRGB, l'UI la montre telle quelle : la conversion ne se fait qu'une fois), cible de
    rendu au repos en `ShaderResource` et avec une valeur d'effacement, défensive (Direct3D 12, message 820 ; le 821 est
    celui de la profondeur) ; la
    swapchain est effacée (`gpu::PresentClearLevel`), et seule l'UI la dessine. **0 × 0, ou aucune texture : nulle part** (la

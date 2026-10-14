@@ -275,8 +275,8 @@ passe plein écran, `tonemap`, la ramène ensuite dans la swapchain : un seul tr
 l'écran, et un shader qui lit l'image HDR pixel par pixel.
 
 **Elle encode aussi en sRGB** quand sa cible n'est pas sRGB (`tonemapEncodesSrgb`, décidé à la création d'après le format de
-la cible) : une image UNORM garde les octets qu'on lui écrit, elle doit donc recevoir des octets sRGB (la swapchain de
-lavapipe, #493), et l'interface qui vient ensuite s'y mélange en gamma. Toute passe qui écrirait de la lumière
+la cible) : l'image de présentation est UNORM sur tous les backends, elle tient des octets sRGB, et l'interface qui vient
+ensuite se mélange en gamma (ADR-0036, décision 15, amendement du 2026-10-14). Toute passe qui écrirait de la lumière
 linéaire dans une image UNORM affichée devrait faire de même ; sur une cible sRGB, c'est la cible qui encode.
 
 Cette passe applique l'**exposition** (`--exposure` dans le sandbox : 2 éclaire d'un diaphragme), puis une

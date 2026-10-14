@@ -31,6 +31,7 @@
 #include "levain/app/app.hpp"
 #include "levain/assets/asset_id.hpp"
 #include "levain/assets/image.hpp"
+#include "levain/core/color.hpp"
 #include "levain/render/readback.hpp"
 #include "levain/render/stages.hpp"
 #include "levain/scene/components.hpp"
@@ -101,7 +102,6 @@ struct Run
     int replacedStillRegistered = 0;
     SceneSize texture{}; ///< la texture de la scène à la fin de la boucle
     Pixel textureCenter;
-    bool srgb = false; ///< le format de la swapchain est sRGB
     std::optional<levain::assets::Image> capture;
 };
 
@@ -190,7 +190,6 @@ void readScene(App& app, Run& run)
     run.created = app.sceneView.created;
     run.registeredTextures = std::ranges::count_if(app.ui.pass.textures, [](const auto& entry)
                                                    { return entry.second.registered; });
-    run.srgb = nvrhi::getFormatInfo(levain::gpu::swapchainFormat(app.gpu)).isSRGB;
     if (!app.sceneView.texture)
     {
         return;
@@ -355,23 +354,19 @@ bool isScene(const Pixel& pixel)
 }
 
 /// Le gris dont la swapchain est effacée (`PresentClearLevel`, 0,02 linéaire), tel que l'image
-/// finale le contient : encodé en sRGB si la swapchain l'est.
-int clearByte(bool srgb)
+/// finale le contient : la swapchain est UNORM sur tous les backends (décision 15), l'octet est
+/// donc celui de l'encodage sRGB, quel que soit le backend.
+int clearByte()
 {
-    constexpr double Linear = levain::gpu::PresentClearLevel;
-    const double encoded = srgb ? (1.055 * std::pow(Linear, 1.0 / 2.4)) - 0.055 : Linear;
-    return static_cast<int>(std::lround(encoded * 255.0));
+    return static_cast<int>(
+        std::lround(levain::core::srgbFromLinear(levain::gpu::PresentClearLevel) * 255.0F));
 }
 
-bool isClear(const Pixel& pixel, bool srgb)
+bool isClear(const Pixel& pixel)
 {
     return std::ranges::all_of(
-        std::array{0, 1, 2},
-        [&](int channel)
-        {
-            return std::abs(pixel.channel(static_cast<std::size_t>(channel)) - clearByte(srgb)) <=
-                   2;
-        });
+        std::array{0, 1, 2}, [&](int channel)
+        { return std::abs(pixel.channel(static_cast<std::size_t>(channel)) - clearByte()) <= 2; });
 }
 
 /// Une Vue de la taille demandée, 640 × 360 (celle de l'ADR) puis 400 × 100 : le renderer rend à
@@ -473,8 +468,8 @@ int closedViewRendersNothing(const levain::tests::TestBackend& backend)
     {
         return failures + expect(false, "Vue fermée : la capture est relue");
     }
-    failures += expect(isClear(pixelOf(*run.capture, InsideX, InsideY), run.srgb) &&
-                           isClear(pixelOf(*run.capture, OutsideX, OutsideY), run.srgb),
+    failures += expect(isClear(pixelOf(*run.capture, InsideX, InsideY)) &&
+                           isClear(pixelOf(*run.capture, OutsideX, OutsideY)),
                        "Vue fermée : la swapchain est effacée, la scène d'avant n'y reste pas");
     return failures;
 }
@@ -501,8 +496,8 @@ int swapchainClearedAroundTheView(const levain::tests::TestBackend& backend)
                                                        run.textureCenter.channel(channel)) <= 2;
                                    }),
                "image montrée : la couleur est celle de la texture, convertie une fois");
-    failures += expect(isClear(outside, run.srgb),
-                       "image montrée : la swapchain est effacée autour de l'image");
+    failures +=
+        expect(isClear(outside), "image montrée : la swapchain est effacée autour de l'image");
     return failures;
 }
 

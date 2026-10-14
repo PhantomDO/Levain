@@ -56,11 +56,11 @@ UiContext createUiContext(float displayScale)
     style.ScaleAllSizes(displayScale);
     style.FontScaleDpi = displayScale;
     // Fonds opaques. Les 94 % de l'alpha par défaut d'ImGui sont pensés pour un mélange en espace
-    // sRGB ; notre interface se mélange en linéaire sur une cible sRGB, où 94 % se lit autour de
-    // 73 % : un menu laisse alors voir ce qui est dessous (le texte de la barre d'outils sous
-    // « Fichier », le damier sous la modale). Le vrai remède, mélanger l'interface en espace gamma,
-    // est noté au morceau 17 (engine/ui/README, « Pas encore »). ChildBg reste transparent : un
-    // enfant se pose sur le fond de sa fenêtre.
+    // sRGB. Avant le morceau 17d, notre interface se mélangeait en linéaire sur une cible sRGB, où
+    // 94 % se lisait autour de 73 % : un menu laissait voir ce qui est dessous. Elle se mélange
+    // maintenant en gamma (cible UNORM, ADR-0036 décision 15), mais le choix reste : il protège
+    // aussi une future cible sRGB. ChildBg reste transparent : un enfant se pose sur le fond de sa
+    // fenêtre.
     for (const ImGuiCol color : {ImGuiCol_WindowBg, ImGuiCol_PopupBg, ImGuiCol_MenuBarBg})
     {
         style.Colors[color].w = 1.0f;

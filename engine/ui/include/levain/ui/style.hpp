@@ -34,10 +34,11 @@ inline constexpr ImVec4 EditorAccentDark = srgb8(24, 80, 148);
 /// (`pushSelectedRowColors`).
 inline constexpr ImVec4 EditorAccentHover = srgb8(32, 98, 176);
 
-/// L'opacité d'un calque posé sur la scène (le bandeau de mode de la Vue) : presque opaque. Sur une
-/// cible qui mélange en linéaire (D3D12, Vulkan sur la 4070), un fond sombre translucide sur une
-/// scène claire s'éclaircit bien plus qu'en gamma : à 0,78 le fond montait à 131 sur du blanc ; à
-/// 0,93 il reste à 78, et le texte (`Text`) à 5,7 de contraste.
+/// L'opacité d'un calque posé sur la scène (le bandeau de mode de la Vue) : presque opaque. Mesuré
+/// quand la 4070 mélangeait encore en linéaire (avant le morceau 17d) : un fond sombre translucide
+/// sur une scène claire s'éclaircissait bien plus qu'en gamma, à 0,78 le fond montait à 131 sur du
+/// blanc ; à 0,93 il reste à 78, et le texte (`Text`) à 5,7 de contraste. Le gamma d'aujourd'hui
+/// n'a pas fait changer la valeur.
 inline constexpr float OverlayAlpha = 0.93f;
 
 /// Le fond d'un tel calque : un gris de la palette (celui des barres), à `OverlayAlpha`.
@@ -53,10 +54,9 @@ inline constexpr float OverlayAlpha = 0.93f;
 /// `displayScale`.
 ///
 /// **Aucun alpha dans les couleurs** hors de celles qui en ont besoin par nature (le voile de la
-/// modale, la cible d'un glisser-déposer) : l'interface se mélange en linéaire sur une cible sRGB,
-/// où un alpha de 94 % se lit autour de 73 % (README, « Fonds opaques »). `WindowBg`, `PopupBg` et
-/// `MenuBarBg` sont donc opaques comme ceux de `createUiContext`, et le reste aussi : le mélange en
-/// espace gamma, s'il vient, ne changera pas l'aspect.
+/// modale, la cible d'un glisser-déposer) : l'interface se mélangeait en linéaire sur une cible
+/// sRGB, où un alpha de 94 % se lit autour de 73 % ; elle se mélange en gamma depuis le morceau 17d
+/// (README, « Fonds opaques »), et les fonds restent opaques : un choix de style.
 void applyEditorStyle(ImGuiStyle& style, float displayScale);
 
 /// Colorie, le temps d'une ligne, une ligne **choisie** (hiérarchie, liste) en accent : `Header`,

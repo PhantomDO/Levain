@@ -94,8 +94,9 @@ void limitFramesInFlight(std::deque<nvrhi::EventQueryHandle>& framesInFlight,
 namespace
 {
 
-/// Le format de l'image hors écran : celui qu'aurait une swapchain en sRGB.
-constexpr nvrhi::Format OffscreenFormat = nvrhi::Format::SRGBA8_UNORM;
+/// Le format de l'image hors écran : UNORM comme toute image de présentation (ADR-0036, décision
+/// 15), le tonemapping y écrit des octets sRGB.
+constexpr nvrhi::Format OffscreenFormat = nvrhi::Format::RGBA8_UNORM;
 
 /// Minimisée sous X11, la fenêtre mesure 0 × 0 : aucune swapchain ne peut avoir cette taille.
 bool isEmpty(platform::PixelSize size)
@@ -119,8 +120,7 @@ nvrhi::ITexture* offscreenFrame(GpuDevice& gpu, platform::PixelSize size)
                 .setIsRenderTarget(true)
                 .setInitialState(nvrhi::ResourceStates::RenderTarget)
                 .setKeepInitialState(true)
-                .setClearValue(
-                    nvrhi::Color{PresentClearLevel, PresentClearLevel, PresentClearLevel, 1.0f})
+                .setClearValue(presentClearColor(false /* OffscreenFormat est UNORM */))
                 .setDebugName("image hors écran"));
     }
     return gpu.offscreen;

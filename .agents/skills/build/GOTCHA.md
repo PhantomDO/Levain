@@ -85,6 +85,15 @@ le runner Windows en Debug et en Release (run 38545818223), jamais lancé sous W
   `loadPreferences` par `core::readFile`, `hybrids == 0` rouge 2 fois sur 5. `core::readFile` garde ce défaut pour ses
   autres appelants (rechargement à chaud des shaders et des textures).
 
+## Changer la signature d'une fonction de `gpu` : le build Linux ne compile pas `tests/web/` ni `swapchain_d3d12.cpp` (2026-10-14)
+
+- **Symptôme** : le build Linux et sa suite sont verts, le build web casse sur `tests/web/web_cube.cpp` (« too many
+  arguments »), pour un argument retiré de `createWebGpuCanvas` au morceau 17d.
+- **Cause** : le canvas WebGPU, `swapchain_d3d12.cpp` et `tests/web/` n'ont pas de cible sous `linux-debug` : seuls les
+  builds web et Windows les compilent, et `clang-tidy -p build/linux-debug` les refuse (en-têtes absents).
+- **Parade** : `grep -rn` le nom de la fonction dans tout le dépôt avant de changer sa signature, et compiler `web` et
+  `windows-debug` avant de rendre la main, pas seulement `linux-debug`.
+
 ## Un `const std::function` global échoue à clang-tidy sous Windows seulement ; `ScaleAllSizes` arrondit (2026-10-13)
 
 M7.7, morceau 16 (revue du passage réel).

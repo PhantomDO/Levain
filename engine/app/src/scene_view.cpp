@@ -5,6 +5,7 @@
 
 #include "levain/core/log.hpp"
 #include "levain/gpu/device.hpp"
+#include "levain/render/tonemap.hpp"
 
 namespace levain::app
 {
@@ -123,7 +124,7 @@ void clearSwapchain(nvrhi::ICommandList& commandList, nvrhi::ITexture& swapchain
 {
     commandList.clearTextureFloat(
         &swapchainImage, nvrhi::AllSubresources,
-        nvrhi::Color{gpu::PresentClearLevel, gpu::PresentClearLevel, gpu::PresentClearLevel, 1.0f});
+        gpu::presentClearColor(render::targetIsSrgb(swapchainImage.getDesc().format)));
 }
 
 SceneExtent sceneExtentOf(SceneOutput output, const ScreenRect& scene, float windowWidth,

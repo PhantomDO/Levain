@@ -151,8 +151,8 @@ struct SceneView
 /// La texture de la scène à `size`, au format de la swapchain : on y rend, puis un shader la lit
 /// (`ImGui::Image`). La même qu'ailleurs dans le moteur pour une cible lue ensuite
 /// (`ensureHdrTarget`) : au repos en `ShaderResource`, que NVRHI quitte et retrouve toute seule. Au
-/// format de la swapchain, la conversion sRGB de l'UI (`linearOnSrgbTarget`) ne se fait qu'une
-/// fois, en écrivant l'image finale. Nulle si NVRHI la refuse.
+/// format de la swapchain (UNORM), le tonemapping y encode en sRGB et l'UI montre la texture
+/// telle quelle : la conversion ne se fait qu'une fois. Nulle si NVRHI la refuse.
 [[nodiscard]] nvrhi::TextureHandle createSceneTexture(nvrhi::IDevice& device, nvrhi::Format format,
                                                       const SceneSize& size);
 

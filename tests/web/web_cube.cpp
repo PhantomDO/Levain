@@ -56,7 +56,7 @@ void fail(const std::string& message)
 /// Ce que le test de fumée prépare dans drawScene (tests/smoke_render.cpp), à l'identique.
 void createScene(nvrhi::DeviceHandle device)
 {
-    auto canvas = levain::gpu::createWebGpuCanvas(*device, "#canvas", false);
+    auto canvas = levain::gpu::createWebGpuCanvas(*device, "#canvas");
     if (!canvas)
     {
         fail(canvas.error().message);

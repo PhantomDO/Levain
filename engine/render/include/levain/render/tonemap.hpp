@@ -43,9 +43,9 @@ struct TonemapSettings
 
 /// Le tonemapping encode-t-il lui-même en sRGB pour une cible de ce format ? Oui sur une cible
 /// UNORM (normalisée, hors sRGB ; pas les formats flottants ni HDR10, qui demandent leur propre
-/// transfert et un ADR) : elle garde les octets qu'on lui écrit, elle doit donc recevoir des
-/// octets sRGB (la swapchain UNORM de lavapipe, #493), et l'interface s'y mélange en espace gamma,
-/// comme son style le suppose (ADR-0036, décision 15).
+/// transfert et un ADR) : l'image de présentation est UNORM sur tous les backends et tient des
+/// octets sRGB (ADR-0036, décision 15), l'interface se mélange alors en espace gamma, comme son
+/// style le suppose.
 [[nodiscard]] bool tonemapEncodesSrgb(nvrhi::Format format);
 
 /// La passe plein écran : un triangle qui couvre l'image, et un shader qui lit l'image HDR.

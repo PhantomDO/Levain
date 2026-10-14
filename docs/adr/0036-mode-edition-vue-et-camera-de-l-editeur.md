@@ -211,6 +211,21 @@ l'anglais de M7.8 ; des polices sous OFL, une console, une disposition gardée. 
     le renard ; *Rando* prend ce préfixe, `docs/SETUP.md` cite le script ; une police absente arrête l'éditeur en
     la nommant (règle n°7). Avec elles : X, Y, Z colorés (`ImGuiSliderFlags_ColorMarkers`, imgui.h:2033), une
     grille au sol par son propre `DebugLinesPass`, un appel par command list (render/debug_lines.hpp:63-66).
+    **Amendement du 2026-10-14 : l'interface se mélange en espace gamma** (sondage de Donnovan, « Le faire en M7.7 »),
+    la rangée 17 du tableau. *Pourquoi* : le style d'ImGui, ses polices et ses alphas sont pensés pour un mélange
+    sur des octets sRGB ; une cible sRGB mélange en linéaire, où 94 % se lit autour de 73 % (d'où les fonds opaques du
+    morceau 12), et la swapchain de lavapipe, UNORM, mélangeait en gamma mais sortait la scène trois fois trop sombre
+    (#493) : deux machines, deux aspects. *La méthode* : **l'image de présentation est UNORM sur tous les backends, et
+    le tonemapping encode lui-même en sRGB.** Vulkan demande `B8G8R8A8_UNORM` (repli `R8G8B8A8_UNORM`, refus bruyant
+    sinon) ; Direct3D 12 dessine dans son buffer *flip model*, déjà UNORM, sans la vue sRGB ; le canvas WebGPU est en
+    UNORM, sans vue ; l'image hors écran est `RGBA8_UNORM`. L'image tient donc les octets sRGB qu'elle tenait avant, et
+    la scène ne change pas à l'écran. Le tonemapping encode (la fonction exacte, l'inverse de `linearFromSrgb` de
+    `ui.slang`) quand `tonemapEncodesSrgb(format)` le dit, une constante décidée à la création de la passe d'après le
+    format de sa cible, par la même `targetIsSrgb` que la passe d'interface : une cible sRGB future encode toute seule,
+    et rien n'est encodé deux fois. La passe d'interface ne linéarise plus nulle part en pratique (sa règle ne change
+    pas) et ImGui mélange en gamma ; la texture de la Vue (UNORM, écrite par le tonemapping) s'affiche telle quelle.
+    L'effacement de la présentation (`PresentClearLevel`, linéaire) est encodé pour une cible UNORM
+    (`presentClearColor`). Les fonds opaques restent, comme choix de style, plus comme remède.
 16. **La console** : un récepteur dans `core::log`, qui n'a aujourd'hui que `logMessage` (core/log.hpp:27-29),
     sous un mutex, car les traces et assertions de Jolt (physics_world.cpp:98-100) peuvent partir de ses threads
     (physics_world.cpp:135-138), dans un anneau borné. La fenêtre : niveaux, compteurs, recherche, Effacer, Réduire
@@ -269,7 +284,7 @@ Les issues : #389 (0), #390 (1, 2, 4, 5), #391 (6 à 8), #392 (9 à 11, 16), #39
 | 14 | La console : le récepteur de `core::log`, l'anneau, la fenêtre | core, editor | 300 | Une erreur comptée ; deux threads écrivent ensemble ; l'anneau garde sa taille ; un récepteur retiré ne pend pas (ASan) |
 | 15 | Disposition et préférences gardées ; les nœuds retrouvés ; « Réinitialiser la disposition » | platform, app, editor | 300 | Écrire puis relire rend la même disposition ; contre-tests : sous `--seconds`, aucun fichier écrit ; un fichier présent, `--input-script` garde la disposition et les accords par défaut ; au portable, le fichier est sous %APPDATA% |
 | 16 | Édition > Préférences > Raccourcis : changer, nommer un conflit, « Remplacer », réinitialiser, enregistrer | editor | 350 | Un accord changé survit à un redémarrage ; un conflit est nommé, rien ne change sans « Remplacer » ; une lettre contre une position, en AZERTY ; pendant la saisie, Ctrl+S n'enregistre pas ; F1 refusée ; « Réinitialiser » rend les défauts |
-| 17 | Polices, icônes et leurs licences (`fetch-assets.sh`, SETUP.md), style, X/Y/Z colorés, grille, menu Afficher (« Temps réel » est livré au morceau 12, avec la barre d'outils), l'interface mélangée en espace gamma (fonds opaques posés au morceau 12) | ui, editor, tools, docs | 350 | « œ », « — », « É » et une icône, par `ImFont::IsGlyphInFont`, dans l'interface et dans la console ; police absente : arrêt qui la nomme ; la grille sans erreur de validation |
+| 17 | Polices, icônes et leurs licences (`fetch-assets.sh`, SETUP.md), style, X/Y/Z colorés, grille, menu Afficher (« Temps réel » est livré au morceau 12, avec la barre d'outils), l'interface mélangée en espace gamma (fonds opaques posés au morceau 12 ; livré au morceau 17d, voir l'amendement de la décision 15 : présentation UNORM, tonemapping qui encode) | ui, editor, tools, docs | 350 | « œ », « — », « É » et une icône, par `ImFont::IsGlyphInFont`, dans l'interface et dans la console ; police absente : arrêt qui la nomme ; la grille sans erreur de validation |
 | fin | Journal, critère, gestes couverts, READMEs, PR vers `main` et sa CI | docs | — | — |
 
 ## Conséquences
