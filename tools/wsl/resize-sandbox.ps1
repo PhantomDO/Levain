@@ -1,5 +1,5 @@
 # Le pilote de resize-sandbox.sh, à côté, qui le passe à powershell.exe par -EncodedCommand : redimensionne,
-# réduit et restaure la fenêtre de levain_sandbox par user32.dll, comme le ferait un utilisateur. C'est Windows
+# réduit et restaure la fenêtre de l'exe lancé par le .sh par user32.dll, comme le ferait un utilisateur. C'est Windows
 # qui agit, pas le programme : le moteur reçoit les mêmes événements que d'une souris.
 #
 # Pas « -Command - < resize-sandbox.ps1 » : lu sur l'entrée standard, un script qui contient un Add-Type @" … "@
@@ -22,14 +22,23 @@ public static class LevainWindow {
 "@
 
 # La fenêtre n'a de poignée qu'une fois le device créé et les assets parcourus : jusqu'à 60 s en Debug.
+# Le processus que le .sh vient de lancer, et lui seul : le nom de l'exe qu'il a reçu (LEVAIN_RESIZE_EXE, sans
+# « .exe »), démarré après l'instant où il l'a lancé (LEVAIN_RESIZE_START, secondes Unix). Jamais un autre
+# processus du même nom, ni un nom fixe : la machine peut faire tourner d'autres programmes (règle du portable).
+$exeName = $env:LEVAIN_RESIZE_EXE
+$startedAfter = [DateTimeOffset]::FromUnixTimeSeconds([long]$env:LEVAIN_RESIZE_START).LocalDateTime.AddSeconds(-2)
+if (-not $exeName -or -not $env:LEVAIN_RESIZE_START) {
+    "pilote : LEVAIN_RESIZE_EXE et LEVAIN_RESIZE_START manquent (lancer par resize-sandbox.sh)"
+    exit 1
+}
 $process = $null
 for ($i = 0; $i -lt 120 -and -not $process; $i++) {
     Start-Sleep -Milliseconds 500
-    $process = Get-Process levain_sandbox -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+    $process = Get-Process $exeName -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne 0 -and $_.StartTime -ge $startedAfter } | Select-Object -First 1
 }
 if (-not $process) {
-    "pilote : aucune fenêtre levain_sandbox en 60 s"
+    "pilote : aucune fenêtre $exeName en 60 s"
     exit 1
 }
 $window = $process.MainWindowHandle

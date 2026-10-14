@@ -23,6 +23,12 @@ mkdir -p "$(dirname "$log")"
 exe=$1
 shift
 
+# Au pilote : le nom de l'exe lancé et l'instant du lancement, pour qu'il ne trouve que notre processus.
+export LEVAIN_RESIZE_EXE
+LEVAIN_RESIZE_EXE=$(basename "$exe" .exe)
+export LEVAIN_RESIZE_START
+LEVAIN_RESIZE_START=$(date +%s)
+export WSLENV="${WSLENV:+$WSLENV:}LEVAIN_RESIZE_EXE:LEVAIN_RESIZE_START"
 "$exe" "$@" > "$log" 2>&1 &
 sandbox=$!
 # -EncodedCommand : le script en UTF-16LE, en base64 ; « -Command - < resize-sandbox.ps1 » ne ferait rien, sans un

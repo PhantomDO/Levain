@@ -267,7 +267,7 @@ La machine de référence est sous Linux. Le code Windows est vérifié à trois
    nativement sur sa RTX 4070 (point 3), en Vulkan puis en Direct3D 12, fenêtré, sans un message des couches de
    validation ni de la couche de debug D3D12. De la distro, depuis la racine du dépôt,
    `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`, puis le même
-   avec `--gpu vulkan` (la réduction recréait la swapchain à 0 × 0 sous Vulkan, build/GOTCHA.md 2026-10-14), le
+   avec `--gpu vulkan`, et pour l'éditeur (`levain_sandbox_editor.exe`) dans les deux backends (la réduction recréait la swapchain à 0 × 0 sous Vulkan, build/GOTCHA.md 2026-10-14), le
    redimensionne, le réduit et le restaure (`tools/wsl/README.md`). Les tests Direct3D 12 sous WARP tournent en CI
    (point 1), et dans la distro par
    `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER ctest --test-dir build/windows-debug -R d3d12-warp`
