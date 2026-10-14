@@ -48,7 +48,8 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 | [`include/levain/ui/tr.hpp`](include/levain/ui/tr.hpp) | `tr`, `trf`, `textf`, `labelOf` : le catalogue des textes vu de l'interface, la table est dans `core` (ADR-0036) |
 
 Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées),
-`tests/ui_style_test.cpp` (le style de l'éditeur : fonds opaques, un seul accent, tailles à deux échelles), et
+`tests/ui_style_test.cpp` (le style de l'éditeur : fonds opaques, un seul accent, tailles à deux échelles, contraste du texte
+grisé), et
 `levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu]` (`gpu.ui.*` dans ctest, WARP compris), qui relit la couleur d'un rectangle
 dessiné dans une cible sRGB puis UNORM, puis un gris moyen montré par `ImGui::Image` dans chaque combinaison de formats,
 plusieurs textures dans la même image, une image libérée en vol, et la table des identifiants. `gpu.ui-released-id.*`
@@ -137,6 +138,18 @@ journal en Release.
   d'ancrage, la cible d'un glisser-déposer, les trois « rien » : `ChildBg`, `BorderShadow`, `TableRowBg`) : l'interface se
   mélange en linéaire sur une cible sRGB, où un alpha se lit trop fort (« Fonds opaques », ci-dessous). Le mélange en espace
   gamma, s'il vient (décision de Donnovan à la clôture de M7.7), ne changera donc pas l'aspect du style.
+- **Le texte grisé, tel qu'il est dessiné** (revue du morceau 17b, puis sa revue d'exécution) : `ImGui::BeginDisabled`
+  multiplie l'alpha de tout ce qu'il enveloppe par `DisabledAlpha`, et les menus d'ImGui s'en servent pour toute entrée
+  grisée (le libellé en `Text`, le raccourci en `TextDisabled`, l'un et l'autre à cet alpha). À 0,8, sur une cible qui
+  mélange en linéaire (la 4070), le libellé d'« Annuler » sortait à 196 contre 215 au texte : le test annonçait 4,5 de
+  lisibilité, l'entrée ne semblait pas grisée. Donc **deux chemins** : les entrées de menu et les boutons de l'éditeur
+  (`greyedMenuItem`, `disabledButton`) se dessinent en `TextDisabled` **plein** (150, `DisabledAlpha` poussé à 1 le temps de
+  l'appel) : 4,59 contre le menu (le pire), 2,06 contre le texte ; les widgets d'ImGui lui-même grisés (les champs d'une
+  donnée en lecture seule) passent par `DisabledAlpha` = **0,62** : le texte y reste à 4,5 contre le menu en gamma (le
+  pire pour la lisibilité) et se distingue à 2,1 en gamma, mais **1,56 seulement en linéaire** : un rapport de 1,8 y est
+  hors d'atteinte sans passer sous 4,5 en gamma. `tests/ui_style_test.cpp` tient les deux, avec `blendInGamma` et
+  `blendInLinear` ; `tests/editor_menus_test.cpp` lit la liste de dessin (aucun sommet de `Text` entre 0 et 100 % dans
+  un menu ouvert).
 
 - **Fonds opaques, en attendant un mélange en espace gamma.** L'alpha de 94 % des fenêtres et des popups d'ImGui est
   pensé pour un mélange en espace sRGB ; l'interface se mélange ici en linéaire sur une cible sRGB, où 94 % se lit autour

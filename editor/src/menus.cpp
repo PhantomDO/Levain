@@ -46,19 +46,20 @@ bool actionItem(Action action, const MenuBarInputs& inputs)
 {
     const Availability availability = availabilityOf(action);
     const std::string shortcut = shortcutTextOf(inputs.table, action, inputs.keyAtPosition);
-    const bool clicked = ImGui::MenuItem(ui::labelOf(nameOf(action)).c_str(), shortcut.c_str(),
-                                         false, availability.available);
-    if (!availability.available)
+    const std::string label = ui::labelOf(nameOf(action));
+    if (availability.available)
     {
-        saySoon(availability.milestone, SoonSide::Right);
+        return ImGui::MenuItem(label.c_str(), shortcut.c_str());
     }
-    return clicked;
+    greyedMenuItem(label.c_str(), shortcut.c_str());
+    saySoon(availability.milestone, SoonSide::Right);
+    return false;
 }
 
 /// Une entrée sans action de la table, grisée jusqu'à son milestone.
 void soonItem(const char* french, const char* milestone)
 {
-    ImGui::MenuItem(ui::labelOf(french).c_str(), nullptr, false, false);
+    greyedMenuItem(ui::labelOf(french).c_str(), nullptr);
     saySoon(milestone, SoonSide::Right);
 }
 

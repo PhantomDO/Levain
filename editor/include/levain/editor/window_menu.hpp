@@ -53,6 +53,13 @@ enum class SoonSide : std::uint8_t
 /// elle, un grisé ne dirait pas pourquoi ni quand il s'éteint.
 void saySoon(const char* milestone, SoonSide side);
 
+/// Une entrée grisée, **dessinée comme un bouton grisé** (`disabledButton`) : libellé et raccourci
+/// en `TextDisabled` plein. `MenuItem` ouvre un `BeginDisabled` qui multiplie le libellé (`Text`)
+/// par `DisabledAlpha` : sur une cible qui mélange en linéaire (la 4070), le libellé grisé gardait
+/// 196 contre 215 au texte, et l'entrée ne semblait pas grisée. Le `DisabledAlpha` est lu par
+/// `BeginDisabled`, à l'appel (`ImGuiStyleVar_DisabledAlpha`).
+void greyedMenuItem(const char* label, const char* shortcut);
+
 /// Le menu « Fenêtre » seul, **dans une barre de menus déjà ouverte** (`BeginMainMenuBar`) : la
 /// barre complète (`drawMenuBar`) y met ses cinq menus. Une case cliquée inverse le drapeau de sa
 /// fenêtre ; `layout` retient où elle est. Après les cases, « Réinitialiser la disposition » : vrai

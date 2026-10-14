@@ -59,7 +59,12 @@ et seulement elle : leurs racines d'assets restent `data/`, sans le scan et les 
 `ui::applyEditorStyle(style, displayScale)` comme style (`app::setUiStyle`) : réglé à l'ouverture, après les polices, puis
 refait par la boucle à chaque changement de zoom du système (`WindowEventType::ScaleChanged` ; `gpu.editor-modes.*`, ligne
 `window scale`) ; engine/ui/README : sombre, plat, un seul accent bleu pour l'actif ou le choisi, fonds opaques, rondeurs de
-2 à 4 px, pensé pour Inter à 15 px. Le sandbox seul et *Rando* gardent le style d'ImGui.
+2 à 4 px, pensé pour Inter à 15 px. Le sandbox seul et *Rando* gardent le style d'ImGui. **Les boutons grisés de la barre
+d'outils** (`disabledButton`) sont dessinés tels que le test des contrastes les mesure : `TextDisabled` plein (`DisabledAlpha`
+poussé à 1 le temps du bouton, sans quoi `BeginDisabled` le multiplierait) et sans contour (`FrameBorderSize` à 0 : un
+contour redessinerait la forme retirée ; les champs de saisie gardent le leur) ; `tests/editor_menus_test.cpp` lit ce que la
+barre dessine. **Les entrées de menu grisées** (`greyedMenuItem`) sont dessinées de même (`TextDisabled` plein, libellé et
+raccourci), non à `DisabledAlpha` : à 0,8 sur la 4070 le libellé ne se distinguait pas du texte.
 Que `withEditor` règle bien le style, c'est `gpu.editor-modes.*` (sans l'appel,
 l'éditeur resterait au style d'ImGui, et rien d'autre ne le dirait).
 

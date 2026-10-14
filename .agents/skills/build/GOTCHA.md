@@ -46,10 +46,19 @@ M7.7, morceau 17c (la grille du sol, relecture).
   `render::clipToFrustum` coupe chaque ligne au volume de vue avant le dessin (`drawDebugLines`). Pour toute autre passe
   qui dessine des primitives très longues, la même précaution, ou fixer `depthClipEnable` explicitement.
 
-## Un mélange que lavapipe ne fait pas comme le README (2026-10-14)
+## Un test de contraste qui mesure une couleur que l'écran ne montre pas, et un mélange que lavapipe ne fait pas comme le README (2026-10-14)
 
-M7.7, morceau 17b (revue : `tests/ui_style_test.cpp`).
+M7.7, morceau 17b (revue : `tests/ui_style_test.cpp`, `editor/src/bars.cpp`).
 
+- **Symptôme** : le test « le texte grisé reste lisible » tenait 4,73 à 5,70 contre les fonds, et l'aperçu du morceau montrait
+  « Simuler » à 94 sur 28 et le raccourci « Ctrl+Z » à 98 sur 34 (environ 2,6 : illisible). **Cause** : le test mesurait
+  `TextDisabled` plein ; l'écran, lui, le montrait multiplié par `DisabledAlpha` (0,6) : `BeginDisabled` multiplie l'alpha de
+  tout ce qu'il enveloppe, la couleur du texte comprise, et `MenuItem` en ouvre un pour toute entrée grisée (imgui_widgets.cpp,
+  `MenuItemEx` : `if (!enabled) BeginDisabled()`, le raccourci dessiné en `TextDisabled`). **Parade** : mesurer ce qui est
+  dessiné : la couleur composée avec l'alpha (`blendInGamma` dans le test), contre chaque fond ; régler `DisabledAlpha` du style
+  (0,8) pour que le pire cas, le raccourci d'une entrée grisée, passe 4,5 ; pousser `ImGuiStyleVar_DisabledAlpha` à 1 là où le
+  code grise lui-même (`disabledButton`), et le prouver sur la liste de dessin (`tests/editor_menus_test.cpp` : les sommets du
+  bouton sont de la couleur du style, alpha 255 ; ceux d'une entrée de menu, à l'alpha du style).
 - **Symptôme** : une capture hors écran de l'éditeur sous lavapipe donne, pour du texte grisé à 60 %, le mélange **en espace
   gamma** (140 à 60 % sur 34 : 98, et non les 113 d'un mélange linéaire), et un cadre `FrameBg` (41, 74, 122) à 54 % sur 15
   sort à (29, 47, 73), le mélange gamma ; la 4070 en Direct3D 12 (`levain_sandbox.exe --gpu d3d12 --view physics --ui on
@@ -61,6 +70,16 @@ M7.7, morceau 17b (revue : `tests/ui_style_test.cpp`).
   gamma, et la scène sort environ 3 fois trop sombre (ciel (38, 42, 124) contre (109, 114, 186) sur la 4070). **Parade** : ne pas conclure d'une capture lavapipe l'aspect d'un alpha sur un vrai GPU (un texte grisé y sort plus
   sombre) ; un test de contraste qui compose en gamma est le pire des deux cas (le linéaire n'éclaircit que plus un
   avant-plan plus clair que son fond), donc sûr pour les deux.
+
+## Un grisé qui passe le test de lisibilité mais ne se voit pas (2026-10-14)
+
+M7.7, morceau 17b (revue d'exécution sur la 4070, `tests/ui_style_test.cpp`, `editor/src/menus.cpp`).
+
+- **Symptôme** : « Annuler » grisé mesure 196 contre 215 pour « Préférences » sur la 4070 : l'entrée ne semble pas grisée, alors
+  que le test des contrastes passe. **Cause** : le test ne vérifiait que la lisibilité (4,5), jamais que le grisé se distingue du
+  texte ; `MenuItem` grisé multiplie le libellé par `DisabledAlpha`, et le mélange linéaire de la 4070 le garde clair (rapport de
+  1,22). **Parade** : dessiner les entrées de menu de l'éditeur comme les boutons grisés (`TextDisabled` plein, `DisabledAlpha`
+  à 1), et tester les deux bornes, lisible (>= 4,5) **et** « se voit grisé » (>= 1,8 contre le texte), sous les deux mélanges.
 
 ## Un style d'ImGui mis à l'échelle deux fois (2026-10-13)
 

@@ -28,7 +28,20 @@ constexpr ImVec4 Popup = grey(46);    // menus, listes déroulantes, infobulles,
 constexpr ImVec4 Line = grey(68);     // bordures et séparateurs
 constexpr ImVec4 SoftLine = grey(54); // filets entre les cellules d'un tableau
 constexpr ImVec4 Text = grey(215);    // le texte
+// Le texte grisé : lisible (4,5 contre le plus clair des fonds, le menu) et nettement plus sombre
+// que le texte (un rapport de 2 : à 178 il n'en faisait que 1,3 et une entrée grisée ne se voyait
+// pas). Il se dessine **plein**, jamais sous `DisabledAlpha` (`actionItem`, `disabledButton`). Le
+// test des contrastes (`tests/ui_style_test.cpp`) tient les deux bornes.
+constexpr ImVec4 TextDim = grey(150);
 constexpr ImVec4 Clear{0.0f, 0.0f, 0.0f, 0.0f};
+
+/// Le grisé d'`ImGui::BeginDisabled` pour les widgets d'ImGui lui-même (les champs de l'inspecteur
+/// d'une donnée en lecture seule) : il multiplie l'alpha de tout ce qu'il dessine. 0,62 : le texte
+/// y reste à 4,5 contre le menu quand la cible mélange en gamma, et se grise nettement. Les
+/// entrées de menu et les boutons de l'éditeur ne passent pas par lui : ils sont dessinés en
+/// `TextDisabled` plein (un alpha de 0,8 sur le texte, comme ImGui le fait, ne s'y distinguait pas
+/// du texte sur une cible qui mélange en linéaire : 1,22 de rapport).
+constexpr float DisabledAlpha = 0.62f;
 
 /// Les tailles, **à l'échelle 1** : `ScaleAllSizes` les multiplie ensuite. Réglées pour Inter à
 /// 15 px : une ligne de champ de 23 px, des rondeurs de 2 à 4 px, des fenêtres carrées (celles d'un
@@ -69,6 +82,7 @@ void setMetrics(ImGuiStyle& style)
 void setColors(ImVec4* colors)
 {
     colors[ImGuiCol_Text] = Text;
+    colors[ImGuiCol_TextDisabled] = TextDim;
     colors[ImGuiCol_WindowBg] = Panel;
     colors[ImGuiCol_ChildBg] = Clear; // un enfant se pose sur le fond de sa fenêtre
     colors[ImGuiCol_PopupBg] = Popup;
@@ -168,6 +182,7 @@ void applyEditorStyle(ImGuiStyle& style, float displayScale)
     ImGuiStyle fresh;
     setMetrics(fresh);
     setColors(fresh.Colors);
+    fresh.DisabledAlpha = DisabledAlpha; // un alpha, que `ScaleAllSizes` ne touche pas
     fresh.ScaleAllSizes(displayScale);
     fresh.FontSizeBase = style.FontSizeBase;
     fresh.FontScaleMain = style.FontScaleMain;
