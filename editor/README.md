@@ -24,8 +24,9 @@ d'entité et d'asset. Il n'a pas encore :
   proposer d'enregistrer ;
 - **d'annulation** : `commitEdit` écrit la copie par `setComponentValue` sans garder l'ancienne valeur
   (editor/src/inspector.cpp:543-552) ;
-- ni raccourci qui fasse quoi que ce soit d'autre que jouer, arrêter ou régler le temps réel : Ctrl+S, Ctrl+Z et les
-  outils sont grisés jusqu'à leur milestone (invariant 16 et le paragraphe des menus ci-dessous).
+- ni raccourci d'édition : Ctrl+S, Ctrl+Z et les outils sont grisés jusqu'à leur milestone (invariant 16 et le
+  paragraphe des menus ci-dessous) ; ceux de M7.7 jouent, arrêtent, règlent le temps réel, cadrent (F) et basculent
+  la vue de jeu (G).
 
 **La console est écrite** (M7.7, morceau 14) : la fenêtre « Console » lit le journal du processus par un récepteur de
 `core::log` (`withEditor` le pose avant `runApp` : ce que la fenêtre et le device écrivent en s'ouvrant y est), dans un
@@ -35,7 +36,7 @@ après, ImGui lui donnerait l'onglet visible du nœud à l'ouverture. Dans un n�
 (`fitsOnLine`) et le champ de recherche a sa propre ligne. De bout en bout : `gpu.editor-console.*`
 (`tests/editor_console_gpu.cpp`), qui lit ce que les fenêtres ont dessiné par `EditorOptions::afterUi`.
 
-**La table des raccourcis est écrite, défauts seuls** (M7.7, morceau 10, `shortcuts.hpp`, ADR-0036, décision 13) : par
+**La table des raccourcis est écrite** (M7.7, morceaux 10 et 16, `shortcuts.hpp`, ADR-0036, décision 13) : par
 action son nom (clé du catalogue), au plus deux accords, un contexte (vol, Vue, global, jeu ; le vol passe avant la
 Vue, le jeu vaut seul sous sa route). Le vol et les outils vont **par position** (le scancode d'USB), les accords à
 Ctrl ou Alt **par lettre**. `displayNameOf` montre la touche de la disposition d'aujourd'hui (`App::keyAtPosition` :

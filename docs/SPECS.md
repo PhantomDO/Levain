@@ -261,7 +261,7 @@ La machine de référence est sous Linux. Le code Windows est vérifié à trois
 
 1. **CI (à la PR vers `main`, une fois par fonctionnalité)** : le build Windows, Debug et Release, compilé sur un runner
    Linux par clang-cl, puis lancé sur un runner Windows : tests unitaires, tests GPU en Vulkan sur lavapipe, et tests
-   Direct3D 12 sous WARP (rendu logiciel), huit par configuration depuis #19
+   Direct3D 12 sous WARP (rendu logiciel), 42 par configuration depuis M7.7 (8 depuis #19)
    ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
 2. **Le PC Windows de Donnovan, à chaque milestone de rendu** (depuis le 10/10/2026) : le sandbox, en Debug, lancé
    nativement sur sa RTX 4070 (point 3), en Vulkan puis en Direct3D 12, fenêtré, sans un message des couches de

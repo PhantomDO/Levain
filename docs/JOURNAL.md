@@ -37,22 +37,24 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 - **Temps Donnovan : 2,0 h** (estimé 1,0 h), **ratio 2,0** (`awk 'BEGIN { printf "%.2f\n", 2 / 1 }'`) : sa réponse au
   sondage de clôture du 14/10, « ≈ 2 h », pour tout son temps depuis le 10/10, mis sur M7.7 (les sondages de M7.7 du
   10/10 compris, que l'entrée de #19 ne comptait pas). Au board, « Passé (h) » réparti au prorata des estimations :
-  #389 0,5, #390 0,4, #391 0,3, #392 0,5, #393 0,3, soit 2,0 pour 1,0. La phase 7 en est à 3,75 h pour 3,35 (M7.1,
+  #389 0,5, #390 0,4, #391 0,3, #392 0,5, #393 0,3, soit 2,0 pour 1,0
+  (`gh project item-list 1 --owner @me --format json --limit 400`). La phase 7 en est à 3,75 h pour 3,35 (M7.1,
   M7.2, M7.7), 1,12 à titre provisoire (`awk 'BEGIN { printf "%.2f\n", (1 + 0.75 + 2) / (1.1 + 1.25 + 1) }'`) : son
   ratio, et un recalibrage s'il le faut, se jugent à sa clôture, après M7.8 (cloture/SKILL.md), avec le point que M1.4
   y a renvoyé. Le « Cumul » prendra la phase 7 à ce moment-là.
 - Sessions Claude Code : 1 (estimé 2) : la session à distance reprise le 10/10, la même jusqu'à cette clôture (un seul
   `Claude-Session` dans les commits du milestone), ses agents dans plusieurs worktrees à la fois.
 - Définition de « terminé » (SPECS §9) :
-  - l'éditeur lancé sur la 4070, fenêtré : en Direct3D 12, 1 918 images sans un message de la couche de debug ; en
-    Vulkan, 1 268 images (relecture du morceau 8). 17d change l'image de présentation : la fenêtre redimensionnée,
-    réduite et restaurée passe en Direct3D 12 et en Vulkan, pour le sandbox et pour l'éditeur (SPECS §10, point 2,
+  - l'éditeur lancé sur la 4070, fenêtré, en Direct3D 12 et en Vulkan, sans un message de validation (relecture du
+    morceau 8, texte de #442). 17d change l'image de présentation : la fenêtre redimensionnée, réduite et restaurée
+    passe en Direct3D 12 et en Vulkan, pour le sandbox et pour l'éditeur (SPECS §10, point 2,
     `tools/wsl/resize-sandbox.sh`). En Vulkan, ce contrôle, jamais lancé jusque-là, a trouvé un défaut plus ancien que
     M7.7 : la swapchain recréée en 0 × 0 à la réduction, une erreur de validation ; corrigé par #514 ;
   - les critères de M7.7 sont des tests (ci-dessous), aucun n'est chiffré ; les coûts mesurés l'ont été sur le portable,
     indicatifs : la machine de référence n'a pas servi (règle n°6) ;
   - CI : celle de la PR vers `main` est la porte de la fusion (règle n°1) ; le passage lancé à la main le 14/10
-    (run 38545818223) avait trouvé trois défauts propres à Windows, corrigés par #508 à #511 ;
+    (run 38545818223) avait trouvé deux défauts propres à Windows, et le portable un troisième, tous corrigés
+    par #508 à #511 ;
   - les README de chaque module touché, mis à jour par les PR du milestone : `core`, `platform`, `ui`, `app`, `render`,
     `scene`, `gpu`, `editor` (`git diff --stat 499e9f0 HEAD -- '*README.md'`) ;
   - pas d'étude : E7 vient avec M7.6 ;
@@ -92,7 +94,8 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   - **la grille au sol, le menu Afficher et G** (17c, #494 à #501) : l'écart des lignes suit la hauteur de la caméra,
     en fondu d'une puissance de 10 à l'autre ; G cache les aides, comme la *Game View* d'Unreal ;
   - **l'interface mélangée en espace gamma** (17d, #512, #513) : l'image de présentation en UNORM sur tous les backends,
-    le tonemapping qui encode lui-même le sRGB ; lavapipe et la 4070 donnent la même image (ferme #493) ;
+    le tonemapping qui encode lui-même le sRGB ; lavapipe et la 4070 donnent le même ciel, à un niveau près sur
+    99,98 % des pixels (texte de #512) ; corrige #493, fermée avec la PR vers `main` ;
   - **les deux bancs d'essai** (morceaux 1 et 2, #397 à #401) : le tableau des gestes d'Unity et d'Unreal
     (`editor/GESTES.md`), et le banc de l'App, qui rejoue des événements écrits, en QWERTY ou en AZERTY, dans la
     vraie boucle, hors écran : c'est lui qui prouve tout ce qui précède ;
@@ -105,9 +108,9 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
     | Critère | Prouvé par | Ce que le test vérifie |
     |---|---|---|
     | En Édition, aucun pas, l'accumulateur immobile, `PlayerInput` vide, touches tenues | `gpu.editor-modes.vulkan`, `gpu.app-loop.vulkan`, la ligne `editor.mode` de la CI | W tenu en Édition : « PlayerInput reste vide en Édition », « un pas par image de jeu, aucun en Édition », le `frame` du programme jamais appelé ; 300 images à l'arrêt : « aucun pas, alpha 1, l'accumulateur de FixedStep inchangé », puis un pas au plus au retour ; l'éditeur lancé sans script, trois secondes : `editor.mode mode=edit steps=0` (`tools/ci-programs.sh`) |
-    | Une écriture faite depuis `ui` se voit dans l'image de la même image | `gpu.app-loop.vulkan` | « recomposeAfterUi : l'écriture de ui est dans le rendu de la même image, la capture comprise » ; sans la recomposition, à l'image suivante seulement (le contre-test, dans le même programme) |
+    | Une écriture faite depuis `ui` se voit dans l'image rendue de la même image | `gpu.app-loop.vulkan` | « recomposeAfterUi : l'écriture de ui est dans le rendu de la même image, la capture comprise » ; sans la recomposition, à l'image suivante seulement (le contre-test, dans le même programme) |
     | La Vue rend la scène à sa taille | `gpu.scene-view.vulkan`, `gpu.editor-view.vulkan`, la ligne `editor.view` de la CI | « le renderer rend à la taille demandée, pas à celle de la fenêtre », « l'aspect de la projection suit la taille demandée » ; « la taille demandée est celle du contenu de la Vue » ; cachée derrière un onglet ou repliée, elle demande 0 × 0 ; la CI refuse une Vue de taille nulle |
-    | Chaque geste de navigation passe en QWERTY et en AZERTY simulés | `gpu.editor-gestures.vulkan`, `gpu.editor-shortcuts.vulkan`, `levain_tests` « les touches de vol se lisent par position : W, A, S, D, E, Q » | le vol en quatre cas : la touche à la place du W avance en QWERTY et en AZERTY, la touche marquée W d'un AZERTY ne vole pas ; les autres gestes (la molette, l'orbite, le pan, le dolly) sont à la souris, et F est à la même place sur les deux claviers ; une paire AZERTY donne Z à la place du W |
+    | Chaque geste de navigation passe en QWERTY et en AZERTY simulés | `gpu.editor-gestures.vulkan`, `gpu.editor-shortcuts.vulkan`, `levain_tests` « les touches de vol se lisent par position : W, A, S, D, E, Q » | le vol en quatre cas : la touche à la place du W avance en QWERTY et en AZERTY, la touche marquée W d'un AZERTY ne vole pas, ni le Z d'un QWERTY ; les autres gestes (la molette, l'orbite, le pan, le dolly) sont à la souris, et F est à la même place sur les deux claviers ; une paire AZERTY donne Z à la place du W |
     | Un raccourci changé survit à un redémarrage | `gpu.editor-shortcut-settings-change.vulkan` | un clic et Ctrl+K : « le fichier est écrit tout de suite » ; à la session suivante, « la table relue a Ctrl+K dès la première image », « l'ancien accord (Ctrl+S) ne fait plus rien », « le nouvel accord (Ctrl+K) enregistre, une fois » |
     | Un conflit est nommé, rien ne change sans « Remplacer » | `gpu.editor-shortcut-settings-conflict.vulkan` | le conflit nommé « Ctrl+S : Enregistrer » ; la table inchangée tant qu'on n'a pas remplacé ; puis « Remplacer » donne Ctrl+S à Annuler et l'ôte à Enregistrer, et la console le dit |
 
@@ -128,7 +131,7 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   - **les tests** : 708 Debug, 708 Release, 708 ASan, 198 web (`tools/verify.sh`, sur le dernier morceau), contre 389
     par preset Linux et 191 web au début du milestone (l'entrée de #19) ; les tests `d3d12-warp` passent de 8 à 42 par
     configuration Windows (`tests/CMakeLists.txt`) ; la suite unitaire Windows entière passe sur le portable (588 cas,
-    hors écran) ; la CI de la PR vers `main` en est la porte ;
+    hors écran, texte de #514) ; la CI de la PR vers `main` en est la porte ;
   - **la CI lancée à la main**, deux fois, aux étapes risquées : le 11/10 après le morceau 7 (la scène dans une
     texture), verte en 30 min (run 38128696798) ; le 14/10 après 17a (`ci.yml` et le téléchargement des polices),
     rouge sous Windows : 2 tests sur 584 en windows-debug, 1 sur 580 en windows-release (run 38545818223, plus bas).
@@ -143,18 +146,21 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   - le 14/10, à la clôture : son temps, « ≈ 2 h » ; quand clore, « Dès la CI verte (Recommandé) » : la PR vers `main`
     fusionne dès sa CI verte, puis viennent le tag et la release, et Donnovan essaie l'éditeur.
 - Écarts et problèmes :
-  - **la CI une fois par fonctionnalité a tenu** (AGENTS.md, règle n°1) : 104 PR fusionnées dans `m7.7/atelier` en
-    cinq jours, chacune vérifiée par `tools/verify.sh`, sans attendre de CI ; deux CI lancées à la main, aux étapes
-    que l'ADR désignait. La seconde a trouvé ce que rien, en local, n'avait lancé sous Windows :
+  - **la CI une fois par fonctionnalité a tenu** (AGENTS.md, règle n°1) : 117 PR fusionnées dans `m7.7/atelier` en
+    cinq jours (118 avec cette clôture), chacune vérifiée par `tools/verify.sh`, sans attendre de CI ; deux CI lancées
+    à la main, la première au morceau 7, comme l'ADR le prévoyait, la seconde après 17a, qui changeait `ci.yml`
+    (règle n°1). La seconde a trouvé deux défauts, dans des tests que rien, en local, n'avait lancés sous Windows :
     - « préférences : deux éditeurs qui écrivent ensemble ne posent jamais un texte hybride », un test doctest jamais
       lancé sous Windows : Windows refuse de remplacer un fichier qu'un autre tient ouvert, et d'ouvrir un fichier
       qu'on remplace. L'écriture et la lecture réessaient (`BusyFileRetry`), la lecture lit le fichier ouvert jusqu'au
       bout ;
     - `gpu.editor-gestures.vulkan`, sur le runner en Debug seulement : la fin d'un vol replaçait le vrai curseur, que
       Windows rapportait après un déplacement scripté. Sous un script, le script est désormais la seule source
-      d'input ;
-    - et sur le portable, en vraie fenêtre à 125 % : `gpu.editor-modes.vulkan` cliquait des pixels écrits pour
-      l'échelle 1, un pixel au-dessus du bouton. La Vue publie maintenant le rectangle du bouton, que le test clique.
+      d'input.
+
+    Le portable, en vraie fenêtre à 125 %, en a trouvé un troisième : `gpu.editor-modes.vulkan` cliquait des pixels
+    écrits pour l'échelle 1, un pixel au-dessus du bouton. La Vue publie maintenant le rectangle du bouton, que le
+    test clique.
 
     **La leçon** : chaque morceau lance aussi la suite doctest sous Windows, de la distro, hors écran
     (`SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER build/windows-debug/tests/levain_tests.exe`), et plus
@@ -167,14 +173,15 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
     Windows le 14/10 vers 13 h ;
   - **le geste 8 est toujours « à faire »** : la recomposition est prouvée (le critère ci-dessus), mais le banc
     d'essai n'écrit pas de texte, et le scénario de bout en bout, une valeur tapée dans l'inspecteur, l'attend ;
-  - **les morceaux ont dépassé leur budget de lignes** : chacun a été découpé en PR empilées qui compilent avec leurs
-    tests, d'une à treize par morceau, d'où 104 PR pour les morceaux 0 à 16, 17a et 17c ;
+  - **les morceaux ont dépassé leur budget de lignes** : la plupart ont été découpés en PR empilées qui compilent avec
+    leurs tests, d'une à treize par morceau : 112 PR pour les dix-huit morceaux, plus quatre corrections Windows, #514
+    et cette clôture ;
   - **les coûts sans la machine de référence** : toute la session a tourné sur le portable ; ses chiffres restent
     indicatifs (règle n°6) ;
   - **issues ouvertes pendant le milestone** : #479, le plan proche qui coupe les maillages sous Vulkan et pas sous
-    Direct3D 12 (ouverte, hors milestone) ; #493, la scène trois fois trop sombre sous lavapipe, une swapchain UNORM qui
-    recevait du linéaire (corrigée par 17d, #513 ; fermée avec la PR vers `main`). Ce que M7.7 laisse d'autre :
-    l'ADR-0036, « Ce qui reste ».
+    Direct3D 12 (ouverte, hors milestone) ; #493, la scène trop sombre sous lavapipe (environ 1,7 fois, texte de
+    #512), une swapchain UNORM qui recevait du linéaire (corrigée par 17d, #513 ; fermée avec la PR vers `main`). Ce
+    que M7.7 laisse d'autre : l'ADR-0036, « Ce qui reste ».
 - Prochaine étape :
   - la PR de `m7.7/atelier` vers `main`, sa CI pour porte, la fusion en merge commit ; puis le tag `m7.7`, sa
     release, le milestone fermé, le board ; Donnovan essaie l'éditeur ;

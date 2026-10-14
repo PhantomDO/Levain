@@ -308,16 +308,16 @@ Les issues : #389 (0), #390 (1, 2, 4, 5), #391 (6 à 8), #392 (9 à 11, 16), #39
 | fin | Journal, critère, gestes couverts, READMEs, PR vers `main` et sa CI | docs | — | — |
 
 *Note du 2026-10-14, ce qui a été livré* : chaque morceau est entré dans `m7.7/atelier` en une ou plusieurs PR
-empilées, qui compilent chacune avec leurs tests : une pour les morceaux 0 et 1, jusqu'à treize pour le morceau 16 ;
-118 PR de #396 à #515 (#479 et #493 sont des issues). **Le morceau 17 est livré en quatre parties** :
+empilées, qui compilent chacune avec leurs tests : une pour chacun des morceaux 0 et 1, jusqu'à treize pour le
+morceau 16 ; 118 PR de #396 à #515 (#479 et #493 sont des issues). **Le morceau 17 est livré en quatre parties** :
 
 - **17a**, les polices et les icônes, leurs licences et `tools/fetch-assets.sh` (#473 à #478) ;
 - **17b**, le style de l'éditeur, qui suit l'échelle de l'écran, et les X, Y, Z colorés (#502 à #507) ;
 - **17c**, la grille au sol, le menu Afficher et G (#494 à #501) ;
 - **17d**, l'interface mélangée en espace gamma (l'amendement de la décision 15), qui corrige aussi #493 (#512, #513).
 
-Viennent ensuite les corrections propres à Windows qu'a trouvées la CI lancée à la main le 14/10 (#508 à #511), celle de la
-fenêtre réduite sous Vulkan qu'a trouvée la clôture (#514), puis le morceau « fin » (#515).
+Viennent ensuite les corrections propres à Windows qu'ont trouvées la CI lancée à la main le 14/10 et le portable
+(#508 à #511), celle de la fenêtre réduite sous Vulkan qu'a trouvée la clôture (#514), puis le morceau « fin » (#515).
 
 ## Ce qui reste (note du 2026-10-14)
 
@@ -327,7 +327,8 @@ Ce que M7.7 laisse, sans milestone pour l'instant :
   laisse à faux) ; les lignes de debug, elles, sont coupées au volume de vue avant le dessin (`clipToFrustum`, 17c) ;
 - **`core::readFile`** mesure la taille par le chemin, puis ouvre : un fichier remplacé entre les deux rend le début
   de l'autre. Les préférences lisent le fichier ouvert jusqu'au bout depuis les corrections Windows ; ses autres
-  appelants, le rechargement à chaud des shaders et des textures, gardent ce défaut ;
+  appelants gardent ce défaut, qui ne mord que sur un fichier remplacé pendant la lecture (le rechargement à chaud
+  surtout) ;
 - **la largeur des colonnes de la disposition** est une part de la fenêtre (`buildLayout`), qui ne suit pas
   l'échelle de l'écran : à 150 %, la hiérarchie et l'inspecteur gardent leurs pixels et y logent moins de texte ;
 - **l'état du menu Afficher** (« Grille », « Vue de jeu ») est celui de la session : le fichier des préférences ne le
