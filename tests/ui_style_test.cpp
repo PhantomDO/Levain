@@ -75,9 +75,10 @@ TEST_CASE(
         INFO("fond " << ImGui::GetStyleColorName(color));
         CHECK(style.Colors[color].w == 1.0f);
     }
-    // L'interface se mélange en linéaire sur une cible sRGB : un alpha de 94 % se lit autour de 73
-    // % (README). Les autres couleurs sont opaques aussi, que le mélange en espace gamma, s'il
-    // vient, ne change pas l'aspect.
+    // Avant le morceau 17d, l'interface se mélangeait en linéaire : un alpha de 94 % se lisait
+    // autour de 73 % (README). Elle se mélange en gamma maintenant, mais les autres couleurs
+    // restent opaques : c'est le pire cas d'une future cible sRGB, et le mélange gamma n'y change
+    // rien.
     for (int color = 0; color < ImGuiCol_COUNT; ++color)
     {
         if (!mayBeTranslucent(color))
@@ -183,7 +184,8 @@ ImVec4 blendInGamma(const ImVec4& foreground, const ImVec4& background, float al
 }
 
 /// Le mélange que fait une cible sRGB : en lumière linéaire, puis réencodé (IEC 61966-2-1). C'est
-/// ce que font D3D12 et Vulkan sur la 4070 ; la cible de lavapipe, UNORM, mélange en gamma (#493).
+/// ce que faisaient D3D12 et Vulkan sur la 4070 avant le morceau 17d ; l'image de présentation est
+/// UNORM depuis, et l'interface se mélange en gamma. Le pire cas d'une future cible sRGB.
 float blendChannelInLinear(float foreground, float background, float alpha)
 {
     const auto toLinear = [](float value)

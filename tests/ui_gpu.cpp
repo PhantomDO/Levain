@@ -182,9 +182,11 @@ enum class Release : std::uint8_t
 /// L'opacité du voile de `tonemapThenOverlay`, sur 255.
 constexpr int OverlayAlpha = 128;
 
-/// Le gris du voile : pas du noir, qui ne distinguerait pas un voile linéarisé à tort sur une cible
-/// UNORM (le noir reste noir).
-constexpr int OverlayGrey = 128;
+/// Les deux voiles, et ce que chacun attrape. **Le noir** sépare le mélange gamma du mélange
+/// linéaire (sur 188 : 94 contre 137) ; mais un voile linéarisé à tort reste noir, il ne le voit
+/// pas. **Le gris** (128) attrape ce voile linéarisé (121 contre 158), mais ses deux mélanges ne
+/// sont qu'à 3 niveaux (158 contre 161), sous l'écart toléré. Il faut donc les deux.
+constexpr std::array<int, 2> OverlayGreys{0, 128};
 
 constexpr int ImageSize = 32;
 constexpr int ImageStep = 40;
@@ -443,10 +445,11 @@ struct OverlayRead
 };
 
 /// Une lumière grise de 0,5 linéaire, tonemappée (Clip, exposition 1) dans une cible de
-/// `targetFormat`, puis l'UI par-dessus : un carré gris (128) d'alpha 128/255 (ADR-0036, décision
-/// 15). La cible UNORM reçoit du tonemapping des octets sRGB (188), et l'UI s'y mélange en espace
-/// gamma ; la cible sRGB reçoit du linéaire et l'encode elle-même.
-std::optional<OverlayRead> tonemapThenOverlay(nvrhi::IDevice& device, nvrhi::Format targetFormat)
+/// `targetFormat`, puis l'UI par-dessus : un carré de gris `overlayGrey` d'alpha 128/255 (ADR-0036,
+/// décision 15). La cible UNORM reçoit du tonemapping des octets sRGB (188), et l'UI s'y mélange en
+/// espace gamma ; la cible sRGB reçoit du linéaire et l'encode elle-même.
+std::optional<OverlayRead> tonemapThenOverlay(nvrhi::IDevice& device, nvrhi::Format targetFormat,
+                                              int overlayGrey)
 {
     const nvrhi::TextureHandle texture = createTarget(device, targetFormat);
     const nvrhi::FramebufferHandle target =
@@ -472,7 +475,7 @@ std::optional<OverlayRead> tonemapThenOverlay(nvrhi::IDevice& device, nvrhi::For
     ImGui::NewFrame();
     ImGui::GetForegroundDrawList()->AddRectFilled(
         ImVec2(16.0f, 16.0f), ImVec2(48.0f, 48.0f),
-        IM_COL32(OverlayGrey, OverlayGrey, OverlayGrey, OverlayAlpha));
+        IM_COL32(overlayGrey, overlayGrey, overlayGrey, OverlayAlpha));
     ImGui::Render();
 
     const nvrhi::CommandListHandle commandList = device.createCommandList();
@@ -507,34 +510,38 @@ int checkGammaBlend(nvrhi::IDevice& device)
     const int background =
         static_cast<int>(std::lround(levain::core::srgbFromLinear(0.5f) * 255.0f));
     const float alpha = static_cast<float>(OverlayAlpha) / 255.0f;
-    const int gammaBlend =
-        static_cast<int>(std::lround((static_cast<float>(OverlayGrey) * alpha) +
-                                     (static_cast<float>(background) * (1.0f - alpha))));
     int failures = 0;
-    for (const nvrhi::Format format : {nvrhi::Format::RGBA8_UNORM, nvrhi::Format::SRGBA8_UNORM})
+    for (const int grey : OverlayGreys)
     {
-        const auto read = tonemapThenOverlay(device, format);
-        if (!read)
+        const int gammaBlend =
+            static_cast<int>(std::lround((static_cast<float>(grey) * alpha) +
+                                         (static_cast<float>(background) * (1.0f - alpha))));
+        for (const nvrhi::Format format : {nvrhi::Format::RGBA8_UNORM, nvrhi::Format::SRGBA8_UNORM})
         {
-            ++failures;
-            continue;
-        }
-        std::println("{} : fond {} pour {}, sous le voile {} pour {} (gamma)",
-                     nvrhi::getFormatInfo(format).name, read->background, background, read->blended,
-                     gammaBlend);
-        if (std::abs(read->background - background) > 2)
-        {
-            std::println(stderr, "fond tonemappé : écart de {} niveaux",
-                         std::abs(read->background - background));
-            ++failures;
-        }
-        // Le mélange gamma n'est exigé que sur la cible UNORM, celle où le tonemapping encode : une
-        // cible sRGB mélange en linéaire (137), ce que l'interface ne veut pas.
-        if (format == nvrhi::Format::RGBA8_UNORM && std::abs(read->blended - gammaBlend) > 2)
-        {
-            std::println(stderr, "voile : écart de {} niveaux au mélange gamma",
-                         std::abs(read->blended - gammaBlend));
-            ++failures;
+            const auto read = tonemapThenOverlay(device, format, grey);
+            if (!read)
+            {
+                ++failures;
+                continue;
+            }
+            std::println("{} : fond {} pour {}, sous le voile {} : {} pour {} (gamma)",
+                         nvrhi::getFormatInfo(format).name, read->background, background, grey,
+                         read->blended, gammaBlend);
+            if (std::abs(read->background - background) > 2)
+            {
+                std::println(stderr, "fond tonemappé : écart de {} niveaux",
+                             std::abs(read->background - background));
+                ++failures;
+            }
+            // Le mélange gamma n'est exigé que sur la cible UNORM, celle de tous les backends :
+            // une cible sRGB mélange en linéaire (137 sous le voile noir), ce que l'interface
+            // ne veut pas.
+            if (format == nvrhi::Format::RGBA8_UNORM && std::abs(read->blended - gammaBlend) > 2)
+            {
+                std::println(stderr, "voile {} : écart de {} niveaux au mélange gamma", grey,
+                             std::abs(read->blended - gammaBlend));
+                ++failures;
+            }
         }
     }
     return failures;
@@ -837,6 +844,14 @@ int run(const levain::tests::TestBackend& backend, Mode mode)
     if (!gpu)
     {
         std::println(stderr, "{}", gpu.error().message);
+        return 1;
+    }
+    // L'image de présentation est UNORM sur tous les backends, hors écran comme en fenêtre
+    // (ADR-0036, décision 15) : une sRGB ici ferait mélanger l'interface en linéaire.
+    if (mode == Mode::All && nvrhi::getFormatInfo(levain::gpu::swapchainFormat(*gpu)).isSRGB)
+    {
+        std::println(stderr, "la présentation est en sRGB : {}",
+                     nvrhi::getFormatInfo(levain::gpu::swapchainFormat(*gpu)).name);
         return 1;
     }
     return check(*gpu->nvrhi, mode) == 0 ? 0 : 1;

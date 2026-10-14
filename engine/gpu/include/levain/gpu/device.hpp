@@ -8,6 +8,7 @@
 
 #include <nvrhi/nvrhi.h>
 
+#include "levain/core/color.hpp"
 #include "levain/core/error.hpp"
 #include "levain/gpu/webgpu.hpp"
 #include "levain/platform/window.hpp"
@@ -155,11 +156,22 @@ void requestGpuDevice(const platform::Window& window, const DeviceOptions& optio
 
 /// Le niveau (linéaire, les trois canaux) dont le moteur efface l'image de présentation quand la
 /// scène n'y est pas : un gris sombre, loin du fond de la scène, pour que l'écran ne montre jamais
-/// une scène périmée sous l'UI (la Vue, ADR-0036). Une swapchain sRGB convertit en écrivant.
-/// L'image hors écran est créée avec cette valeur d'effacement : Direct3D 12 avertit sinon à chaque
-/// effacement (D3D12_MESSAGE_ID 820). Les images d'une swapchain DXGI n'en ont pas et ne s'en
-/// plaignent pas (mesuré sur la 4070, fenêtre ouverte, Debug).
+/// une scène périmée sous l'UI (la Vue, ADR-0036). L'image hors écran est créée avec cette valeur
+/// d'effacement : Direct3D 12 avertit sinon à chaque effacement (D3D12_MESSAGE_ID 820). Les images
+/// d'une swapchain DXGI n'en ont pas et ne s'en plaignent pas (mesuré sur la 4070, fenêtre ouverte,
+/// Debug).
 inline constexpr float PresentClearLevel = 0.02f;
+
+/// La couleur d'effacement de l'image de présentation, dans les valeurs de son format : le niveau
+/// linéaire tel quel pour une cible sRGB, qui l'encode en écrivant ; encodé ici pour une cible
+/// UNORM, qui garde les octets (ADR-0036, décision 15). Le même gris à l'écran sur tous les
+/// backends.
+/// `targetIsSrgb` vient de `render::targetIsSrgb(format)`, la seule question de ce genre du moteur.
+[[nodiscard]] inline nvrhi::Color presentClearColor(bool targetIsSrgb)
+{
+    const float level = targetIsSrgb ? PresentClearLevel : core::srgbFromLinear(PresentClearLevel);
+    return nvrhi::Color{level, level, level, 1.0f};
+}
 
 /// Le format des images de la swapchain : les pipelines qui y dessinent en ont besoin à leur
 /// création.

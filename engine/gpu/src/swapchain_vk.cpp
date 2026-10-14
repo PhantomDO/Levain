@@ -92,16 +92,18 @@ bool matchesExtent(VkExtent2D extent, platform::PixelSize size)
            static_cast<int>(extent.height) == size.height;
 }
 
-/// Les deux formats demandés à vk-bootstrap. NVRHI a sa propre énumération de formats ; il fournit
-/// la conversion vers Vulkan, pas l'inverse.
+/// Les deux formats demandés à vk-bootstrap, tous deux UNORM : l'image de présentation tient des
+/// octets sRGB que le tonemapping encode lui-même, sur tous les backends (ADR-0036, décision 15).
+/// Un format sRGB, que le pilote donnerait faute de mieux, est refusé (UNKNOWN). NVRHI a sa propre
+/// énumération de formats ; il fournit la conversion vers Vulkan, pas l'inverse.
 nvrhi::Format toNvrhiFormat(VkFormat format)
 {
     switch (format)
     {
-    case VK_FORMAT_B8G8R8A8_SRGB:
-        return nvrhi::Format::SBGRA8_UNORM;
     case VK_FORMAT_B8G8R8A8_UNORM:
         return nvrhi::Format::BGRA8_UNORM;
+    case VK_FORMAT_R8G8B8A8_UNORM:
+        return nvrhi::Format::RGBA8_UNORM;
     default:
         return nvrhi::Format::UNKNOWN;
     }
@@ -142,8 +144,8 @@ core::Result<void> rebuildSwapchain(VulkanSwapchain& swapchain, platform::PixelS
             .set_old_swapchain(swapchain.swapchain)
             .set_desired_extent(static_cast<std::uint32_t>(size.width),
                                 static_cast<std::uint32_t>(size.height))
-            .set_desired_format({VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-            .add_fallback_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+            .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+            .add_fallback_format({VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
             .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
             // Les bits sont des énumérateurs C au type signé : convertis avant le `|`.
             .set_image_usage_flags(
@@ -168,7 +170,7 @@ core::Result<void> rebuildSwapchain(VulkanSwapchain& swapchain, platform::PixelS
     if (format == nvrhi::Format::UNKNOWN || !images)
     {
         return core::makeError(core::ErrorCode::Unsupported,
-                               "swapchain : format ou images inattendus");
+                               "swapchain : ni B8G8R8A8_UNORM ni R8G8B8A8_UNORM, ou aucune image");
     }
 
     for (VkImage image : images.value())
