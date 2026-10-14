@@ -91,7 +91,7 @@ std::optional<Mode> drawView(View& view, app::App& app, Mode mode)
                 const ImVec2 max = ImGui::GetItemRectMax();
                 view.image = {min.x, min.y, max.x - min.x, max.y - min.y};
                 app.sceneRect = view.image;
-                requestedMode = drawModeBarOverlay(mode, min, view.barHovered);
+                requestedMode = drawModeBarOverlay(mode, min, view.barHovered, view.modeHint);
                 view.barDrawn = true;
                 view.barAt = ImVec2(min.x + 8.0f, min.y + 8.0f);
                 view.hovered = imageHovered && !view.barHovered;

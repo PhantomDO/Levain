@@ -51,7 +51,7 @@ std::array<Chord, 2> chordsOf(const ShortcutTable& table, Action action)
     return binding->chords;
 }
 
-/// Pose un accord à la main, sans contrôle : de quoi fabriquer une table en conflit.
+/// Pose un accord sans passer par `replaceChord` : de quoi fabriquer une table en conflit.
 void setChord(ShortcutTable& table, Action action, std::size_t slot, const Chord& chord)
 {
     for (Binding& binding : table.bindings)
@@ -115,6 +115,60 @@ TEST_CASE("conflit : une position contre une lettre se compare par la dispositio
     const auto qwerty = conflictsOf(withW, Action::MoveForward, forward, Qwerty);
     REQUIRE(qwerty.size() == 1);
     CHECK(qwerty.front().action == Action::Undo);
+}
+
+TEST_CASE("remplacer : l'accord passe à l'action, l'autre le perd, sa seconde place remonte")
+{
+    ShortcutTable table = defaultShortcuts();
+    // Annuler prend Ctrl+Y, que Rétablir tenait en premier : Ctrl+Maj+Z remonte à sa première
+    // place.
+    const auto removed = replaceChord(table, Action::Undo, 1, letterChord('y', Ctrl), Qwerty);
+    REQUIRE(removed.size() == 1);
+    CHECK(removed.front().action == Action::Redo);
+    CHECK(chordsOf(table, Action::Undo)[1] == letterChord('y', Ctrl));
+    CHECK(chordsOf(table, Action::Undo)[0] == letterChord('z', Ctrl));
+    CHECK(chordsOf(table, Action::Redo)[0] == letterChord('z', CtrlShift));
+    CHECK_FALSE(isBound(chordsOf(table, Action::Redo)[1]));
+    CHECK(conflictsIn(table, Qwerty).empty());
+    // Ctrl+S à Annuler : Enregistrer n'a plus d'accord.
+    replaceChord(table, Action::Undo, 0, letterChord('s', Ctrl), Qwerty);
+    CHECK_FALSE(isBound(chordsOf(table, Action::Save)[0]));
+    CHECK(chordsOf(table, Action::Undo)[0] == letterChord('s', Ctrl));
+}
+
+TEST_CASE(
+    "remplacer : l'accord de sa propre autre place n'est pas un conflit, cette place est vidée")
+{
+    ShortcutTable table = defaultShortcuts();
+    // Rétablir tient [Ctrl+Y, Ctrl+Maj+Z] : Ctrl+Y sur la seconde place n'est en conflit avec
+    // personne, pas même avec Rétablir.
+    CHECK(conflictsOf(table, Action::Redo, letterChord('y', Ctrl), Qwerty).empty());
+    CHECK(replaceChord(table, Action::Redo, 1, letterChord('y', Ctrl), Qwerty).empty());
+    // Ctrl+Y n'est plus qu'une fois, devant ; Ctrl+Maj+Z est perdu avec la place qu'il tenait.
+    CHECK(chordsOf(table, Action::Redo)[0] == letterChord('y', Ctrl));
+    CHECK_FALSE(isBound(chordsOf(table, Action::Redo)[1]));
+    CHECK(conflictsIn(table, Qwerty).empty());
+    // Un autre accord sur la seconde place ne touche pas à la première.
+    table = defaultShortcuts();
+    CHECK(replaceChord(table, Action::Redo, 1, letterChord('h', Ctrl), Qwerty).empty());
+    CHECK(chordsOf(table, Action::Redo)[0] == letterChord('y', Ctrl));
+    CHECK(chordsOf(table, Action::Redo)[1] == letterChord('h', Ctrl));
+}
+
+TEST_CASE("réinitialiser : une action, puis toutes, un défaut pris est repris à son nouveau maître")
+{
+    ShortcutTable table = defaultShortcuts();
+    replaceChord(table, Action::Undo, 0, letterChord('s', Ctrl), Qwerty); // Enregistrer le perd
+    CHECK_FALSE(isDefault(table, Action::Save));
+    CHECK_FALSE(isDefault(table, Action::Undo));
+    const auto removed = resetAction(table, Action::Save, Qwerty);
+    REQUIRE(removed.size() == 1);
+    CHECK(removed.front().action == Action::Undo);
+    CHECK(isDefault(table, Action::Save));
+    CHECK_FALSE(isBound(chordsOf(table, Action::Undo)[0])); // il n'est pas resté en conflit
+    CHECK(conflictsIn(table, Qwerty).empty());
+    resetAll(table);
+    CHECK(isDefault(table, Action::Undo));
 }
 
 TEST_CASE("conflit né d'un changement de disposition : trouvé, jamais rebranché")

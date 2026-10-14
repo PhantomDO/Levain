@@ -34,6 +34,20 @@ int modeBarFlags()
 
 } // namespace
 
+std::string modeHintOf(Mode mode, const ShortcutTable& table,
+                       const platform::KeyAtPosition& keyAtPosition)
+{
+    const Action action = mode == Mode::Edit ? Action::Play : Action::Stop;
+    const Binding* binding = bindingOf(table, action);
+    if (binding == nullptr || !isBound(binding->chords.front()))
+    {
+        return {};
+    }
+    const std::string key = displayNameOf(binding->chords.front(), keyAtPosition);
+    return mode == Mode::Edit ? ui::trf("{} : jouer", key)
+                              : ui::trf("{} : revenir à l'édition", key);
+}
+
 bool stopPressed(ModeState& state, const input::RawInput& raw, const ShortcutTable& table)
 {
     const Binding* stop = bindingOf(table, Action::Stop);
@@ -73,7 +87,7 @@ namespace
 /// Le contenu de la barre, dans la fenêtre ou le calque courant : le bouton qui montre où l'on va
 /// (seul il va dans les deux sens, `modeRequested`), le bandeau de « Jouer (sans retour) » et le
 /// rappel de la touche.
-std::optional<Mode> drawModeBarContents(Mode current, bool interactive)
+std::optional<Mode> drawModeBarContents(Mode current, bool interactive, const std::string& hint)
 {
     std::optional<Mode> requested;
     if (interactive)
@@ -93,23 +107,27 @@ std::optional<Mode> drawModeBarContents(Mode current, bool interactive)
                 ui::tr("Jouer (sans retour) : la scène n'est pas restaurée à l'arrêt"))
                 .c_str());
     }
-    ImGui::TextDisabled("%s", ui::tr(modeHintOf(current)));
+    if (!hint.empty())
+    {
+        ImGui::TextDisabled("%s", hint.c_str());
+    }
     return requested;
 }
 
 } // namespace
 
-void drawModeBar(Mode current, const app::ScreenRect& scene)
+void drawModeBar(Mode current, const app::ScreenRect& scene, const std::string& hint)
 {
     ImGui::SetNextWindowPos({scene.x + 8.0f, scene.y + 8.0f});
     if (ImGui::Begin(ui::labelOf("Mode").c_str(), nullptr, modeBarFlags()))
     {
-        std::ignore = drawModeBarContents(current, false);
+        std::ignore = drawModeBarContents(current, false, hint);
     }
     ImGui::End();
 }
 
-std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered)
+std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered,
+                                       const std::string& hint)
 {
     std::optional<Mode> requested;
     // Un enfant de la fenêtre de la Vue, non une fenêtre flottante : une fenêtre flottante passe
@@ -123,7 +141,7 @@ std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovere
                           withFlags(childFlags, ImGuiChildFlags_Borders),
                           ImGuiWindowFlags_NoScrollbar))
     {
-        requested = drawModeBarContents(current, true);
+        requested = drawModeBarContents(current, true, hint);
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();

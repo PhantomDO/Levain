@@ -107,23 +107,19 @@ struct ModeRequests
     return mode == Mode::Edit ? "Édition" : "Jouer (sans retour)";
 }
 
-/// Le rappel de la touche du mode, clé du catalogue : celle qui sort du mode où l'on est. Alt+P ne
-/// ramène pas de Jouer (`modeRequested`) : la dire ici serait fausse sous la route *jeu*.
-[[nodiscard]] constexpr const char* modeHintOf(Mode mode)
-{
-    return mode == Mode::Edit ? "Alt+P : jouer" : "Échap : revenir à l'édition";
-}
+/// Le rappel de la touche du mode, traduit : celle qui sort du mode où l'on est, **telle que la
+/// table l'a maintenant** (un accord changé par la fenêtre « Raccourcis » change le rappel :
+/// `Alt+P : jouer`, `Échap : revenir à l'édition` par défaut). Alt+P ne ramène pas de Jouer
+/// (`modeRequested`) : la dire ici serait fausse sous la route *jeu*. Vide si l'action n'a plus
+/// d'accord, on ne promet pas une touche qui n'existe pas.
+[[nodiscard]] std::string modeHintOf(Mode mode, const ShortcutTable& table,
+                                     const platform::KeyAtPosition& keyAtPosition);
 
 /// Le mot du mode dans la ligne que lit la CI (`editor.mode`) : le même dans toutes les langues.
 [[nodiscard]] constexpr const char* modeTokenOf(Mode mode)
 {
     return mode == Mode::Edit ? "edit" : "play";
 }
-
-/// Échap, par sa position (le scancode 41 d'USB, que `platform` vérifie contre SDL) : le défaut de
-/// l'action « Arrêter » de la table (`shortcuts.hpp`). En jeu, elle ramène à l'Édition, comme
-/// l'arrêt d'Unreal (ADR-0036, décision 13) ; M7.5 en fera « Arrêter ».
-inline constexpr std::uint16_t StopScancode = 41;
 
 /// Échap vient d'être appuyée : le front, lu sur l'input brut du jeu, à la position que la table
 /// donne à « Arrêter » (`table`, ADR-0036, décision 13) : un accord changé par l'utilisateur
@@ -145,8 +141,9 @@ void enterMode(app::App& app, ModeState& state, Mode mode);
 /// le trou du centre, jamais sur les onglets des colonnes. **Dessinée toujours** : le bandeau de
 /// « Jouer (sans retour) » et le rappel de la touche valent aussi panneaux fermés, où le bouton
 /// manque : la fenêtre est un bandeau que rien ne vise ni ne focalise, et la route *jeu* reste.
-/// Panneaux ouverts, la barre est celle de la Vue (`drawModeBarOverlay`).
-void drawModeBar(Mode current, const app::ScreenRect& scene);
+/// Panneaux ouverts, la barre est celle de la Vue (`drawModeBarOverlay`). `hint` : le rappel de
+/// la touche (`modeHintOf`).
+void drawModeBar(Mode current, const app::ScreenRect& scene, const std::string& hint);
 
 /// La même barre en calque de la fenêtre courante (la Vue), dans son coin haut gauche (`corner`) :
 /// un enfant de cette fenêtre, que le focus de la Vue ne passe jamais derrière. Toujours avec son
@@ -154,7 +151,8 @@ void drawModeBar(Mode current, const app::ScreenRect& scene);
 /// se lise sur un ciel clair. `hovered` dit si la souris est sur la barre : la Vue en tire la
 /// route *UI* de l'image suivante, sans quoi un clic sur le bouton atteindrait aussi le jeu (la
 /// barre est dans le rectangle de la scène).
-[[nodiscard]] std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered);
+[[nodiscard]] std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered,
+                                                     const std::string& hint);
 
 /// Alt+P est pressée, par la lettre que la table donne à « Jouer » (`imguiChordOf`, ADR-0036,
 /// décision 13) : le raccourci d'Unreal pour jouer. ImGui doit recevoir le clavier : sous la route

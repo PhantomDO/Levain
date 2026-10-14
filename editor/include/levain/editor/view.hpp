@@ -54,9 +54,10 @@ struct View
     /// (il reçoit le relâchement sans les mouvements), le menu ne s'ouvre donc que si le clic droit
     /// n'a pas volé (`GestureState::flew`). Posé par l'éditeur avant de dessiner.
     bool menuAllowed = true;
-    bool canFrame = false;       ///< Il y a une sélection à cadrer : l'entrée du menu est active.
-    std::string frameShortcut;   ///< L'accord affiché dans l'entrée (« F »), selon le clavier.
-    bool menuOpen = false;       ///< Le menu est ouvert à la dernière image.
+    bool canFrame = false;     ///< Il y a une sélection à cadrer : l'entrée du menu est active.
+    std::string frameShortcut; ///< L'accord affiché dans l'entrée (« F »), selon le clavier.
+    std::string modeHint;  ///< Le rappel de la touche du mode (`modeHintOf`), posé par l'éditeur.
+    bool menuOpen = false; ///< Le menu est ouvert à la dernière image.
     bool frameRequested = false; ///< L'entrée « Cadrer la sélection » du menu a été choisie.
 };
 
