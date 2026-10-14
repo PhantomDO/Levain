@@ -3,6 +3,47 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Windows refuse de remplacer un fichier ouvert, et d'ouvrir un fichier qu'on remplace (2026-10-14)
+
+M7.7, préférences (`préférences : deux éditeurs qui écrivent ensemble ne posent jamais un texte hybride`), rouge sur
+le runner Windows en Debug et en Release (run 38545818223), jamais lancé sous Windows avant.
+
+- **Symptôme** : `hybrids == 0` et `failedSaves == 0` faux. Mesuré au portable (un cas de diagnostic qui classe chaque
+  lecture, 3 passages) : 98 à 131 enregistrements refusés sur 300 (« renommage échoué (Access is denied.) »), 3 à 8
+  ouvertures refusées (`_doserrno` 32, `ERROR_SHARING_VIOLATION`), **0 texte mêlé** sur 900 lectures : le test comptait
+  une ouverture refusée pour un hybride. **Cause** : `std::filesystem::rename` de Microsoft est
+  `MoveFileExW(MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING)` (`stl/src/filesystem.cpp`), qui ne remplace pas un
+  fichier ouvert sans `FILE_SHARE_DELETE` ; or `std::ifstream` ouvre par `_wfsopen(_SH_DENYNO)`, soit
+  `FILE_SHARE_READ | FILE_SHARE_WRITE` (ucrt `lowio/open.cpp`). Et le remplacement en cours tient la cible en
+  suppression : une ouverture à ce moment est refusée. `ReplaceFileW` n'y change rien (il ouvre aussi la cible en
+  suppression). **Parade** : réessayer (`BusyFileRetry`, `editor/preferences.hpp`), comme `ImportantFileWriter` de
+  Chromium (cinq essais de plus, 100 ms entre eux, crbug.com/1099284) ; un échec qui dure reste dit, le fichier entier.
+  Contre-tests, sous Windows : sans les essais du renommage, deux cas rouges 3 fois sur 3 ; sans ceux de la lecture,
+  `unreadable == 0` rouge 4 fois sur 5. **Ce refus-là seulement, et pendant un temps** : voir le point suivant.
+- **Un délai compté en attentes, trop court sous charge** (2026-10-14, après le rebasage sur le morceau 17b) : 50 essais
+  à 10 ms, et le même cas rouge 4 fois sur 31 au portable pendant les builds des autres arbres, toujours `failedSaves`,
+  « renommage échoué, 50 essais (Access is denied.) » au bout d'environ 780 ms. **Cause** : `sleep_for(10 ms)` dure
+  environ 15,6 ms sous Windows (le pas de son horloge), et un remplacement y est resté refusé jusqu'à 2 s (relevé avec
+  500 essais : 15 passages sur 15, les plus lents 1,3 à 1,95 s) ; un écrivain seul, sans autre lecteur dans le
+  processus, a vu des enregistrements de 0,8 à 2,7 s sous charge. Un détenteur extérieur, donc : l'antivirus (Defender,
+  protection en temps réel active) qui examine le fichier neuf est le suspect plausible, **non prouvé**. Et réessayer
+  toute erreur faisait attendre tout le délai à un vrai échec (un droit sous Linux). **Parade** : réessayer seulement
+  un refus passager (`isTransientlyBusy` : les codes Win32 5, 32 et 33 de `system_category`, que rendent
+  `std::filesystem` de Microsoft et `_doserrno` de la CRT ; jamais sous Linux, où `rename` remplace un fichier ouvert),
+  pendant 3 s mesurées sur `steady_clock` (`retryWhileBusy`) ; toute autre erreur est dite aussitôt. Windows rend aussi
+  5 pour un vrai droit refusé, qui n'est donc dit qu'au bout des 3 s. Mesuré ensuite : 40 passages isolés sur 40 pendant
+  un build `-j4` de linux-asan repris de zéro (charge 16 à 23). Contre-tests : `isTransientlyBusy` toujours faux, le cas
+  rouge 3 fois sur 3 sous Windows ; le délai compté en attentes, « mesuré au temps et non aux attentes comptées » rouge
+  (21 essais, 800 ms : la faute rend le cas des deux éditeurs plus indulgent, pas rouge) ; toute erreur réessayée,
+  « une erreur qui ne passera pas rend aussitôt » et « un fichier qui ne se lit pas est dit illisible aussitôt » rouges
+  (3 s).
+- **Le vrai hybride était ailleurs** : `core::readFile` mesure la taille par le chemin (`file_size`) puis ouvre ; un
+  remplacement entre les deux rend le début du nouveau fichier à la taille de l'ancien, et un début de fichier de
+  préférences qui atteint `[disposition]` se lit comme valide, la disposition coupée. Le test l'évitait en lisant
+  lui-même ; il lit maintenant par `loadPreferences`, qui lit le fichier ouvert jusqu'au bout. Contre-test, sous Linux :
+  `loadPreferences` par `core::readFile`, `hybrids == 0` rouge 2 fois sur 5. `core::readFile` garde ce défaut pour ses
+  autres appelants (rechargement à chaud des shaders et des textures).
+
 ## Un `const std::function` global échoue à clang-tidy sous Windows seulement ; `ScaleAllSizes` arrondit (2026-10-13)
 
 M7.7, morceau 16 (revue du passage réel).

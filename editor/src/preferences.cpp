@@ -2,18 +2,24 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <expected>
 #include <format>
 #include <fstream>
 #include <ios>
 #include <map>
 #include <set>
+#include <string>
 #include <system_error>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "levain/assets/asset_id.hpp"
-#include "levain/core/file.hpp"
 #include "levain/editor/camera.hpp"
 #include "levain/editor/shortcuts.hpp"
 
@@ -324,6 +330,79 @@ core::Result<Preferences> parsePreferences(std::string_view text)
         lineNumber, std::format("fichier tronqué : {} attendue en fin de fichier", SectionLayout)));
 }
 
+namespace
+{
+
+/// **Pourquoi l'ouverture par `std::ifstream` vient d'échouer** : le flux ne le dit pas. Sous
+/// Windows, le code Win32 que la CRT garde dans `_doserrno` (`errno` vaut `EACCES` pour un partage
+/// refusé comme pour un droit manquant), ailleurs `errno`. Remis à zéro avant l'ouverture : une
+/// erreur que l'ouverture n'a pas posée devient une erreur d'entrée-sortie, jamais « réussi ».
+void clearOpenError()
+{
+#ifdef _WIN32
+    _doserrno = 0;
+#endif
+    errno = 0;
+}
+
+/// L'erreur de la dernière ouverture refusée, après `clearOpenError`.
+std::error_code lastOpenError()
+{
+#ifdef _WIN32
+    const auto code = static_cast<int>(_doserrno);
+    const std::error_code error{code, std::system_category()};
+#else
+    const int code = errno;
+    const std::error_code error{code, std::generic_category()};
+#endif
+    return code != 0 ? error : std::make_error_code(std::errc::io_error);
+}
+
+/// L'attente entre deux essais, celle du système.
+void sleepFor(std::chrono::milliseconds pause)
+{
+    std::this_thread::sleep_for(pause);
+}
+
+/// **Le fichier ouvert, lu jusqu'au bout**, par morceaux : pas `core::readFile`, qui mesure la
+/// taille par le chemin avant d'ouvrir (voir `loadPreferences`). Le fichier n'est tenu ouvert que
+/// le temps de la lecture : sous Windows, un lecteur qui le tient empêche de le remplacer. Une
+/// ouverture refusée rend l'erreur du système (`lastOpenError`), qui dit si elle passera.
+std::expected<std::string, std::error_code> wholeTextOf(const std::filesystem::path& file)
+{
+    clearOpenError();
+    std::ifstream in{file, std::ios::binary};
+    if (!in)
+    {
+        return std::unexpected(lastOpenError());
+    }
+    std::string text;
+    std::vector<char> chunk(std::size_t{1} << 16U);
+    // `read` lève `failbit` sur le dernier morceau, plus court : `gcount` dit ce qu'il a lu.
+    while (in.read(chunk.data(), static_cast<std::streamsize>(chunk.size())) || in.gcount() > 0)
+    {
+        text.append(chunk.data(), static_cast<std::size_t>(in.gcount()));
+    }
+    if (in.bad())
+    {
+        return std::unexpected(std::make_error_code(std::errc::io_error)); // lecture interrompue
+    }
+    return text;
+}
+
+/// Un essai de remplacement : `rename` remplace `file` d'un coup (`MoveFileExW` sous Windows), un
+/// lecteur voit l'ancien ou le nouveau, jamais un mélange. Sous Windows, un lecteur qui le tient
+/// ouvert le refuse un instant (`isTransientlyBusy`).
+std::error_code replaceOnce(const std::filesystem::path& temporary,
+                            const std::filesystem::path& file)
+{
+    std::error_code refused;
+    std::filesystem::rename(temporary, file, refused);
+    return refused;
+}
+
+} // namespace
+
 bool isTransientlyBusy([[maybe_unused]] const std::error_code& error)
 {
 #ifdef _WIN32
@@ -357,7 +436,8 @@ std::error_code retryWhileBusy(BusyFileRetry retry, const std::function<std::err
     return error;
 }
 
-core::Result<std::optional<Preferences>> loadPreferences(const std::filesystem::path& file)
+core::Result<std::optional<Preferences>> loadPreferences(const std::filesystem::path& file,
+                                                         BusyFileRetry retry)
 {
     // `exists` avec un code d'erreur rend faux pour « introuvable » **et** pour « interdit » : seul
     // le premier est une première session, le second ne se tait pas (règle n°7).
@@ -374,15 +454,26 @@ core::Result<std::optional<Preferences>> loadPreferences(const std::filesystem::
     {
         return std::optional<Preferences>{};
     }
-    const auto bytes = core::readFile(file);
-    if (!bytes)
+    std::expected<std::string, std::error_code> text;
+    const std::error_code refused = retryWhileBusy(
+        retry,
+        [&]()
+        {
+            text = wholeTextOf(file);
+            return text ? std::error_code{} : text.error();
+        },
+        isTransientlyBusy, sleepFor);
+    if (refused)
     {
         return std::unexpected(core::Error{
-            bytes.error().code,
-            std::format("préférences {} : {}", file.generic_string(), bytes.error().message)});
+            core::ErrorCode::FileNotFound,
+            std::format("préférences {} : {} ({})", file.generic_string(),
+                        isTransientlyBusy(refused)
+                            ? std::format("illisible, refusé pendant {} ms", retry.budget.count())
+                            : std::string{"illisible"},
+                        refused.message())});
     }
-    const std::string_view text{reinterpret_cast<const char*>(bytes->data()), bytes->size()};
-    auto parsed = parsePreferences(text);
+    auto parsed = parsePreferences(*text);
     if (!parsed)
     {
         return std::unexpected(core::Error{
@@ -405,7 +496,7 @@ bool isFromNewerVersion(const core::Error& error)
 }
 
 core::Result<void> savePreferences(const std::filesystem::path& file,
-                                   const Preferences& preferences)
+                                   const Preferences& preferences, BusyFileRetry retry)
 {
     // Le code reste `FileNotFound`, le plus proche des quatre de `ErrorCode` (volontairement
     // courte) : c'est le message qui dit ce qui a échoué, « écriture » ou « renommage ».
@@ -447,10 +538,16 @@ core::Result<void> savePreferences(const std::filesystem::path& file,
     {
         return failureWithoutTemporary("écriture échouée", "disque plein ou en lecture seule ?");
     }
-    std::filesystem::rename(temporary, file, error);
-    if (error)
+    const std::error_code refused = retryWhileBusy(
+        retry, [&temporary, &file]() { return replaceOnce(temporary, file); }, isTransientlyBusy,
+        sleepFor);
+    if (refused)
     {
-        return failureWithoutTemporary("renommage échoué", error.message());
+        return failureWithoutTemporary(
+            isTransientlyBusy(refused)
+                ? std::format("renommage échoué, refusé pendant {} ms", retry.budget.count())
+                : std::string{"renommage échoué"},
+            refused.message());
     }
     return {};
 }

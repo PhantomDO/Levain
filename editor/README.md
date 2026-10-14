@@ -316,7 +316,13 @@ M couverts par un test ».
     (`isFromNewerVersion`) n'est ni mis de côté ni écrasé : une branche plus ancienne le rétrograderait en v1 ; la
     session n'enregistre pas et la console le dit. Le fichier voisin porte un nom par écriture
     (`temporaryFileFor`, `<fichier>.<id>.tmp`) : deux éditeurs lancés ensemble ne se tronquent pas l'un l'autre
-    (un plantage au milieu d'une écriture laisse un `.tmp`, que rien ne nettoie). **Une fenêtre renommée dans une
+    (un plantage au milieu d'une écriture laisse un `.tmp`, que rien ne nettoie). **Sous Windows, un lecteur qui tient le
+    fichier ouvert en refuse le remplacement, et un remplacement en cours en refuse l'ouverture** : l'écriture et la
+    lecture réessaient ce refus-là seulement (`isTransientlyBusy` : les codes Win32 5, 32 et 33), pendant 3 s mesurées
+    sur l'horloge (`BusyFileRetry`, `retryWhileBusy`, comme `ImportantFileWriter` de Chromium) ; toute autre erreur est
+    dite aussitôt ; un refus qui dure l'est au bout du délai, et laisse le fichier entier. La lecture lit le fichier ouvert jusqu'au bout, jamais à une taille mesurée
+    par son chemin avant de l'ouvrir : un remplacement entre les deux donnait le début de l'autre fichier, valide s'il
+    atteint `[disposition]` (un hybride). **Une fenêtre renommée dans une
     disposition enregistrée** (`[Window][Ancien nom]`) flotte pour toujours à côté de la nouvelle : « Réinitialiser la
     disposition » la rend à la défaut. **Une exécution scriptée n'en
     lit ni n'en écrit** (`isScriptedRun` : `--seconds`, `--steps`, `--time`, `--capture`, `--input-script`), et
