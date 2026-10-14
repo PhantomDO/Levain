@@ -7,6 +7,8 @@
 #include <span>
 #include <string>
 
+#include "levain/ui/flags.hpp"
+#include "levain/ui/style.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -14,13 +16,6 @@ namespace levain::editor
 
 namespace
 {
-
-/// Les drapeaux d'ImGui sont des `int` : les combiner en non signé, comme des bits qu'ils sont
-/// (comme `withFlags` d'engine/ui/src/context.cpp).
-int withFlags(int flags, int added)
-{
-    return static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(added));
-}
 
 /// Le nom de l'entité, ou son index si elle n'en a pas.
 std::string labelOf(flecs::entity entity)
@@ -94,10 +89,12 @@ void drawSingletons(const flecs::world& world, flecs::entity_t& selected)
     for (const flecs::entity_t singleton : singletonsOf(world))
     {
         pushEntityId(singleton);
+        const int accent = ui::pushSelectedRowColors(singleton == selected);
         if (ImGui::Selectable(labelOf(world.entity(singleton)).c_str(), singleton == selected))
         {
             selected = singleton;
         }
+        ImGui::PopStyleColor(accent);
         ImGui::PopID();
     }
     ImGui::TreePop();
@@ -107,16 +104,16 @@ void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow
              flecs::entity_t& selected)
 {
     // Pas de TreePush : l'arbre est déjà aplati en lignes, la profondeur donne le retrait.
-    ImGuiTreeNodeFlags flags =
-        withFlags(withFlags(ImGuiTreeNodeFlags_NoTreePushOnOpen, ImGuiTreeNodeFlags_OpenOnArrow),
-                  ImGuiTreeNodeFlags_SpanAvailWidth);
+    ImGuiTreeNodeFlags flags = ui::withFlags(
+        ui::withFlags(ImGuiTreeNodeFlags_NoTreePushOnOpen, ImGuiTreeNodeFlags_OpenOnArrow),
+        ImGuiTreeNodeFlags_SpanAvailWidth);
     if (!hasShownChildren(world, row.entity))
     {
-        flags = withFlags(flags, ImGuiTreeNodeFlags_Leaf);
+        flags = ui::withFlags(flags, ImGuiTreeNodeFlags_Leaf);
     }
     if (row.entity == selected)
     {
-        flags = withFlags(flags, ImGuiTreeNodeFlags_Selected);
+        flags = ui::withFlags(flags, ImGuiTreeNodeFlags_Selected);
     }
     // Le retrait de cette ligne seule, sans `Indent`, dont le zéro d'une racine vaudrait
     // l'espacement par défaut : ImGui revient à la marge à la ligne suivante.
@@ -124,7 +121,9 @@ void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow
                          (static_cast<float>(row.depth) * ImGui::GetStyle().IndentSpacing));
     pushEntityId(row.entity);
     ImGui::SetNextItemOpen(hierarchy.open.contains(row.entity));
+    const int accent = ui::pushSelectedRowColors(row.entity == selected);
     ImGui::TreeNodeEx("##entité", flags, "%s", labelOf(world.entity(row.entity)).c_str());
+    ImGui::PopStyleColor(accent);
     if (ImGui::IsItemToggledOpen())
     {
         if (hierarchy.open.erase(row.entity) == 0)

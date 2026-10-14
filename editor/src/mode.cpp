@@ -5,7 +5,9 @@
 #include <imgui.h>
 
 #include "levain/app/player_input.hpp"
+#include "levain/ui/flags.hpp"
 #include "levain/ui/icons.hpp"
+#include "levain/ui/style.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -14,22 +16,16 @@ namespace levain::editor
 namespace
 {
 
-/// Les drapeaux d'ImGui sont des `int` : les combiner en non signé, comme des bits qu'ils sont
-/// (`bugprone-signed-bitwise`, comme `withFlags` de hierarchy.cpp).
-int withFlags(int flags, int added)
-{
-    return static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(added));
-}
-
 /// Les drapeaux de la fenêtre de la barre de mode, panneaux fermés : un bandeau que rien ne vise,
 /// ne navigue ni ne focalise (`NoInputs`) : `sceneHasFocus` reste vrai et la route *jeu* aussi.
 int modeBarFlags()
 {
-    return withFlags(
-        withFlags(withFlags(ImGuiWindowFlags_NoDecoration, ImGuiWindowFlags_NoMove),
-                  withFlags(ImGuiWindowFlags_NoSavedSettings, ImGuiWindowFlags_NoDocking)),
-        withFlags(withFlags(ImGuiWindowFlags_AlwaysAutoResize, ImGuiWindowFlags_NoFocusOnAppearing),
-                  ImGuiWindowFlags_NoInputs));
+    return ui::withFlags(
+        ui::withFlags(ui::withFlags(ImGuiWindowFlags_NoDecoration, ImGuiWindowFlags_NoMove),
+                      ui::withFlags(ImGuiWindowFlags_NoSavedSettings, ImGuiWindowFlags_NoDocking)),
+        ui::withFlags(
+            ui::withFlags(ImGuiWindowFlags_AlwaysAutoResize, ImGuiWindowFlags_NoFocusOnAppearing),
+            ImGuiWindowFlags_NoInputs));
 }
 
 } // namespace
@@ -109,7 +105,9 @@ std::optional<Mode> drawModeBarContents(Mode current, bool interactive, const st
     }
     if (!hint.empty())
     {
-        ImGui::TextDisabled("%s", hint.c_str());
+        // En `Text`, non `TextDisabled` : sur une scène claire le fond du calque reste assez
+        // sombre pour le texte (5,7 sur du blanc), pas pour un gris éteint (3,9 à 178).
+        ImGui::TextUnformatted(hint.c_str());
     }
     return requested;
 }
@@ -134,11 +132,12 @@ std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovere
     // derrière la Vue dès que celle-ci prend le focus (`BringWindowToDisplayFront`), et la barre
     // disparaîtrait au premier clic sur la scène.
     ImGui::SetCursorScreenPos({corner.x + 8.0f, corner.y + 8.0f});
-    const int childFlags = withFlags(ImGuiChildFlags_AutoResizeX, ImGuiChildFlags_AutoResizeY);
-    // Un fond presque opaque : le rappel de la touche est en gris, illisible sur un ciel clair.
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.09f, 0.11f, 0.78f));
+    const int childFlags = ui::withFlags(ImGuiChildFlags_AutoResizeX, ImGuiChildFlags_AutoResizeY);
+    // Un fond presque opaque : le rappel de la touche est en gris, illisible sur un ciel clair. Un
+    // gris de la palette (`overlayBackground`), pas un bleu-gris de plus.
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ui::overlayBackground());
     if (ImGui::BeginChild(ui::labelOf("Mode").c_str(), {0.0f, 0.0f},
-                          withFlags(childFlags, ImGuiChildFlags_Borders),
+                          ui::withFlags(childFlags, ImGuiChildFlags_Borders),
                           ImGuiWindowFlags_NoScrollbar))
     {
         requested = drawModeBarContents(current, true, hint);

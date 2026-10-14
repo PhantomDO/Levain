@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -19,6 +20,7 @@
 #include "levain/editor/bars.hpp"
 #include "levain/editor/camera.hpp"
 #include "levain/editor/menus.hpp"
+#include "levain/editor/show.hpp"
 #include "levain/editor/window_menu.hpp"
 #include "levain/platform/input_script.hpp"
 #include "levain/ui/context.hpp"
@@ -463,4 +465,89 @@ TEST_CASE("greyedMenuItem : le libellé et le raccourci en TextDisabled plein, j
     }
     CHECK(dimOpaque > 0);
     CHECK(anyText == 0); // le libellé n'est pas en Text, à aucun alpha
+}
+
+TEST_CASE("le bandeau de la barre de mode se dessine sur un gris de la palette, presque opaque")
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    // Un enfant à la taille de son contenu n'a de taille qu'à la deuxième image.
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 640, .height = 480}, 1.0 / 60.0);
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0.0f, 0.0f});
+        ImGui::SetNextWindowSize({400.0f, 300.0f});
+        ImGui::Begin("Vue");
+        bool hovered = false;
+        ImVec2 rectMax{};
+        std::ignore = drawModeBarOverlay(Mode::Edit, {10.0f, 10.0f}, hovered, rectMax, "Alt+P");
+        ImGui::End();
+        ImGui::Render();
+    }
+    const ImVec4 overlay = levain::ui::overlayBackground();
+    const auto alpha = static_cast<ImU32>(std::lround(levain::ui::OverlayAlpha * 255.0f));
+    const bool drawnOnPalette =
+        std::ranges::any_of(drawnVertices(),
+                            [&](const ImDrawVert& vertex)
+                            {
+                                return sameRgb(vertex.col, packed(overlay)) &&
+                                       (vertex.col >> IM_COL32_A_SHIFT) == alpha;
+                            });
+    CHECK(drawnOnPalette);
+    // Le rappel de touche (« Alt+P ») est en `Text`, non en `TextDisabled` : sur une scène claire
+    // le fond du calque reste assez sombre pour le texte, pas pour un gris éteint. Rien d'autre
+    // dans la barre n'est grisé.
+    const ImU32 dim = packed(ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+    CHECK(std::ranges::none_of(drawnVertices(),
+                               [&](const ImDrawVert& vertex) { return sameRgb(vertex.col, dim); }));
+}
+
+TEST_CASE("la barre « Afficher » : sur un gris de la palette, et le menu s'ouvre sous son bouton")
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    ShowState show;
+    ShowMenuLayout layout;
+    const auto frame = [&]
+    {
+        levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 640, .height = 480}, 1.0 / 60.0);
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0.0f, 0.0f});
+        ImGui::SetNextWindowSize({400.0f, 300.0f});
+        ImGui::Begin("Vue");
+        std::ignore = drawShowMenu(show, {10.0f, 10.0f}, "Alt+G", layout);
+        ImGui::End();
+        ImGui::Render();
+    };
+    for (int i = 0; i < 4; ++i)
+    {
+        frame();
+    }
+    const ImVec4 overlay = levain::ui::overlayBackground();
+    CHECK(std::ranges::any_of(drawnVertices(),
+                              [&](const ImDrawVert& vertex)
+                              {
+                                  return sameRgb(vertex.col, packed(overlay)) &&
+                                         (vertex.col >> IM_COL32_A_SHIFT) ==
+                                             static_cast<ImU32>(std::lround(overlay.w * 255.0f));
+                              }));
+    // Un clic sur « Afficher » : le menu s'ouvre, et sa première entrée est sous le bouton, non à
+    // la souris (le défaut d'un popup), qui recouvrirait le bouton.
+    ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 button = layout.button;
+    io.AddMousePosEvent(button.x, button.y);
+    frame();
+    frame();
+    io.AddMouseButtonEvent(0, true);
+    frame();
+    frame();
+    io.AddMouseButtonEvent(0, false);
+    for (int i = 0; i < 4; ++i)
+    {
+        frame();
+    }
+    REQUIRE(layout.open);
+    const float buttonHeight = ImGui::GetFrameHeight();
+    CHECK(layout.gridItem.y - (buttonHeight / 2.0f) >= button.y + (buttonHeight / 2.0f) - 1.0f);
 }

@@ -64,9 +64,14 @@ d'outils** (`disabledButton`) sont dessinés tels que le test des contrastes les
 poussé à 1 le temps du bouton, sans quoi `BeginDisabled` le multiplierait) et sans contour (`FrameBorderSize` à 0 : un
 contour redessinerait la forme retirée ; les champs de saisie gardent le leur) ; `tests/editor_menus_test.cpp` lit ce que la
 barre dessine. **Les entrées de menu grisées** (`greyedMenuItem`) sont dessinées de même (`TextDisabled` plein, libellé et
-raccourci), non à `DisabledAlpha` : à 0,8 sur la 4070 le libellé ne se distinguait pas du texte.
+raccourci), non à `DisabledAlpha` : à 0,8 sur la 4070 le libellé ne se distinguait pas du texte. Le bandeau de la barre de
+mode et celui d'« Afficher », dans la Vue, prennent `ui::overlayBackground` (un gris de la palette, à 0,93) et le rappel de touche
+est en `Text`, lisible sur une scène blanche. Le menu « Afficher » s'ouvre sous son bouton.
+**La hiérarchie** colorie sa ligne choisie en accent (`pushSelectedRowColors`, comme la
+constante courante d'une liste déroulante), les en-têtes de composant restent gris.
 Que `withEditor` règle bien le style, c'est `gpu.editor-modes.*` (sans l'appel,
-l'éditeur resterait au style d'ImGui, et rien d'autre ne le dirait).
+l'éditeur resterait au style d'ImGui, et rien d'autre ne le dirait) ; la ligne choisie de la hiérarchie,
+« la ligne choisie de la hiérarchie prend l'accent… ».
 
 **Les menus, les barres et la fenêtre Aide sont écrits** (M7.7, morceau 12, `menus.hpp`, `bars.hpp`, `actions.hpp`,
 ADR-0036, décisions 12 et 13). **La barre de menus** : Fichier, Édition, Entité, Fenêtre (celui du morceau 8, au

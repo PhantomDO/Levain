@@ -3,6 +3,8 @@
 #include <imgui.h>
 
 #include "levain/editor/window_menu.hpp"
+#include "levain/ui/flags.hpp"
+#include "levain/ui/style.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -29,10 +31,10 @@ bool drawShowMenu(ShowState& show, ImVec2 corner, const std::string& gameViewSho
     // Comme la barre de mode : un enfant de la Vue, non une fenêtre flottante, qui passerait
     // derrière la Vue dès qu'elle prend le focus.
     ImGui::SetCursorScreenPos(corner);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.09f, 0.11f, 0.78f));
-    const int flags = static_cast<int>(static_cast<unsigned>(ImGuiChildFlags_AutoResizeX) |
-                                       static_cast<unsigned>(ImGuiChildFlags_AutoResizeY) |
-                                       static_cast<unsigned>(ImGuiChildFlags_Borders));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ui::overlayBackground());
+    const int flags =
+        ui::withFlags(ui::withFlags(ImGuiChildFlags_AutoResizeX, ImGuiChildFlags_AutoResizeY),
+                      ImGuiChildFlags_Borders);
     if (ImGui::BeginChild(BarId, {0.0f, 0.0f}, flags, ImGuiWindowFlags_NoScrollbar))
     {
         if (ImGui::Button(ui::labelOf("Afficher").c_str()))
@@ -40,6 +42,11 @@ bool drawShowMenu(ShowState& show, ImVec2 corner, const std::string& gameViewSho
             ImGui::OpenPopup(PopupId);
         }
         layout.button = centerOfLastItem();
+        // Sous le bouton, non à la souris (le défaut d'un popup) : le menu ouvert ne le recouvre
+        // pas, on voit sur quoi on a cliqué.
+        const ImVec2 buttonMin = ImGui::GetItemRectMin();
+        const ImVec2 buttonMax = ImGui::GetItemRectMax();
+        ImGui::SetNextWindowPos({buttonMin.x, buttonMax.y});
         if (ImGui::BeginPopup(PopupId))
         {
             layout.open = true;

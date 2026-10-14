@@ -117,7 +117,8 @@ void setColors(ImVec4* colors)
     colors[ImGuiCol_ButtonHovered] = grey(72);
     colors[ImGuiCol_ButtonActive] = EditorAccent;
 
-    // Gris : ces trois couleurs font aussi les en-têtes de composant.
+    // Gris : l'accent d'une ligne choisie se pose à part (`pushSelectedRowColors`), car ces trois
+    // couleurs font aussi les en-têtes de composant.
     colors[ImGuiCol_Header] = Popup;
     colors[ImGuiCol_HeaderHovered] = grey(62);
     colors[ImGuiCol_HeaderActive] = grey(78);
@@ -188,6 +189,23 @@ void applyEditorStyle(ImGuiStyle& style, float displayScale)
     fresh.FontScaleMain = style.FontScaleMain;
     fresh.FontScaleDpi = displayScale;
     style = fresh;
+}
+
+int pushSelectedRowColors(bool selected)
+{
+    if (!selected)
+    {
+        return 0;
+    }
+    ImGui::PushStyleColor(ImGuiCol_Header, EditorAccentDark);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, EditorAccentHover);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, EditorAccent);
+    return 3;
+}
+
+ImVec4 overlayBackground()
+{
+    return {Bar.x, Bar.y, Bar.z, OverlayAlpha};
 }
 
 float relativeLuminance(const ImVec4& srgb)
