@@ -150,6 +150,7 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
     // (`App::sceneRect`, la barre en calque) n'est connu qu'à la fin de `ui`, et complète la
     // dernière image relevée.
     levain::editor::EditorOptions options;
+    options.fontRoots = {{LEVAIN_TEST_ASSETS_DIR}};
     options.afterUi = [&run](const levain::editor::Editor& editor)
     {
         if (editor.view.shown && !run.seen.empty())

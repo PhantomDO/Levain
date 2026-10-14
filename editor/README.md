@@ -49,6 +49,12 @@ global vaut encore (Ctrl+S). Changer et enregistrer un accord sont les morceaux 
 Manager* d'Unity, les *Editor Settings > Shortcuts* de Godot. Test : `tests/editor_shortcuts_test.cpp`, et de bout en
 bout `gpu.editor-shortcuts.*`. **Le contrat avec ImGui** : `actionFor` sert les accords de position et le contexte *jeu* ; les accords de lettre passent par `ImGui::Shortcut(imguiChordOf(...))`, et un champ de texte actif (`ActiveContexts::textInput`) ne laisse rien au vol, à la Vue ni au global. Alt-Gr tenu ne vaut aucun accord. **Fait au morceau 11** : le relâchement d'un vol est un clic pour ImGui, et le menu contextuel de la Vue ne s'ouvre que si le clic droit n'a pas volé (`GestureState::flew` : bougé au-delà de `ClickSlopPixels`, une touche de vol ou la molette) ; `playFlightReleaseIsAClick` épingle toujours le comportement d'`app` seul, sans l'éditeur.
 
+**Les polices** (morceau 17, `withEditor`) : Inter, Noto Sans derrière et Material Symbols pour les icônes (`ui/fonts.hpp`,
+`ui/icons.hpp`), lues dans `assets-cache/Fonts/` par les racines d'assets de l'`App` (ou `EditorOptions::fontRoots`) ; la console garde ProggyForever,
+Inter derrière (`Console::font`). **Une police absente arrête l'éditeur avant sa première image**, en nommant le fichier et
+`tools/fetch-assets.sh` (`gpu.editor-console.*`, `playMissingFont`) : les tests de l'éditeur posent `fontRoots = {assets-cache}`
+et seulement elle : leurs racines d'assets restent `data/`, sans le scan et les `.meta` des 86 fichiers d'`assets-cache`. Le bouton de mode et son bandeau portent une icône (`modeButtonLabel`).
+
 **Les menus, les barres et la fenêtre Aide sont écrits** (M7.7, morceau 12, `menus.hpp`, `bars.hpp`, `actions.hpp`,
 ADR-0036, décisions 12 et 13). **La barre de menus** : Fichier, Édition, Entité, Fenêtre (celui du morceau 8, au
 milieu de la barre) et Aide ; chaque entrée montre le raccourci de la table, selon la disposition du clavier. **Une

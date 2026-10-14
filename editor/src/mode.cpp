@@ -5,6 +5,7 @@
 #include <imgui.h>
 
 #include "levain/app/player_input.hpp"
+#include "levain/ui/icons.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -59,6 +60,13 @@ void enterMode(app::App& app, ModeState& state, Mode mode)
     app.inputRoute = inputRouteFor(mode, false);
 }
 
+std::string modeButtonLabel(Mode target)
+{
+    return target == Mode::Edit
+               ? ui::icon::withIcon(ui::icon::Stop, ui::labelOf("Revenir à l'édition"))
+               : ui::icon::withIcon(ui::icon::Play, ui::labelOf("Jouer (sans retour)"));
+}
+
 namespace
 {
 
@@ -71,16 +79,19 @@ std::optional<Mode> drawModeBarContents(Mode current, bool interactive)
     if (interactive)
     {
         const Mode target = otherMode(current);
-        const char* action = target == Mode::Edit ? "Revenir à l'édition" : "Jouer (sans retour)";
-        if (ImGui::Button(ui::labelOf(action).c_str()))
+        if (ImGui::Button(modeButtonLabel(target).c_str()))
         {
             requested = target;
         }
     }
     if (current == Mode::PlayWithoutReturn)
     {
-        ImGui::TextColored({1.0f, 0.75f, 0.2f, 1.0f}, "%s",
-                           ui::tr("Jouer (sans retour) : la scène n'est pas restaurée à l'arrêt"));
+        ImGui::TextColored(
+            {1.0f, 0.75f, 0.2f, 1.0f}, "%s",
+            ui::icon::withIcon(
+                ui::icon::Play,
+                ui::tr("Jouer (sans retour) : la scène n'est pas restaurée à l'arrêt"))
+                .c_str());
     }
     ImGui::TextDisabled("%s", ui::tr(modeHintOf(current)));
     return requested;

@@ -17,6 +17,7 @@
 #include "levain/editor/layout.hpp"
 #include "levain/editor/scene_bounds.hpp"
 #include "levain/scene/scene.hpp"
+#include "levain/ui/fonts.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -72,6 +73,26 @@ void imposeCamera(app::App& app, Editor& editor, bool edited = false)
                           .edited = edited},
                          editor.everything, app.models, app.modelInstance);
     app.cameraOverride = toRenderCamera(editor.camera, editorClipPlanes(editor.camera, scene));
+}
+
+/// La taille de l'interface : 15 px, là où la police par défaut d'ImGui en fait 13. À corps égal,
+/// Inter a des minuscules plus petites que ProggyClean (sa hauteur d'x est plus basse) : 15 px
+/// rend aux menus et aux panneaux la lisibilité qu'ils avaient. Elle déplace les barres, donc les
+/// points visés des tests de la Vue (`tests/data/editor/vue_pick_*.txt`).
+constexpr float FontSize = 15.0f;
+
+/// Les polices de l'éditeur (Inter, Noto Sans, Material Symbols, et celle de la console), lues dans
+/// `options.fontRoots`, sinon dans les racines d'assets de l'App. Absentes, l'éditeur ne démarre
+/// pas (règle n°7) : l'erreur nomme le fichier. Avant la première image.
+core::Result<ui::UiFonts> loadEditorFonts(const app::App& app, const EditorOptions& options)
+{
+    const auto files =
+        ui::findFontFiles(options.fontRoots ? *options.fontRoots : app.settings.assetRoots);
+    if (!files)
+    {
+        return std::unexpected(files.error());
+    }
+    return ui::addFonts(ImGui::GetIO(), *files, FontSize);
 }
 
 /// L'accord affiché dans l'entrée « Cadrer la sélection » du menu, selon le clavier d'aujourd'hui.
@@ -315,6 +336,13 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
     return [start = std::move(start), options = std::move(options),
             capture = std::move(capture)](app::App& app) -> core::Result<app::FrameHooks>
     {
+        // Avant le programme : une police absente l'arrête tout de suite, et rien ne dessine avec
+        // la police d'ImGui.
+        const auto fonts = loadEditorFonts(app, options);
+        if (!fonts)
+        {
+            return std::unexpected(fonts.error());
+        }
         auto hooks = start(app);
         if (!hooks)
         {
@@ -350,6 +378,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .shortcutLines = {},
                    .layoutResetRequested = false,
                    .savePreferencesNext = false});
+        editor->console.font = fonts->console;
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());

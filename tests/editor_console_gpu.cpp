@@ -13,7 +13,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <print>
 #include <span>
 #include <stdexcept>
@@ -28,11 +30,13 @@
 #include "gpu_test_backend.hpp"
 
 #include "levain/app/app.hpp"
+#include "levain/assets/asset_id.hpp"
 #include "levain/core/log.hpp"
 #include "levain/core/log_ring.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/platform/input_script.hpp"
 #include "levain/scene/components.hpp"
+#include "levain/ui/fonts.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace
@@ -127,7 +131,7 @@ struct Run
 /// pas de temps. Un message est écrit entre `withEditor` et `runApp` : ce que la fenêtre et le
 /// device écrivent en s'ouvrant, avant la première image, doit aussi être dans la console.
 Run play(const levain::tests::TestBackend& backend, std::string_view script, int frames,
-         int focusFrame)
+         int focusFrame, std::vector<std::filesystem::path> fontRoots = {LEVAIN_TEST_ASSETS_DIR})
 {
     auto parsed = levain::platform::parseInputScript(script);
     if (!parsed)
@@ -146,6 +150,7 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
     settings.adapter = backend.adapter;
     Run run;
     levain::editor::EditorOptions options;
+    options.fontRoots = std::move(fontRoots);
     options.afterUi = [&run](const levain::editor::Editor& editor)
     { run.seen.push_back(seenOf(editor)); };
     auto start = levain::editor::withEditor(programOf(focusFrame), std::move(options));
@@ -226,6 +231,53 @@ int playClick(const levain::tests::TestBackend& backend, ImVec2 errorBoxAt)
                   "le compte de la case ne change pas : il compte les messages reçus");
 }
 
+/// Un dossier supprimé à la sortie du scope, exception comprise.
+struct ScopedDirectory
+{
+    std::filesystem::path path;
+
+    explicit ScopedDirectory(std::filesystem::path where) : path{std::move(where)} {}
+
+    ~ScopedDirectory()
+    {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
+    }
+
+    ScopedDirectory(const ScopedDirectory&) = delete;
+    ScopedDirectory& operator=(const ScopedDirectory&) = delete;
+};
+
+/// Une police absente arrête l'éditeur avant sa première image, en nommant le fichier et ce qu'il
+/// faut lancer (règle n°7) : jamais un repli silencieux sur la police d'ImGui. Les racines n'ont
+/// que deux des trois polices.
+int playMissingFont(const levain::tests::TestBackend& backend)
+{
+    // Le dossier part avec le scope, même si `play` lève : un temporaire qui fuit s'accumule.
+    const ScopedDirectory scoped{
+        std::filesystem::temp_directory_path() /
+        ("levain-missing-font-" + levain::assets::toString(levain::assets::generateAssetId()))};
+    const std::filesystem::path& root = scoped.path;
+    std::filesystem::create_directories(root / "Fonts");
+    for (const char* kept : {levain::ui::UiFontFile, levain::ui::FallbackFontFile})
+    {
+        std::filesystem::copy_file(std::filesystem::path{LEVAIN_TEST_ASSETS_DIR} / kept,
+                                   root / kept);
+    }
+    const levain::core::LogCapture capture = levain::core::captureLog(64);
+    const Run run = play(backend, "0 mouse move 1 1\n", Frames, FocusFrame, {root});
+    bool named = false;
+    for (const auto& entry : levain::core::snapshotOf(*capture.ring).entries)
+    {
+        named = named || (entry.text.find("MaterialSymbols") != std::string::npos &&
+                          entry.text.find("fetch-assets.sh") != std::string::npos);
+    }
+    return expect(run.exitCode != 0 && run.seen.empty(),
+                  "sans une police, l'éditeur s'arrête avant sa première image") +
+           expect(named,
+                  "le message nomme la police absente et dit de lancer tools/fetch-assets.sh");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -241,7 +293,8 @@ int main(int argc, char** argv)
             return 2;
         }
         ImVec2 errorBoxAt{};
-        const int failures = playOpening(*backend, errorBoxAt) + playClick(*backend, errorBoxAt);
+        const int failures = playOpening(*backend, errorBoxAt) + playClick(*backend, errorBoxAt) +
+                             playMissingFont(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

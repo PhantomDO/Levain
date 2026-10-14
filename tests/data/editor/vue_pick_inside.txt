@@ -1,4 +1,4 @@
-# ATTENTION : le point (900, 400) vise une caisse par la disposition actuelle (colonnes, marges de la Vue). Tout changement de
+# ATTENTION : le point (895, 418) vise une caisse par la disposition actuelle (colonnes, marges de la Vue). Tout changement de
 # disposition remesure ce pixel : relancer le test, lire la sélection, et déplacer le point jusqu'à une caisse.
 # Jouer (Alt+P), puis un clic gauche dans la Vue (la scène est un rectangle de la fenêtre de 1920 x 1080,
 # la Vue commence après la hiérarchie à gauche et sous la barre de menus) : le sandbox choisit le corps visé.
@@ -6,6 +6,6 @@
 2 key down P
 3 key up P
 3 key up Left Alt
-19 mouse move 900 400
+19 mouse move 895 418
 20 button down left
 21 button up left

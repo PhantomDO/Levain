@@ -124,6 +124,7 @@ Run play(const levain::tests::TestBackend& backend, const Scenario& scenario)
     settings.adapter = backend.adapter;
     Run run;
     levain::editor::EditorOptions options;
+    options.fontRoots = {{LEVAIN_TEST_ASSETS_DIR}};
     options.afterUi = [&run](const levain::editor::Editor& editor)
     {
         run.timesOpened = editor.quit.timesOpened;

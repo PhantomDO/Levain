@@ -265,6 +265,9 @@ Run play(const levain::tests::TestBackend& backend, const Session& session)
         });
     levain::editor::EditorOptions options;
     options.preferencesDirectory = session.directory;
+    // Les polices de l'éditeur (morceau 17a) : celles d'assets-cache, que les racines d'assets du
+    // programme, `data/` seul, n'ont pas.
+    options.fontRoots = {{LEVAIN_TEST_ASSETS_DIR}};
     options.afterUi = [&run, &session](const levain::editor::Editor& editor)
     {
         run.seen.push_back(seenOf(*run.app, editor));

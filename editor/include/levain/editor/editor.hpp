@@ -58,6 +58,12 @@ struct EditorOptions
     /// n'a pas de préférences (`preferencesFileFor`) : le dossier de qui lance le test n'est ni lu
     /// ni écrit. Aucune option de la ligne de commande ne le pose.
     std::optional<std::filesystem::path> preferencesDirectory;
+
+    /// Où chercher les polices (`ui/fonts.hpp`), dans l'ordre. Par défaut : les racines d'assets de
+    /// l'`App`. Les tests de l'éditeur les posent ici seulement : leurs racines d'assets restent
+    /// celles du jeu, sans `assets-cache` (86 fichiers qu'`App` scannerait et hacherait à chaque
+    /// lancement).
+    std::optional<std::vector<std::filesystem::path>> fontRoots;
 };
 
 /// Le nombre de fenêtres du menu : le tableau du menu (`MaxWindowEntries`) doit les contenir
