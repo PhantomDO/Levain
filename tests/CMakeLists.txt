@@ -65,6 +65,7 @@ set(nativeTests
     shader_reload_test.cpp
     texture_test.cpp
     ui_fonts_test.cpp
+    ui_style_test.cpp
     ui_test.cpp
     water_test.cpp
     webgpu_test.cpp
