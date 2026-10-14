@@ -129,9 +129,13 @@ retryWhileBusy(BusyFileRetry retry, const std::function<std::error_code()>& atte
 
 /// Lit le fichier : rien s'il n'existe pas (une première session), une erreur qui nomme le fichier
 /// s'il est illisible, refusé, ou si le disque ne dit pas s'il existe (droits : ce n'est pas une
-/// première session, c'est un fichier qu'on ne sait pas lire).
+/// première session, c'est un fichier qu'on ne sait pas lire). **Le fichier ouvert est lu jusqu'au
+/// bout**, sans taille mesurée par son chemin avant : un remplacement entre les deux donnerait le
+/// début du nouveau fichier, qui se lit comme un fichier valide s'il atteint `[disposition]` (une
+/// disposition coupée). Une ouverture refusée un instant est réessayée selon `retry`
+/// (`BusyFileRetry`) ; tout autre refus est dit aussitôt.
 [[nodiscard]] core::Result<std::optional<Preferences>>
-loadPreferences(const std::filesystem::path& file);
+loadPreferences(const std::filesystem::path& file, BusyFileRetry retry = PreferencesFileRetry);
 
 /// **Le fichier voisin d'un écrivain** : `<fichier>.<writer>.tmp`. Deux éditeurs lancés ensemble
 /// ne partagent pas un seul `.tmp` (l'un tronquait celui de l'autre, et le renommage posait un
@@ -146,10 +150,13 @@ loadPreferences(const std::filesystem::path& file);
 
 /// Écrit le fichier, dossier compris, par un fichier voisin renommé ensuite : un plantage du
 /// processus au milieu de l'écriture laisse l'ancien fichier, jamais un tronqué. C'est **à l'abri
-/// d'un plantage, pas d'une coupure de courant** (pas de `fsync` avant le renommage). Un échec
-/// retire le fichier voisin.
+/// d'un plantage, pas d'une coupure de courant** (pas de `fsync` avant le renommage). Un
+/// renommage refusé un instant est réessayé selon `retry` (`BusyFileRetry` : sous Windows, un
+/// lecteur qui tient le fichier l'empêche) ; un échec, aussitôt pour une autre erreur ou au bout
+/// du délai, est rapporté, retire le fichier voisin et laisse le fichier tel qu'il était.
 [[nodiscard]] core::Result<void> savePreferences(const std::filesystem::path& file,
-                                                 const Preferences& preferences);
+                                                 const Preferences& preferences,
+                                                 BusyFileRetry retry = PreferencesFileRetry);
 
 /// **Où vont les préférences de cette exécution**, ou rien. Dans l'ordre :
 /// - **une exécution scriptée n'en a pas** (`scriptedRun`, `isScriptedRun`) : les réglages d'un

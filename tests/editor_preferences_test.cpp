@@ -262,9 +262,14 @@ TEST_CASE("préférences : deux écrivains, deux fichiers voisins")
 
 TEST_CASE("préférences : deux éditeurs qui écrivent ensemble ne posent jamais un texte hybride")
 {
-    // Deux écrivains sur le même fichier, l'un long, l'autre court : avec un fichier voisin
-    // partagé, le renommage posait le début de l'un et la queue de l'autre (610 fichiers sur 2000
-    // tours, mesuré). Chaque lecture, pendant l'autre écriture, doit rendre l'un ou l'autre.
+    // Deux écrivains sur le même fichier, l'un long, l'autre court, qui relisent après chaque
+    // écriture : avec un fichier voisin partagé, le renommage posait le début de l'un et la queue
+    // de l'autre (610 fichiers sur 2000 tours, mesuré). Chaque lecture, par `loadPreferences`, doit
+    // rendre l'un ou l'autre, entier : ni un hybride, ni un refus. Sous Windows, le lecteur de l'un
+    // refuse un instant le remplacement de l'autre, et un remplacement en cours l'ouverture : les
+    // deux réessaient (`BusyFileRetry`). Avant ces essais, le runner Windows comptait chaque
+    // ouverture refusée pour un hybride (aucun texte lu n'était mêlé : 0 sur 900 lectures,
+    // mesuré) et une centaine de remplacements refusés sur 300.
     const TempDirectory directory{"concurrent"};
     const fs::path file = directory.path / PreferencesFileName;
     Preferences longOne;
@@ -279,21 +284,17 @@ TEST_CASE("préférences : deux éditeurs qui écrivent ensemble ne posent jamai
     REQUIRE(savePreferences(file, longOne).has_value());
 
     std::atomic<int> hybrids{0};
+    std::atomic<int> unreadable{0};
     std::atomic<int> failedSaves{0};
     const auto writer = [&](const Preferences& mine)
     {
         for (int round = 0; round < 150; ++round)
         {
             failedSaves += savePreferences(file, mine).has_value() ? 0 : 1;
-            // Lu d'un seul tenant par un fichier ouvert (et non `loadPreferences`, qui mesure le
-            // fichier par son chemin avant de l'ouvrir : un renommage entre les deux la ferait
-            // échouer, une course de la lecture et non de l'écriture que ce cas éprouve).
-            std::ifstream in{file, std::ios::binary};
-            const std::string text{std::istreambuf_iterator<char>{in},
-                                   std::istreambuf_iterator<char>{}};
-            const auto read = parsePreferences(text);
-            const Preferences* got = read ? &*read : nullptr;
-            hybrids += (got != nullptr && (*got == longOne || *got == shortOne)) ? 0 : 1;
+            const auto read = loadPreferences(file);
+            const Preferences* got = presentIn(read);
+            unreadable += got == nullptr ? 1 : 0;
+            hybrids += (got != nullptr && !(*got == longOne || *got == shortOne)) ? 1 : 0;
         }
     };
     std::thread other{writer, std::cref(shortOne)};
@@ -301,7 +302,77 @@ TEST_CASE("préférences : deux éditeurs qui écrivent ensemble ne posent jamai
     other.join();
 
     CHECK(hybrids == 0);
+    CHECK(unreadable == 0);
     CHECK(failedSaves == 0);
+    CHECK(temporariesIn(directory.path) == 0);
+}
+
+TEST_CASE("préférences : un lecteur qui tient le fichier un instant n'empêche pas l'enregistrement")
+{
+    // Sous Windows, un fichier ouvert par `std::ifstream` (sans partage de la suppression) ne se
+    // remplace pas : l'enregistrement attend que le lecteur le lâche (`BusyFileRetry`). Sous Linux,
+    // il le remplace aussitôt. Les deux finissent par le nouveau fichier.
+    const TempDirectory directory{"held"};
+    const fs::path file = directory.path / PreferencesFileName;
+    Preferences first;
+    first.flySpeed = 3.0f;
+    Preferences second;
+    second.flySpeed = 12.0f;
+    REQUIRE(savePreferences(file, first).has_value());
+
+    std::ifstream held{file, std::ios::binary};
+    REQUIRE(held.is_open());
+    std::thread releaser{[&held]()
+                         {
+                             std::this_thread::sleep_for(std::chrono::milliseconds{100});
+                             held.close();
+                         }};
+    const auto saved = savePreferences(file, second);
+    releaser.join();
+
+    CHECK(saved.has_value());
+    const auto read = loadPreferences(file);
+    REQUIRE(presentIn(read) != nullptr);
+    CHECK(*presentIn(read) == second);
+    CHECK(temporariesIn(directory.path) == 0);
+}
+
+TEST_CASE("préférences : tenu plus longtemps que les essais, l'échec est dit et le fichier reste "
+          "entier")
+{
+    // Ce que chaque système garantit à un lecteur qui tient le fichier pendant tous les essais :
+    // sous Windows, le remplacement est refusé, l'échec le dit et l'ancien fichier reste, entier ;
+    // sous Linux, le remplacement passe, et le lecteur lit encore l'ancien fichier, entier, par ce
+    // qu'il a ouvert. Aucun fichier voisin ne traîne.
+    const TempDirectory directory{"held-long"};
+    const fs::path file = directory.path / PreferencesFileName;
+    Preferences first;
+    first.flySpeed = 3.0f;
+    Preferences second;
+    second.flySpeed = 12.0f;
+    REQUIRE(savePreferences(file, first).has_value());
+    std::ifstream held{file, std::ios::binary};
+    REQUIRE(held.is_open());
+
+    const auto saved = savePreferences(
+        file, second,
+        {.budget = std::chrono::milliseconds{30}, .pause = std::chrono::milliseconds{1}});
+
+    const std::string heldText{std::istreambuf_iterator<char>{held},
+                               std::istreambuf_iterator<char>{}};
+    held.close();
+    CHECK(heldText == formatPreferences(first));
+    const auto read = loadPreferences(file);
+    REQUIRE(presentIn(read) != nullptr);
+#ifdef _WIN32
+    REQUIRE_FALSE(saved.has_value());
+    CHECK(saved.error().message.find("renommage échoué, refusé pendant 30 ms") !=
+          std::string::npos);
+    CHECK(*presentIn(read) == first);
+#else
+    CHECK(saved.has_value());
+    CHECK(*presentIn(read) == second);
+#endif
     CHECK(temporariesIn(directory.path) == 0);
 }
 
@@ -403,6 +474,28 @@ TEST_CASE("retryWhileBusy : un refus passager est réessayé jusqu'au délai, me
         CHECK(calls == 3);
     }
 }
+
+#ifndef _WIN32
+// Sous Linux seulement. Sous Windows, ouvrir un dossier comme un fichier rend
+// `ERROR_ACCESS_DENIED`, que rien ne distingue d'un fichier tenu un instant : il attend le délai.
+TEST_CASE("préférences : un fichier qui ne se lit pas est dit illisible aussitôt, sans attendre")
+{
+    // Un dossier à la place du fichier : il « existe », s'ouvre, et sa lecture échoue (EISDIR),
+    // même en root, que la CI peut être (un droit de lecture retiré n'y ferait rien).
+    const TempDirectory directory{"unreadable"};
+    const fs::path file = directory.path / PreferencesFileName;
+    fs::create_directories(file);
+
+    const auto start = std::chrono::steady_clock::now();
+    const auto read = loadPreferences(file);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    REQUIRE_FALSE(read.has_value());
+    CHECK(read.error().message.find("illisible") != std::string::npos);
+    CHECK(read.error().message.find("refusé pendant") == std::string::npos);
+    CHECK(elapsed < std::chrono::milliseconds{100});
+}
+#endif
 
 TEST_CASE("préférences : un fichier d'une version plus récente se reconnaît, pas un fichier abîmé")
 {
@@ -587,12 +680,15 @@ TEST_CASE("préférences : un fichier dont l'état est illisible est une erreur,
 TEST_CASE("préférences : un enregistrement qui échoue ne laisse pas son fichier voisin")
 {
     const TempDirectory directory{"failed-save"};
-    // Un dossier non vide à la place du fichier : le renommage échoue partout, même en root.
+    // Un dossier non vide à la place du fichier : le renommage échoue partout, même en root. Sous
+    // Windows, `ERROR_ACCESS_DENIED`, qui ressemble à un fichier tenu (`isTransientlyBusy`) : il
+    // attendrait le délai entier, d'où un délai court.
     const fs::path file = directory.path / PreferencesFileName;
     fs::create_directories(file);
     std::ofstream{file / "occupe"} << "x";
 
-    const auto saved = savePreferences(file, {});
+    const auto saved = savePreferences(
+        file, {}, {.budget = std::chrono::milliseconds{20}, .pause = std::chrono::milliseconds{1}});
 
     REQUIRE_FALSE(saved.has_value());
     CHECK(saved.error().message.find("renommage échoué") != std::string::npos);
