@@ -461,6 +461,8 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
 - `QuitState`, `askToQuit`, `shouldOpenQuitModal`, `drawQuitModal` (`quit.hpp`) : la modale de fermeture.
 - `Mode`, `ModeState`, `ModeRequests`, `modeRequested`, `enterMode`, `stopPressed`, `inputRouteFor`,
   `simulationPausedIn`, `programFrameRunsIn`, `otherMode`, `modeNameOf`, `modeHintOf`, `modeTokenOf`, `drawModeBar`,
+  `drawModeBarOverlay` et son `ModeBarOverlay` (le mode demandé, le survol, les rectangles de la barre et de son bouton,
+  que la Vue garde : `View::modeBarRect`, `View::modeBarButton`),
   `playShortcutPressed`, `sceneHasFocus` (`mode.hpp`) : les modes, en fonctions libres. À la fin, `withEditor` écrit aussi `editor.mode mode=edit steps=0 -- mode : Édition ; pas : 0`,
   sous son nom stable (ADR-0036, décision 14), que la CI lit : l'éditeur lancé sans script est en Édition à zéro pas
   (`App::stepsPlayed`, tous les pas de la boucle).

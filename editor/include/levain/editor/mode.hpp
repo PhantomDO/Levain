@@ -145,15 +145,30 @@ void enterMode(app::App& app, ModeState& state, Mode mode);
 /// la touche (`modeHintOf`).
 void drawModeBar(Mode current, const app::ScreenRect& scene, const std::string& hint);
 
+/// Ce que la barre de mode en calque a fait à cette image (`drawModeBarOverlay`), et où ImGui l'a
+/// dessinée : des rectangles à l'écran, nuls tant que rien n'est dessiné.
+struct ModeBarOverlay
+{
+    std::optional<Mode> requested; ///< Le mode que son bouton demande, s'il a été cliqué.
+    /// La souris est sur la barre : la Vue en tire la route *UI* de l'image suivante, sans quoi un
+    /// clic sur le bouton atteindrait aussi le jeu (la barre est dans le rectangle de la scène).
+    bool hovered = false;
+    /// La barre entière, lue sur son enfant à la sortie (le dernier item dessiné n'est plus la
+    /// barre dès qu'on y ajoute) : la Vue place le menu « Afficher » à sa droite, et un test de
+    /// pixels de la scène la laisse de côté (`View::modeBarRect`).
+    app::ScreenRect bar{};
+    /// **Son bouton, là où ImGui l'a dessiné** : sa place et sa taille suivent l'échelle de l'écran
+    /// (`ScaleAllSizes` : une marge de 10 px à 125 %, pas 8) et la police. Un test le vise par ce
+    /// rectangle (`View::modeBarButton`), jamais par des décalages écrits à la main.
+    app::ScreenRect button{};
+};
+
 /// La même barre en calque de la fenêtre courante (la Vue), dans son coin haut gauche (`corner`) :
 /// un enfant de cette fenêtre, que le focus de la Vue ne passe jamais derrière. Toujours avec son
 /// bouton : la Vue n'existe que panneaux ouverts. Fond semi-opaque, pour que le rappel de la touche
-/// se lise sur un ciel clair. `hovered` dit si la souris est sur la barre : la Vue en tire la
-/// route *UI* de l'image suivante, sans quoi un clic sur le bouton atteindrait aussi le jeu (la
-/// barre est dans le rectangle de la scène). `rectMax` : son coin bas droit à l'écran, d'où la Vue
-/// place le menu « Afficher » (le dernier item dessiné n'est plus la barre dès qu'on y ajoute).
-[[nodiscard]] std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered,
-                                                     ImVec2& rectMax, const std::string& hint);
+/// se lise sur un ciel clair. `hint` : le rappel de la touche (`modeHintOf`).
+[[nodiscard]] ModeBarOverlay drawModeBarOverlay(Mode current, ImVec2 corner,
+                                                const std::string& hint);
 
 /// Alt+P est pressée, par la lettre que la table donne à « Jouer » (`imguiChordOf`, ADR-0036,
 /// décision 13) : le raccourci d'Unreal pour jouer. ImGui doit recevoir le clavier : sous la route

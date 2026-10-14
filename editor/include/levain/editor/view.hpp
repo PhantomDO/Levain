@@ -49,6 +49,10 @@ struct View
     /// compare des pixels de la scène les laisse de côté : les glyphes de l'atlas d'ImGui ne sont
     /// pas les mêmes pixels d'une exécution à l'autre (build/GOTCHA.md).
     app::ScreenRect modeBarRect{};
+    /// Le bouton de la barre de mode, là où ImGui l'a dessiné à la dernière image
+    /// (`ModeBarOverlay::button`), nul tant qu'il ne l'est pas : un test le vise par ce rectangle,
+    /// qui suit l'échelle de l'écran et la police.
+    app::ScreenRect modeBarButton{};
     /// L'image de la scène est la fenêtre sous la souris à la dernière image, **au sens d'ImGui** :
     /// ni cachée par une autre fenêtre ou un menu sous la souris, ni sa barre de mode survolée (un
     /// popup ouvert ailleurs ne la bloque pas). Ce n'est pas un rectangle contre la souris, qui
