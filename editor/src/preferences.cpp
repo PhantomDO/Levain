@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <format>
 #include <fstream>
@@ -321,6 +322,39 @@ core::Result<Preferences> parsePreferences(std::string_view text)
     // marque de fin manque (disque plein, copie coupée) et la disposition aurait été perdue.
     return std::unexpected(refused(
         lineNumber, std::format("fichier tronqué : {} attendue en fin de fichier", SectionLayout)));
+}
+
+bool isTransientlyBusy([[maybe_unused]] const std::error_code& error)
+{
+#ifdef _WIN32
+    // Les codes Win32 (winerror.h) d'un fichier tenu par un autre, tels que `std::filesystem` de
+    // Microsoft les rend (`_Make_ec` : `system_category`) et que la CRT les garde (`_doserrno`).
+    constexpr int AccessDenied = 5;      // ERROR_ACCESS_DENIED
+    constexpr int SharingViolation = 32; // ERROR_SHARING_VIOLATION
+    constexpr int LockViolation = 33;    // ERROR_LOCK_VIOLATION
+    const int code = error.value();
+    return error.category() == std::system_category() &&
+           (code == AccessDenied || code == SharingViolation || code == LockViolation);
+#else
+    // `rename` y remplace un fichier ouvert : rien n'est tenu « un instant ».
+    return false;
+#endif
+}
+
+std::error_code retryWhileBusy(BusyFileRetry retry, const std::function<std::error_code()>& attempt,
+                               const std::function<bool(const std::error_code&)>& busy,
+                               const std::function<void(std::chrono::milliseconds)>& sleep)
+{
+    // Le délai se mesure sur l'horloge, non en attentes comptées : une attente de 10 ms en dure
+    // 15,6 sous Windows, et plus sous charge.
+    const auto start = std::chrono::steady_clock::now();
+    std::error_code error = attempt();
+    while (error && busy(error) && std::chrono::steady_clock::now() - start < retry.budget)
+    {
+        sleep(retry.pause);
+        error = attempt();
+    }
+    return error;
 }
 
 core::Result<std::optional<Preferences>> loadPreferences(const std::filesystem::path& file)

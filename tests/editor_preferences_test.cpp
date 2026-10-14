@@ -4,6 +4,8 @@
 // Le glue d'ImGui est dans `tests/editor_preferences_gpu.cpp`.
 
 #include <atomic>
+#include <cerrno>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -301,6 +303,105 @@ TEST_CASE("préférences : deux éditeurs qui écrivent ensemble ne posent jamai
     CHECK(hybrids == 0);
     CHECK(failedSaves == 0);
     CHECK(temporariesIn(directory.path) == 0);
+}
+
+TEST_CASE("isTransientlyBusy : sous Windows l'accès refusé, le partage et le verrou du système, "
+          "rien d'autre, et jamais sous Linux")
+{
+    const std::error_code accessDenied{5, std::system_category()};      // ERROR_ACCESS_DENIED
+    const std::error_code sharingViolation{32, std::system_category()}; // ERROR_SHARING_VIOLATION
+    const std::error_code lockViolation{33, std::system_category()};    // ERROR_LOCK_VIOLATION
+#ifdef _WIN32
+    CHECK(isTransientlyBusy(accessDenied));
+    CHECK(isTransientlyBusy(sharingViolation));
+    CHECK(isTransientlyBusy(lockViolation));
+    CHECK_FALSE(isTransientlyBusy({2, std::system_category()}));   // ERROR_FILE_NOT_FOUND
+    CHECK_FALSE(isTransientlyBusy({3, std::system_category()}));   // ERROR_PATH_NOT_FOUND
+    CHECK_FALSE(isTransientlyBusy({112, std::system_category()})); // ERROR_DISK_FULL
+#else
+    // Les mêmes nombres sont d'autres erreurs ici (EIO, EPIPE, EDOM), et aucune ne passera.
+    CHECK_FALSE(isTransientlyBusy(accessDenied));
+    CHECK_FALSE(isTransientlyBusy(sharingViolation));
+    CHECK_FALSE(isTransientlyBusy(lockViolation));
+    CHECK_FALSE(isTransientlyBusy({EACCES, std::system_category()}));
+    CHECK_FALSE(isTransientlyBusy({EBUSY, std::system_category()}));
+#endif
+    // Partout : la catégorie générique n'est pas celle du système, et « aucune erreur » non plus.
+    CHECK_FALSE(isTransientlyBusy(std::make_error_code(std::errc::permission_denied)));
+    CHECK_FALSE(isTransientlyBusy(std::make_error_code(std::errc::device_or_resource_busy)));
+    CHECK_FALSE(isTransientlyBusy(std::error_code{}));
+}
+
+TEST_CASE("retryWhileBusy : une erreur qui ne passera pas rend aussitôt, sans attendre le délai")
+{
+    // Un droit refusé sous Linux, un disque plein : avant, chaque erreur était réessayée, et un
+    // échec qui dure attendait tout le délai avant d'être dit.
+    int calls = 0;
+    const auto start = std::chrono::steady_clock::now();
+    const std::error_code error = retryWhileBusy(
+        PreferencesFileRetry,
+        [&calls]()
+        {
+            ++calls;
+            return std::make_error_code(std::errc::permission_denied);
+        },
+        isTransientlyBusy,
+        [](std::chrono::milliseconds pause) { std::this_thread::sleep_for(pause); });
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    CHECK(error == std::errc::permission_denied);
+    CHECK(calls == 1);
+    CHECK(elapsed < std::chrono::milliseconds{100});
+}
+
+TEST_CASE("retryWhileBusy : un refus passager est réessayé jusqu'au délai, mesuré au temps et non "
+          "aux attentes comptées")
+{
+    // Une attente de 10 ms en dure 15,6 sous Windows (le pas de son horloge), plus sous charge :
+    // l'attente injectée en dure quatre fois plus que demandé. Compté en attentes (200 / 10), le
+    // délai ferait 21 essais et 800 ms ; mesuré au temps, 5 ou 6 essais et un peu plus de 200 ms.
+    const std::error_code held = std::make_error_code(std::errc::device_or_resource_busy);
+    const auto heldIsBusy = [&held](const std::error_code& error) { return error == held; };
+    const auto slowSleep = [](std::chrono::milliseconds pause)
+    { std::this_thread::sleep_for(pause * 4); };
+    const BusyFileRetry retry{.budget = std::chrono::milliseconds{200},
+                              .pause = std::chrono::milliseconds{10}};
+
+    SUBCASE("toujours tenu : l'erreur après le délai, pas avant")
+    {
+        int calls = 0;
+        const auto start = std::chrono::steady_clock::now();
+        const std::error_code error = retryWhileBusy(
+            retry,
+            [&]()
+            {
+                ++calls;
+                return held;
+            },
+            heldIsBusy, slowSleep);
+        const auto elapsed = std::chrono::steady_clock::now() - start;
+
+        CHECK(error == held);
+        CHECK(elapsed >= retry.budget);
+        CHECK(elapsed < std::chrono::milliseconds{500});
+        CHECK(calls >= 2);
+        CHECK(calls <= 7);
+    }
+    SUBCASE("lâché au troisième essai : réussi")
+    {
+        int calls = 0;
+        const std::error_code error = retryWhileBusy(
+            retry,
+            [&]()
+            {
+                ++calls;
+                return calls < 3 ? held : std::error_code{};
+            },
+            heldIsBusy, slowSleep);
+
+        CHECK_FALSE(error);
+        CHECK(calls == 3);
+    }
 }
 
 TEST_CASE("préférences : un fichier d'une version plus récente se reconnaît, pas un fichier abîmé")
