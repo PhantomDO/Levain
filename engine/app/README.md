@@ -6,7 +6,8 @@ Le socle des programmes du moteur ([ADR-0029](../../docs/adr/0029-module-app.md)
 et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-dessus de tous les autres modules
 (SPECS §7), et sous les programmes.
 
-**État en M6.4 (en cours)** : ce qui était dans le sandbox et que tout programme réécrirait :
+**État après M7.7** : ce qui était dans le sandbox et que tout programme réécrirait, et, depuis M7.7, ce que
+l'éditeur demande à la boucle (ADR-0036 ; les invariants 6, 8, 9, 12 à 16 et « Fermer, et `isScriptedRun` ») :
 
 - **le cycle de vie** (`runApp`) : la fenêtre, le device, le renderer, le monde, la boucle native ou celle du
   navigateur, le compte rendu des images (le titre, le calque de la page web, Tracy), les bilans et la capture ;
@@ -34,7 +35,7 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
   **Pas encore** : le style de `createUiContext` (le sandbox, *Rando*) ne suit pas un changement d'échelle, il reste à
   celle de l'ouverture ; et le changement reçu fenêtre masquée refait le style aussitôt (la boucle masquée lit les
   événements), sans test (le banc d'essai n'a pas d'événement « masquée », comme pour la croix) ;
-- **la scène dans une texture** (M7.7, morceau 7, ADR-0036 décision 7) : `requestScene(app, taille)`, que la Vue appellera dans
+- **la scène dans une texture** (M7.7, morceau 7, ADR-0036 décision 7) : `requestScene(app, taille)`, que la Vue appelle dans
   `ui`, rend l'identifiant de l'image à montrer par `ImGui::Image` ; la scène se rend alors dans cette texture, la
   swapchain est effacée et seule l'UI y est dessinée (`scene_view.hpp`). Voir l'invariant 15 ;
 - **le banc d'essai** (ADR-0036) : `--input-script f` (ou `AppSettings::inputScript`, pour un test) rejoue les

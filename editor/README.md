@@ -9,9 +9,10 @@ avec une définition qui enveloppe son démarrage par `withEditor`, et lié à `
 ainsi `levain_sandbox_editor` (dans `sandbox/`) pour ses démos et sa CI ; *Rando* construira `rando_editor` à côté
 de `rando`, dont la cible ne change pas.
 
-**État après M7.2 : l'éditeur, c'est le jeu avec deux panneaux de plus**, plus, depuis M7.7, des modes, la Vue et une
-caméra qui se pilote comme celle d'Unreal (invariant 20). Il a le branchement sur la boucle,
-l'option `--select`, le bilan que lit la CI, **la hiérarchie** : les entités placées (`Transform`), rangées par
+**État après M7.7 : l'éditeur n'est plus le jeu avec deux panneaux de plus** : il s'ouvre en Édition, la simulation
+arrêtée, la scène dans la Vue, une caméra qui se pilote comme celle d'Unreal (invariant 20), des menus, des
+raccourcis qu'on change, une console, sa disposition gardée (les paragraphes qui suivent). Il a le branchement sur la
+boucle, l'option `--select`, le bilan que lit la CI, **la hiérarchie** : les entités placées (`Transform`), rangées par
 `flecs::Parent` (ADR-0015), et un nœud *Singletons*, qui sélectionne seulement ; et **l'inspecteur** : les
 composants de l'entité choisie, un widget par champ, lus dans la description de flecs, aux valeurs de l'image. Une
 donnée d'auteur (`Authored`) s'édite, le reste est grisé ; trois dessinateurs lui donnent des angles, des noms
@@ -19,10 +20,8 @@ d'entité et d'asset. Il n'a pas encore :
 
 - **de menu contextuel riche** : le clic droit sur la Vue (sans vol) n'a qu'une entrée, « Cadrer la sélection » ; les
   autres (Entité, M7.3) viennent avec leur milestone ;
-- **d'écriture vue dans son image** : les panneaux passent après les pas et le choix de la caméra (app.cpp:875-891) ;
-  une valeur tapée dans l'inspecteur se voit à l'image suivante ;
-- **d'enregistrement** : rien n'écrit la scène, et fermer la fenêtre arrête la boucle sans rien demander
-  (app.cpp:106-107) ;
+- **d'enregistrement** : rien n'écrit la scène (M7.3) ; fermer la fenêtre demande « Quitter l'éditeur ? », sans rien
+  proposer d'enregistrer ;
 - **d'annulation** : `commitEdit` écrit la copie par `setComponentValue` sans garder l'ancienne valeur
   (editor/src/inspector.cpp:543-552) ;
 - ni raccourci qui fasse quoi que ce soit d'autre que jouer, arrêter ou régler le temps réel : Ctrl+S, Ctrl+Z et les
@@ -166,8 +165,9 @@ dessiné est lu sur l'étape de rendu (`GridState::framesDrawn`, `lastLines` : l
 la case ; le scénario des pixels laisse de côté les barres que le texte d'ImGui recouvre (`View::modeBarRect`,
 `ShowMenuLayout::bar`), dont les pixels changent d'une exécution à l'autre.
 
-La suite : l'[ADR-0036](../docs/adr/0036-mode-edition-vue-et-camera-de-l-editeur.md), proposé pour M7.7, que
-suivent M7.5, M7.3, M7.4 et M7.6. Les gestes quotidiens d'Unity et d'Unreal que l'éditeur doit rendre, chacun avec son
+La suite : M7.5 (Play/Stop), puis M7.3, M7.4, M7.6 et M7.8 ;
+l'[ADR-0036](../docs/adr/0036-mode-edition-vue-et-camera-de-l-editeur.md) dit ce que M7.7 a posé, et ce qu'il laisse
+(« Ce qui reste »). Les gestes quotidiens d'Unity et d'Unreal que l'éditeur doit rendre, chacun avec son
 milestone et le scénario qui le prouvera, sont dans [GESTES.md](GESTES.md) : chaque clôture y compte « N gestes sur
 M couverts par un test ».
 
