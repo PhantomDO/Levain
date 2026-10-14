@@ -143,6 +143,19 @@ TEST_CASE("une paire AZERTY donne Z à la place du W : l'affichage suit la dispo
     CHECK(displayOf(Action::GiveMouseBack, 0, azertyAt) == "Maj+F1");
     // Une position que la disposition ne nomme pas : son nom stable, jamais une chaîne vide.
     CHECK(displayNameOf(positionChord(200), [](std::uint16_t) { return 0U; }) == "pos:200");
+    // Les touches sans lettre que la saisie lie à une position ont un nom, pas « pos:82 ».
+    constexpr std::uint32_t Mask = 1U << 30U;
+    const auto nameAt = [](std::uint32_t keycode)
+    {
+        return displayNameOf(positionChord(82, {.ctrl = true}),
+                             [keycode](std::uint16_t) { return keycode; });
+    };
+    CHECK(nameAt(Mask | 82U) == "Ctrl+Haut");
+    CHECK(nameAt(Mask | 81U) == "Ctrl+Bas");
+    CHECK(nameAt(Mask | 80U) == "Ctrl+Gauche");
+    CHECK(nameAt(Mask | 79U) == "Ctrl+Droite");
+    CHECK(nameAt('\r') == "Ctrl+Entrée");
+    CHECK(nameAt('\t') == "Ctrl+Tab");
 }
 
 TEST_CASE("le nom stable d'un accord : la position par son scancode, la lettre par la sienne")

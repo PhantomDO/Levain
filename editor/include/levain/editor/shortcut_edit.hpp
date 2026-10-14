@@ -9,9 +9,11 @@
 // Settings > Shortcuts » de Godot.
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
+#include "levain/editor/preferences.hpp"
 #include "levain/editor/shortcuts.hpp"
 #include "levain/platform/input.hpp"
 
@@ -90,5 +92,60 @@ struct ConflictPair
 
 [[nodiscard]] std::vector<ConflictPair> conflictsIn(const ShortcutTable& table,
                                                     const platform::KeyAtPosition& keyAtPosition);
+
+/// Pourquoi une touche appuyée pendant la saisie n'est pas devenue l'accord.
+enum class CaptureOutcome : std::uint8_t
+{
+    Chord,        ///< Un accord : la candidate.
+    Cancel,       ///< Échap : la saisie s'arrête, Échap n'est jamais capturée.
+    ModifierOnly, ///< Ctrl ou Maj seuls : on attend la touche qui les suit.
+    Reserved,     ///< F1 seule : elle ouvre et ferme les panneaux (`togglesPanels`).
+    Unbindable,   ///< Ce que `chordFromToken` refuse (une touche sans nom stable, Alt-Gr tenu).
+};
+
+struct CaptureResult
+{
+    CaptureOutcome outcome = CaptureOutcome::Unbindable;
+    Chord chord;
+};
+
+/// **L'accord d'une touche appuyée pendant la saisie.** Il suit le genre par défaut de l'action
+/// (`kind`) : une position garde le scancode, une lettre le caractère selon la disposition. Il doit
+/// pouvoir s'écrire dans le fichier et s'y relire (`chordFromToken`), sinon il est refusé.
+[[nodiscard]] CaptureResult captureChord(const KeyPress& press, ChordKind kind);
+
+/// Le genre des accords d'une action : celui de son premier accord par défaut.
+[[nodiscard]] ChordKind defaultKindOf(Action action);
+
+/// Les lignes de `[raccourcis]` de la table : **seules les actions qui diffèrent des défauts**
+/// s'écrivent (l'absence d'une action, ce sont les défauts), chacune avec ses accords en noms
+/// stables (`tokenOf`). Une action sans accord s'écrit sans rien après le « = ».
+[[nodiscard]] std::vector<ShortcutLine> linesOf(const ShortcutTable& table);
+
+/// Ce que les lignes d'un fichier font aux défauts.
+struct AppliedLines
+{
+    ShortcutTable table;
+    /// Les lignes d'une action que ce code ne connaît pas (un fichier d'une autre branche) :
+    /// gardées telles quelles pour que l'enregistrement ne les perde pas.
+    std::vector<ShortcutLine> unknown;
+    /// Les lignes d'une action connue qu'on n'a pas pu appliquer (accords illisibles, accord d'un
+    /// autre genre que l'action) : les défauts restent, **mais la ligne est gardée telle quelle**
+    /// pour que l'enregistrement ne perde pas ce qu'on a écrit à la main (`withKeptLines`).
+    std::vector<ShortcutLine> refused;
+    /// Ce qui a été refusé, une phrase par ligne : un accord illisible, une action écrite deux
+    /// fois.
+    std::vector<std::string> problems;
+};
+
+/// Les défauts, puis les lignes par-dessus. Une ligne fautive est écartée **et dite** (règle n°7) :
+/// un accord illisible, ou d'un autre genre que celui de l'action (une lettre pour « Avancer »).
+[[nodiscard]] AppliedLines shortcutsFromLines(const std::vector<ShortcutLine>& lines);
+
+/// Les lignes à écrire (`linesOf`) suivies de celles qu'on a gardées (`unknown`, `refused`), sauf
+/// celles d'une action que l'utilisateur a changée depuis : la ligne neuve l'emporte, sans quoi le
+/// fichier relirait deux fois la même action.
+[[nodiscard]] std::vector<ShortcutLine> withKeptLines(std::vector<ShortcutLine> written,
+                                                      const std::vector<ShortcutLine>& kept);
 
 } // namespace levain::editor

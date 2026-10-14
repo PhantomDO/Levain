@@ -1,6 +1,7 @@
 #include "levain/editor/shortcut_edit.hpp"
 
 #include <algorithm>
+#include <array>
 #include <utility>
 
 #include "levain/ui/tr.hpp"
@@ -10,6 +11,12 @@ namespace levain::editor
 
 namespace
 {
+
+constexpr std::uint16_t ScanEscape = 41, ScanF1 = 58;
+// Left Ctrl à Right GUI : les modificateurs seuls (USB HID 0xE0-0xE7), que `chordFromToken` refuse
+// aussi ; les nommer ici dit pourquoi la saisie attend au lieu de se plaindre.
+constexpr std::uint16_t FirstModifierScancode = 224, LastModifierScancode = 231;
+constexpr std::uint32_t MaxAscii = 0x7F;
 
 std::uint32_t lowerOf(std::uint32_t letter)
 {
@@ -197,6 +204,137 @@ std::vector<ConflictPair> conflictsIn(const ShortcutTable& table,
         }
     }
     return pairs;
+}
+
+CaptureResult captureChord(const KeyPress& press, ChordKind kind)
+{
+    if (press.scancode == ScanEscape)
+    {
+        return {.outcome = CaptureOutcome::Cancel, .chord = {}};
+    }
+    if (press.scancode >= FirstModifierScancode && press.scancode <= LastModifierScancode)
+    {
+        return {.outcome = CaptureOutcome::ModifierOnly, .chord = {}};
+    }
+    if (press.scancode == ScanF1 && press.modifiers == platform::KeyModifiers{})
+    {
+        return {.outcome = CaptureOutcome::Reserved, .chord = {}};
+    }
+    // Un accord de lettre a un seul caractère ASCII : le keycode d'une touche sans lettre (une
+    // flèche, un F5) porte le bit 30, et ne s'écrirait pas dans le fichier.
+    if (kind == ChordKind::Letter && press.keycode >= MaxAscii)
+    {
+        return {.outcome = CaptureOutcome::Unbindable, .chord = {}};
+    }
+    const Chord chord =
+        kind == ChordKind::Position
+            ? positionChord(press.scancode, press.modifiers)
+            : letterChord(static_cast<char>(lowerOf(press.keycode)), press.modifiers);
+    // Ce que le fichier saurait relire : un seul contrôle, celui du chargement.
+    const bool storable = !press.modifiers.altGr && chordFromToken(tokenOf(chord)) == chord;
+    return {.outcome = storable ? CaptureOutcome::Chord : CaptureOutcome::Unbindable,
+            .chord = storable ? chord : Chord{}};
+}
+
+ChordKind defaultKindOf(Action action)
+{
+    const Binding* binding = bindingOf(defaultTable(), action);
+    return binding != nullptr ? binding->chords.front().kind : ChordKind::Position;
+}
+
+std::vector<ShortcutLine> linesOf(const ShortcutTable& table)
+{
+    std::vector<ShortcutLine> lines;
+    for (const Binding& binding : table.bindings)
+    {
+        const Binding* original = bindingOf(defaultTable(), binding.action);
+        if (original != nullptr && original->chords == binding.chords)
+        {
+            continue;
+        }
+        ShortcutLine line{.action = nameOf(binding.action), .chords = {}};
+        for (const Chord& chord : binding.chords)
+        {
+            if (isBound(chord))
+            {
+                line.chords.push_back(tokenOf(chord));
+            }
+        }
+        lines.push_back(std::move(line));
+    }
+    return lines;
+}
+
+AppliedLines shortcutsFromLines(const std::vector<ShortcutLine>& lines)
+{
+    AppliedLines applied{.table = defaultShortcuts(), .unknown = {}, .refused = {}, .problems = {}};
+    std::vector<Action> seen;
+    for (const ShortcutLine& line : lines)
+    {
+        Binding* binding = nullptr;
+        for (Binding& candidate : applied.table.bindings)
+        {
+            binding = line.action == nameOf(candidate.action) ? &candidate : binding;
+        }
+        if (binding == nullptr)
+        {
+            applied.unknown.push_back(line);
+            continue;
+        }
+        if (std::ranges::contains(seen, binding->action))
+        {
+            applied.problems.push_back(
+                ui::trf("{} : écrite deux fois, la seconde est ignorée", line.action));
+            continue;
+        }
+        seen.push_back(binding->action);
+        std::array<Chord, 2> chords{};
+        bool readable = line.chords.size() <= chords.size();
+        for (std::size_t i = 0; readable && i < line.chords.size(); ++i)
+        {
+            const auto chord = chordFromToken(line.chords.at(i));
+            readable = chord.has_value();
+            chords.at(i) = chord.value_or(Chord{});
+        }
+        if (!readable)
+        {
+            applied.problems.push_back(
+                ui::trf("{} : accords illisibles, les défauts restent", line.action));
+            applied.refused.push_back(line);
+            continue;
+        }
+        // Le genre est celui de l'action : une lettre sur une action de position ne part jamais
+        // (`positionHeld` ne lit que les positions), une position sur une action de lettre non
+        // plus, et le menu l'afficherait comme un raccourci qui marche.
+        const ChordKind kind = defaultKindOf(binding->action);
+        const bool rightKind = std::ranges::all_of(
+            chords, [kind](const Chord& chord) { return !isBound(chord) || chord.kind == kind; });
+        if (!rightKind)
+        {
+            applied.problems.push_back(ui::trf(
+                "{} : un accord n'est pas du genre de l'action ({}), les défauts restent",
+                line.action, kind == ChordKind::Position ? ui::tr("position") : ui::tr("lettre")));
+            applied.refused.push_back(line);
+            continue;
+        }
+        binding->chords = chords;
+    }
+    return applied;
+}
+
+std::vector<ShortcutLine> withKeptLines(std::vector<ShortcutLine> written,
+                                        const std::vector<ShortcutLine>& kept)
+{
+    for (const ShortcutLine& line : kept)
+    {
+        const bool taken = std::ranges::any_of(written, [&line](const ShortcutLine& other)
+                                               { return other.action == line.action; });
+        if (!taken)
+        {
+            written.push_back(line);
+        }
+    }
+    return written;
 }
 
 } // namespace levain::editor
