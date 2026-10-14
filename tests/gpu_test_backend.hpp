@@ -8,8 +8,8 @@
 #include "levain/gpu/device.hpp"
 
 // Le backend que nomme la ligne de commande des programmes GPU de tests (smoke_render,
-// light_clusters, environment, ui_gpu) : le même vocabulaire pour les quatre, au lieu de quatre
-// lectures de `--gpu`.
+// light_clusters, environment, ui_gpu, app_script) : le même vocabulaire pour les cinq, au lieu de
+// cinq lectures de `--gpu`.
 
 namespace levain::tests
 {

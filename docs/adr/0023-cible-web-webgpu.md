@@ -68,7 +68,7 @@ binding. Ils s'écrivent dans le **sous-ensemble portable** : pas de `ByteAddres
    la boucle `while` du sandbox devient cette fonction.
 4. **La relecture est asynchrone** (`mapAsync`) : `--capture` reste natif ; le web se vérifie par
    `prototypes/webgpu/snapshot.mjs` (WebDriver BiDi).
-5. **Le canvas n'est pas en sRGB** : une vue sRGB (`viewFormats`) garde les couleurs du natif.
+5. **Le canvas n'est pas en sRGB** : une vue sRGB (`viewFormats`) garde les couleurs du natif. *(Amendé le 2026-10-14, ADR-0036 décision 15 : plus de vue sRGB, le canvas est UNORM et le tonemapping encode.)*
 6. **Les fichiers** : les assets sont préchargés dans le système de fichiers d'Emscripten.
 
 Le sandbox web se publie sur **GitHub Pages**, pour que Donnovan le voie depuis sa tablette.

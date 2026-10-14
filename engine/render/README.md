@@ -29,7 +29,7 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/triangle.hpp`](include/levain/render/triangle.hpp) | `createTrianglePass`, `drawTriangle` |
 | [`include/levain/render/camera.hpp`](include/levain/render/camera.hpp) | `Camera`, `viewOf`, `projectionOf`, `viewProjectionOf` — profondeur de 0 à 1, comme Vulkan et Direct3D 12 ; `ndcOfPixel`, `rayThrough` : le rayon que vise la souris (M6.2) |
 | [`include/levain/render/mesh.hpp`](include/levain/render/mesh.hpp) | `Mesh`, `createMesh`, `createCube`, `createPlane` — buffers de sommets et d'indices ; `InstancePose`, `Instances`, `createInstances`, `updateInstances` — une position et une rotation par exemplaire, remplaçables à chaque frame |
-| [`include/levain/render/mesh_pass.hpp`](include/levain/render/mesh_pass.hpp) | `createMeshPass`, `reloadMeshPassShaders`, `ensureDepthTexture`, `createMaterialBindings`, `drawMesh` — la première passe avec constantes, profondeur et texture ; `FarthestDepth`, l'effacement de la profondeur, annoncé aussi à la création de chaque depth buffer (Direct3D 12) |
+| [`include/levain/render/mesh_pass.hpp`](include/levain/render/mesh_pass.hpp) | `createMeshPass`, `reloadMeshPassShaders`, `ensureDepthTexture`, `createMaterialBindings`, `drawMesh` — la première passe avec constantes, profondeur et texture ; `FarthestDepth`, l'effacement de la profondeur, annoncé aussi à la création de chaque depth buffer (Direct3D 12) ; `ensureDepthTexture` attend le GPU avant de remplacer une profondeur (NVRHI Vulkan ne retient pas une texture que sa command list ne fait qu'effacer : la Vue qui change de taille, ADR-0036 ; build/GOTCHA.md) |
 | [`include/levain/render/texture.hpp`](include/levain/render/texture.hpp) | `TextureLevel`, `createTexture` — une texture sRGB et tous ses niveaux de mip ; `SamplerSettings`, `createSampler`, `clampAnisotropy` |
 | [`include/levain/render/gpu_timer.hpp`](include/levain/render/gpu_timer.hpp) | `GpuTimer`, `beginGpuTimer`, `endGpuTimer` — temps GPU par timer queries |
 | [`include/levain/render/renderer.hpp`](include/levain/render/renderer.hpp) | `Renderer`, `createRenderer`, `renderFrame` — l'image et l'ordre de ses passes (ADR-0025) |
@@ -39,9 +39,9 @@ recrée à chaud quand son shader change (`reloadMeshPassShaders`, ADR-0014).
 | [`include/levain/render/frame.hpp`](include/levain/render/frame.hpp) | `FrameBindings`, `createFrameBindings`, `setFrameLighting` — les ressources de l'image (space0), partagées par les meshes et les passes des plugins (ADR-0025) |
 | [`include/levain/render/environment.hpp`](include/levain/render/environment.hpp) | `createEnvironment` — l'HDRI du ciel converti en cubemap, mips comprises, puis l'irradiance, le spéculaire préfiltré et la table de la BRDF de l'éclairage par l'image |
 | [`include/levain/render/sky.hpp`](include/levain/render/sky.hpp) | `createSkyPass`, `drawSky` — le ciel de l'environnement en fond, là où aucun mesh n'est dessiné |
-| [`include/levain/render/tonemap.hpp`](include/levain/render/tonemap.hpp) | `HdrFormat`, `createTonemapPass`, `ensureHdrTarget`, `tonemap` — l'image HDR et sa passe vers la swapchain |
+| [`include/levain/render/tonemap.hpp`](include/levain/render/tonemap.hpp) | `HdrFormat`, `createTonemapPass`, `ensureHdrTarget`, `tonemap`, `tonemapEncodesSrgb` — l'image HDR et sa passe vers la swapchain, qui encode en sRGB elle-même sur une cible UNORM |
 | [`include/levain/render/skinning.hpp`](include/levain/render/skinning.hpp) | `SkinnedVertex`, `createSkinningPass`, `createSkinnedMesh`, `skinMesh` — le skinning en compute |
-| [`include/levain/render/debug_lines.hpp`](include/levain/render/debug_lines.hpp) | `DebugLine`, `DebugLinesPass`, `createDebugLinesPass`, `drawDebugLines`, `MaxDebugLines` — des segments colorés dans le monde, un appel par command list |
+| [`include/levain/render/debug_lines.hpp`](include/levain/render/debug_lines.hpp) | `DebugLine`, `clipToFrustum`, `DebugBlend`, `DebugLinesPass`, `createDebugLinesPass`, `drawDebugLines`, `MaxDebugLines` — des segments colorés dans le monde, un appel par command list |
 | [`include/levain/render/light_clusters.hpp`](include/levain/render/light_clusters.hpp) | `PointLight`, `ClusterGrid`, `createLightClusterPass`, `assignLightsToClusters` — le tri des lumières ponctuelles en clusters (forward+) ; `lightsPerClusterOf`, sa référence CPU |
 
 ## Ce qu'il faut pour dessiner un triangle avec NVRHI
@@ -274,6 +274,11 @@ canal, M5.2) : la lumière y garde sa vraie valeur, au-delà de 1 (un reflet du 
 passe plein écran, `tonemap`, la ramène ensuite dans la swapchain : un seul triangle, deux fois plus grand que
 l'écran, et un shader qui lit l'image HDR pixel par pixel.
 
+**Elle encode aussi en sRGB** quand sa cible n'est pas sRGB (`tonemapEncodesSrgb`, décidé à la création d'après le format de
+la cible) : l'image de présentation est UNORM sur tous les backends, elle tient des octets sRGB, et l'interface qui vient
+ensuite se mélange en gamma (ADR-0036, décision 15, amendement du 2026-10-14). Toute passe qui écrirait de la lumière
+linéaire dans une image UNORM affichée devrait faire de même ; sur une cible sRGB, c'est la cible qui encode.
+
 Cette passe applique l'**exposition** (`--exposure` dans le sandbox : 2 éclaire d'un diaphragme), puis une
 **courbe de tonemapping** ramène la lumière, de 0 à l'infini, dans ce que l'écran affiche, de 0 à 1 :
 
@@ -328,7 +333,17 @@ Qui veut en dessiner remplit une liste à chaque image ; au-delà de `MaxDebugLi
 journal le dit une fois. **Un seul appel par command list** : les sommets sont réécrits à chaque appel, et
 WebGPU les écrit avant toute la command list ; plusieurs systèmes réunissent leurs lignes en une liste. Le
 test de fumée `lines` en dessine trois autour du cube, dont une en partie cachée ; il admet 4 pixels d'écart,
-car Vulkan ne fixe pas le tracé exact d'une ligne. Le `DrawDebugLine` d'Unreal, le `Debug.DrawLine` d'Unity ;
+car Vulkan ne fixe pas le tracé exact d'une ligne. **Chaque ligne est coupée au volume de vue** avant d'être
+envoyée (`clipToFrustum`, coupe paramétrique contre les six plans de `frustumOf`, couleur et opacité interpolées) :
+une ligne qui traverse le plan proche ou dont un bout est derrière l'œil (la grille de l'éditeur, les rayons du sandbox)
+n'est plus projetée à des milliers de pixels, et Vulkan et Direct3D 12, qui n'écrêtent pas la profondeur de la même
+façon (build/GOTCHA.md), dessinent la même chose ; `MaxDebugLines` compte les lignes qui restent, et `drawDebugLines`
+en rend le nombre (ce que la grille note dans `lastLines`, pour qu'un test voie une grille coupée tout entière). **Les
+maillages, eux, ne sont pas écrêtés au plan proche sous Direct3D 12** (la même cause, `depthClipEnable` de NVRHI) : l'écart
+est à traiter à part, issue #479, hors de ce morceau. **Deux mélanges** :
+`DebugBlend::Opaque` (par défaut, le sandbox) et `DebugBlend::Alpha`, où chaque sommet a son opacité
+(`DebugLine::alphaFrom`, `alphaTo`) et où la ligne se mêle à ce qui est dessous (la grille de l'éditeur s'estompe sans
+noircir). Le `DrawDebugLine` d'Unreal, le `Debug.DrawLine` d'Unity ;
 Godot n'en a pas d'intégré, on y dessine des lignes par un `ImmediateMesh`.
 
 ## Le frustum culling

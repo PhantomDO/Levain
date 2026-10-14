@@ -76,11 +76,11 @@ namespace
 /// dessiner pendant que l'écran en garde une et qu'une autre attend son tour.
 constexpr UINT BufferCount = 3;
 
-/// DXGI refuse une swapchain sRGB en *flip model* : elle est en BGRA8 linéaire, et NVRHI y dessine
-/// par une vue sRGB, que Direct3D 12 permet sur ces images-là. Le moteur voit le même format que
-/// sous Vulkan, B8G8R8A8_SRGB, et ses pipelines n'en savent rien (comme Donut).
+/// DXGI refuse une swapchain sRGB en *flip model* : elle est en BGRA8 UNORM, et le moteur y dessine
+/// tel quel, sans vue sRGB : c'est le tonemapping qui encode (ADR-0036, décision 15), comme sous
+/// Vulkan, où l'image est aussi UNORM. (Donut, lui, dessine par une vue sRGB.)
 constexpr DXGI_FORMAT StorageFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
-constexpr nvrhi::Format ViewFormat = nvrhi::Format::SBGRA8_UNORM;
+constexpr nvrhi::Format StorageNvrhiFormat = nvrhi::Format::BGRA8_UNORM;
 
 struct D3d12Swapchain;
 
@@ -98,7 +98,7 @@ struct D3d12Swapchain final : Swapchain
     D3d12Swapchain& operator=(D3d12Swapchain&&) = delete;
     ~D3d12Swapchain() override;
 
-    nvrhi::Format format() const override { return ViewFormat; }
+    nvrhi::Format format() const override { return StorageNvrhiFormat; }
 
     nvrhi::ITexture* acquire(platform::PixelSize size) override
     {
@@ -205,7 +205,7 @@ core::Result<void> wrapImages(D3d12Swapchain& swapchain)
         nvrhi::TextureDesc desc;
         desc.width = static_cast<std::uint32_t>(swapchain.size.width);
         desc.height = static_cast<std::uint32_t>(swapchain.size.height);
-        desc.format = ViewFormat;
+        desc.format = StorageNvrhiFormat;
         desc.debugName = "swapchain";
         desc.isRenderTarget = true;
         // État « Present » conservé, comme sous Vulkan : NVRHI y remet l'image à la fermeture de

@@ -8,6 +8,7 @@
 
 #include <nvrhi/nvrhi.h>
 
+#include "levain/core/color.hpp"
 #include "levain/core/error.hpp"
 #include "levain/gpu/webgpu.hpp"
 #include "levain/platform/window.hpp"
@@ -153,9 +154,50 @@ void requestGpuDevice(const platform::Window& window, const DeviceOptions& optio
                                                       const DeviceOptions& options);
 #endif
 
+/// Le niveau (linéaire, les trois canaux) dont le moteur efface l'image de présentation quand la
+/// scène n'y est pas : un gris sombre, loin du fond de la scène, pour que l'écran ne montre jamais
+/// une scène périmée sous l'UI (la Vue, ADR-0036). L'image hors écran est créée avec cette valeur
+/// d'effacement : Direct3D 12 avertit sinon à chaque effacement (D3D12_MESSAGE_ID 820). Les images
+/// d'une swapchain DXGI n'en ont pas et ne s'en plaignent pas (mesuré sur la 4070, fenêtre ouverte,
+/// Debug).
+inline constexpr float PresentClearLevel = 0.02f;
+
+/// La couleur d'effacement de l'image de présentation, dans les valeurs de son format : le niveau
+/// linéaire tel quel pour une cible sRGB, qui l'encode en écrivant ; encodé ici pour une cible
+/// UNORM, qui garde les octets (ADR-0036, décision 15). Le même gris à l'écran sur tous les
+/// backends.
+/// `targetIsSrgb` vient de `render::targetIsSrgb(format)`, la seule question de ce genre du moteur.
+[[nodiscard]] inline nvrhi::Color presentClearColor(bool targetIsSrgb)
+{
+    const float level = targetIsSrgb ? PresentClearLevel : core::srgbFromLinear(PresentClearLevel);
+    return nvrhi::Color{level, level, level, 1.0f};
+}
+
 /// Le format des images de la swapchain : les pipelines qui y dessinent en ont besoin à leur
 /// création.
 [[nodiscard]] nvrhi::Format swapchainFormat(const GpuDevice& gpu);
+
+/// Une taille de fenêtre, en pixels, où une swapchain peut exister ? Non dès qu'un côté est nul :
+/// minimisée, la fenêtre peut mesurer 0 × 0 (X11), et Vulkan refuse un `imageExtent` nul
+/// (VUID-VkSwapchainCreateInfoKHR-imageExtent-01689).
+[[nodiscard]] constexpr bool extentUsable(platform::PixelSize size)
+{
+    return size.width > 0 && size.height > 0;
+}
+
+/// Même question pour l'étendue que la surface Vulkan annonce (`currentExtent`). Windows y met 0 ×
+/// 0 pour une fenêtre minimisée alors que SDL, lui, garde la taille d'avant la réduction : la
+/// taille de la fenêtre ne suffit pas. `0xFFFFFFFF` dans les deux côtés veut dire « la surface suit
+/// la swapchain » (Wayland) : rien à refuser.
+[[nodiscard]] constexpr bool surfaceExtentUsable(std::uint32_t width, std::uint32_t height)
+{
+    constexpr std::uint32_t FollowsSwapchain = 0xFFFFFFFFu;
+    if (width == FollowsSwapchain && height == FollowsSwapchain)
+    {
+        return true;
+    }
+    return width > 0 && height > 0;
+}
 
 /// Commence une frame : l'image de la swapchain où dessiner, ou `nullptr` si cette frame est à
 /// sauter (fenêtre de taille nulle, swapchain en cours de reconstruction). La swapchain est

@@ -51,6 +51,7 @@ struct VulkanSwapchain final : Swapchain
 
     vkb::Device device; ///< Copie sans propriété : de quoi reconstruire la swapchain.
     vkb::DispatchTable vk;
+    vkb::InstanceDispatchTable instanceVk; ///< Pour interroger la surface (`currentExtent`).
     VkQueue queue = VK_NULL_HANDLE;
     nvrhi::vulkan::DeviceHandle nvrhi;
 
@@ -92,16 +93,18 @@ bool matchesExtent(VkExtent2D extent, platform::PixelSize size)
            static_cast<int>(extent.height) == size.height;
 }
 
-/// Les deux formats demandés à vk-bootstrap. NVRHI a sa propre énumération de formats ; il fournit
-/// la conversion vers Vulkan, pas l'inverse.
+/// Les deux formats demandés à vk-bootstrap, tous deux UNORM : l'image de présentation tient des
+/// octets sRGB que le tonemapping encode lui-même, sur tous les backends (ADR-0036, décision 15).
+/// Un format sRGB, que le pilote donnerait faute de mieux, est refusé (UNKNOWN). NVRHI a sa propre
+/// énumération de formats ; il fournit la conversion vers Vulkan, pas l'inverse.
 nvrhi::Format toNvrhiFormat(VkFormat format)
 {
     switch (format)
     {
-    case VK_FORMAT_B8G8R8A8_SRGB:
-        return nvrhi::Format::SBGRA8_UNORM;
     case VK_FORMAT_B8G8R8A8_UNORM:
         return nvrhi::Format::BGRA8_UNORM;
+    case VK_FORMAT_R8G8B8A8_UNORM:
+        return nvrhi::Format::RGBA8_UNORM;
     default:
         return nvrhi::Format::UNKNOWN;
     }
@@ -127,6 +130,23 @@ bool growSemaphores(std::vector<VkSemaphore>& semaphores, std::size_t count,
     return true;
 }
 
+/// La surface accepte-t-elle une swapchain maintenant ? Windows annonce une étendue de 0 × 0 à une
+/// fenêtre minimisée, tandis que SDL garde sa taille d'avant : comparer à la fenêtre ne voit rien
+/// (build/GOTCHA.md, 2026-10-14). Si l'interrogation échoue, on laisse faire : la création dira
+/// elle-même ce qui ne va pas.
+bool surfaceAllowsSwapchain(const VulkanSwapchain& swapchain)
+{
+    VkSurfaceCapabilitiesKHR capabilities; // rempli par l'appel, pas de `{}` : voir
+                                           // bugprone-invalid-enum-default-initialization
+    if (swapchain.instanceVk.getPhysicalDeviceSurfaceCapabilitiesKHR(
+            swapchain.device.physical_device.physical_device, swapchain.device.surface,
+            &capabilities) != VK_SUCCESS)
+    {
+        return true;
+    }
+    return surfaceExtentUsable(capabilities.currentExtent.width, capabilities.currentExtent.height);
+}
+
 core::Result<void> rebuildSwapchain(VulkanSwapchain& swapchain, platform::PixelSize size)
 {
     // Le GPU peut encore lire les anciennes images : on attend qu'il ait fini avant de les libérer.
@@ -142,8 +162,8 @@ core::Result<void> rebuildSwapchain(VulkanSwapchain& swapchain, platform::PixelS
             .set_old_swapchain(swapchain.swapchain)
             .set_desired_extent(static_cast<std::uint32_t>(size.width),
                                 static_cast<std::uint32_t>(size.height))
-            .set_desired_format({VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-            .add_fallback_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+            .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+            .add_fallback_format({VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
             .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
             // Les bits sont des énumérateurs C au type signé : convertis avant le `|`.
             .set_image_usage_flags(
@@ -168,7 +188,7 @@ core::Result<void> rebuildSwapchain(VulkanSwapchain& swapchain, platform::PixelS
     if (format == nvrhi::Format::UNKNOWN || !images)
     {
         return core::makeError(core::ErrorCode::Unsupported,
-                               "swapchain : format ou images inattendus");
+                               "swapchain : ni B8G8R8A8_UNORM ni R8G8B8A8_UNORM, ou aucune image");
     }
 
     for (VkImage image : images.value())
@@ -210,6 +230,15 @@ nvrhi::ITexture* acquireImage(VulkanSwapchain& swapchain, platform::PixelSize si
     // de comparer sa taille à celle de la fenêtre.
     if (swapchain.isOutOfDate || !matchesExtent(swapchain.swapchain.extent, size))
     {
+        // Minimisée sous Windows, la surface annonce 0 × 0 : pas de reconstruction (un
+        // `imageExtent` nul est une erreur de validation), la frame est sautée et la swapchain
+        // reste périmée jusqu'à la restauration. Interrogée ici seulement : c'est la reconstruction
+        // qu'elle protège, pas chaque frame. Pendant la minimisation, l'acquisition rend
+        // OUT_OF_DATE (plus bas), donc nullptr aussi.
+        if (!surfaceAllowsSwapchain(swapchain))
+        {
+            return nullptr;
+        }
         if (auto rebuilt = rebuildSwapchain(swapchain, size); !rebuilt)
         {
             core::log("gpu", core::LogLevel::Error, "{}", rebuilt.error().message);
@@ -280,6 +309,7 @@ createSwapchain(const VulkanContext& vulkan, nvrhi::vulkan::IDevice& nvrhi,
     auto swapchain = std::make_unique<VulkanSwapchain>();
     swapchain->device = vulkan.device;
     swapchain->vk = vulkan.device.make_table();
+    swapchain->instanceVk = vulkan.instance.make_table();
     swapchain->queue = vulkan.graphicsQueue;
     swapchain->nvrhi = &nvrhi;
 

@@ -37,10 +37,13 @@ bool isWindowEvent(const SDL_Event& event)
 /// passent par `appendInputEvent` (`input.cpp`).
 std::optional<WindowEvent> translateEvent(const SDL_Event& event, SDL_WindowID windowId)
 {
-    // Envoyé par SDL sur SIGINT (Ctrl+C), SIGTERM, et à la fermeture de la dernière fenêtre.
+    // Envoyé par SDL sur SIGINT (Ctrl+C) et SIGTERM, et par Cmd+Q sous macOS ou un compositeur
+    // Wayland perdu. Pas à la fermeture de la dernière fenêtre : `createWindow` coupe
+    // QUIT_ON_LAST_WINDOW_CLOSE, sans quoi la croix enverrait aussi QUIT et le programme ne
+    // pourrait jamais demander avant de quitter.
     if (event.type == SDL_EVENT_QUIT)
     {
-        return WindowEvent{.type = WindowEventType::CloseRequested};
+        return WindowEvent{.type = WindowEventType::QuitSignal};
     }
 
     // Le filtre sur l'identifiant garde le moteur des fenêtres qu'il n'a pas ouvertes. Celles
@@ -61,6 +64,12 @@ std::optional<WindowEvent> translateEvent(const SDL_Event& event, SDL_WindowID w
         return WindowEvent{
             .type = WindowEventType::Resized,
             .pixelSize = {.width = event.window.data1, .height = event.window.data2}};
+
+    // Le zoom du système, ou un autre écran : la valeur n'est pas dans l'événement SDL, elle se lit
+    // sur la fenêtre à cet instant.
+    case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+        return WindowEvent{.type = WindowEventType::ScaleChanged,
+                           .displayScale = displayScaleOf(SDL_GetWindowFromID(windowId))};
 
     // Wayland ne dit jamais à une application qu'elle a été minimisée : le compositeur la
     // « suspend », ce que SDL traduit en OCCLUDED, puis la réveille avec EXPOSED. X11 envoie
@@ -145,6 +154,14 @@ core::Result<Window> createWindow(const std::string& title, int width, int heigh
     // privée de SDL à la destruction de la première.
     LEVAIN_ASSERT(SDL_WasInit(SDL_INIT_VIDEO) == 0, "une seule fenêtre à la fois");
 
+    LEVAIN_ASSERT(isAscii(title), "titre non ASCII : perdu sous X11 (voir window.hpp)");
+
+    // La croix ne doit envoyer que CLOSE_REQUESTED, pour que le programme puisse répondre. SDL
+    // relit l'indice à chaque fermeture (SDL_windowevents.c), mais SDL_Quit les efface tous
+    // (SDL.c) : on le repose à chaque fenêtre. OVERRIDE, parce qu'une variable d'environnement
+    // SDL_QUIT_ON_LAST_WINDOW_CLOSE ferait échouer, en silence, un SDL_SetHint ordinaire
+    // (SDL_hints.c). `closeSendsQuit` le relit, pour qu'un test le garde.
+    SDL_SetHintWithPriority(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0", SDL_HINT_OVERRIDE);
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
         return core::makeError(core::ErrorCode::Unsupported,
@@ -191,6 +208,7 @@ Events waitEvents(const Window& window, double maxSeconds)
     SDL_Event event{};
     if (SDL_WaitEventTimeout(&event, timeoutMs))
     {
+        events.woken = true;
         appendEvent(events, event, windowId);
     }
     else if (timeoutMs < 0)
@@ -200,6 +218,43 @@ Events waitEvents(const Window& window, double maxSeconds)
 
     appendPendingEvents(events, windowId);
     return events;
+}
+
+bool closeSendsQuit()
+{
+    return SDL_GetHintBoolean(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, true);
+}
+
+void restoreAndRaise(Window& window)
+{
+    SDL_RestoreWindow(window.handle.get());
+    SDL_RaiseWindow(window.handle.get());
+}
+
+std::string windowTitle(const Window& window)
+{
+    return SDL_GetWindowTitle(window.handle.get());
+}
+
+std::string asciiTitleOf(std::string_view text)
+{
+    std::string ascii;
+    ascii.reserve(text.size());
+    for (const char c : text)
+    {
+        const auto byte = static_cast<unsigned char>(c);
+        if (byte < 0x80)
+        {
+            ascii.push_back(c);
+        }
+        else if (byte >= 0xC0)
+        {
+            // L'octet de tête d'un caractère UTF-8 (11xxxxxx) donne un « ? » ; ses octets de suite
+            // (10xxxxxx) n'en donnent pas, et une suite isolée est perdue.
+            ascii.push_back('?');
+        }
+    }
+    return ascii;
 }
 
 void setWindowTitle(Window& window, const std::string& title)

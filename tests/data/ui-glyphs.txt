@@ -1,0 +1,8 @@
+# Les caractères non ASCII que les littéraux de l'éditeur (editor/) ont le droit d'employer ; engine/app et engine/ui gardent
+# Latin-1, leur police étant celle d'ImGui.
+# Deux contrôles la lisent : tests/check_untranslated.py (i18n.untranslated) refuse un littéral qui sort de cette liste, et
+# tests/ui_fonts_test.cpp vérifie dans les VRAIES polices (interface et console) que chaque caractère a son glyphe. Ajouter
+# un caractère ici, c'est donc s'engager qu'il se dessine. Une ligne : des caractères séparés par des espaces ou des tabulations (pas de BOM).
+à â ä ç è é ê ë î ï ô ö œ ù û ü ÿ
+À Â Ç È É Ê Î Ô Œ Ù
+« » … — – ’ × ° →

@@ -273,7 +273,20 @@ float maxJointSpeedOf(const animation::Pose& before, const animation::Pose& afte
 
 SkinningState createSkinningState(nvrhi::IDevice& device)
 {
-    return {.timer = render::createGpuTimer(device), .cost = {}};
+    return {.timer = render::createGpuTimer(device), .cost = {}, .clock = {}};
+}
+
+double advanceAnimationClock(AnimationClock& clock, double sceneSeconds, bool simulationPaused)
+{
+    // La première image n'a pas d'image avant elle : sous `--time T`, démarrée à l'arrêt, elle
+    // compterait T secondes d'arrêt et figerait les squelettes à 0 au lieu de T. `max` : un temps
+    // de la scène qui reculerait ne retirerait rien au temps passé à l'arrêt.
+    if (simulationPaused && clock.lastSceneSeconds)
+    {
+        clock.pausedSeconds += std::max(0.0, sceneSeconds - *clock.lastSceneSeconds);
+    }
+    clock.lastSceneSeconds = sceneSeconds;
+    return sceneSeconds - clock.pausedSeconds;
 }
 
 void animateModels(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,

@@ -3,6 +3,8 @@
 // La caméra du rendu (ADR-0029, point 8) : une entité comme les autres, qui porte un objectif. Le
 // rendu regarde par l'unique entité qui en a un.
 
+#include <optional>
+
 #include <flecs.h>
 #include <glm/glm.hpp>
 
@@ -50,5 +52,14 @@ void describeAppComponents(flecs::world& world);
 /// chaque image coûterait à chaque image.
 [[nodiscard]] core::Result<render::Camera>
 renderCameraOf(const flecs::query<const CameraLens, const scene::WorldTransform>& cameras);
+
+/// La caméra de l'image (ADR-0036, décision 6) : celle que l'éditeur **impose**
+/// (`App::cameraOverride`, un état de l'éditeur qui n'est pas une entité) sans consulter les
+/// entités, donc zéro ou plusieurs `CameraLens` ne l'arrêtent pas ; sinon `renderCameraOf`, qui
+/// refuse toujours zéro ou plusieurs. Le plan lointain imposé passe par `farBeyondNear`, comme
+/// celui d'un objectif.
+[[nodiscard]] core::Result<render::Camera>
+renderCameraOr(const std::optional<render::Camera>& imposed,
+               const flecs::query<const CameraLens, const scene::WorldTransform>& cameras);
 
 } // namespace levain::app

@@ -3,6 +3,410 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Vulkan, Windows : la fenêtre réduite recrée la swapchain à 0 × 0 (2026-10-14)
+
+M7.7, `tools/wsl/resize-sandbox.sh … --gpu vulkan` : après « pilote : réduite », `vkCreateSwapchainKHR(): pCreateInfo->imageExtent
+(width = 0, height = 0) is invalid` (VUID-…-imageExtent-01689), puis l'assertion de Debug (code 3). Même chose sur un build de M1.4 :
+le bug n'est pas de M7.7. `--gpu d3d12` passe.
+
+- **Cause** : `beginFrame` ne refusait que la taille de la *fenêtre* nulle (X11). Windows minimise sans que SDL change la taille en pixels
+  (elle reste 1582 × 853), mais la surface Vulkan annonce `currentExtent` 0 × 0 ; `acquireNextImageKHR` rend OUT_OF_DATE, la frame
+  suivante reconstruit, et vk-bootstrap reprend `currentExtent`. Direct3D 12 compare à la taille de la fenêtre pour
+  `ResizeBuffers`, qui ne change pas : rien n'est reconstruit.
+- **Parade** : dans la branche de reconstruction d'`acquireImage` (swapchain_vk.cpp), juste avant `rebuildSwapchain`,
+  `vkGetPhysicalDeviceSurfaceCapabilitiesKHR` est interrogée ; tant que `surfaceExtentUsable(currentExtent)` est faux
+  la frame est sautée (`nullptr`) et la swapchain reste périmée, reconstruite à la restauration. Acquisition et
+  présentation ne sont pas toujours sautées : réduite, Windows répond OUT_OF_DATE à l'acquisition, ce qui rend
+  `nullptr` aussi. `0xFFFFFFFF` (Wayland) n'est pas refusé. Cas doctest
+  « une swapchain n'existe pas à une taille nulle » et son contre-test (`||` au lieu de `&&`, rouge). Le script vérifie
+  désormais aussi les messages de validation Vulkan, et SPECS §10 le lance dans les deux backends.
+
+## Sous un script, le vrai curseur revenait après le déplacement scripté (2026-10-14)
+
+M7.7, `gpu.editor-gestures.vulkan`, rouge sur le runner Windows en Debug seulement (vraie fenêtre, lavapipe de
+mesa-dist-win), vert en Release sur le même runner, sur la 4070 et sur WARP : « un clic droit glissé, menu ouvert, vole et
+capture », « le glissé tourne le regard », « le vol ferme le menu, qui ne se rouvre pas au relâchement ».
+
+- **Le scénario** (`playFlightWithMenuOpen`) : clic droit au centre de la Vue (images 8 et 9, le menu s'ouvre sous le
+  curseur, vers le bas et la droite), la souris scriptée 120 px à gauche (image 10), puis un clic droit glissé (12 à 15).
+  Les trois échecs sont exactement ce que donne un clic **dans le menu** : il reste ouvert, aucun vol. Injecté au
+  portable, un seul `11 mouse move 635 283` (le point de l'appui) les rend tous les trois, et seulement eux.
+- **Cause** : la fin du vol de l'image 8 replace **le vrai curseur** au point de l'appui (`App::mouseReturnTo`,
+  `SDL_WarpMouseInWindow` → `SetCursorPos`, arrondi à 635), qui est le coin du menu qui vient de s'ouvrir ; or le banc
+  ajoutait le script aux vrais événements (invariant 12 d'`app`). Le système rapporte ce vrai curseur quand il veut :
+  SDL jette les `WM_MOUSEMOVE` datés du même tic que le warp (`GetTickCount`, 15,6 ms, `SDL_windowsevents.c:2631`), et
+  sur un runner chargé (Debug, couches de validation, lavapipe) il est arrivé à l'image 11, après le déplacement scripté
+  de l'image 10 : ImGui revenait sur le menu, et le clic de l'image 12 y tombait. Vu au portable : le vrai curseur
+  laissé par un warp revient en événement réel à la fenêtre suivante (`MouseMoved` 515, 283 à son image 0, le point du
+  warp d'avant), et Donnovan, souris sur la fenêtre, en envoie aussi. L'arrivée à l'image 11 sur le runner est déduite,
+  pas observée (pas de CI sans pousser).
+- **Parade** : sous un script, le script est la seule source d'input ; des vrais événements, la boucle ne garde que
+  ceux de la fenêtre (`platform::withoutRealInput`, invariant 12). Contre-tests, sous linux-debug : l'appel retiré de
+  `app.cpp`, « sous un script, le vrai curseur déplacé n'atteint pas ImGui » rouge (`gpu.app-script.vulkan`, qui
+  vérifie d'abord, sans script, que le warp atteint bien ImGui sur la machine) ; la fonction qui garde tout, le cas
+  doctest rouge.
+
+## Un clic de test écrit en pixels manque le bouton à l'échelle 125 % (2026-10-14)
+
+M7.7, `gpu.editor-modes.vulkan`, rouge sur la fenêtre réelle du portable (4070, écran à 125 %), vert sur le runner et
+sur WARP (échelle 1) : « la barre : le bouton « Revenir à l'édition » arrête le jeu ».
+
+- **Symptôme** : le clic visait `(trou + 8 + 3 + 17, trou + 8 + 3 + 6)`, des décalages écrits pour l'échelle 1 (une
+  barre à 8 px du coin, une marge de 8 px). Relevé (un `fprintf` dans `drawModeBarContents`) : échelle 1,25, marge
+  10 px, le bouton de (147, 113) à (314, 138), le clic en (157, 112) : **un pixel au-dessus du bouton**, et le jeu
+  continuait (11 pas à la fin). **Cause** : `createUiContext` applique l'échelle de l'écran au style
+  (`ScaleAllSizes`), donc aux marges et à la hauteur des boutons ; la police (Inter 15 px, morceau 17a) change aussi la
+  taille. **Parade** : la Vue publie le rectangle du bouton là où ImGui l'a dessiné (`ModeBarOverlay::button`,
+  `View::modeBarButton`), comme la hiérarchie publie ses lignes, et le test clique le carré de son icône
+  (`buttonSpot`) ; un rectangle absent ou hors de l'image arrête le test en le disant (`buttonPublished`). Contre-test,
+  sous linux-debug : la Vue qui ne publie plus le rectangle, « le bouton : la Vue n'a pas publié le rectangle de son
+  bouton » rouge. Un test qui vise un widget le vise par ce qu'ImGui en a dessiné, jamais par des pixels écrits à la main.
+
+## Windows refuse de remplacer un fichier ouvert, et d'ouvrir un fichier qu'on remplace (2026-10-14)
+
+M7.7, préférences (`préférences : deux éditeurs qui écrivent ensemble ne posent jamais un texte hybride`), rouge sur
+le runner Windows en Debug et en Release (run 38545818223), jamais lancé sous Windows avant.
+
+- **Symptôme** : `hybrids == 0` et `failedSaves == 0` faux. Mesuré au portable (un cas de diagnostic qui classe chaque
+  lecture, 3 passages) : 98 à 131 enregistrements refusés sur 300 (« renommage échoué (Access is denied.) »), 3 à 8
+  ouvertures refusées (`_doserrno` 32, `ERROR_SHARING_VIOLATION`), **0 texte mêlé** sur 900 lectures : le test comptait
+  une ouverture refusée pour un hybride. **Cause** : `std::filesystem::rename` de Microsoft est
+  `MoveFileExW(MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING)` (`stl/src/filesystem.cpp`), qui ne remplace pas un
+  fichier ouvert sans `FILE_SHARE_DELETE` ; or `std::ifstream` ouvre par `_wfsopen(_SH_DENYNO)`, soit
+  `FILE_SHARE_READ | FILE_SHARE_WRITE` (ucrt `lowio/open.cpp`). Et le remplacement en cours tient la cible en
+  suppression : une ouverture à ce moment est refusée. `ReplaceFileW` n'y change rien (il ouvre aussi la cible en
+  suppression). **Parade** : réessayer (`BusyFileRetry`, `editor/preferences.hpp`), comme `ImportantFileWriter` de
+  Chromium (cinq essais de plus, 100 ms entre eux, crbug.com/1099284) ; un échec qui dure reste dit, le fichier entier.
+  Contre-tests, sous Windows : sans les essais du renommage, deux cas rouges 3 fois sur 3 ; sans ceux de la lecture,
+  `unreadable == 0` rouge 4 fois sur 5. **Ce refus-là seulement, et pendant un temps** : voir le point suivant.
+- **Un délai compté en attentes, trop court sous charge** (2026-10-14, après le rebasage sur le morceau 17b) : 50 essais
+  à 10 ms, et le même cas rouge 4 fois sur 31 au portable pendant les builds des autres arbres, toujours `failedSaves`,
+  « renommage échoué, 50 essais (Access is denied.) » au bout d'environ 780 ms. **Cause** : `sleep_for(10 ms)` dure
+  environ 15,6 ms sous Windows (le pas de son horloge), et un remplacement y est resté refusé jusqu'à 2 s (relevé avec
+  500 essais : 15 passages sur 15, les plus lents 1,3 à 1,95 s) ; un écrivain seul, sans autre lecteur dans le
+  processus, a vu des enregistrements de 0,8 à 2,7 s sous charge. Un détenteur extérieur, donc : l'antivirus (Defender,
+  protection en temps réel active) qui examine le fichier neuf est le suspect plausible, **non prouvé**. Et réessayer
+  toute erreur faisait attendre tout le délai à un vrai échec (un droit sous Linux). **Parade** : réessayer seulement
+  un refus passager (`isTransientlyBusy` : les codes Win32 5, 32 et 33 de `system_category`, que rendent
+  `std::filesystem` de Microsoft et `_doserrno` de la CRT ; jamais sous Linux, où `rename` remplace un fichier ouvert),
+  pendant 3 s mesurées sur `steady_clock` (`retryWhileBusy`) ; toute autre erreur est dite aussitôt. Windows rend aussi
+  5 pour un vrai droit refusé, qui n'est donc dit qu'au bout des 3 s. Mesuré ensuite : 40 passages isolés sur 40 pendant
+  un build `-j4` de linux-asan repris de zéro (charge 16 à 23). Contre-tests : `isTransientlyBusy` toujours faux, le cas
+  rouge 3 fois sur 3 sous Windows ; le délai compté en attentes, « mesuré au temps et non aux attentes comptées » rouge
+  (21 essais, 800 ms : la faute rend le cas des deux éditeurs plus indulgent, pas rouge) ; toute erreur réessayée,
+  « une erreur qui ne passera pas rend aussitôt » et « un fichier qui ne se lit pas est dit illisible aussitôt » rouges
+  (3 s).
+- **Le vrai hybride était ailleurs** : `core::readFile` mesure la taille par le chemin (`file_size`) puis ouvre ; un
+  remplacement entre les deux rend le début du nouveau fichier à la taille de l'ancien, et un début de fichier de
+  préférences qui atteint `[disposition]` se lit comme valide, la disposition coupée. Le test l'évitait en lisant
+  lui-même ; il lit maintenant par `loadPreferences`, qui lit le fichier ouvert jusqu'au bout. Contre-test, sous Linux :
+  `loadPreferences` par `core::readFile`, `hybrids == 0` rouge 2 fois sur 5. `core::readFile` garde ce défaut pour ses
+  autres appelants (rechargement à chaud des shaders et des textures).
+
+## Changer la signature d'une fonction de `gpu` : le build Linux ne compile pas `tests/web/` ni `swapchain_d3d12.cpp` (2026-10-14)
+
+- **Symptôme** : le build Linux et sa suite sont verts, le build web casse sur `tests/web/web_cube.cpp` (« too many
+  arguments »), pour un argument retiré de `createWebGpuCanvas` au morceau 17d.
+- **Cause** : le canvas WebGPU, `swapchain_d3d12.cpp` et `tests/web/` n'ont pas de cible sous `linux-debug` : seuls les
+  builds web et Windows les compilent, et `clang-tidy -p build/linux-debug` les refuse (en-têtes absents).
+- **Parade** : `grep -rn` le nom de la fonction dans tout le dépôt avant de changer sa signature, et compiler `web` et
+  `windows-debug` avant de rendre la main, pas seulement `linux-debug`.
+
+## Un `const std::function` global échoue à clang-tidy sous Windows seulement ; `ScaleAllSizes` arrondit (2026-10-13)
+
+M7.7, morceau 16 (revue du passage réel).
+
+- **Symptôme** : `bugprone-throwing-static-initialization` sur `const KeyAtPosition Qwerty = …` (un `std::function` global d'un test), seulement par la base `windows-debug` ; `bugprone-signed-bitwise` sur `Mask | 82` (un masque non signé et un littéral signé), sur les deux. **Parade** : `constexpr auto Qwerty = &fonction;` (le `std::function` se construit à l'appel), `82U`.
+- **Symptôme** : une fenêtre en pixels fixes (190 px par bouton, 820 × 640) coupe « Réinitialiser » et cache cinq lignes sur vingt à 125 %. **Cause** : l'échelle de l'écran grandit la police et le style, pas les nombres du code ; `ImGuiStyle::ScaleAllSizes` tronque ses marges à l'entier (3 × 1,25 devient 3), la hauteur d'une ligne grandit de moins de 25 %. **Parade** : tout en multiples de `ImGui::GetFontSize()` et du style lu, dans une fonction pure testable sans contexte (`shortcutWindowFit`).
+- **Symptôme** : un bouton sous le tableau saute d'une ligne quand un message paraît, et le clic scripté, pris sans message, le rate. **Parade** : la ligne du message est toujours réservée (`Dummy`).
+
+## Le portable bridé : tout dépasse son temps, sans faute du code (2026-10-13)
+
+M7.7, la nuit du 12 au 13/10, la vérification du morceau 12 sur le portable.
+
+- **Symptôme** : tous les tests GPU sous lavapipe dépassent les 120 s de ctest ; les ombres prennent 600 ms par image
+  au lieu de 7 ; sous Windows, la création du device Direct3D 12 ou Vulkan prend 38 s, et `powershell.exe` reste muet
+  60 s. Aucun échec réel : seulement des dépassements de temps.
+- **Cause** : l'hôte Windows bridait le processeur, et la bride suivait la charge (sur secteur ; la mesure ci-dessous
+  en 0,05 s au repos, en 1,0 s avec deux builds). Donnovan, le 13/10 à 8 h 15, tel qu'il l'a écrit : « Tu peux
+  reprendre ou tu en était j'ai du éteint le pc car il surchauffait vu que j'avais baissé les ventilateurs au max.
+  Maintenant qu'ils sont en turbo tu peux recommencer. » Les ventilateurs au minimum : la surchauffe, la bride
+  thermique, puis l'arrêt du PC.
+- **Parade** : mesurer avant de conclure d'un dépassement de temps. Un million de carrés en Python prennent environ
+  0,07 s d'ordinaire, 1,4 s bridé :
+
+  ```bash
+  python3 -I -c "import time;t=time.perf_counter();sum(i*i for i in range(10**6));print(f'{time.perf_counter()-t:.2f}')"
+  ```
+
+  Au-dessus de 0,25 s, un dépassement de temps n'est pas un échec : le dire à Donnovan (les ventilateurs) plutôt que
+  d'attendre la nuit entière, puis relancer seuls les tests qui ont dépassé. La nuit, un seul travail lourd à la fois.
+
+## Un test de pixels compare des pixels de texte d'ImGui : ils changent d'une exécution à l'autre (2026-10-14)
+
+M7.7, morceau 17c (la grille du sol, passage de relecture).
+
+- **Symptôme** : `gpu.editor-grid-pixels.vulkan` échoue une exécution sur deux en Release sur lavapipe (10 échecs sur 16, 16
+  sur 20 sans la parade ci-dessous), jamais en Debug, jamais sur WARP : deux pixels du rappel « Alt+P : jouer » (289,128) et
+  (289,129) diffèrent entre la capture « grille cochée » et « grille décochée », donc la « première rangée changée » tombe
+  dans la barre de mode, au-dessus de celle où la grille finit. **Cause** (déduite, non démontrée) : ImGui 1.92 construit
+  son atlas de glyphes à la volée ; les chiffres du temps d'image changent l'ordre d'empaquetage, donc le dessin d'un
+  glyphe qui n'a pas changé. **Parade** : un test qui lit l'image de la scène laisse de côté les rectangles où ImGui
+  écrit par-dessus (`View::modeBarRect`, `ShowMenuLayout::bar`, à 2 pixels près, notés dans `Seen`) et reste exact
+  partout ailleurs ; il vérifie que ces rectangles existent et restent petits (sinon le contrôle ne dirait rien, ou
+  cacherait la Vue).
+- **Symptôme** : `doctest -tc='*9,9 m*'` ne lance rien, sans erreur. **Cause** : `-tc` sépare ses filtres par des virgules :
+  « *9 » et « 9 m* ». **Parade** : pas de virgule dans un nom de cas qu'on filtre, ou le filtre en entier avec ses
+  guillemets autour d'un mot sans virgule.
+- **Symptôme** : une grille claire sur un sol clair devient invisible (215 contre 214), et ses axes saturés sortent rose et
+  bleu pâle. **Cause** : le tonemapper AgX écrase les hautes lumières et désature ce qui les dépasse. **Parade** : un gris
+  moyen entre le sol clair et le sol sombre, à forte opacité, et des couleurs d'axes saturées à luminance moyenne, réglés en
+  regardant des captures (`captures/piece17c/*-4.png`), non en calculant.
+
+## Le plan proche n'écrête pas pareil sous Vulkan et Direct3D 12 : écrêter soi-même les lignes (2026-10-13)
+
+M7.7, morceau 17c (la grille du sol, relecture).
+
+- **Symptôme** : une ligne de debug qui part loin devant la caméra et finit loin derrière elle (les lignes Z de la
+  grille, 100 pas de long, centrées sous la caméra) disparaît ou s'affiche en désordre (coins noirs, lignes manquantes) ;
+  le résultat n'est pas le même d'un backend à l'autre. **Cause** : NVRHI laisse `RasterState::depthClipEnable` à
+  `false` : sous Direct3D 12 cela donne `DepthClipEnable = FALSE` (`d3d12-graphics.cpp`), sous Vulkan le champ n'est
+  jamais lu (pas de `depthClampEnable`, `vulkan-graphics.cpp`) et la profondeur est écrêtée. Le bout derrière l'œil, projeté
+  à des dizaines de milliers de pixels hors écran, ou une profondeur hors de [0, 1], n'est donc pas traité de la même
+  façon. **Parade** : ne jamais compter sur l'écrêtage du matériel pour des primitives qui traversent le plan proche :
+  `render::clipToFrustum` coupe chaque ligne au volume de vue avant le dessin (`drawDebugLines`). Pour toute autre passe
+  qui dessine des primitives très longues, la même précaution, ou fixer `depthClipEnable` explicitement.
+
+## Un test de contraste qui mesure une couleur que l'écran ne montre pas, et un mélange que lavapipe ne fait pas comme le README (2026-10-14)
+
+M7.7, morceau 17b (revue : `tests/ui_style_test.cpp`, `editor/src/bars.cpp`).
+
+- **Symptôme** : le test « le texte grisé reste lisible » tenait 4,73 à 5,70 contre les fonds, et l'aperçu du morceau montrait
+  « Simuler » à 94 sur 28 et le raccourci « Ctrl+Z » à 98 sur 34 (environ 2,6 : illisible). **Cause** : le test mesurait
+  `TextDisabled` plein ; l'écran, lui, le montrait multiplié par `DisabledAlpha` (0,6) : `BeginDisabled` multiplie l'alpha de
+  tout ce qu'il enveloppe, la couleur du texte comprise, et `MenuItem` en ouvre un pour toute entrée grisée (imgui_widgets.cpp,
+  `MenuItemEx` : `if (!enabled) BeginDisabled()`, le raccourci dessiné en `TextDisabled`). **Parade** : mesurer ce qui est
+  dessiné : la couleur composée avec l'alpha (`blendInGamma` dans le test), contre chaque fond ; régler `DisabledAlpha` du style
+  (0,8) pour que le pire cas, le raccourci d'une entrée grisée, passe 4,5 ; pousser `ImGuiStyleVar_DisabledAlpha` à 1 là où le
+  code grise lui-même (`disabledButton`), et le prouver sur la liste de dessin (`tests/editor_menus_test.cpp` : les sommets du
+  bouton sont de la couleur du style, alpha 255 ; ceux d'une entrée de menu, à l'alpha du style).
+- **Symptôme** : une capture hors écran de l'éditeur sous lavapipe donne, pour du texte grisé à 60 %, le mélange **en espace
+  gamma** (140 à 60 % sur 34 : 98, et non les 113 d'un mélange linéaire), et un cadre `FrameBg` (41, 74, 122) à 54 % sur 15
+  sort à (29, 47, 73), le mélange gamma ; la 4070 en Direct3D 12 (`levain_sandbox.exe --gpu d3d12 --view physics --ui on
+  --capture`, hors écran) le rend (32, 56, 92), le mélange linéaire (92 en bleu). Le README d'`ui` décrivait un mélange en
+  linéaire sur une cible sRGB : vrai sur la 4070, pas sous lavapipe, que les aperçus d'un morceau et les tests Vulkan de la CI
+  utilisent. **Cause corrigée le 2026-10-14 (issue #493)** : pas `OffscreenFormat` (utilisé seulement sans swapchain, D3D12 hors
+  écran) ; le pilote `offscreen` de SDL a, sous Vulkan, une vraie swapchain sur `VK_EXT_headless_surface` (`device_vk.cpp`) dont
+  la cible lavapipe est `B8G8R8A8_UNORM` (repli de `swapchain_vk.cpp`) : la passe d'interface ne linéarise pas, mélange en
+  gamma, et la scène sort environ 3 fois trop sombre (ciel (38, 42, 124) contre (109, 114, 186) sur la 4070). **Parade** : ne pas conclure d'une capture lavapipe l'aspect d'un alpha sur un vrai GPU (un texte grisé y sort plus
+  sombre) ; un test de contraste qui compose en gamma est le pire des deux cas (le linéaire n'éclaircit que plus un
+  avant-plan plus clair que son fond), donc sûr pour les deux.
+
+## Un grisé qui passe le test de lisibilité mais ne se voit pas, un calque qui s'éclaircit en linéaire (2026-10-14)
+
+M7.7, morceau 17b (revue d'exécution sur la 4070, `tests/ui_style_test.cpp`, `editor/src/menus.cpp`, `inspector.cpp`).
+
+- **Symptôme** : « Annuler » grisé mesure 196 contre 215 pour « Préférences » sur la 4070 : l'entrée ne semble pas grisée, alors
+  que le test des contrastes passe. **Cause** : le test ne vérifiait que la lisibilité (4,5), jamais que le grisé se distingue du
+  texte ; `MenuItem` grisé multiplie le libellé par `DisabledAlpha`, et le mélange linéaire de la 4070 le garde clair (rapport de
+  1,22). **Parade** : dessiner les entrées de menu de l'éditeur comme les boutons grisés (`TextDisabled` plein, `DisabledAlpha`
+  à 1), et tester les deux bornes, lisible (>= 4,5) **et** « se voit grisé » (>= 1,8 contre le texte), sous les deux mélanges.
+- **Symptôme** : le rappel de touche de la barre de mode sort à 3,85 sur un nuage à la 4070, alors que « le gamma est le pire
+  cas ». **Cause** : c'est vrai d'un texte clair sur fond sombre ; pour un fond sombre translucide sur une scène claire, le
+  mélange **linéaire** est le pire (le fond monte à 131 sur du blanc à un alpha de 0,78). **Parade** : alpha 0,93 (78) et rappel
+  en `Text` (5,7) ; le test pose le calque sur du blanc, mélangé en linéaire comme en gamma.
+- **Symptôme** : l'inspecteur coupe « 0.98 » en « 0.0( » à 125 % et ne se lit plus à 150 %. **Cause** : une colonne de libellé
+  fixe (10 em) et un rembourrage plus grand ; le nombre de cellules d'une matrice par ligne ne tenait pas compte de la largeur.
+  **Parade** : `labelColumnFor` (le champ garde la place de trois nombres avant le libellé), `numbersPerRow` ; le test lit la
+  largeur de cadre que `drawInspector` relève (`Inspector::narrowestFrame`) à 1, 1,25 et 1,5.
+
+## Un style d'ImGui mis à l'échelle deux fois, et des repères de couleur qu'un test ne voit pas grisés (2026-10-13)
+
+M7.7, morceau 17b (le style de l'éditeur, les repères X, Y, Z de l'inspecteur).
+
+- **Symptôme** : `applyEditorStyle` qui part du style de `createUiContext` (déjà passé par `ScaleAllSizes`) ne rate rien dans un
+  test qui compare les champs qu'elle règle : la faute « partir du style donné au lieu d'un style neuf » passait verte
+  (contre-test C2). Les tailles qu'elle ne pose pas (`ScrollbarPadding`, `DockingSeparatorSize`, `WindowBorderHoverPadding`) sont
+  pourtant multipliées deux fois, et tronquées deux fois. **Cause** : `ScaleAllSizes` tronque à l'entier à chaque appel
+  (`ImTrunc`, imgui.cpp, « This operation is lossy » : à 0,75 un bord d'un pixel tombe à 0) ; une taille posée en dur est
+  juste quoi qu'il arrive, une taille d'ImGui laissée telle quelle ne l'est pas. **Parade** : le test contrôle un style déjà à l'échelle, sur des champs que la fonction ne règle pas elle-même
+  (`tests/ui_style_test.cpp`).
+- **Symptôme** : un test qui cherche les repères d'axe (`ImGuiSliderFlags_ColorMarkers`) par leur couleur exacte, alpha compris,
+  ne verrait pas un repère dessiné dans un composant en lecture seule : `BeginDisabled` multiplie l'alpha (`DisabledAlpha`) et le
+  sommet n'a plus la couleur cherchée ; « aucun repère » serait vrai pour la mauvaise raison. **Parade** : comparer la teinte, alpha
+  retiré (`sameRgb`, `tests/editor_test.cpp`), et chercher dans la liste de dessin de la fenêtre (`ImGui::GetWindowDrawList()`, avant
+  `End`) ; les couleurs sont celles d'ImGui (`GDefaultRgbaColorMarkers`, imgui_widgets.cpp), écrites en dur : une mise à jour d'ImGui qui
+  les change fait échouer le test, voulu. Un contre-test dont la faute ne compile pas ne prouve rien : voir l'entrée du
+  2026-10-10 (« une faute qui doit compiler »).
+
+## Deux fenêtres dans un nœud d'ancrage : l'ordre des `Begin` choisit l'onglet visible (2026-10-11)
+
+M7.7, morceau 14 (la console, `gpu.editor-console.*`).
+
+- **Symptôme** : la console, dessinée après la hiérarchie et l'inspecteur dans le nœud gauche (`dock.left`), est l'onglet
+  visible dès la deuxième image et cache ce qu'on y voyait ; dessinée avant la hiérarchie, c'est l'onglet de la fenêtre
+  « Image » (celle de l'`app`) qui reste visible. Une relecture avait annoncé que la console cachait la hiérarchie : la
+  hiérarchie est aussi derrière l'onglet « Image » sans la console (mesuré en retirant l'appel, `DockTabIsVisible`
+  faux à toutes les images). **Cause** : `DockNodeUpdateTabBar` (imgui.cpp, 1.92.8) sélectionne le dernier onglet
+  ajouté, dans l'ordre des `Begin`. **Parade** : tester la visibilité réelle (`ImGuiWindow::DockTabIsVisible`, relevée
+  dans `EditorOptions::afterUi`) plutôt que de la déduire du code, et dessiner la fenêtre qui ne doit pas prendre
+  l'onglet avant les autres ; la disposition du morceau 15 règle le fond.
+- **Un récepteur de journal qui journalise** : deux récepteurs qui journalisent, appelés par deux fils, s'attendaient
+  l'un l'autre (chacun tient son verrou en attendant celui de l'autre ; reproduit par la relecture, 10 s sans fin) alors
+  que la doc de `LogSink` disait qu'un récepteur pouvait journaliser. **Parade** : un message écrit depuis un récepteur
+  ne va qu'à la console (`SinkCallScope`, log.cpp) ; test `deux récepteurs qui journalisent…`, qui quitte en erreur au
+  bout de 30 s plutôt que de figer la suite.
+## Un refus posé dans `withEditor` vient après le device : le test passe sans avoir rien refusé (2026-10-11)
+
+M7.7, morceau 7 (`--gpu webgpu`, `editor.refuses-webgpu`).
+
+- **Symptôme** : un test qui lançait `runApp(withEditor(...))` sous WebGPU et attendait le code 1 (« le démarrage n'est jamais
+  appelé ») restait vert sans que `requireEditorBackend` ait servi, et ouvrait un device Dawn sur la vraie carte dans un test
+  réservé à WARP (`gpu.editor-modes.d3d12-warp`, journal « [gpu] WebGPU : NVIDIA GeForce RTX 4070 Laptop GPU »). **Cause** :
+  `withEditor` n'enveloppe que la fonction de démarrage, que `runApp` n'appelle qu'après la fenêtre, le device, le scan des assets
+  et le ciel ; et sur une machine où Dawn ne crée pas de device, `runApp` rend 1 de toute façon, avant le démarrage : le code 1
+  ne prouve pas le refus (règle n°7). **Parade** : le refus est dans le `main` de l'exécutable éditeur, avant `runApp`, et le
+  test lance l'exécutable et lit son message (`PASS_REGULAR_EXPRESSION` sur « l'éditeur n'a pas de WebGPU »,
+  `FAIL_REGULAR_EXPRESSION` sur « device créé »). Contre-tests : l'appel retiré du `main`, ou `requireEditorBackend` qui ne
+  refuse plus : `editor.refuses-webgpu` rouge.
+
+## Un contre-test restauré par `cp -p` laisse ninja sur l'objet fauté ; une image jamais écrite ne se présente pas (2026-10-11)
+
+M7.7, morceau 7 (`gpu.scene-view.*`, `engine/app/src/scene_view.cpp`).
+
+- **Symptôme** : une série de contre-tests, chacun « faute injectée depuis une copie, build, test rouge, copie remise »,
+  a rendu des rouges qui ne correspondaient pas à la faute du moment (« glisser : au plus 2 textures nées » sous une
+  faute qui ne touchait pas à la recréation), alors que la restauration annonçait « build exit=0 ». **Cause** : la copie
+  gardée à côté avait son ancienne date (`shutil.copy2`, `cp -p`) ; remise en place, elle est plus vieille que l'objet
+  compilé depuis la version fautée, et ninja la croit à jour sans recompiler (rien à faire, code 0). **Parade** : après
+  la restauration, `touch` le fichier (`os.utime`) avant de rebâtir ; vérifier le premier test vert après la série. Le
+  script de la session (`mutate.py`, dans le scratchpad) le fait depuis.
+- **Symptôme** : une scène dans une texture sans l'effacement de la swapchain arrête `levain_scene_view` sur « vkQueuePresentKHR():
+  images passed to present must be in layout VK_IMAGE_LAYOUT_PRESENT_SRC_KHR … but VkImage … is in
+  VK_IMAGE_LAYOUT_UNDEFINED » (SIGTRAP, code 133). **Cause** : quand rien ne dessine sur la swapchain (la Vue fermée,
+  une UI sans commande), l'image acquise n'est jamais écrite, donc jamais transitionnée. **Parade** : la swapchain est
+  effacée dès que la scène n'y est pas (`clearSwapchain`), ce que le contre-test « sans l'effacement » montre rouge par
+  la validation de Vulkan elle-même (règle n°4), avant même la lecture des pixels.
+- **Symptôme** : `ctest --test-dir build/windows-debug -R '^gpu[.]scene-view[.]vulkan$'` (fenêtre réelle sur la 4070,
+  swapchain, images en vol) sort en 3 sur « vkDestroyImage(): can't be called on VkImage [depth buffer] that is currently
+  in use by VkCommandBuffer » (2 fois sur 2), vert sous lavapipe hors écran et sur WARP. **Cause** : la même que celle de
+  `runApp` à la fermeture (entrée du 2026-10-10, morceau 2), mais à l'exécution : la Vue qui change de taille remplace
+  la profondeur du renderer (`ensureDepthTexture`), et un programme qui ne dessine aucun mesh ne la lie à aucun
+  framebuffer : NVRHI Vulkan ne retient pas une texture que sa command list ne fait qu'effacer. **Parade** :
+  `ensureDepthTexture` attend le GPU (`waitForIdle`) avant de remplacer une profondeur existante : un arrêt par
+  changement de taille, que la Vue ne fait qu'une fois la taille stable. Vert 4 fois sur 4 ensuite (11 à 12 s, fenêtres
+  ouvertes). Un contre-test headless est impossible : le chemin hors écran attend le GPU à chaque image ; le test qui garde
+  cette attente est **`gpu.scene-view.vulkan` lancé dans une vraie fenêtre**, par son nom exact, depuis la distro du portable
+  (`ctest --test-dir build/windows-debug -R '^gpu[.]scene-view[.]vulkan$'`), jamais par la suite entière.
+- **Direct3D 12, Debug** : effacer l'image hors écran (`gpu::PresentClearLevel`) sans lui avoir donné de valeur
+  d'effacement à la création fait avertir la couche de debug à chaque effacement (message 820, 6 passages de
+  `levain_scene_view.exe d3d12` hors écran sur la 4070 : une trentaine d'avertissements ; 0 une fois la valeur donnée à la
+  création, `offscreenFrame`). Les images d'une swapchain DXGI n'avertissent pas (fenêtre ouverte, 0 avertissement).
+
+## Un test de « ne prend pas le focus » qui lit une touche ne voit rien : lire la route (2026-10-10)
+
+M7.7, morceau 5 (`gpu.editor-modes.*`, le bandeau de la barre de mode, panneaux fermés).
+
+- **Symptôme** : le contre-test « le bandeau perd `NoInputs` » (il prend alors le focus au clic) laissait
+  `gpu.editor-modes.vulkan` vert, alors que le test cliquait sur lui puis tenait W en jeu. **Cause** : sous la route
+  *UI*, la touche W va quand même au jeu tant qu'aucun champ d'ImGui n'est actif (`WantCaptureKeyboard` faux) : la perte
+  de la route *jeu* ne change rien à ce qu'une touche fait. **Parade** : le test lit la route (`App::inputRoute`, relevée
+  dans `ui`), pas l'effet d'une touche ; rouge sans `NoInputs` aux images 8 et 9 (la route repasse à *UI* deux images
+  après le clic), vert avec.
+- **Symptôme** : le test d'un rectangle « fenêtre entière » restait vert quand la boucle ne le posait plus. **Cause** : le
+  test épinglait `sceneRect` lui-même. **Parade** : un passage sans épinglage, panneaux fermés, qui clique là où une
+  disposition aurait des panneaux (`playWholeWindow`) ; rouge quand `endUiFrame` ne remet plus le rectangle (14 échecs).
+- **Symptôme** : `verify.sh` rouge à `clang-tidy` seul (le build et les tests verts) sur `const Events& uiEventsOf(route,
+  const Events& events, Events& scratch)` : `bugprone-return-const-ref-from-parameter`. **Cause** : rendre sa référence
+  constante en paramètre peut pendre si l'argument est un temporaire. **Parade** : un `std::optional<Events>` (`nullopt` :
+  « les événements tels quels »), et l'appelant choisit `filtered ? *filtered : events` (`uiEventsOf`, app.cpp) ; le test
+  lit l'optionnel par un accès explicite, `bugprone-unchecked-optional-access` ne suivant pas `REQUIRE`.
+- **Une fenêtre ImGui retrouvée par son nom** dans un test : `ImGui::FindWindowByName("###Mode")` (imgui_internal.h) ;
+  le `###` suffit, le libellé traduit devant lui ne compte pas dans l'identifiant. `WasActive` dit si elle a été dessinée
+  à l'image d'avant.
+
+## Un accord ImGui en `|`, `clang-format -i` sur un CMakeLists, et une faute qui doit compiler (2026-10-10)
+
+M7.7, morceau 5 (`editor/src/mode.cpp`, `tests/CMakeLists.txt`).
+
+- **Symptôme** : `ImGui::Shortcut(ImGuiMod_Alt | ImGuiKey_P, …)` et `ImGuiWindowFlags_A | ImGuiWindowFlags_B` échouent à
+  `bugprone-signed-bitwise` (clang-tidy 23), seulement à l'analyse, jamais au build. **Cause** : les enums d'ImGui sont
+  signés (`ImGuiKey` est un `int`). **Parade** : `withFlags` (hierarchy.cpp, context.cpp, mode.cpp) pour les drapeaux, un
+  `static_cast<unsigned>` de chaque côté pour un accord (`playShortcutPressed`).
+- **Symptôme** : `clang-format -i tests/CMakeLists.txt` (passé avec une liste de fichiers `*.cpp` et `CMakeLists.txt`)
+  réécrit le CMake en charabia : « Parse error. Expected a command name » au configure suivant. **Parade** : ne formater
+  que les `.cpp` et `.hpp` ; le fichier abîmé se refait depuis l'index (`git checkout -- fichier`, s'il n'avait pas
+  d'autre changement non commité) puis on rejoue la modification.
+- **Contre-test** : la faute doit compiler. Un `return true;` à la place d'un `return mode != Mode::Edit;` laisse `mode`
+  inutilisé (`-Wunused-parameter`, `-Werror`) : `static_cast<void>(mode); return true;`. Une fonction que la faute ne
+  rappelle plus (`logMode`) est `-Wunused-function` : `static_cast<void>(&logMode);`.
+
+## Un contre-test restauré par `git checkout -- fichier` revient à l'index, pas au dernier commit (2026-10-10)
+
+M7.7, morceau 6.
+
+- **Symptôme** : un contre-test qui restaure le fichier muté par `git checkout -- fichier` a emporté les changements non
+  validés du même fichier. **Cause** : cette commande remet l'index, pas le dernier commit ; après un `git add -A`, un
+  `git stash` et un `git stash apply`, l'index valait HEAD. **Parade** : valider avant de muter (la restauration revient
+  alors au commit) ; ici, le fichier a été retrouvé dans le stash (2026-10-10).
+
+## Une assertion de Debug ne se teste pas par `PASS_REGULAR_EXPRESSION` : ctest classe le signal avant le motif (2026-10-10)
+
+M7.7, morceau 6 (`gpu.ui-released-id.*` et `gpu.ui-released-twice.*`, `tests/ui_gpu.cpp`).
+
+- **Symptôme** : un test dont l'assertion arrête le programme (`LEVAIN_ASSERT` : `__builtin_debugtrap`, SIGTRAP) et dont
+  la sortie contient bien le message attendu reste rouge sous ctest (« SIGTRAP***Exception »), avec un
+  `PASS_REGULAR_EXPRESSION` exact. **Cause** : ctest ne consulte les motifs que d'un processus sorti (`Exited`) ; un
+  signal est une « Exception », jugée avant eux. Les refus à la compilation (`scene.reflection-refuses-compile.*`) y
+  échappent parce que le compilateur sort en 1. **Parade** : le test est un parent qui relance le programme pour un enfant
+  (`runProcess`, `levain_ui_gpu released-id` → `released-id-child`, de même `released-twice`) et juge son code de sortie et sa
+  sortie (`checkChild`) : en Debug, code non nul et message de l'assertion ; en Release, code 0 et la ligne d'erreur du
+  journal, autant de fois que de fautes (l'assertion est compilée hors du binaire, et le test vérifie le repli, pas le
+  silence). Contre-tests (2026-10-10) : sans l'assertion, le parent sort en 1 (« code 0 », message absent) en Debug ; sans
+  la ligne d'erreur, en 1 en Release ; sans le comptage, l'enfant sort en 1. Pour `released-twice` : sans l'assertion de
+  `releaseUiTexture` (Debug), sans sa ligne d'erreur (Release) et avec la ligne pour la seule texture connue (Release, un
+  compte de 1 pour 2) : rouge dans les trois cas.
+
+## Un drapeau que la boucle remet à faux : le test qui l'assigne ne voit pas la boucle l'oublier (2026-10-10)
+
+M7.7, morceau 4 (`gpu.app-loop.*`, `App::recomposeAfterUi`).
+
+- **Symptôme** : le contre-test « le drapeau n'est jamais remis à faux » (`std::exchange(app.recomposeAfterUi, false)`
+  remplacé par une simple lecture) laissait `gpu.app-loop.vulkan` vert. **Cause** : le point d'accroche du test
+  écrivait `app.recomposeAfterUi = asks(frame)`, donc remettait lui-même le drapeau à faux aux images qui ne
+  demandent rien : la boucle pouvait l'oublier sans que rien ne rougisse. **Parade** : un test qui vérifie la remise
+  à faux par la boucle ne fait que **poser** le drapeau (`if (asks(frame)) app.recomposeAfterUi = true`), jamais
+  l'assigner. Rouge avec la lecture seule (« recomposeAfterUi est remis à faux à chaque image »), vert avec l'échange.
+
+## Un modèle de `tests/data` ne se charge pas depuis son dossier : le scan y écrit des `.meta` (2026-10-10)
+
+M7.7, morceau 4 (`gpu.app-loop.*`).
+
+- **Symptôme** : un test qui charge `tests/data/two-joints.gltf` par une racine d'assets laisse des fichiers `.meta`
+  non suivis dans le dépôt (`git status`). **Cause** : le scan des racines d'assets écrit le `.meta` de chaque asset
+  à côté du fichier (`scanAssets`, ADR-0019). **Parade** : le test copie le modèle dans un dossier temporaire à lui,
+  qui devient une racine de plus (`TempDir` et `copyModelInto`, `tests/app_loop_gpu.cpp`), effacé à la fin.
+
+## Un depth buffer que NVRHI Vulkan ne retient pas, et un itérateur par valeur pour clang-tidy Windows (2026-10-10)
+
+M7.7, morceau 2 (`gpu.app-script.vulkan`).
+
+- **Symptôme** : sur le portable, avec une vraie fenêtre (`ctest --test-dir build/windows-debug -R
+  '^gpu[.]app-script[.]vulkan$'`), le test sort en 3 sur « vkDestroyImage(): can't be called on VkImage [depth buffer]
+  that is currently in use by VkCommandBuffer » juste après « fenêtre fermée » (4 fois sur 4) ; vert sous lavapipe et
+  sur WARP. **Cause** : `clearTexture` et `clearDepthStencilTexture` de NVRHI Vulkan n'ajoutent pas la texture à
+  `referencedResources` (`vulkan-texture.cpp`, sources du port) : un programme qui n'affiche aucun mesh n'a son depth
+  buffer qu'effacé, et `runApp` le libérait à la fermeture avec la dernière image en vol. Le sandbox dessine des
+  meshes, dont le framebuffer le retient ; le chemin hors écran attend le GPU à chaque image (`device.cpp`). **Parade** :
+  `runApp` attend le GPU (`waitForIdle`) entre la dernière image et la destruction de `App`. Contre-test, windows-debug :
+  sans cette ligne, `gpu.app-script.vulkan` sort en 3 sur le message ci-dessus ; avec, en 0.
+- **Symptôme** : clang-tidy sur la base de `windows-debug` signale `performance-unnecessary-value-param` pour un
+  itérateur passé par valeur ; celle de Linux, rien. **Cause** : sous MSVC, un itérateur de la STL n'est pas trivialement
+  copiable. **Parade** : passer un `std::span` (`joined`, `input_script.cpp`). De même, `bugprone-exception-escape` sur
+  un destructeur qui appelle `std::filesystem::remove(path)` (la STL de Microsoft peut lever) : la surcharge à
+  `std::error_code&` (`ScriptFile`, `tests/app_script_gpu.cpp`). Et `bugprone-unchecked-optional-access` ne suit ni
+  `REQUIRE` ni `.value()` : un `read && *read ? … : 0` explicite.
+
 ## Direct3D 12 sur WARP : la fenêtre sans HWND, `SDL_WINDOW_VULKAN`, et un `-R` trop large (2026-10-10)
 
 #19 : `ctest -R d3d12-warp` (`tests/CMakeLists.txt`), huit tests par configuration Windows, sur le portable (WARP

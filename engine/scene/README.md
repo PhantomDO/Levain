@@ -42,7 +42,10 @@ lever la grille dans l'explorer lève les 10 000 cubes.
    une phase, l'ordre est celui des déclarations. Elles portent `SimulationPhase`, jamais `flecs::Phase` : le
    pipeline par défaut prend toute entité qui le porte, et rejouerait la simulation une fois par image.
 8. **L'application avance le monde par `advanceWorld`**, jamais par `world.progress` : `progress` seul ne
-   simule rien.
+   simule rien. Simulation arrêtée (`simulationPaused`, [ADR-0036](../../docs/adr/0036-mode-edition-vue-et-camera-de-l-editeur.md)) :
+   aucun pas, `RenderAlpha` à 1, l'accumulateur ne reçoit pas le temps de l'image (`planFrame`), et la passe de rendu
+   tourne encore. Un `Transform` écrit après elle se voit par `composeWorldTransforms`, qui relance le seul système
+   des matrices monde, sans pas ni autre système.
 9. **`scene` ignore l'existence de l'input** (SPECS §7) : la caméra libre lit un singleton `FpsInput`, que
    l'application remplit depuis `engine/input`. C'est ce qui permet de la piloter au clavier, à la manette ou
    par un test, sans que son code change d'une ligne.
@@ -54,9 +57,9 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/components.hpp`](include/levain/scene/components.hpp) | `Transform` (position, rotation, échelle, **dans le repère du parent**), `Velocity`, `WorldTransform` (la matrice monde, calculée) |
 | [`include/levain/scene/motion.hpp`](include/levain/scene/motion.hpp) | `applyVelocity` — la logique, sans flecs |
 | [`include/levain/scene/transform.hpp`](include/levain/scene/transform.hpp) | `localMatrix`, `worldMatrix` (l'ordre du produit), `interpolate`, `nlerpShortestPath`, `worldPosition`, `worldRotation` (l'échelle retirée d'abord) — sans flecs non plus |
-| [`include/levain/scene/fixed_step.hpp`](include/levain/scene/fixed_step.hpp) | `FixedStep` et `planSteps` — l'accumulateur et son plafond, testables sans monde |
+| [`include/levain/scene/fixed_step.hpp`](include/levain/scene/fixed_step.hpp) | `FixedStep`, `planSteps`, `pausedPlan` et `planFrame` — l'accumulateur et son plafond, et l'image à l'arrêt, testables sans monde |
 | [`include/levain/scene/camera_control.hpp`](include/levain/scene/camera_control.hpp) | La caméra libre : `FpsController`, `FpsInput`, `applyFpsInput`, et les pièges nommés `normalizeOrZero`, `clampPitch` (des bornes inversées sont remises dans l'ordre), `horizontalBasisFrom` |
-| [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` |
+| [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` ; `advanceWorld` (avec l'arrêt) et `composeWorldTransforms` |
 | [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf`, `componentOfKey`, puis `setComponentValue` et `sameValue` |
 
 ## Trois notions de flecs

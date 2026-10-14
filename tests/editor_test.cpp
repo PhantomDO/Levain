@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -16,13 +17,18 @@
 #include "levain/assets/asset_id.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/registry.hpp"
+#include "levain/core/i18n.hpp"
+#include "levain/core/log_ring.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
+#include "levain/editor/shortcut_edit.hpp"
+#include "levain/platform/input_script.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
 #include "levain/ui/context.hpp"
+#include "levain/ui/style.hpp"
 
 namespace
 {
@@ -55,6 +61,15 @@ TEST_CASE("les options de l'éditeur sont retirées, le reste garde son ordre")
     CHECK(viewsOf(levain::editor::takeEditorOptions(valueAndAlone, untouched)) ==
           std::vector<std::string_view>{"levain_sandbox", "--view", "--select", "--select"});
     CHECK_FALSE(untouched.select.has_value());
+}
+
+TEST_CASE("l'éditeur refuse WebGPU, en nommant l'option, et accepte les autres backends")
+{
+    const auto refused = levain::editor::requireEditorBackend(nvrhi::GraphicsAPI::WEBGPU);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("--gpu webgpu") != std::string::npos);
+    CHECK(levain::editor::requireEditorBackend(nvrhi::GraphicsAPI::VULKAN).has_value());
+    CHECK(levain::editor::requireEditorBackend(nvrhi::GraphicsAPI::D3D12).has_value());
 }
 
 TEST_CASE("une sélection survit à la destruction de son entité, sans désigner celle qui recycle "
@@ -212,6 +227,11 @@ struct Facing // une rotation : le dessinateur d'angles
     glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
 };
 
+struct Pan // un vecteur à deux composantes : X et Y seulement
+{
+    glm::vec2 uv{0.0f};
+};
+
 /// Un composant neuf, tel qu'un jeu l'écrirait : le critère de M7.2 (« éditable en une seule
 /// déclaration »). `intensity` est le dernier champ : le test tape dans le dernier widget dessiné.
 struct Beacon
@@ -239,6 +259,7 @@ void describeTestComponents(flecs::world& world)
                                                                     1.0);
     levain::scene::describe<editor_test::Gauge>(world);
     levain::scene::describeAuthored<editor_test::Facing>(world);
+    levain::scene::describeAuthored<editor_test::Pan>(world);
 }
 
 /// Une image d'ImGui, sans GPU, le monde différé comme l'éditeur le fait pour ses panneaux.
@@ -267,7 +288,14 @@ TEST_CASE("l'inspecteur dessine un widget par champ, en suivant la description d
                                      .set(editor_test::Undescribed{})
                                      .add<editor_test::Tag>();
 
-    uiFrame(world, [&] { levain::editor::drawInspector(world, inspector, entity, 0); });
+    // Large : quatre nombres par ligne de matrice (la largeur décide, `numbersPerRow`).
+    const auto drawWide = [&]
+    {
+        ImGui::SetNextWindowSize({900.0f, 400.0f});
+        levain::editor::drawInspector(world, inspector, entity, 0);
+    };
+    uiFrame(world, drawWide);
+    uiFrame(world, drawWide);
     // Tuning : gain, count, enabled, mode, inner.a, inner.b, offset. WorldTransform : les quatre
     // colonnes de sa matrice. Weights : [0-3] et [4-5]. Le composant non décrit, l'étiquette et le
     // nom : une ligne chacun, aucun champ.
@@ -277,6 +305,66 @@ TEST_CASE("l'inspecteur dessine un widget par champ, en suivant la description d
     entity.destruct();
     uiFrame(world, [&] { levain::editor::drawInspector(world, inspector, entity, 0); });
     CHECK(inspector.fieldsDrawn == 0);
+
+    // `wrote` est celui de l'image : une image qui n'écrit rien le remet à faux.
+    inspector.wrote = true;
+    uiFrame(world, [&] { levain::editor::drawInspector(world, inspector, entity, 0); });
+    CHECK_FALSE(inspector.wrote);
+}
+
+TEST_CASE("l'inspecteur, à 125 % et 150 % dans une fenêtre de 395 px : chaque valeur tient dans "
+          "son cadre")
+{
+    // 395 px : la largeur de l'inspecteur dans la disposition par défaut à 125 % (captures de la
+    // revue du morceau 17b). Une colonne de libellé fixe de 10 em y laissait 0,98 coupé en « 0.0( »
+    // et le moins de -2.098 sous le repère rouge.
+    for (const float scale : {1.0f, 1.25f, 1.5f})
+    {
+        INFO("échelle " << scale);
+        const levain::ui::UiContext context = levain::ui::createUiContext(scale);
+        flecs::world world;
+        describeTestComponents(world);
+        levain::editor::Inspector inspector = levain::editor::createInspector(world);
+        const flecs::entity entity =
+            world.entity("réglée")
+                .set(Tuning{.offset = {-2.098f, 0.98f, -12.345f}})
+                .set(levain::scene::WorldTransform{.matrix = glm::mat4{-2.098f}})
+                .set(editor_test::Facing{});
+        float widestValue = 0.0f;
+        for (int frame = 0; frame < 3; ++frame)
+        {
+            uiFrame(world,
+                    [&]
+                    {
+                        ImGui::SetNextWindowPos({0.0f, 0.0f});
+                        ImGui::SetNextWindowSize({395.0f, 460.0f});
+                        levain::editor::drawInspector(world, inspector, entity, 0);
+                        widestValue = ImGui::CalcTextSize("-12.345").x;
+                    });
+        }
+        REQUIRE(inspector.narrowestFrame < std::numeric_limits<float>::max());
+        const ImGuiStyle& style = ImGui::GetStyle();
+        // Le texte, le rembourrage des deux côtés et le repère d'axe, dessiné dans le cadre.
+        const float needed = widestValue + (2.0f * style.FramePadding.x) + style.ColorMarkerSize;
+        CHECK(inspector.narrowestFrame >= needed);
+    }
+}
+
+TEST_CASE("numbersPerRow et labelColumnFor : le champ garde sa place avant le libellé")
+{
+    constexpr float Cell = 70.0f;
+    constexpr float Gap = 6.0f;
+    // Quatre cellules et leurs trois espaces : 298 ; un pixel de moins, trois.
+    CHECK(levain::editor::numbersPerRow((4.0f * Cell) + (3.0f * Gap), Cell, Gap) == 4);
+    CHECK(levain::editor::numbersPerRow((4.0f * Cell) + (3.0f * Gap) - 1.0f, Cell, Gap) == 3);
+    CHECK(levain::editor::numbersPerRow(1000.0f, Cell, Gap) == 4); // jamais plus de quatre
+    CHECK(levain::editor::numbersPerRow(10.0f, Cell, Gap) == 1);   // au moins un
+    // Large : la colonne voulue. Étroit : elle rend la place au champ, sans passer sous son
+    // minimum.
+    CHECK(levain::editor::labelColumnFor(800.0f, 150.0f, 60.0f, Cell, Gap) == 150.0f);
+    CHECK(levain::editor::labelColumnFor(300.0f, 150.0f, 60.0f, Cell, Gap) ==
+          doctest::Approx(300.0f - (3.0f * Cell) - (2.0f * Gap)));
+    CHECK(levain::editor::labelColumnFor(100.0f, 150.0f, 60.0f, Cell, Gap) == 60.0f);
 }
 
 TEST_CASE("un composant non décrit, une étiquette, une paire : une ligne à leur nom")
@@ -441,9 +529,11 @@ TEST_CASE("un nombre tapé dans le champ d'une donnée d'auteur est borné, et p
 
     typing.frame<editor_test::Dial>(entity); // au repos, rien n'est écrit
     CHECK(typing.sets == 0);
+    CHECK_FALSE(typing.inspector.wrote);
     typing.type<editor_test::Dial>(entity, "0.25");
     CHECK(level() == doctest::Approx(0.25f));
     CHECK(typing.sets == 1);
+    CHECK(typing.inspector.wrote); // l'éditeur en demande la recomposition de l'image
     CHECK(typing.active); // le champ se tape : le pendant du test de la donnée en lecture seule
     // 5 dépasse la borne [0, 1] : Ctrl+clic tape au-delà sans AlwaysClamp.
     typing.type<editor_test::Dial>(entity, "5");
@@ -460,6 +550,7 @@ TEST_CASE("le champ d'une donnée en lecture seule est grisé : il ne se tape pa
     CHECK_FALSE(typing.active); // le grisé, que la garde de `commitEdit` ne suffit pas à prouver
     CHECK(entity.get<editor_test::Gauge>().level == 0.5f);
     CHECK(typing.sets == 0);
+    CHECK_FALSE(typing.inspector.wrote); // rien d'écrit, rien à recomposer
 }
 
 namespace
@@ -589,6 +680,193 @@ TEST_CASE("les angles tapés restent affichés d'une modification à l'autre, la
     CHECK(typing.sets == 3); // une fois par modification, jamais par image
 }
 
+namespace
+{
+
+/// Les repères de X, Y et Z que dessine `ImGuiSliderFlags_ColorMarkers` : rouge, vert, bleu
+/// (`GDefaultRgbaColorMarkers`, imgui_widgets.cpp). ImGui les écrit en dur : une mise à jour
+/// d'ImGui qui les change fait échouer le test, et c'est voulu.
+constexpr std::array<ImU32, 3> AxisMarkerColors = {
+    IM_COL32(240, 20, 20, 255), IM_COL32(20, 240, 20, 255), IM_COL32(20, 20, 240, 255)};
+
+/// La couleur d'un sommet sans son alpha : un composant en lecture seule (grisé) dessine ses
+/// repères à 60 %, les franges de l'anticrénelage sont transparentes, et c'est la teinte qui
+/// compte.
+bool sameRgb(ImU32 a, ImU32 b)
+{
+    return (a & ~static_cast<ImU32>(IM_COL32_A_MASK)) == (b & ~static_cast<ImU32>(IM_COL32_A_MASK));
+}
+
+/// Où une couleur a été dessinée : le rectangle des sommets de la liste de dessin de cette teinte.
+/// `found` faux : aucun sommet de cette teinte (pas un `std::optional`, que clang-tidy veut vérifié
+/// à chaque accès, et que `REQUIRE` ne lui montre pas).
+struct Spot
+{
+    bool found = false;
+    float left = 0.0f;
+    float top = 0.0f;
+    float bottom = 0.0f;
+};
+
+Spot spotOf(const ImDrawList& list, ImU32 color)
+{
+    Spot spot;
+    for (const ImDrawVert& vertex : list.VtxBuffer)
+    {
+        if (!sameRgb(vertex.col, color))
+        {
+            continue;
+        }
+        spot = spot.found ? Spot{.found = true,
+                                 .left = std::min(spot.left, vertex.pos.x),
+                                 .top = std::min(spot.top, vertex.pos.y),
+                                 .bottom = std::max(spot.bottom, vertex.pos.y)}
+                          : Spot{.found = true,
+                                 .left = vertex.pos.x,
+                                 .top = vertex.pos.y,
+                                 .bottom = vertex.pos.y};
+    }
+    return spot;
+}
+
+/// Les repères X, Y, Z qu'un composant a fait dessiner, dans le style de l'éditeur (le repère n'a
+/// de taille que par `ColorMarkerSize`), et la hauteur d'une ligne de champ.
+struct AxisMarkers
+{
+    std::array<Spot, 3> spots;
+    float rowHeight = 0.0f;
+};
+
+template <class T> AxisMarkers axisMarkersOf(Typing& typing, flecs::entity entity)
+{
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    AxisMarkers markers;
+    uiFrame(typing.world,
+            [&]
+            {
+                ImGui::SetNextWindowPos({0.0f, 0.0f});
+                ImGui::SetNextWindowSize({500.0f, 400.0f});
+                ImGui::Begin("repères");
+                levain::editor::inspectComponent(typing.world, typing.inspector, entity,
+                                                 typing.world.id<T>());
+                for (std::size_t axis = 0; axis < markers.spots.size(); ++axis)
+                {
+                    markers.spots.at(axis) =
+                        spotOf(*ImGui::GetWindowDrawList(), AxisMarkerColors.at(axis));
+                }
+                markers.rowHeight = ImGui::GetFrameHeight();
+                ImGui::End();
+            });
+    return markers;
+}
+
+} // namespace
+
+TEST_CASE("un vecteur de trois composantes porte les repères X rouge, Y vert, Z bleu, d'une seule "
+          "ligne")
+{
+    Typing typing;
+    // Tuning a un vec3 parmi des nombres seuls, un booléen, une enum et un agrégat : seul le vec3
+    // porte des repères, donc ils tiennent tous dans une seule ligne de champ.
+    const AxisMarkers markers =
+        axisMarkersOf<Tuning>(typing, typing.world.entity("réglée").set(Tuning{}));
+    for (const Spot& spot : markers.spots)
+    {
+        REQUIRE(spot.found);
+    }
+    const Spot& redSpot = markers.spots.at(0);
+    CHECK(redSpot.left < markers.spots.at(1).left); // X, Y, Z de gauche à droite
+    CHECK(markers.spots.at(1).left < markers.spots.at(2).left);
+    for (const Spot& spot : markers.spots)
+    {
+        CHECK(spot.top == doctest::Approx(redSpot.top).epsilon(0.01));
+        // la frange d'anticrénelage dépasse d'un pixel
+        CHECK(spot.bottom - spot.top <= markers.rowHeight + 2.0f);
+    }
+}
+
+TEST_CASE("un vecteur de deux composantes porte X et Y, une rotation X, Y et Z")
+{
+    Typing typing;
+    const AxisMarkers pan =
+        axisMarkersOf<editor_test::Pan>(typing, typing.world.entity("a").set(editor_test::Pan{}));
+    CHECK(pan.spots.at(0).found);
+    CHECK(pan.spots.at(1).found);
+    CHECK_FALSE(pan.spots.at(2).found); // pas de Z : un repère bleu sans axe serait faux
+    const AxisMarkers facing = axisMarkersOf<editor_test::Facing>(
+        typing, typing.world.entity("b").set(editor_test::Facing{}));
+    CHECK(facing.spots.at(0).found);
+    CHECK(facing.spots.at(1).found);
+    CHECK(facing.spots.at(2).found);
+}
+
+TEST_CASE("un nombre seul et une ligne de tableau n'ont aucun repère : ce ne sont pas des axes")
+{
+    Typing typing;
+    const AxisMarkers dial =
+        axisMarkersOf<editor_test::Dial>(typing, typing.world.entity("c").set(editor_test::Dial{}));
+    const AxisMarkers weights = axisMarkersOf<editor_test::Weights>(
+        typing, typing.world.entity("d").set(editor_test::Weights{}));
+    for (const AxisMarkers* markers : {&dial, &weights})
+    {
+        for (const Spot& spot : markers->spots)
+        {
+            CHECK_FALSE(spot.found);
+        }
+    }
+}
+
+namespace
+{
+
+/// Une couleur dans ce qu'ImGui a dessiné à la dernière image (`Render` a tout rassemblé).
+bool drawn(ImU32 color)
+{
+    const ImDrawData* data = ImGui::GetDrawData();
+    for (const ImDrawList* list : data->CmdLists)
+    {
+        for (const ImDrawVert& vertex : list->VtxBuffer)
+        {
+            if (sameRgb(vertex.col, color))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("la ligne choisie de la hiérarchie prend l'accent, les autres restent grises")
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    flecs::world world;
+    world.entity("première").set(levain::scene::Transform{});
+    const flecs::entity second = world.entity("seconde").set(levain::scene::Transform{});
+    levain::editor::Hierarchy hierarchy = levain::editor::createHierarchy(world);
+    const ImU32 accent = ImGui::ColorConvertFloat4ToU32(levain::ui::EditorAccentDark);
+    const auto frames = [&](flecs::entity_t selected)
+    {
+        for (int frame = 0; frame < 3; ++frame) // une fenêtre neuve se montre à la deuxième image
+        {
+            uiFrame(world,
+                    [&]
+                    {
+                        ImGui::SetNextWindowPos({0.0f, 0.0f});
+                        ImGui::SetNextWindowSize({300.0f, 200.0f});
+                        levain::editor::drawHierarchy(world, hierarchy, selected, 0);
+                    });
+            ImGui::Render();
+        }
+    };
+    frames(0);
+    CHECK_FALSE(drawn(accent));
+    frames(second.id());
+    CHECK(drawn(accent));
+}
+
 TEST_CASE("une entité se lit comme un flecs::entity, par son chemin, vivante ou non")
 {
     flecs::world world;
@@ -603,6 +881,23 @@ TEST_CASE("une entité se lit comme un flecs::entity, par son chemin, vivante ou
     target.destruct();
     CHECK(levain::editor::entityLabelOf(levain::editor::entityFieldOf(world, &beacon.target)) ==
           "(détruite)");
+}
+
+TEST_CASE("les textes que l'inspecteur construit à l'exécution passent par le catalogue")
+{
+    flecs::world world;
+    const flecs::entity target = world.entity("ancre");
+    const editor_test::Beacon beacon{.target = target};
+    const editor_test::Beacon none{};
+    target.destruct();
+    levain::core::activeCatalog().entries = {
+        {"aucune", "none"}, {"(détruite)", "(destroyed)"}, {"aucun", "no asset"}};
+    const auto entityText = [&world](const flecs::entity& field)
+    { return levain::editor::entityLabelOf(levain::editor::entityFieldOf(world, &field)); };
+    CHECK(entityText(none.target) == "none");
+    CHECK(entityText(beacon.target) == "(destroyed)");
+    CHECK(levain::editor::assetNameOf(nullptr, levain::assets::AssetRef{}) == "no asset");
+    levain::core::activeCatalog().entries.clear(); // vide, hors de ce cas
 }
 
 TEST_CASE("un asset se nomme par son fichier au registre, sinon par son GUID, en lecture seule")
@@ -651,4 +946,470 @@ TEST_CASE("un composant neuf, une seule déclaration : tous ses champs dessinés
     CHECK(typing.fields == 4); // la rotation, l'entité, l'enum et le nombre
     CHECK(entity.get<editor_test::Beacon>().intensity == 1.0f); // la borne
     CHECK(typing.sets == 1);
+}
+
+TEST_CASE(
+    "l'Édition arrête la simulation et le frame du programme, la route suit le mode et le focus")
+{
+    using levain::app::InputRoute;
+    using levain::editor::Mode;
+    CHECK(levain::editor::simulationPausedIn(Mode::Edit));
+    CHECK_FALSE(levain::editor::simulationPausedIn(Mode::PlayWithoutReturn));
+    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Edit));
+    CHECK(levain::editor::programFrameRunsIn(Mode::PlayWithoutReturn));
+    // Édition : rien au jeu, que la scène ait le focus ou non.
+    CHECK(levain::editor::inputRouteFor(Mode::Edit, true) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteFor(Mode::Edit, false) == InputRoute::Editor);
+    // Jeu : au jeu si la scène a le focus ; sinon à l'UI, qu'un champ de texte actif ne soit pas
+    // une touche de vol.
+    CHECK(levain::editor::inputRouteFor(Mode::PlayWithoutReturn, true) == InputRoute::Game);
+    CHECK(levain::editor::inputRouteFor(Mode::PlayWithoutReturn, false) == InputRoute::Ui);
+    CHECK(levain::editor::otherMode(Mode::Edit) == Mode::PlayWithoutReturn);
+    CHECK(levain::editor::otherMode(Mode::PlayWithoutReturn) == Mode::Edit);
+}
+
+namespace
+{
+
+constexpr std::uint16_t ScanEscape = 41, ScanF5 = 62; // USB HID, vérifiés contre SDL par `platform`
+
+} // namespace
+
+TEST_CASE("Échap ramène à l'Édition à son appui, pas tant qu'elle est tenue")
+{
+    levain::editor::ModeState state{.current = levain::editor::Mode::PlayWithoutReturn};
+    levain::input::RawInput raw;
+    const auto table = levain::editor::defaultShortcuts();
+    CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
+    raw.keys.set(ScanEscape);
+    CHECK(levain::editor::stopPressed(state, raw, table));
+    CHECK_FALSE(
+        levain::editor::stopPressed(state, raw, table)); // toujours tenue : le front est passé
+    raw.keys.reset(ScanEscape);
+    CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
+    raw.keys.set(ScanEscape);
+    CHECK(levain::editor::stopPressed(state, raw, table)); // un nouvel appui
+}
+
+TEST_CASE("l'arrêt lit la position que la table donne à « Arrêter », non Échap en dur")
+{
+    levain::editor::ModeState state{.current = levain::editor::Mode::PlayWithoutReturn};
+    levain::input::RawInput raw;
+    levain::editor::ShortcutTable table;
+    table.bindings.push_back({.action = levain::editor::Action::Stop,
+                              .context = levain::editor::Context::Game,
+                              .chords = {levain::editor::positionChord(20), {}}});
+    raw.keys.set(ScanEscape);
+    CHECK_FALSE(levain::editor::stopPressed(state, raw, table)); // Échap n'est plus l'arrêt
+    raw.keys.set(20);
+    CHECK(levain::editor::stopPressed(state, raw, table));
+    // Sans aucune action « Arrêter », jamais.
+    CHECK_FALSE(levain::editor::stopPressed(state, raw, levain::editor::ShortcutTable{}));
+}
+
+TEST_CASE("Alt+P joue, Échap arrête, seul le bouton va dans les deux sens")
+{
+    using levain::editor::Mode;
+    using levain::editor::modeRequested;
+    using levain::editor::ModeRequests;
+    constexpr Mode Edit = Mode::Edit;
+    constexpr Mode Play = Mode::PlayWithoutReturn;
+    // Alt+P : de l'Édition au jeu, jamais l'inverse (sous la route jeu, ImGui ne la reçoit pas :
+    // un retour par Alt+P ne marcherait qu'à certaines images).
+    CHECK(modeRequested(Edit, {.playShortcut = true}) == Play);
+    CHECK_FALSE(modeRequested(Play, {.playShortcut = true}).has_value());
+    // Échap : du jeu à l'Édition, et rien en Édition.
+    CHECK(modeRequested(Play, {.stop = true}) == Edit);
+    CHECK_FALSE(modeRequested(Edit, {.stop = true}).has_value());
+    // Le bouton propose l'autre mode ; un bouton qui propose le mode courant ne change rien.
+    CHECK(modeRequested(Edit, {.toolbar = Play}) == Play);
+    CHECK(modeRequested(Play, {.toolbar = Edit}) == Edit);
+    CHECK_FALSE(modeRequested(Play, {.toolbar = Play}).has_value());
+    CHECK_FALSE(modeRequested(Edit, ModeRequests{}).has_value());
+    // Échap l'emporte sur le reste : sortir du jeu ne se dispute pas.
+    CHECK(modeRequested(Play, {.playShortcut = true, .stop = true}) == Edit);
+    CHECK(modeRequested(Play, {.toolbar = Play, .stop = true}) == Edit);
+}
+
+TEST_CASE("le rappel de la barre de mode suit la table, et ne promet pas d'Alt+P pour revenir")
+{
+    using levain::editor::Mode;
+    const auto qwerty = levain::platform::qwertyKeyAtPosition;
+    levain::editor::ShortcutTable table = levain::editor::defaultShortcuts();
+    CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty) == "Alt+P : jouer");
+    // En jeu, seule Échap ramène : Alt+P n'y fait rien (`modeRequested`).
+    const std::string inPlay = levain::editor::modeHintOf(Mode::PlayWithoutReturn, table, qwerty);
+    CHECK(inPlay == "Échap : revenir à l'édition");
+    CHECK_FALSE(inPlay.contains("Alt+P"));
+    // Un accord changé change le rappel : jouer sur Ctrl+K, arrêter sur la position du F5 (62).
+    levain::editor::replaceChord(table, levain::editor::Action::Play, 0,
+                                 levain::editor::letterChord('k', {.ctrl = true}), qwerty);
+    levain::editor::replaceChord(table, levain::editor::Action::Stop, 0,
+                                 levain::editor::positionChord(ScanF5), qwerty);
+    CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty) == "Ctrl+K : jouer");
+    CHECK(levain::editor::modeHintOf(Mode::PlayWithoutReturn, table, qwerty) ==
+          "F5 : revenir à l'édition");
+    // Sans accord, rien n'est promis.
+    levain::editor::replaceChord(table, levain::editor::Action::Play, 0, {}, qwerty);
+    CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty).empty());
+}
+
+namespace
+{
+
+/// Un clic de la souris à `at`, étalé sur les images qu'ImGui met à lire ses événements.
+/// `framesAfterRelease` : combien d'images après le relâchement ; une seule est l'image qui reçoit
+/// le clic (le bouton agit au relâchement), de quoi vérifier ce qui se passe « dans l'image même ».
+void clickAt(ImVec2 at, const std::function<void()>& frame, int framesAfterRelease = 4)
+{
+    ImGuiIO& io = ImGui::GetIO();
+    const auto settle = [&](int frames)
+    {
+        for (int i = 0; i < frames; ++i)
+        {
+            frame();
+        }
+    };
+    io.AddMousePosEvent(at.x, at.y);
+    settle(4);
+    io.AddMouseButtonEvent(0, true);
+    settle(4);
+    io.AddMouseButtonEvent(0, false);
+    settle(framesAfterRelease);
+}
+
+void push(levain::core::LogRing& ring, levain::core::LogLevel level, const char* text)
+{
+    levain::core::pushLogEntry(ring,
+                               {.level = level, .category = "test", .text = text, .seconds = 0.0});
+}
+
+/// La console dans une fenêtre à une place connue, comme `Typing::frame` pour l'inspecteur.
+struct ConsoleBench
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    flecs::world world;
+    levain::core::LogRing ring{200};
+    levain::editor::Console console;
+    float width = 630.0f; ///< la fenêtre : 24 % d'un écran de 1280 est une colonne de 307 px
+
+    void frame()
+    {
+        uiFrame(world,
+                [&]
+                {
+                    ImGui::SetNextWindowPos({0.0f, 0.0f});
+                    ImGui::SetNextWindowSize({width, 220.0f});
+                    levain::editor::drawConsole(console, ring, 0);
+                });
+    }
+
+    void settle()
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            frame();
+        }
+    }
+
+    void click(ImVec2 at, int framesAfterRelease = 4)
+    {
+        clickAt(at, [this] { frame(); }, framesAfterRelease);
+    }
+};
+
+} // namespace
+
+TEST_CASE(
+    "la console : les cases filtrent et comptent, Réduire, la recherche tapée et Effacer, au clic")
+{
+    using levain::core::LogLevel;
+    ConsoleBench bench;
+    push(bench.ring, LogLevel::Info, "chargé");
+    push(bench.ring, LogLevel::Warning, "lent");
+    push(bench.ring, LogLevel::Error, "panne");
+    push(bench.ring, LogLevel::Error, "panne");
+    bench.settle();
+    CHECK(bench.console.rows.size() == 4);
+    CHECK(bench.console.snapshot.counts.errors == 2);
+    // Ce que l'utilisateur lit sur les cases : les comptes de tous les messages reçus.
+    CHECK(bench.console.labels ==
+          std::array<std::string, 3>{"Infos : 1", "Avertissements : 1", "Erreurs : 2"});
+
+    // Décocher « Erreurs » retire les deux erreurs, et la recocher les rend ; ni l'une ni l'autre
+    // case des deux autres niveaux ne bouge.
+    bench.click(bench.console.layout.error);
+    CHECK_FALSE(bench.console.error);
+    CHECK(bench.console.info);
+    CHECK(bench.console.warning);
+    CHECK(bench.console.rows.size() == 2);
+    bench.click(bench.console.layout.error);
+    CHECK(bench.console.rows.size() == 4);
+    bench.click(bench.console.layout.warning);
+    CHECK_FALSE(bench.console.warning);
+    CHECK(bench.console.rows.size() == 3);
+    bench.click(bench.console.layout.warning);
+    bench.click(bench.console.layout.info);
+    CHECK_FALSE(bench.console.info);
+    CHECK(bench.console.rows.size() == 3);
+    bench.click(bench.console.layout.info);
+
+    // Réduire : les deux « panne » qui se suivent ne font qu'une ligne, comptée deux fois.
+    bench.click(bench.console.layout.collapse);
+    REQUIRE(bench.console.rows.size() == 3);
+    CHECK(bench.console.rows.back().repeats == 2);
+
+    // La recherche est tapée dans le champ : elle filtre à chaque lettre.
+    bench.click(bench.console.layout.search);
+    ImGui::GetIO().AddInputCharactersUTF8("LEN");
+    bench.settle();
+    REQUIRE(bench.console.rows.size() == 1);
+    CHECK(bench.console.snapshot.entries.at(bench.console.rows.front().entry).text == "lent");
+
+    // Effacer vide l'anneau et les comptes dans l'image qui reçoit le clic (une seule image après
+    // le relâchement) : la liste et les cases de cette image sont celles d'après l'effacement.
+    bench.click(bench.console.layout.clear, 1);
+    CHECK(bench.console.rows.empty());
+    CHECK(bench.console.snapshot.counts.errors == 0);
+    CHECK(bench.console.labels ==
+          std::array<std::string, 3>{"Infos : 0", "Avertissements : 0", "Erreurs : 0"});
+    CHECK(levain::core::snapshotOf(bench.ring).entries.empty());
+}
+
+TEST_CASE("la console tient dans une colonne étroite : chaque case, le bouton et le champ de "
+          "recherche restent dans la fenêtre")
+{
+    using levain::core::LogLevel;
+    // La colonne gauche de l'éditeur : 24 % d'un écran de 1280 px, moins que la barre d'outils sur
+    // une seule ligne (environ 500 px).
+    ConsoleBench bench;
+    bench.width = 300.0f;
+    push(bench.ring, LogLevel::Error, "panne");
+    bench.settle();
+    const levain::editor::ConsoleLayout& layout = bench.console.layout;
+    for (const ImVec2 center :
+         {layout.clear, layout.collapse, layout.info, layout.warning, layout.error, layout.search})
+    {
+        CHECK(center.x > 0.0f);
+        CHECK(center.x < bench.width);
+        CHECK(center.y > 0.0f);
+        CHECK(center.y < 220.0f);
+    }
+    // Le champ garde presque toute la largeur : ImGui lirait une largeur négative comme « jusqu'au
+    // bord droit » et le réduirait à un pixel.
+    CHECK(layout.searchWidth > bench.width - 40.0f);
+    // Et la dernière case se coche : son centre est cliquable, pas rogné par le bord.
+    bench.click(layout.error);
+    CHECK_FALSE(bench.console.error);
+}
+
+TEST_CASE("fitsOnLine : un élément qui dépasse le bord droit va à la ligne")
+{
+    CHECK(levain::editor::fitsOnLine(100.0f, 8.0f, 50.0f, 200.0f));
+    CHECK(levain::editor::fitsOnLine(100.0f, 8.0f, 92.0f, 200.0f)); // pile au bord : il tient
+    CHECK_FALSE(levain::editor::fitsOnLine(100.0f, 8.0f, 93.0f, 200.0f));
+    CHECK_FALSE(levain::editor::fitsOnLine(100.0f, 8.0f, 50.0f, 150.0f));
+}
+
+TEST_CASE("la console suit le bout de la liste tant qu'on y est, et laisse en paix qui est remonté")
+{
+    using levain::core::LogLevel;
+    ConsoleBench bench;
+    const auto pushMany = [&](int count)
+    {
+        for (int i = 0; i < count; ++i)
+        {
+            push(bench.ring, LogLevel::Info, "message");
+        }
+    };
+    pushMany(60);
+    bench.settle();
+    REQUIRE(bench.console.scrollMax > 0.0f); // la liste déborde de la fenêtre
+    CHECK(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
+
+    // Un message arrive pendant qu'on est au bout : la liste s'allonge et le défilement la suit.
+    const float before = bench.console.scrollMax;
+    pushMany(10);
+    bench.settle();
+    CHECK(bench.console.scrollMax > before);
+    CHECK(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
+
+    // Remontée à la molette : un message de plus ne la ramène pas en bas.
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(bench.console.layout.list.x, bench.console.layout.list.y);
+    bench.settle();
+    io.AddMouseWheelEvent(0.0f, 10.0f);
+    bench.settle();
+    REQUIRE_FALSE(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
+    const float held = bench.console.scrollY;
+    pushMany(10);
+    bench.settle();
+    CHECK(bench.console.scrollY == held);
+    CHECK_FALSE(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
+
+    // Redescendue tout en bas, elle suit de nouveau.
+    io.AddMouseWheelEvent(0.0f, -100.0f);
+    bench.settle();
+    pushMany(10);
+    bench.settle();
+    CHECK(levain::editor::shouldFollowTail(bench.console.scrollY, bench.console.scrollMax));
+}
+
+TEST_CASE("la Vue : la taille demandée est l'entier du contenu, vide sous un pixel")
+{
+    using levain::editor::sceneSizeOfContent;
+    CHECK(sceneSizeOfContent(640.7f, 360.2f) == levain::app::SceneSize{640, 360});
+    CHECK(sceneSizeOfContent(1.0f, 1.0f) == levain::app::SceneSize{1, 1});
+    // Un côté sous un pixel : 0 x 0, jamais une texture de 0 x 1.
+    CHECK(sceneSizeOfContent(0.6f, 300.0f).empty());
+    CHECK(sceneSizeOfContent(300.0f, 0.0f) == levain::app::SceneSize{});
+    CHECK(sceneSizeOfContent(-5.0f, 10.0f) == levain::app::SceneSize{});
+}
+
+TEST_CASE("la scène a le focus : la Vue panneaux ouverts, aucune fenêtre panneaux fermés")
+{
+    using levain::editor::sceneFocusedIn;
+    CHECK(sceneFocusedIn(true, true, true, false));
+    CHECK_FALSE(sceneFocusedIn(true, false, false, false)); // une autre fenêtre ne le donne pas
+    CHECK_FALSE(sceneFocusedIn(true, true, true, true));    // la souris sur la barre de mode
+    CHECK(sceneFocusedIn(false, false, false, false));
+    CHECK_FALSE(sceneFocusedIn(false, true, true, false));
+}
+
+TEST_CASE("la modale « Quitter ? » : une demande, une ouverture, jamais empilée")
+{
+    using levain::editor::askToQuit;
+    using levain::editor::QuitState;
+    using levain::editor::shouldOpenQuitModal;
+    QuitState state;
+    CHECK_FALSE(shouldOpenQuitModal(state)); // personne n'a fermé
+    askToQuit(state);
+    CHECK(shouldOpenQuitModal(state));
+    state.asked = false; // ce que `drawQuitModal` fait en l'ouvrant
+    state.open = true;
+    CHECK_FALSE(shouldOpenQuitModal(state));
+    // Une deuxième croix modale ouverte : ni une autre modale, ni une pour après la fermeture.
+    askToQuit(state);
+    CHECK_FALSE(shouldOpenQuitModal(state));
+    state.open = false; // Annuler
+    CHECK_FALSE(shouldOpenQuitModal(state));
+    askToQuit(state); // une croix modale fermée : une nouvelle modale
+    CHECK(shouldOpenQuitModal(state));
+}
+
+TEST_CASE("sous la modale, la route est celle de l'UI et les raccourcis globaux se taisent")
+{
+    using levain::app::InputRoute;
+    levain::editor::QuitState state;
+    // Fermée : la route du mode passe telle quelle, les raccourcis marchent.
+    CHECK(levain::editor::inputRouteWhileQuit(state, InputRoute::Game) == InputRoute::Game);
+    CHECK(levain::editor::inputRouteWhileQuit(state, InputRoute::Editor) == InputRoute::Editor);
+    CHECK(levain::editor::globalChordsAllowed(state));
+    // Ouverte : l'UI garde tout, quelle que soit la route du mode.
+    state.open = true;
+    CHECK(levain::editor::inputRouteWhileQuit(state, InputRoute::Game) == InputRoute::Ui);
+    CHECK(levain::editor::inputRouteWhileQuit(state, InputRoute::Editor) == InputRoute::Ui);
+    CHECK_FALSE(levain::editor::globalChordsAllowed(state));
+}
+
+TEST_CASE("croix reçue ou modale ouverte : aucun geste de la caméra")
+{
+    levain::editor::QuitState state;
+    CHECK(levain::editor::cameraGesturesAllowed(state));
+    levain::editor::askToQuit(state); // la croix, avant que `ui` n'ouvre la modale
+    CHECK_FALSE(levain::editor::cameraGesturesAllowed(state));
+    state.asked = false; // ce que `drawQuitModal` fait en l'ouvrant
+    state.open = true;
+    CHECK_FALSE(levain::editor::cameraGesturesAllowed(state));
+    state.open = false; // Annuler
+    CHECK(levain::editor::cameraGesturesAllowed(state));
+}
+
+namespace
+{
+
+/// La modale « Quitter ? » dans l'ImGui sans fenêtre, comme `ConsoleBench`.
+struct QuitBench
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    flecs::world world;
+    levain::editor::QuitState state;
+    levain::editor::QuitAnswer answer = levain::editor::QuitAnswer::Pending;
+    levain::editor::QuitAnswer lastAnswer =
+        levain::editor::QuitAnswer::Pending; ///< la dernière non « Pending »
+
+    void frame()
+    {
+        uiFrame(world,
+                [&]
+                {
+                    answer = levain::editor::drawQuitModal(state);
+                    if (answer != levain::editor::QuitAnswer::Pending)
+                    {
+                        lastAnswer = answer;
+                    }
+                });
+    }
+
+    void settle(int frames = 4)
+    {
+        for (int i = 0; i < frames; ++i)
+        {
+            frame();
+        }
+    }
+
+    static ImVec2 centerOf(const levain::app::ScreenRect& rect)
+    {
+        return {rect.x + rect.width / 2.0f, rect.y + rect.height / 2.0f};
+    }
+};
+
+} // namespace
+
+TEST_CASE("la modale « Quitter ? » dessinée : une ouverture, Quitter, Annuler et Échap répondent")
+{
+    using levain::editor::QuitAnswer;
+    QuitBench bench;
+    bench.settle();
+    CHECK_FALSE(bench.state.open); // rien demandé : rien dessiné
+    CHECK(bench.state.quitButton.width == 0.0f);
+
+    // Une croix : la modale s'ouvre, dessine Quitter puis Annuler, et attend.
+    levain::editor::askToQuit(bench.state);
+    bench.settle();
+    REQUIRE(bench.state.open);
+    CHECK(bench.state.timesOpened == 1);
+    CHECK(bench.lastAnswer == QuitAnswer::Pending);
+    REQUIRE(bench.state.quitButton.width > 0.0f);
+    CHECK(bench.state.quitButton.x < bench.state.cancelButton.x);
+    levain::editor::askToQuit(bench.state); // une deuxième croix : pas une deuxième ouverture
+    bench.settle();
+    CHECK(bench.state.timesOpened == 1);
+
+    // Annuler au clic.
+    clickAt(QuitBench::centerOf(bench.state.cancelButton), [&] { bench.frame(); });
+    CHECK(bench.lastAnswer == QuitAnswer::Cancel);
+    CHECK_FALSE(bench.state.open);
+
+    // Échap annule aussi.
+    levain::editor::askToQuit(bench.state);
+    bench.settle();
+    REQUIRE(bench.state.open);
+    bench.lastAnswer = QuitAnswer::Pending;
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, true);
+    bench.settle(2);
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
+    bench.settle(2);
+    CHECK(bench.lastAnswer == QuitAnswer::Cancel);
+    CHECK_FALSE(bench.state.open);
+
+    // Quitter au clic.
+    levain::editor::askToQuit(bench.state);
+    bench.settle();
+    REQUIRE(bench.state.open);
+    bench.lastAnswer = QuitAnswer::Pending;
+    clickAt(QuitBench::centerOf(bench.state.quitButton), [&] { bench.frame(); });
+    CHECK(bench.lastAnswer == QuitAnswer::Quit);
+    CHECK_FALSE(bench.state.open);
 }

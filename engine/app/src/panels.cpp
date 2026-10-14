@@ -11,68 +11,116 @@
 
 #include "levain/app/app.hpp"
 #include "levain/render/renderer.hpp"
+#include "levain/ui/tr.hpp"
 
 namespace levain::app
 {
 
-namespace
+ImGuiID mainDockspaceId()
 {
+    // Un identifiant qui ne dépend pas de la fenêtre en cours, au contraire de `ImGui::GetID`.
+    return ImHashStr("levain");
+}
 
-constexpr const char* ImageWindow = "Image";
-constexpr const char* PassesWindow = "Passes";
-constexpr const char* SceneWindow = "Scène";
-
-/// La disposition de départ, recréée à chaque lancement (pas d'`imgui.ini`) : Image et Passes à
-/// gauche, l'une sur l'autre ; Scène à droite, sur un nœud encore vide, celui de l'inspecteur ; le
-/// centre libre, la scène s'y voit. Rend les nœuds où l'éditeur ancre ses fenêtres.
-DockNodes buildLayout(ImGuiID dockspace, ImVec2 size)
+DockNodes buildLayout(ImGuiID dockspace, ImVec2 size, bool editor)
 {
     ImGui::DockBuilderRemoveNode(dockspace);
     ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockspace, size);
     ImGuiID center = dockspace;
+    if (!editor)
+    {
+        const ImGuiID leftColumn =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.24f, nullptr, &center);
+        const ImGuiID rightColumn =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
+        ImGuiID leftBottom = 0;
+        const ImGuiID leftTop =
+            ImGui::DockBuilderSplitNode(leftColumn, ImGuiDir_Up, 0.5f, nullptr, &leftBottom);
+        ImGuiID rightBottom = 0;
+        const ImGuiID rightTop =
+            ImGui::DockBuilderSplitNode(rightColumn, ImGuiDir_Up, 0.4f, nullptr, &rightBottom);
+        ImGui::DockBuilderDockWindow(ImageWindow, leftTop);
+        ImGui::DockBuilderDockWindow(PassesWindow, leftBottom);
+        ImGui::DockBuilderDockWindow(SceneWindow, rightTop);
+        ImGui::DockBuilderFinish(dockspace);
+        return {.left = leftTop, .center = center, .inspector = rightBottom, .bottom = 0};
+    }
     const ImGuiID left =
-        ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.24f, nullptr, &center);
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, nullptr, &center);
     const ImGuiID right =
-        ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
-    ImGuiID leftBottom = 0;
-    const ImGuiID leftTop =
-        ImGui::DockBuilderSplitNode(left, ImGuiDir_Up, 0.5f, nullptr, &leftBottom);
-    ImGuiID rightBottom = 0;
-    const ImGuiID rightTop =
-        ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.4f, nullptr, &rightBottom);
-    ImGui::DockBuilderDockWindow(ImageWindow, leftTop);
-    ImGui::DockBuilderDockWindow(PassesWindow, leftBottom);
-    ImGui::DockBuilderDockWindow(SceneWindow, rightTop);
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.26f, nullptr, &center);
+    const ImGuiID bottom =
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
+    // Par la clé : ImHashStr (imgui.cpp) ne hache que ce qui suit « ### », donc « Image » est
+    // l'identifiant de « Picture###Image ».
+    ImGui::DockBuilderDockWindow(ImageWindow, bottom);
+    ImGui::DockBuilderDockWindow(PassesWindow, bottom);
+    ImGui::DockBuilderDockWindow(SceneWindow, bottom);
     ImGui::DockBuilderFinish(dockspace);
-    return {.left = leftTop, .inspector = rightBottom};
+    return {.left = left, .center = center, .inspector = right, .bottom = bottom};
 }
 
+DockNodes resetEditorLayout(App& app)
+{
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    app.ui.windows = {};
+    app.ui.dock = buildLayout(mainDockspaceId(), viewport->Size, true);
+    return app.ui.dock;
+}
+
+ScreenRect sceneRectOf(const ImGuiDockNode* central, const ScreenRect& whole, bool sceneBehind)
+{
+    // Le trou du nœud central est ce qu'on voit de la scène (`PassthruCentralNode`) ; sans nœud
+    // (une disposition dont on a retiré le centre), toute la fenêtre.
+    if (central == nullptr)
+    {
+        return whole;
+    }
+    // Une fenêtre ancrée dans le centre n'y laisse plus de trou : ImGui la dessine et la prend.
+    // Pas de trou non plus quand la scène est dans la texture de la Vue, ou nulle part : rien n'est
+    // visible à travers un centre vide. Rectangle vide, gardé à l'origine du nœud (la barre de
+    // mode s'y accroche) : la souris n'est pas au jeu, et `WantCaptureMouse` ne l'aurait pas dit,
+    // la route *jeu* l'ignorant.
+    if (!sceneBehind || !central->IsEmpty())
+    {
+        return {central->Pos.x, central->Pos.y, 0.0f, 0.0f};
+    }
+    return {central->Pos.x, central->Pos.y, central->Size.x, central->Size.y};
+}
+
+namespace
+{
+
 /// Les dernières images, dans l'ordre : l'historique est un anneau, `next` en est le plus ancien.
-void plotHistory(const char* label, const std::array<float, HistoryLength>& values,
+void plotHistory(const char* french, const std::array<float, HistoryLength>& values,
                  std::size_t next)
 {
     const float highest = *std::ranges::max_element(values);
-    ImGui::PlotLines(label, values.data(), static_cast<int>(values.size()), static_cast<int>(next),
-                     nullptr, 0.0f, std::max(highest * 1.2f, 1.0f),
+    ImGui::PlotLines(ui::labelOf(french).c_str(), values.data(), static_cast<int>(values.size()),
+                     static_cast<int>(next), nullptr, 0.0f, std::max(highest * 1.2f, 1.0f),
                      ImVec2(0.0f, 60.0f * ImGui::GetStyle().FontScaleDpi));
 }
 
-void drawImageWindow(const App& app)
+void drawImageWindow(const App& app, bool& open, bool closable)
 {
-    if (ImGui::Begin(ImageWindow))
+    if (!open)
+    {
+        return;
+    }
+    if (ImGui::Begin(ui::labelOf(ImageWindow).c_str(), closable ? &open : nullptr))
     {
         const ImGuiIO& io = ImGui::GetIO();
-        ImGui::Text("%.0f images/s, %.2f ms", static_cast<double>(io.Framerate),
-                    1000.0 / static_cast<double>(std::max(io.Framerate, 1.0f)));
+        ui::textf("{:.0f} images/s, {:.2f} ms", io.Framerate,
+                  1000.0 / static_cast<double>(std::max(io.Framerate, 1.0f)));
         // Sous WebGPU, notre backend ne relit pas les minuteurs : « non mesuré », jamais 0.
         if (app.totalGpu.samples > 0)
         {
-            ImGui::Text("GPU : %.3f ms en moyenne", render::averageOf(app.totalGpu));
+            ui::textf("GPU : {:.3f} ms en moyenne", render::averageOf(app.totalGpu));
         }
         else
         {
-            ImGui::TextDisabled("GPU : non mesuré");
+            ImGui::TextDisabled("%s", ui::tr("GPU : non mesuré"));
         }
         plotHistory("image (ms)", app.ui.history.frameMs, app.ui.history.next);
         if (app.totalGpu.samples > 0)
@@ -83,28 +131,32 @@ void drawImageWindow(const App& app)
     ImGui::End();
 }
 
-void drawPassesWindow(const App& app)
+void drawPassesWindow(const App& app, bool& open, bool closable)
 {
-    if (ImGui::Begin(PassesWindow))
+    if (!open)
+    {
+        return;
+    }
+    if (ImGui::Begin(ui::labelOf(PassesWindow).c_str(), closable ? &open : nullptr))
     {
         if (ImGui::BeginTable("passes", 2, ImGuiTableFlags_RowBg))
         {
-            ImGui::TableSetupColumn("passe");
-            ImGui::TableSetupColumn("GPU (ms)");
+            ImGui::TableSetupColumn(ui::labelOf("passe").c_str());
+            ImGui::TableSetupColumn(ui::labelOf("GPU (ms)").c_str());
             ImGui::TableHeadersRow();
             const auto row = [](const char* name, const render::GpuTimeAverage& time)
             {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(name);
+                ImGui::TextUnformatted(ui::tr(name));
                 ImGui::TableNextColumn();
                 if (time.samples > 0)
                 {
-                    ImGui::Text("%.3f", render::averageOf(time));
+                    ui::textf("{:.3f}", render::averageOf(time));
                 }
                 else
                 {
-                    ImGui::TextDisabled("non mesuré");
+                    ImGui::TextDisabled("%s", ui::tr("non mesuré"));
                 }
             };
             for (std::size_t pass = 0; pass < render::RendererPassNames.size(); ++pass)
@@ -115,24 +167,28 @@ void drawPassesWindow(const App& app)
             ImGui::EndTable();
         }
         const UiCost& cost = app.ui.cost;
-        ImGui::Text("interface, CPU : %.3f ms en moyenne, %.3f au pire",
-                    cost.cpuSamples > 0 ? cost.cpuTotalMs / cost.cpuSamples : 0.0, cost.cpuMaxMs);
+        ui::textf("interface, CPU : {:.3f} ms en moyenne, {:.3f} au pire",
+                  cost.cpuSamples > 0 ? cost.cpuTotalMs / cost.cpuSamples : 0.0, cost.cpuMaxMs);
     }
     ImGui::End();
 }
 
-void drawSceneWindow(App& app)
+void drawSceneWindow(App& app, bool& open, bool closable)
 {
-    if (ImGui::Begin(SceneWindow))
+    if (!open)
+    {
+        return;
+    }
+    if (ImGui::Begin(ui::labelOf(SceneWindow).c_str(), closable ? &open : nullptr))
     {
         const auto perFrame = [&app](std::uint64_t count)
         { return static_cast<double>(count) / std::max(app.frameCount, 1); };
-        ImGui::Text("entités placées (Transform) : %d", app.world.count<scene::Transform>());
-        ImGui::Text("modèles chargés : %zu", app.models.size());
-        ImGui::Text("modèles, par image : %.1f dessinés, %.1f écartés",
-                    perFrame(app.modelsCamera.drawn), perFrame(app.modelsCamera.culled));
-        ImGui::Text("triangles des modèles, par image : %.0f",
-                    perFrame(app.modelsCamera.triangles));
+        ui::textf("entités placées (Transform) : {}", app.world.count<scene::Transform>());
+        ui::textf("modèles chargés : {}", app.models.size());
+        ui::textf("modèles, par image : {:.1f} dessinés, {:.1f} écartés",
+                  perFrame(app.modelsCamera.drawn), perFrame(app.modelsCamera.culled));
+        ui::textf("triangles des modèles, par image : {:.0f}",
+                  perFrame(app.modelsCamera.triangles));
     }
     ImGui::End();
 }
@@ -142,17 +198,22 @@ void drawSceneWindow(App& app)
 void drawEnginePanels(App& app)
 {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    // Un identifiant qui ne dépend pas de la fenêtre en cours, au contraire de `ImGui::GetID`.
-    const ImGuiID dockspace = ImHashStr("levain");
+    const ImGuiID dockspace = mainDockspaceId();
     if (ImGui::DockBuilderGetNode(dockspace) == nullptr)
     {
-        app.ui.dock = buildLayout(dockspace, viewport->Size);
+        app.ui.dock = buildLayout(dockspace, viewport->Size, app.ui.editorLayout);
     }
-    // Le centre laisse passer la souris et l'image : on y voit la scène, et on y vise.
-    ImGui::DockSpaceOverViewport(dockspace, viewport, ImGuiDockNodeFlags_PassthruCentralNode);
-    drawImageWindow(app);
-    drawPassesWindow(app);
-    drawSceneWindow(app);
+    // Le centre laisse passer la souris et l'image : on y voit la scène, et on y vise. Seulement
+    // tant que la scène est dans la fenêtre : dans la texture de la Vue, il n'y a rien à voir à
+    // travers (`dockspaceFlagsFor`).
+    ImGui::DockSpaceOverViewport(dockspace, viewport, dockspaceFlagsFor(app.sceneView.output));
+    app.sceneRect = sceneRectOf(ImGui::DockBuilderGetCentralNode(dockspace), app.sceneRect,
+                                app.sceneView.output == SceneOutput::Window);
+    // La croix seulement si le menu « Fenêtre » de l'éditeur peut rouvrir la fenêtre.
+    const bool closable = app.ui.editorLayout;
+    drawImageWindow(app, app.ui.windows.image, closable);
+    drawPassesWindow(app, app.ui.windows.passes, closable);
+    drawSceneWindow(app, app.ui.windows.scene, closable);
 }
 
 } // namespace levain::app

@@ -35,6 +35,19 @@ struct TonemapSettings
     Tonemapper tonemapper = Tonemapper::Agx;
 };
 
+/// Le format est-il sRGB ? Alors la cible encode en écrivant et lit en décodant : on lui écrit du
+/// linéaire. Sinon (UNORM), elle garde les octets tels quels. C'est la seule question de ce genre
+/// du moteur : la passe de l'UI (`linearOnSrgbTarget`) et le tonemapping la posent à la même
+/// fonction.
+[[nodiscard]] bool targetIsSrgb(nvrhi::Format format);
+
+/// Le tonemapping encode-t-il lui-même en sRGB pour une cible de ce format ? Oui sur une cible
+/// UNORM (normalisée, hors sRGB ; pas les formats flottants ni HDR10, qui demandent leur propre
+/// transfert et un ADR) : l'image de présentation est UNORM sur tous les backends et tient des
+/// octets sRGB (ADR-0036, décision 15), l'interface se mélange alors en espace gamma, comme son
+/// style le suppose.
+[[nodiscard]] bool tonemapEncodesSrgb(nvrhi::Format format);
+
 /// La passe plein écran : un triangle qui couvre l'image, et un shader qui lit l'image HDR.
 struct TonemapPass
 {
@@ -44,6 +57,9 @@ struct TonemapPass
     nvrhi::GraphicsPipelineHandle pipeline;
     nvrhi::BufferHandle constants;
     nvrhi::SamplerHandle sampler;
+    /// La cible n'est pas sRGB : le shader encode lui-même (`tonemapEncodesSrgb`), décidé une fois
+    /// à la création d'après le format de la cible.
+    bool encodeSrgb = false;
 };
 
 /// L'image HDR et son binding set, recréés ensemble quand la taille de l'image change.

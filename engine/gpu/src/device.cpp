@@ -94,14 +94,9 @@ void limitFramesInFlight(std::deque<nvrhi::EventQueryHandle>& framesInFlight,
 namespace
 {
 
-/// Le format de l'image hors écran : celui qu'aurait une swapchain en sRGB.
-constexpr nvrhi::Format OffscreenFormat = nvrhi::Format::SRGBA8_UNORM;
-
-/// Minimisée sous X11, la fenêtre mesure 0 × 0 : aucune swapchain ne peut avoir cette taille.
-bool isEmpty(platform::PixelSize size)
-{
-    return size.width <= 0 || size.height <= 0;
-}
+/// Le format de l'image hors écran : UNORM comme toute image de présentation (ADR-0036, décision
+/// 15), le tonemapping y écrit des octets sRGB.
+constexpr nvrhi::Format OffscreenFormat = nvrhi::Format::RGBA8_UNORM;
 
 /// Sans swapchain, une image hors écran à la taille de la fenêtre, recréée quand elle change.
 nvrhi::ITexture* offscreenFrame(GpuDevice& gpu, platform::PixelSize size)
@@ -111,15 +106,16 @@ nvrhi::ITexture* offscreenFrame(GpuDevice& gpu, platform::PixelSize size)
     if (!gpu.offscreen || gpu.offscreen->getDesc().width != width ||
         gpu.offscreen->getDesc().height != height)
     {
-        gpu.offscreen =
-            gpu.nvrhi->createTexture(nvrhi::TextureDesc()
-                                         .setWidth(width)
-                                         .setHeight(height)
-                                         .setFormat(OffscreenFormat)
-                                         .setIsRenderTarget(true)
-                                         .setInitialState(nvrhi::ResourceStates::RenderTarget)
-                                         .setKeepInitialState(true)
-                                         .setDebugName("image hors écran"));
+        gpu.offscreen = gpu.nvrhi->createTexture(
+            nvrhi::TextureDesc()
+                .setWidth(width)
+                .setHeight(height)
+                .setFormat(OffscreenFormat)
+                .setIsRenderTarget(true)
+                .setInitialState(nvrhi::ResourceStates::RenderTarget)
+                .setKeepInitialState(true)
+                .setClearValue(presentClearColor(false /* OffscreenFormat est UNORM */))
+                .setDebugName("image hors écran"));
     }
     return gpu.offscreen;
 }
@@ -134,7 +130,7 @@ nvrhi::Format swapchainFormat(const GpuDevice& gpu)
 nvrhi::ITexture* beginFrame(GpuDevice& gpu, const platform::Window& window)
 {
     const platform::PixelSize size = platform::windowPixelSize(window);
-    if (isEmpty(size))
+    if (!extentUsable(size))
     {
         return nullptr;
     }

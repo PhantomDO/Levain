@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -73,6 +74,13 @@ struct CursorPosition
 
 [[nodiscard]] CursorPosition cursorPosition(const Window& window);
 
+/// **Remet le curseur** au point `position` de l'image, en pixels comme `cursorPosition` (la
+/// densité de pixels est divisée ici : SDL compte en coordonnées de fenêtre). À appeler **avant**
+/// de quitter la capture : en mode relatif, SDL ajoute le mouvement relatif à sa position, et en
+/// sortant il y replace le curseur ; il réapparaîtrait sinon décalé de tout le glissé, peut-être
+/// sur un panneau.
+void warpMouse(const Window& window, CursorPosition position);
+
 /// Capture la souris : curseur caché, mouvements relatifs, sans butée d'écran. C'est ce qu'il faut
 /// pour faire tourner une caméra ; sans ça, le regard s'arrête au bord de l'écran.
 void setMouseCaptured(const Window& window, bool captured);
@@ -89,6 +97,10 @@ enum class UiEventType : std::uint8_t
     MouseLeft,   ///< La souris a quitté la fenêtre : rien n'est plus survolé.
     FocusGained,
     FocusLost, ///< Les touches tenues ne recevront pas leur relâchement.
+    /// La disposition du clavier a changé (AZERTY pour QWERTY, une autre langue) : ce que
+    /// `keyAtPosition` rend n'est plus ce qu'il rendait. Sans autre champ ; qui affiche une touche
+    /// par sa position la relit (ADR-0036, décision 5).
+    KeymapChanged,
 };
 
 struct KeyModifiers
@@ -97,6 +109,12 @@ struct KeyModifiers
     bool shift = false;
     bool alt = false;
     bool super = false; ///< La touche Windows, ou Commande sur un Mac.
+    /// Alt-Gr (`SDL_KMOD_MODE`, ce que SDL envoie sous Linux). AltGr+E d'un AZERTY tape « € » : ce
+    /// n'est pas la touche E nue, et les accords de l'éditeur le refusent (`chordMatches`). Sous
+    /// Windows, SDL rend Alt-Gr comme un Alt droit : indiscernable d'un Alt, il n'y est pas posé.
+    bool altGr = false;
+
+    bool operator==(const KeyModifiers&) const = default;
 };
 
 /// Un événement pour l'interface. **`keycode` est la touche selon la disposition du clavier** : sur
@@ -115,6 +133,17 @@ struct UiEvent
     bool down = false;
     KeyModifiers modifiers{};
 };
+
+/// La touche (un keycode, comme `UiEvent::keycode`) que la disposition actuelle du clavier met à
+/// cette position (un scancode) : sur un AZERTY, `keyAtPosition(26)` (la place du W d'un QWERTY)
+/// rend « z ». 0 si la position ne tape rien et n'a pas de nom. **À relire quand `KeymapChanged`
+/// arrive** : la disposition est celle d'aujourd'hui, pas celle du lancement. Ni les modificateurs
+/// ni les touches mortes n'y comptent : c'est la lettre nue, pour afficher un raccourci.
+[[nodiscard]] std::uint32_t keyAtPosition(std::uint16_t scancode);
+
+/// La même question, en paramètre : `keyAtPosition` du système, ou une disposition de test. Ce
+/// que les fonctions libres de l'éditeur reçoivent, pour ne pas lire SDL elles-mêmes (ADR-0011).
+using KeyAtPosition = std::function<std::uint32_t(std::uint16_t)>;
 
 /// Le texte tapé n'arrive qu'entre ces deux appels : SDL n'en envoie pas sans, et sur un
 /// téléphone, c'est ce qui ouvre le clavier virtuel.

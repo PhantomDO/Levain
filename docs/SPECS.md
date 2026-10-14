@@ -1,6 +1,6 @@
 # Spécifications — Levain
 
-> Version 0.7 — 10/10/2026 — statut : **validé par Donnovan** (Proton remplacé, sondage du 10/10/2026)
+> Version 0.8 — 10/10/2026 — statut : **validé par Donnovan** (polices sous OFL : ADR-0036, sondage du 10/10/2026)
 > Documents liés : [ROADMAP](ROADMAP.md) · [JOURNAL](JOURNAL.md) · [ADR](adr/) · [Études](etudes/) ·
 > [Lectures](LECTURES.md) · [Q&R](QA.md)
 >
@@ -13,6 +13,9 @@
 > v0.6 : **Windows revient** (ADR-0035), compilé depuis Linux par clang-cl : Vulkan d'abord, puis Direct3D 12.
 > v0.7 : à chaque milestone de rendu, le sandbox lancé nativement sur le PC Windows de Donnovan et Direct3D 12 sous
 > WARP en CI, à la place du binaire de la CI sous Proton (§10, point 2).
+> v0.8 : la SIL Open Font License admise pour les polices seules (§5), pour Inter et les icônes de l'éditeur ; au
+> sondage « Police », Donnovan a répondu « Accepter l'OFL pour les polices (Recommandé) »
+> ([ADR-0036](adr/0036-mode-edition-vue-et-camera-de-l-editeur.md)).
 
 ## 1. Vision
 
@@ -82,6 +85,10 @@ consoles, mobile, macOS (NVRHI n'a pas de backend Metal), VR.
 ## 5. Contraintes
 
 - **Coût zéro** : outils et bibliothèques gratuits, sous licence permissive (MIT, BSD, zlib, Apache 2.0, Boost).
+  Une police est une donnée, pas du code : la SIL Open Font License 1.1 (OFL) est admise pour les polices, et pour
+  elles seules, car elle permet de les livrer avec le jeu, leur licence jointe, sans les vendre seules ; une police
+  modifiée (un sous-ensemble) reste sous OFL et perd son nom réservé, s'il y en a un
+  ([ADR-0036](adr/0036-mode-edition-vue-et-camera-de-l-editeur.md)).
 - **Build reproductible** : un preset CMake et une commande de build, sans étape manuelle hormis l'installation
   des outils listés dans `docs/SETUP.md`.
 - **CI verte obligatoire** avant toute fusion dans `main` : Linux, et Windows dès que Donnovan ajoute ses jobs
@@ -254,13 +261,14 @@ La machine de référence est sous Linux. Le code Windows est vérifié à trois
 
 1. **CI (à la PR vers `main`, une fois par fonctionnalité)** : le build Windows, Debug et Release, compilé sur un runner
    Linux par clang-cl, puis lancé sur un runner Windows : tests unitaires, tests GPU en Vulkan sur lavapipe, et tests
-   Direct3D 12 sous WARP (rendu logiciel), huit par configuration depuis #19
+   Direct3D 12 sous WARP (rendu logiciel), 42 par configuration depuis M7.7 (8 depuis #19)
    ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
 2. **Le PC Windows de Donnovan, à chaque milestone de rendu** (depuis le 10/10/2026) : le sandbox, en Debug, lancé
    nativement sur sa RTX 4070 (point 3), en Vulkan puis en Direct3D 12, fenêtré, sans un message des couches de
-   validation ni de la couche de debug D3D12. En Direct3D 12, de la distro, depuis la racine du dépôt,
-   `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20` le
-   redimensionne, le réduit et le restaure (`tools/wsl/README.md`). Les tests Direct3D 12 sous WARP tournent en CI
+   validation ni de la couche de debug D3D12. De la distro, depuis la racine du dépôt,
+   `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`, puis le même
+   avec `--gpu vulkan`, et pour l'éditeur (`levain_sandbox_editor.exe`) dans les deux backends (la réduction
+   recréait la swapchain à 0 × 0 sous Vulkan, build/GOTCHA.md 2026-10-14), le redimensionne, le réduit et le restaure (`tools/wsl/README.md`). Les tests Direct3D 12 sous WARP tournent en CI
    (point 1), et dans la distro par
    `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER ctest --test-dir build/windows-debug -R d3d12-warp`
    (build/SKILL.md, « Compiler et tester »). Ce point remplace le binaire de la CI lancé sous Proton sur la machine

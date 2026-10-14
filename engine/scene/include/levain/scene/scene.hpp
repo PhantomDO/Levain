@@ -48,6 +48,13 @@ struct SimulationPipeline
     flecs::entity_t pipeline = 0;
 };
 
+/// Le système des matrices monde, posé en singleton par le module pour que `composeWorldTransforms`
+/// le retrouve sans le chercher par son nom à chaque image.
+struct WorldTransformSystem
+{
+    flecs::entity_t system = 0;
+};
+
 /// Le module flecs de la scène : ses composants et ses systèmes, rangés par phase du pipeline de
 /// flecs. S'installe par `world.import<levain::scene::SceneModule>()`.
 ///
@@ -61,8 +68,18 @@ struct SceneModule
 /// Avance le monde d'une image : les pas de simulation que `frameSeconds` a mérités, puis une passe
 /// de rendu (interpolation et matrices monde). Renvoie le nombre de pas exécutés.
 ///
+/// `simulationPaused` (ADR-0036, décision 1) : aucun pas, `RenderAlpha` à 1, l'accumulateur
+/// intact ; la passe de rendu, elle, tourne encore.
+///
 /// La glu entre l'horloge de l'application et les deux pipelines de flecs ; le calcul, lui, est
-/// dans `planSteps` (`fixed_step.hpp`), qui se teste sans monde.
-int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds);
+/// dans `planFrame` (`fixed_step.hpp`), qui se teste sans monde.
+int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds,
+                 bool simulationPaused = false);
+
+/// Recompose les matrices monde, **le système `ComputeWorldTransforms` seul** (ADR-0036, décision
+/// 2) : ni pas, ni autre système de la passe de rendu. L'éditeur l'appelle après avoir écrit un
+/// `Transform` dans la même image, pour que le rendu le voie. Elle lit `RenderAlpha` tel que
+/// `advanceWorld` l'a posé : la recomposer ne change pas l'interpolation de l'image.
+void composeWorldTransforms(flecs::world& world);
 
 } // namespace levain::scene

@@ -20,6 +20,7 @@
 
 #include "levain/app/camera.hpp"
 #include "levain/app/models.hpp"
+#include "levain/app/scene_view.hpp"
 #include "levain/app/ui_layer.hpp"
 #include "levain/assets/asset_ref.hpp"
 #include "levain/assets/gltf.hpp"
@@ -28,6 +29,7 @@
 #include "levain/gpu/device.hpp"
 #include "levain/input/bindings.hpp"
 #include "levain/input/state.hpp"
+#include "levain/platform/input_script.hpp"
 #include "levain/platform/process.hpp"
 #include "levain/platform/window.hpp"
 #include "levain/render/camera.hpp"
@@ -118,8 +120,8 @@ struct AppSettings
     /// `--seconds N` : la durée de la boucle, sans limite par défaut. Comptée depuis la première
     /// image, pas depuis le lancement : en CI, le démarrage varie de 1 à plus de 10 s.
     double loopSeconds = std::numeric_limits<double>::infinity();
-    /// `--steps N` : exactement un pas de simulation par image, puis l'arrêt après N. Ce que fait
-    /// la simulation ne dépend plus de la machine.
+    /// `--steps N` : exactement un pas de simulation par image (aucun, à l'arrêt : `--steps` compte
+    /// des images), puis l'arrêt après N. Ce que fait la simulation ne dépend plus de la machine.
     std::optional<int> steps;
     /// `--time S` : le temps de la scène, figé. Deux captures au même temps se comparent pixel par
     /// pixel.
@@ -127,6 +129,9 @@ struct AppSettings
     std::optional<std::filesystem::path> capturePath; ///< `--capture f.png` : la dernière image.
     /// `--gpu vulkan|d3d12|webgpu` ; sans l'option, celui de la cible (`gpu::DefaultBackend`).
     nvrhi::GraphicsAPI api = gpu::DefaultBackend;
+    /// Direct3D 12 seulement : le GPU, ou WARP (`gpu::Adapter`). Pas d'option : les tests le
+    /// posent.
+    gpu::Adapter adapter = gpu::Adapter::HighPerformance;
     /// `--sky f.hdr|none` : le ciel qui éclaire la scène ; sans, `defaultSky` s'il existe.
     std::optional<std::filesystem::path> sky;
     std::optional<std::filesystem::path> defaultSky;
@@ -141,7 +146,40 @@ struct AppSettings
     /// `--ui on|off` : les panneaux de debug ouverts dès le départ, pour la CI et les captures.
     /// F1 les ouvre et les ferme (ADR-0032).
     bool showUiPanels = false;
+    /// `--input-script f` : des événements écrits dans un fichier, rejoués image par image en plus
+    /// des vrais (ADR-0036). `runApp` le lit avant d'ouvrir la fenêtre (`inputScriptOf`), et un
+    /// script illisible ou vide l'arrête.
+    std::optional<std::filesystem::path> inputScriptFile;
+    /// L'API des tests : le script lui-même, que la boucle rejoue (`platform::addScriptedEvents`).
+    /// Sans `--steps` ni `--seconds`, il mène la boucle, qui s'arrête après sa dernière image ;
+    /// avec l'un d'eux, la première fin gagne, et un script que la boucle n'a pas fini de jouer
+    /// fait échouer le programme (règle n°7). Sans script, l'input n'est pas touché. **Pour un
+    /// résultat qui se reproduise**, `--steps N` avec N au moins la longueur du script : sans lui,
+    /// le monde avance du temps réel de chaque image, qui change d'une machine à l'autre.
+    std::optional<platform::InputScript> inputScript;
+    /// **Pour les tests seulement** : fait passer pour interactive (`isScriptedRun` faux) une
+    /// exécution que `inputScript` rend scriptée, afin qu'un test du banc d'essai éprouve ce que
+    /// seul un humain déclenche (la modale « Quitter ? », les préférences). Aucune option de la
+    /// ligne de commande ne le pose.
+    /// Il débloque aussi les préférences de l'éditeur (`isScriptedRun` les coupe) : un test qui
+    /// s'en sert **injecte un dossier jetable** (`EditorOptions::preferencesDirectory`) ; sans lui,
+    /// l'éditeur n'a pas de préférences (jamais celles de qui lance le test).
+    bool testInteractive = false;
 };
+
+/// **Une exécution scriptée** (ADR-0036, décisions 10 et 11) : `--seconds`, `--steps`, `--time`,
+/// `--capture` ou `--input-script`. Elle ne lit ni n'écrit les préférences (les réglages d'un
+/// développeur fausseraient les clics des tests, et une session changerait la suivante), et elle se
+/// ferme sans demander (`FrameHooks::closeRequested`). Une exécution sans aucune de ces options est
+/// un humain devant sa fenêtre.
+[[nodiscard]] bool isScriptedRun(const AppSettings& settings);
+
+/// Le script d'input des réglages : celui du fichier `--input-script`, qui l'emporte, lu ici ;
+/// sinon celui de l'API de test ; rien sans l'un ni l'autre. Un fichier illisible ou refusé, un
+/// script vide (écrit à la main ou lu) sont des erreurs : `runApp` s'arrête avant d'ouvrir une
+/// fenêtre plutôt que de jouer sans ce que le test attend (règle n°7).
+[[nodiscard]] core::Result<std::optional<platform::InputScript>>
+inputScriptOf(const AppSettings& settings);
 
 /// Ce que `parseCommonOption` a fait d'une option.
 enum class OptionUse : std::uint8_t
@@ -166,7 +204,7 @@ inline constexpr std::string_view CommonOptionsUsage =
     "[--seconds N] [--steps N] [--time secondes] [--capture fichier.png] "
     "[--gpu vulkan|d3d12|webgpu] "
     "[--sky fichier.hdr|none] [--sun x,y,z] [--exposure N] [--tonemap clip|aces|agx|neutral] "
-    "[--anisotropy N] [--ui on|off]";
+    "[--anisotropy N] [--ui on|off] [--input-script fichier]";
 
 struct App;
 
@@ -198,6 +236,13 @@ struct FrameHooks
     /// ImGui du programme (ADR-0032), son HUD comme ses panneaux. Les panneaux du moteur, ouverts
     /// par F1, passent juste avant.
     std::function<void(App&)> ui{};
+    /// **La croix de la fenêtre** (ou Alt+F4) : `true` quand le programme répond « demandons
+    /// d'abord » (une modale, qu'il dessine dans `ui`) ; la boucle ne s'arrête alors pas, et c'est
+    /// à lui de poser `App::quitRequested` si on quitte. Sans lui, ou s'il rend `false`, la
+    /// boucle s'arrête. **Jamais appelé sous `isScriptedRun`** (une exécution scriptée se ferme
+    /// tout de suite), ni pour un signal (Ctrl+C, SIGTERM) : on arrête de l'extérieur sans
+    /// demander.
+    std::function<bool(App&)> closeRequested{};
 };
 
 /// Ce que la boucle anime, et que le programme lit ou remplit. Ses champs ne bougent pas en
@@ -216,8 +261,47 @@ struct App
 
     flecs::world world;
     scene::FixedStep fixedStep; ///< L'horloge de la simulation, 60 Hz (ADR-0016).
+    /// **La simulation à l'arrêt** (ADR-0036, décision 1), que pose l'éditeur en mode Édition,
+    /// lue avant `advanceWorld` : aucun pas, `RenderAlpha` à 1 (l'image montre le `Transform`
+    /// tapé), l'accumulateur de `fixedStep` ne reçoit pas le temps de l'image, de sorte que le
+    /// retour au jeu ne rejoue pas de rafale. `progress` tourne encore, et `--steps` compte des
+    /// images : à l'arrêt, il ne joue aucun pas. Les squelettes s'arrêtent avec elle
+    /// (`skinningState.clock`) ; l'eau, l'herbe et les matériaux gardent le temps de la scène.
+    bool simulationPaused = false;
+    /// **Le temps réel** (ADR-0036, décisions 9 et 12), que l'éditeur décoche avec « Temps réel »
+    /// (Ctrl+R) : décoché, le temps de la scène que lisent l'eau, l'herbe, les matériaux et le
+    /// point d'accroche `record` ne court plus (les squelettes, qui le suivent, non plus) ; la
+    /// simulation, elle, ne dépend que de `simulationPaused`. Recoché, il repart d'où il s'était
+    /// arrêté, sans saut. Vrai au départ : le jeu livré n'y touche pas.
+    bool realTime = true;
+    /// Les pas de simulation joués depuis le début, tous les `advanceWorld` : il n'avance pas tant
+    /// que la simulation est à l'arrêt, et reste à zéro si rien n'a jamais joué. Ce que compte un
+    /// bilan (le « pas : 0 » de l'éditeur lancé en Édition) ; la simulation, elle, ne le lit pas.
+    int stepsPlayed = 0;
+    /// **La recomposition sur demande** (ADR-0036, décision 2) : posée par `ui` (ou `frame`) quand
+    /// elle a écrit un `Transform` que l'image doit montrer, remise à faux par la boucle à chaque
+    /// image. Posée, la boucle recompose les matrices monde après `hooks.ui` et `ImGui::Render`
+    /// (`scene::composeWorldTransforms`), relit la caméra, puis rend : une écriture de l'éditeur
+    /// se voit dans son image, non dans la suivante. Sans elle, rien ne change.
+    bool recomposeAfterUi = false;
+    /// **Quitter**, posé par le programme qui avait répondu « demandons d'abord » à
+    /// `FrameHooks::closeRequested` : la boucle s'arrête à l'image suivante.
+    bool quitRequested = false;
+    /// **La caméra imposée** (ADR-0036, décision 6) : celle de l'éditeur, un état qui n'est pas
+    /// une entité. Posée, la boucle ne consulte pas `renderCameraOf`, même avant la première image
+    /// (`startApp` la respecte) : zéro ou plusieurs `CameraLens` ne l'arrêtent plus. Elle est relue
+    /// après `hooks.ui`, où l'éditeur la bouge. Sans elle, zéro ou plusieurs arrêtent toujours la
+    /// boucle (règle n°7).
+    std::optional<render::Camera> cameraOverride;
+    /// **Les aides de l'éditeur** : cachées en vue de jeu (touche G) et en Play, visibles sinon.
+    /// L'éditeur la pose à la fin de `ui` ; les étapes du rendu qui dessinent une aide (le contour
+    /// de la sélection du bac à sable, la grille de l'éditeur) la lisent et ne dessinent rien si
+    /// elle est fausse. Le moteur ne sait rien de plus de l'éditeur. Vrai au départ : un
+    /// programme sans éditeur garde ses aides.
+    bool editorHelpersVisible = true;
     /// La caméra du rendu de la dernière image, relue sur l'unique entité qui porte un
-    /// `CameraLens` (camera.hpp) : le programme la lit, pour viser à la souris par exemple.
+    /// `CameraLens` (camera.hpp), ou imposée (`cameraOverride`) : le programme la lit, pour viser à
+    /// la souris par exemple.
     render::Camera camera;
 
     /// Les modèles glTF, par GUID (ADR-0019) : le registre des chemins, les modèles en mémoire, et
@@ -254,12 +338,61 @@ struct App
     render::GpuTimeAverage totalGpu; ///< Depuis le début de la boucle, journalisé à la fin.
     int frameCount = 0;
 
+    /// **La disposition du clavier** (ADR-0036, décision 5) : la touche qu'une position porte,
+    /// pour afficher un raccourci (« Z » à la place du W, sur un AZERTY). Le système par défaut ;
+    /// un test pose la sienne. `keymapChanges` compte les `KeymapChanged` reçus : qui garde un
+    /// résultat de `keyAtPosition` (un conflit de raccourcis, morceau 16) le refait quand il
+    /// change.
+    platform::KeyAtPosition keyAtPosition = platform::keyAtPosition;
+    int keymapChanges = 0;
+
+    /// **Qui reçoit l'input** (ADR-0036, décision 4), lu par la boucle au début de chaque image
+    /// (`devicesTakenBy`, `uiEventsOf`) : l'éditeur la pose à la fin de l'image N pour l'image N+1,
+    /// car le survol et le focus ne se savent que dans `hooks.ui`. Un programme qui n'est pas un
+    /// éditeur (le sandbox, *Rando*) garde `Ui`, le filtre de M7.1.
+    InputRoute inputRoute = InputRoute::Ui;
+    /// **Où se voit la scène**, en pixels de l'image (ADR-0036) : sous la route *jeu*, la souris ne
+    /// va au jeu que dedans, ou capturée. La boucle le pose à chaque image avant `ui` : la fenêtre
+    /// entière, les panneaux fermés ; le trou du nœud central de la disposition, panneaux ouverts
+    /// (`drawEnginePanels`) ; la Vue de l'éditeur le remplace dans `ui` par le rectangle de son
+    /// image. Lu à l'image suivante, il est celui de l'image d'avant.
+    ScreenRect sceneRect;
+    /// **Le curseur**, en pixels de l'image comme `sceneRect` : la position que les événements de
+    /// cette image ont portée (ImGui la suit, un script d'input la déplace), et non celle que SDL
+    /// donne (`platform::cursorPosition`), qu'un script ne change pas. Posé avant `frame` : le
+    /// picking du sandbox le lit, avec `scenePixelAt`.
+    platform::CursorPosition cursor;
+    /// **Les événements de l'image**, tels que la fenêtre (et le script d'input) les a rendus,
+    /// avant tout filtre de route ou de capture (ADR-0036, décision 6) : l'éditeur y lit le
+    /// mouvement relatif de la souris, les boutons et la molette de ses gestes, que `inputRoute`
+    /// retire au jeu et la capture à ImGui. Posés après `beginUiFrame`, valables de `frame` à la
+    /// fin de `ui` ; vides avant la première image.
+    platform::Events rawFrameEvents;
+    /// La durée de l'image, en secondes, que le monde compte : celle de l'image précédente, ou le
+    /// pas fixe sous `--steps` (un test rejoue ainsi les mêmes distances sur toutes les machines).
+    /// Posée avec `rawFrameEvents`, lue par `frame` (le vol de la caméra de l'éditeur).
+    float frameSeconds = 0.0f;
+    /// **La scène dans une texture** (ADR-0036, décision 7) : la texture de la Vue, sa taille qui
+    /// ne se recrée qu'une fois stable, et où va la scène à cette image (`SceneOutput`). Le
+    /// programme n'y touche que par `requestScene`, dans `hooks.ui`. Sans demande, la scène remplit
+    /// la fenêtre comme avant : le sandbox et *Rando* n'en savent rien.
+    SceneView sceneView;
     /// **`App` possède la capture de la souris** (ADR-0032) : le programme pose ce qu'il veut,
     /// et la boucle seule capture, sauf quand les panneaux de debug sont ouverts. Le programme lit
     /// l'état réel dans `mouseCaptured`, celui de la fin de l'image précédente : la boucle capture
     /// après `FrameHooks::frame`.
     bool mouseCaptureWanted = false;
+    /// Le vol de l'éditeur (ADR-0036, décision 8) : la capture tient panneaux ouverts aussi
+    /// (`mouseShouldBeCaptured`). Faux par défaut ; l'éditeur le pose le temps d'un vol, et
+    /// `enterMode` le remet à faux avec `mouseCaptureWanted`.
+    bool mouseCaptureOverPanels = false;
     bool mouseCaptured = false;
+    /// **Où remettre le curseur quand la capture finit**, en pixels de l'image : le programme le
+    /// pose en la commençant (l'éditeur, le point où le clic droit a été pressé). Sans cela, SDL
+    /// ajoute le mouvement relatif à sa position et le curseur réapparaît décalé de tout le
+    /// glissé, peut-être sur un panneau. La boucle le consomme à la fin de la capture
+    /// (`platform::warpMouse`, avant de quitter le mode relatif), puis le vide.
+    std::optional<platform::CursorPosition> mouseReturnTo;
     /// ImGui et ses panneaux. Avant les points d'accroche, donc détruite après eux, et avec
     /// `App`, avant le device dont elle tient des ressources (ADR-0029).
     UiLayer ui;
@@ -267,6 +400,37 @@ struct App
     /// Le dernier champ, donc le premier détruit : l'état du programme part avant le reste.
     FrameHooks hooks;
 };
+
+/// **La Vue demande sa taille** (ADR-0036, décision 7), dans `hooks.ui`, avant `ImGui::Image` :
+/// la scène de cette image est rendue dans une texture de cette taille, que l'on montre avec
+/// l'identifiant rendu ; la swapchain est effacée et seule l'UI y est dessinée. Rien si la Vue n'a
+/// rien à montrer (`size.empty()`) : la scène n'est pas rendue du tout, et la swapchain est
+/// effacée. **Ne rien demander** de l'image, c'est la scène dans la fenêtre, comme avant la Vue
+/// (F1, le sandbox, *Rando*) : une Vue fermée demande donc 0 × 0, et ne se tait pas. **Chaque image
+/// où la Vue n'est pas montrée**, fermée, cachée derrière un autre onglet ou repliée
+/// (`ImGui::Begin` rend faux), demande 0 × 0 : le panneau ouvert sans demande, la scène repart dans
+/// la fenêtre derrière les panneaux, et l'image HDR et la profondeur changent de taille à chaque
+/// bascule (un arrêt du GPU chacune). Le moteur ne peut pas le deviner : « rien demandé » est le
+/// sandbox. La texture ne se recrée qu'une fois la taille stable (`StableFramesBeforeResize`),
+/// l'ancienne est étirée en attendant et libérée après l'image (`requestSceneTexture`).
+[[nodiscard]] std::optional<ImTextureID> requestScene(App& app, const SceneSize& size);
+
+/// **« Réinitialiser la disposition »** (ADR-0036, décision 10) : rebâtit la disposition par défaut
+/// de l'éditeur sur l'espace d'ancrage, même s'il existe déjà (la restaurée, ou celle que
+/// l'utilisateur a défaite), et rouvre les trois fenêtres du moteur. Les fenêtres du moteur sont
+/// ancrées sur leurs nœuds tout de suite, y compris celles qui existent (`DockBuilderDockWindow` ne
+/// touche une fenêtre déjà créée que par `SetWindowDock`) ; celles de l'éditeur, que `app` ne
+/// connaît pas, le sont par l'appelant sur les nœuds rendus, qui est aussi `app.ui.dock`.
+/// À appeler entre `NewFrame` et la soumission de l'espace d'ancrage de l'image : le `frame` du
+/// programme. Pas de panneaux ouverts (F1) : sans effet utile, la disposition se refait à
+/// l'ouverture suivante.
+[[nodiscard]] DockNodes resetEditorLayout(App& app);
+
+/// **Pose le style de l'UI** et le règle tout de suite à l'échelle de la fenêtre ; la boucle le
+/// refait à chaque changement d'échelle de l'écran (`UiLayer::style`). L'éditeur l'appelle une
+/// fois, dans son démarrage (`withEditor`), après les polices : un seul propriétaire du style,
+/// `App`, au lieu d'un réglage de l'éditeur que personne ne referait.
+void setUiStyle(App& app, UiStyleFunction style);
 
 /// Le monde d'une application, sans fenêtre ni GPU : la scène, les assets, les composants d'`app`
 /// décrits (ADR-0034), et `PlayerInput` enregistré (`createApp` le pose ensuite). Appelée par

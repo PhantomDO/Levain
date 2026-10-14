@@ -19,6 +19,7 @@ set(cpuTests
     file_test.cpp
     frame_time_test.cpp
     gltf_test.cpp
+    i18n_test.cpp
     image_test.cpp
     log_test.cpp
     physics_test.cpp
@@ -34,19 +35,37 @@ set(nativeTests
     app_ui_test.cpp
     camera_control_test.cpp
     camera_test.cpp
+    console_test.cpp
     culling_test.cpp
+    debug_lines_test.cpp
+    editor_actions_test.cpp
+    editor_camera_test.cpp
+    editor_gestures_test.cpp
+    editor_grid_test.cpp
+    editor_menus_test.cpp
+    editor_preferences_test.cpp
+    editor_shortcut_edit_test.cpp
+    editor_shortcuts_test.cpp
     editor_test.cpp
     environment_test.cpp
     grass_test.cpp
+    input_script_test.cpp
     input_test.cpp
     light_clusters_test.cpp
+    log_ring_test.cpp
+    log_sink_test.cpp
+    paths_test.cpp
+    scene_view_test.cpp
     shadows_test.cpp
     stages_test.cpp
     terrain_test.cpp
     tangent_test.cpp
+    ui_i18n_test.cpp
     process_test.cpp
     shader_reload_test.cpp
     texture_test.cpp
+    ui_fonts_test.cpp
+    ui_style_test.cpp
     ui_test.cpp
     water_test.cpp
     webgpu_test.cpp
@@ -87,6 +106,8 @@ else()
         plugin::terrain plugin::water doctest::doctest)
     # La scène du lac de la démo (sandbox/src/lake_shore.hpp), que terrain_test.cpp simule sans GPU.
     target_include_directories(levain_tests PRIVATE ${PROJECT_SOURCE_DIR}/sandbox/src)
+    # Les panneaux du moteur, internes à app (panels.hpp) : ui_i18n_test.cpp en construit la disposition.
+    target_include_directories(levain_tests PRIVATE ${PROJECT_SOURCE_DIR}/engine/app/src)
     # Le WGSL produit par le build, que webgpu_test.cpp fait compiler au backend WebGPU.
     target_compile_definitions(levain_tests PRIVATE LEVAIN_SHADER_DIR="${LEVAIN_SHADER_DIR}")
     add_dependencies(levain_tests levain_shaders)
@@ -113,6 +134,7 @@ set_source_files_properties(doctest_main.cpp
 target_compile_definitions(levain_tests PRIVATE
     LEVAIN_EXPECTED_VERSION="${PROJECT_VERSION}"
     LEVAIN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache"
     LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 
 # doctest_discover_tests lance le binaire à la compilation pour lister ses cas, et en
@@ -350,6 +372,47 @@ endif()
 if(NOT EMSCRIPTEN)
     levain_add_symbol_check(build.no-editor levain_sandbox FORBID "levain::editor::" REQUIRE "levain::app::")
     levain_add_symbol_check(build.editor-symbols levain_sandbox_editor REQUIRE "levain::editor::")
+
+    # Le picking du sandbox dans la Vue (ADR-0036, morceau 8), l'exécutable éditeur de bout en bout : en jeu (Alt+P), un
+    # clic dans la Vue choisit le corps visé, avec le curseur des événements et le rectangle de la Vue
+    # (`scenePixelAt`) ; le même clic sur la hiérarchie, hors de la Vue, ne vise rien. Les deux exigent que le jeu ait
+    # joué (`mode=play`), sans quoi « rien visé » serait aussi un éditeur qui n'a pas joué (règle n°7). Le pixel est pris
+    # au pas fixe de `--steps` (le tas de caisses de la vue physique, déterministe) : une caisse, pas le sol.
+    # **Toute modification de la disposition (largeur des colonnes, marges de la Vue) déplace le rectangle de la Vue
+    # et donc le pixel visé : remesurer le point de vue_pick_inside.txt** (la distance n'est pas dans le motif, qui
+    # ne veut que la caisse). Le motif de passage laisse ctest ignorer le code de sortie, d'où le script de sortie et
+    # le refus d'un rapport de sanitizer ou d'une erreur d'exécution (règle n°4). Sous Linux seulement, comme les
+    # autres lancements de fenêtre de l'exécutable éditeur.
+    if(NOT WIN32)
+        set(pickFailure "Sanitizer|runtime error")
+        add_test(NAME editor.vue-pick-inside
+            COMMAND ${CMAKE_COMMAND}
+                    "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;40;--input-script;${CMAKE_CURRENT_SOURCE_DIR}/data/editor/vue_pick_inside.txt"
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
+        set_tests_properties(editor.vue-pick-inside PROPERTIES
+            ENVIRONMENT "${testVideo}"
+            PASS_REGULAR_EXPRESSION "[[]sandbox[]] sélection : ::crate_3_0_8 à [0-9.]+ m.*editor.mode mode=play"
+            FAIL_REGULAR_EXPRESSION "${pickFailure}")
+        add_test(NAME editor.vue-pick-outside
+            COMMAND ${CMAKE_COMMAND}
+                    "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;40;--input-script;${CMAKE_CURRENT_SOURCE_DIR}/data/editor/vue_pick_outside.txt"
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
+        set_tests_properties(editor.vue-pick-outside PROPERTIES
+            ENVIRONMENT "${testVideo}"
+            PASS_REGULAR_EXPRESSION "editor.mode mode=play steps=[1-9]"
+            FAIL_REGULAR_EXPRESSION "[[]sandbox[]] sélection :|${pickFailure}")
+    endif()
+
+    # L'exécutable éditeur refuse `--gpu webgpu` avant d'ouvrir fenêtre ni device (ADR-0036, décision 7) : le message de
+    # l'éditeur doit être celui qui sort (un adaptateur Dawn absent en dirait un autre, règle n°7), et aucun device ne
+    # doit être né. Le programme sort en 1, ctest ne juge que la sortie ; sans le refus, le sandbox démarre ou échoue
+    # ailleurs, et le motif manque. Pas de GPU, pas de fenêtre : ce test tourne partout, runner Windows compris. Les deux
+    # motifs sont en ASCII (le « é » de « éditeur » et de « créé » n'en fait pas partie) : l'encodage de la console n'y
+    # change rien.
+    add_test(NAME editor.refuses-webgpu COMMAND levain_sandbox_editor --gpu webgpu --seconds 1)
+    set_tests_properties(editor.refuses-webgpu PROPERTIES
+        ENVIRONMENT "${testVideo}"
+        PASS_REGULAR_EXPRESSION "n'a pas de WebGPU [(]la page web" FAIL_REGULAR_EXPRESSION "device cr")
 endif()
 
 levain_add_host_test(assets.metas-committed
@@ -376,10 +439,159 @@ target_link_libraries(levain_ui_gpu PRIVATE levain::gpu levain::platform levain:
 add_test(NAME gpu.ui.vulkan COMMAND levain_ui_gpu vulkan)
 set_tests_properties(gpu.ui.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 add_test(NAME gpu.ui.webgpu COMMAND levain_ui_gpu webgpu)
+# Les fautes du programme avec ses images (ADR-0036, morceau 6) : dessiner une image libérée, la libérer deux fois. Le
+# programme se relance pour l'enfant qui commet la faute et juge sa sortie (tests/ui_gpu.cpp) : en Debug l'assertion
+# l'arrête, en Release il refuse ou saute et le dit au journal. Un signal ne se juge pas par PASS_REGULAR_EXPRESSION
+# (ctest l'appelle « Exception »). Pas de variante Direct3D 12 : le code est celui de recordUi et de releaseUiTexture, le
+# même pour les backends.
+add_test(NAME gpu.ui-released-id.vulkan COMMAND levain_ui_gpu vulkan released-id)
+set_tests_properties(gpu.ui-released-id.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+add_test(NAME gpu.ui-released-id.webgpu COMMAND levain_ui_gpu webgpu released-id)
+add_test(NAME gpu.ui-released-twice.vulkan COMMAND levain_ui_gpu vulkan released-twice)
+set_tests_properties(gpu.ui-released-twice.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+add_test(NAME gpu.ui-released-twice.webgpu COMMAND levain_ui_gpu webgpu released-twice)
+
+# Le banc d'essai de l'App (ADR-0036) : un script d'input rejoué dans la vraie boucle, hors écran. Une touche scriptée
+# atteint PlayerInput par sa position et ImGui par sa lettre (la paire AZERTY).
+add_executable(levain_app_script app_script_gpu.cpp)
+target_link_libraries(levain_app_script PRIVATE levain::app levain::assets levain::input levain::platform levain::scene levain::ui)
+target_compile_definitions(levain_app_script PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.app-script.vulkan COMMAND levain_app_script vulkan)
+set_tests_properties(gpu.app-script.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# La boucle de l'App par ses points nommés (ADR-0036, morceau 4) : la simulation à l'arrêt, l'horloge des squelettes, la
+# recomposition après ui et la caméra imposée, dans la vraie boucle hors écran.
+add_executable(levain_app_loop app_loop_gpu.cpp)
+target_link_libraries(levain_app_loop PRIVATE levain::app levain::assets levain::platform levain::render levain::scene)
+target_compile_definitions(levain_app_loop PRIVATE
+    LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+add_test(NAME gpu.app-loop.vulkan COMMAND levain_app_loop vulkan)
+set_tests_properties(gpu.app-loop.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# Les modes de l'éditeur (ADR-0036, morceau 5) : l'Édition ne joue rien et ne donne rien au jeu, Alt+P joue, la route
+# de l'input suit le mode, Échap revient et rend la souris, dans la vraie boucle hors écran.
+add_executable(levain_editor_modes editor_modes_gpu.cpp)
+target_link_libraries(levain_editor_modes PRIVATE levain::editor levain::app levain::input levain::platform levain::scene)
+target_compile_definitions(levain_editor_modes PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-modes.vulkan COMMAND levain_editor_modes vulkan)
+set_tests_properties(gpu.editor-modes.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# Les raccourcis de l'éditeur (ADR-0036, morceau 10) dans la vraie boucle : une paire AZERTY donne Z à la place du W, Maj+F1
+# laisse les panneaux ouverts, et après un vol à la souris capturée le menu du clic droit s'ouvre.
+add_executable(levain_editor_shortcuts editor_shortcuts_gpu.cpp)
+target_link_libraries(levain_editor_shortcuts PRIVATE levain::editor levain::app levain::input levain::platform levain::scene)
+target_compile_definitions(levain_editor_shortcuts PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.editor-shortcuts.vulkan COMMAND levain_editor_shortcuts vulkan)
+set_tests_properties(gpu.editor-shortcuts.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# Les gestes de la caméra de l'éditeur (ADR-0036, morceau 11) dans la vraie boucle : clic droit tenu et la touche à la place du W
+# (QWERTY et AZERTY), la capture de la souris pendant le vol seulement, rien hors de la Vue, la molette, l'orbite, le pan, F.
+add_executable(levain_editor_gestures editor_gestures_gpu.cpp)
+target_link_libraries(levain_editor_gestures PRIVATE levain::editor levain::app levain::core levain::platform levain::render levain::scene)
+target_compile_definitions(levain_editor_gestures PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-gestures.vulkan COMMAND levain_editor_gestures vulkan)
+set_tests_properties(gpu.editor-gestures.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# Les menus, les barres et le temps réel de l'éditeur (ADR-0036, morceau 12) dans la vraie boucle : « Temps réel » fige le
+# temps de la scène, Ctrl+S atteint son action, la barre d'outils règle la vitesse de la caméra, l'Aide liste les raccourcis.
+add_executable(levain_editor_menus editor_menus_gpu.cpp)
+target_link_libraries(levain_editor_menus PRIVATE levain::editor levain::app levain::core levain::platform levain::scene levain::ui)
+target_compile_definitions(levain_editor_menus PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-menus.vulkan COMMAND levain_editor_menus vulkan)
+set_tests_properties(gpu.editor-menus.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# Fermer l'éditeur (ADR-0036, morceau 13) : la croix ouvre la modale « Quitter ? » (jamais sous un lancement scripté),
+# Annuler garde l'éditeur, Quitter l'arrête, SIGTERM quitte sans demander, le titre reste en ASCII.
+add_executable(levain_editor_close editor_close_gpu.cpp)
+target_link_libraries(levain_editor_close PRIVATE levain::editor levain::app levain::platform levain::scene)
+target_compile_definitions(levain_editor_close PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-close.vulkan COMMAND levain_editor_close vulkan)
+set_tests_properties(gpu.editor-close.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# La console de l'éditeur (ADR-0036, morceau 14) dans la vraie boucle : la capture du journal posée avant runApp, la fenêtre
+# dessinée par withEditor sans cacher la hiérarchie, la case « Erreurs » cochée à la souris scriptée.
+add_executable(levain_editor_console editor_console_gpu.cpp)
+target_link_libraries(levain_editor_console PRIVATE levain::editor levain::app levain::core levain::platform levain::scene levain::ui)
+target_compile_definitions(levain_editor_console PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-console.vulkan COMMAND levain_editor_console vulkan)
+set_tests_properties(gpu.editor-console.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# La disposition et les préférences de l'éditeur (ADR-0036, morceau 15) dans la vraie boucle : écrire puis relire (vitesse, « Temps
+# réel », console fermée, inspecteur rangé en bas), « Réinitialiser la disposition », quitter en jeu, la Vue fermée, et les
+# contre-tests (une exécution scriptée n'écrit ni ne lit, un fichier refusé est dit et mis de côté). Un dossier jetable est injecté :
+# jamais celui de qui lance le test. **Une entrée par scénario** : chacun fait quatre ou cinq lancements de l'application, et la CI
+# donne 120 s par test (asan et WARP vont deux à trois fois plus lentement qu'un seul test de douze lancements ne le supporterait).
+set(editorPreferencesScenarios round-trip reset play central scripted refused)
+add_executable(levain_editor_preferences editor_preferences_gpu.cpp)
+target_link_libraries(levain_editor_preferences PRIVATE levain::editor levain::app levain::assets levain::core levain::platform levain::scene levain::ui)
+target_compile_definitions(levain_editor_preferences PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+foreach(scenario ${editorPreferencesScenarios})
+    add_test(NAME gpu.editor-preferences-${scenario}.vulkan COMMAND levain_editor_preferences vulkan ${scenario})
+    set_tests_properties(gpu.editor-preferences-${scenario}.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+endforeach()
+
+# La fenêtre « Raccourcis » de l'éditeur (ADR-0036, morceau 16) : changer un accord, le retrouver au redémarrage, nommer un
+# conflit, rien ne part pendant la saisie, réinitialiser. Un scénario par ctest (cinq lancements au plus chacun).
+set(editorShortcutSettingsScenarios change conflict capture reset menu scripted layout play focus leak azerty resetconflict held refusedreset)
+add_executable(levain_editor_shortcut_settings editor_shortcut_settings_gpu.cpp)
+target_link_libraries(levain_editor_shortcut_settings PRIVATE levain::editor levain::app levain::assets levain::core levain::platform levain::scene levain::ui)
+target_compile_definitions(levain_editor_shortcut_settings PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+foreach(scenario ${editorShortcutSettingsScenarios})
+    add_test(NAME gpu.editor-shortcut-settings-${scenario}.vulkan COMMAND levain_editor_shortcut_settings vulkan ${scenario})
+    set_tests_properties(gpu.editor-shortcut-settings-${scenario}.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+endforeach()
+
+# La grille au sol, le menu « Afficher » et la touche G (ADR-0036, morceau 17) : ce que la grille dessine est observé (ses
+# lignes au rendu), pas seulement la case. Un scénario par ctest (quatre lancements au plus chacun).
+set(editorGridScenarios menu key play pixels)
+add_executable(levain_editor_grid editor_grid_gpu.cpp)
+target_link_libraries(levain_editor_grid PRIVATE levain::editor levain::app levain::assets levain::core levain::render levain::platform levain::scene)
+target_compile_definitions(levain_editor_grid PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+foreach(scenario ${editorGridScenarios})
+    add_test(NAME gpu.editor-grid-${scenario}.vulkan COMMAND levain_editor_grid vulkan ${scenario})
+    set_tests_properties(gpu.editor-grid-${scenario}.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+endforeach()
+
+# La Vue de l'éditeur (ADR-0036, morceau 8) : chaque fenêtre sur son nœud et l'inspecteur visible, la taille demandée
+# égale à celle du contenu, le menu « Fenêtre » qui ferme la Vue (0 x 0, aucune scène) puis la rouvre.
+add_executable(levain_editor_view editor_view_gpu.cpp)
+target_link_libraries(levain_editor_view PRIVATE levain::editor levain::app levain::core levain::platform levain::scene levain::ui)
+target_compile_definitions(levain_editor_view PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-view.vulkan COMMAND levain_editor_view vulkan)
+set_tests_properties(gpu.editor-view.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# La scène dans une texture (ADR-0036, morceau 7) : la Vue demande une taille, le renderer rend à cette taille, la texture
+# ne se recrée qu'une fois la taille stable, une Vue fermée ne rend rien et F1 rend la scène à la fenêtre, dans la vraie
+# boucle hors écran.
+add_executable(levain_scene_view scene_view_gpu.cpp)
+target_link_libraries(levain_scene_view PRIVATE levain::app levain::assets levain::gpu levain::platform levain::render levain::scene)
+target_compile_definitions(levain_scene_view PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gpu.scene-view.vulkan COMMAND levain_scene_view vulkan)
+set_tests_properties(gpu.scene-view.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# Le coût de la recomposition après ui, sur les 10 000 cubes de la démo : un banc, hors de ctest, comme levain_scene_bench
+# (tools/recompose-cost.sh le lance en Release ; le chiffre dépend de la machine).
+add_executable(levain_recompose_bench recompose_bench.cpp)
+target_link_libraries(levain_recompose_bench PRIVATE levain::app levain::platform levain::scene)
+target_compile_definitions(levain_recompose_bench PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 
 # ImGui reste dans ui/ et au-dessus, et SDL hors de ui/ (SPECS §7, ADR-0032).
 levain_add_host_test(deps.imgui-visibility
     ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_imgui_visibility.cmake)
+
+# Aucun littéral affiché par ImGui hors du catalogue des textes, dans l'éditeur et les panneaux du moteur (ADR-0036).
+levain_add_host_test(i18n.untranslated
+    ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_untranslated.py ${PROJECT_SOURCE_DIR})
 
 # Un programme qui ne relie que levain::gpu (gpu_alone.cpp) : une dépendance manquante ou mal ordonnée
 # casse le build, comme elle casserait celui d'un jeu.
@@ -441,7 +653,7 @@ foreach(scene triangle cube cube-instance lines shadow)
 endforeach()
 
 # Direct3D 12 sur WARP, le rendu logiciel de Windows (#19) : le runner de la CI n'a pas de GPU, WARP est son seul
-# adaptateur. Les mêmes scènes et les mêmes références que Vulkan, et les trois programmes GPU. Le pilote offscreen de
+# adaptateur. Les mêmes scènes et les mêmes références que Vulkan, et les quatre programmes GPU. Le pilote offscreen de
 # SDL, et non testVideo : sans HWND, Direct3D 12 n'a ni swapchain ni bureau à attendre (device_d3d12.cpp). Lancé de la
 # distro, l'exe ne reçoit cette variable que par WSLENV (build/GOTCHA.md). Windows seulement : ces tests n'existent pas
 # ailleurs, et windows-build les liste pour windows-test (ci.yml).
@@ -453,7 +665,37 @@ if(WIN32)
     add_test(NAME gpu.light-clusters.d3d12-warp COMMAND levain_light_clusters d3d12-warp)
     add_test(NAME gpu.environment.d3d12-warp COMMAND levain_environment d3d12-warp)
     add_test(NAME gpu.ui.d3d12-warp COMMAND levain_ui_gpu d3d12-warp)
+    # Celui-ci passe par runApp, dont la validation suit les assertions (EnableValidation) : en Release, il tourne sans les
+    # couches de debug que les autres forcent. Le contrôle des couches (ci.yml) repose sur ces autres tests.
+    add_test(NAME gpu.app-script.d3d12-warp COMMAND levain_app_script d3d12-warp)
+    add_test(NAME gpu.app-loop.d3d12-warp COMMAND levain_app_loop d3d12-warp)
+    add_test(NAME gpu.editor-modes.d3d12-warp COMMAND levain_editor_modes d3d12-warp)
+    add_test(NAME gpu.editor-console.d3d12-warp COMMAND levain_editor_console d3d12-warp)
+    add_test(NAME gpu.editor-view.d3d12-warp COMMAND levain_editor_view d3d12-warp)
+    set(editorPreferencesWarp)
+    foreach(scenario ${editorPreferencesScenarios})
+        add_test(NAME gpu.editor-preferences-${scenario}.d3d12-warp COMMAND levain_editor_preferences d3d12-warp ${scenario})
+        list(APPEND editorPreferencesWarp gpu.editor-preferences-${scenario}.d3d12-warp)
+    endforeach()
+    set(editorShortcutSettingsWarp)
+    foreach(scenario ${editorShortcutSettingsScenarios})
+        add_test(NAME gpu.editor-shortcut-settings-${scenario}.d3d12-warp COMMAND levain_editor_shortcut_settings d3d12-warp ${scenario})
+        list(APPEND editorShortcutSettingsWarp gpu.editor-shortcut-settings-${scenario}.d3d12-warp)
+    endforeach()
+    set(editorGridWarp)
+    foreach(scenario ${editorGridScenarios})
+        add_test(NAME gpu.editor-grid-${scenario}.d3d12-warp COMMAND levain_editor_grid d3d12-warp ${scenario})
+        list(APPEND editorGridWarp gpu.editor-grid-${scenario}.d3d12-warp)
+    endforeach()
+    add_test(NAME gpu.scene-view.d3d12-warp COMMAND levain_scene_view d3d12-warp)
+    add_test(NAME gpu.editor-shortcuts.d3d12-warp COMMAND levain_editor_shortcuts d3d12-warp)
+    add_test(NAME gpu.editor-gestures.d3d12-warp COMMAND levain_editor_gestures d3d12-warp)
+    add_test(NAME gpu.editor-close.d3d12-warp COMMAND levain_editor_close d3d12-warp)
+    add_test(NAME gpu.editor-menus.d3d12-warp COMMAND levain_editor_menus d3d12-warp)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
+        gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp gpu.editor-console.d3d12-warp
+        gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp gpu.editor-gestures.d3d12-warp
+        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp ${editorPreferencesWarp} ${editorShortcutSettingsWarp} ${editorGridWarp}
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 

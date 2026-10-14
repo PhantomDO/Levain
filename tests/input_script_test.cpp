@@ -1,0 +1,303 @@
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <string_view>
+
+#include <doctest/doctest.h>
+
+#include "levain/assets/asset_ref.hpp"
+#include "levain/platform/input.hpp"
+#include "levain/platform/input_script.hpp"
+#include "levain/platform/window.hpp"
+
+using levain::platform::addScriptedEvents;
+using levain::platform::Events;
+using levain::platform::InputDevice;
+using levain::platform::InputEventType;
+using levain::platform::InputScript;
+using levain::platform::parseInputScript;
+using levain::platform::scriptLength;
+using levain::platform::UiEventType;
+using levain::platform::WindowEventType;
+using levain::platform::withoutRealInput;
+
+namespace
+{
+
+constexpr std::uint16_t ScancodeW = 26;
+
+InputScript parsed(std::string_view text)
+{
+    auto script = parseInputScript(text);
+    REQUIRE_MESSAGE(script.has_value(), script.error().message);
+    return *script;
+}
+
+Events eventsAt(const InputScript& script, int frame)
+{
+    Events events;
+    addScriptedEvents(events, script, frame);
+    return events;
+}
+
+/// Le script est refusé, et le message nomme la ligne et le champ.
+void refused(std::string_view text, std::string_view line, std::string_view field)
+{
+    const auto script = parseInputScript(text);
+    REQUIRE_FALSE(script.has_value());
+    CHECK_MESSAGE(script.error().message.starts_with(std::string{line} + ", " + std::string{field}),
+                  script.error().message);
+}
+
+} // namespace
+
+TEST_CASE("un script ajoute ses événements à ceux de l'image, après les vrais, et à elle seule")
+{
+    const InputScript script = parsed("# un commentaire\n"
+                                      "\n"
+                                      "2 key down W   # la position W\n"
+                                      "2 button down right\n");
+    CHECK(scriptLength(script) == 3); // l'image du dernier événement, plus une
+
+    Events real;
+    real.input.push_back(
+        {.type = InputEventType::ButtonDown, .device = InputDevice::Keyboard, .code = 7});
+    addScriptedEvents(real, script, 1);
+    CHECK(real.input.size() == 1); // l'image 1 n'a rien de scripté
+    addScriptedEvents(real, script, 2);
+    REQUIRE(real.input.size() == 3);
+    CHECK(real.input[0].code == 7); // le vrai d'abord
+    CHECK(real.input[1].code == ScancodeW);
+    CHECK(real.input[2].device == InputDevice::Mouse);
+    CHECK(real.input[2].code == 3); // le bouton droit de SDL
+    CHECK(real.ui.size() == 2);     // l'interface reçoit les mêmes, par la lettre et le bouton
+    CHECK(scriptLength(InputScript{}) == 0);
+}
+
+TEST_CASE("sous un script, des vrais événements d'une image ne restent que ceux de la fenêtre")
+{
+    // Le vrai curseur, replacé par la fin d'un vol au point de l'appui, revenait sur le runner
+    // Windows après le déplacement scripté : sous un script, ni lui, ni une touche, ni le focus.
+    Events real;
+    real.window.push_back({.type = WindowEventType::Resized, .pixelSize = {640, 360}});
+    real.window.push_back({.type = WindowEventType::CloseRequested});
+    // Le zoom du système est la fenêtre, pas l'input : il refait le style sous un script aussi.
+    real.window.push_back({.type = WindowEventType::ScaleChanged, .displayScale = 1.25f});
+    real.input.push_back(
+        {.type = InputEventType::ButtonDown, .device = InputDevice::Keyboard, .code = 7});
+    real.input.push_back(
+        {.type = InputEventType::AxisMotion, .device = InputDevice::Mouse, .code = 0, .value = 3});
+    real.ui.push_back({.type = UiEventType::MouseMoved, .x = 635.0f, .y = 283.0f});
+    real.ui.push_back({.type = UiEventType::FocusLost});
+    real.ui.push_back({.type = UiEventType::KeymapChanged});
+    real.text = "a";
+
+    const Events kept = withoutRealInput(real);
+
+    REQUIRE(kept.window.size() == 3);
+    CHECK(kept.window[0].type == WindowEventType::Resized);
+    CHECK(kept.window[0].pixelSize.width == 640);
+    CHECK(kept.window[1].type == WindowEventType::CloseRequested);
+    CHECK(kept.window[2].type == WindowEventType::ScaleChanged);
+    CHECK(kept.window[2].displayScale == 1.25f);
+    CHECK(kept.input.empty());
+    CHECK(kept.ui.empty());
+    CHECK(kept.text.empty());
+}
+
+TEST_CASE("une touche a un scancode pour le jeu et un keycode pour ImGui : la paire AZERTY")
+{
+    const Events qwerty = eventsAt(parsed("0 key down W\n"), 0);
+    REQUIRE(qwerty.ui.size() == 1);
+    CHECK(qwerty.ui[0].scancode == ScancodeW);
+    CHECK(qwerty.ui[0].keycode == 'w');
+
+    // Sur un AZERTY, la touche à la place du W tape « z » : même scancode, autre lettre.
+    const Events azerty = eventsAt(parsed("0 key down W as z\n"), 0);
+    REQUIRE((azerty.input.size() == 1 && azerty.ui.size() == 1));
+    CHECK(azerty.input[0].code == ScancodeW);
+    CHECK(azerty.ui[0].scancode == ScancodeW);
+    CHECK(azerty.ui[0].keycode == 'z');
+
+    // Une touche qui ne tape rien a pour keycode son scancode, bit 30 posé (F1 : 58).
+    CHECK(eventsAt(parsed("0 key down F1\n"), 0).ui[0].keycode == (58U | (1U << 30U)));
+}
+
+TEST_CASE("les modificateurs tenus accompagnent les touches suivantes, comme chez SDL")
+{
+    const InputScript script = parsed("0 key down Left Ctrl\n"
+                                      "1 key down Z\n"
+                                      "2 key up Left Ctrl\n"
+                                      "3 key down Z\n");
+    CHECK(eventsAt(script, 0).ui[0].modifiers.ctrl); // la touche Ctrl se compte elle-même
+    CHECK(eventsAt(script, 1).ui[0].modifiers.ctrl);
+    CHECK_FALSE(eventsAt(script, 2).ui[0].modifiers.ctrl);
+    CHECK_FALSE(eventsAt(script, 3).ui[0].modifiers.ctrl);
+}
+
+TEST_CASE("un script refuse ce qu'il ne saurait pas rejouer, en nommant la ligne et le champ")
+{
+    // Le contre-test de la règle n°7 : une touche inconnue ne se rejoue pas en silence.
+    refused("0 key down W\n1 key down Wxyz\n", "ligne 2", "touche");
+    refused("0 key down\n", "ligne 1", "touche");
+    refused("0 key down W as\n", "ligne 1", "lettre");
+    refused("0 key down W as zz\n", "ligne 1", "lettre");
+    refused("0 key sideways W\n", "ligne 1", "sens");
+    refused("0 key down W\n\n1x key down W\n", "ligne 3", "image");
+    refused("-1 key down W\n", "ligne 1", "image");
+    refused("5 key down W\n4 key up W\n", "ligne 2", "image"); // revient en arrière
+    refused("7\n", "ligne 1", "type");
+    refused("0 jump W\n", "ligne 1", "type");
+    refused("0 button down thumb\n", "ligne 1", "bouton");
+    refused("0 button down\n", "ligne 1", "champs");
+    refused("0 mouse move 3\n", "ligne 1", "champs");
+    refused("0 mouse jump 3 4\n", "ligne 1", "champs");
+    refused("0 mouse move 3 4x\n", "ligne 1", "position");
+    refused("0 mouse move nan 4\n", "ligne 1", "position"); // from_chars lit « nan » et « inf »
+    refused("0 mouse move 3 inf\n", "ligne 1", "position");
+    refused("0 mouse motion 3\n", "ligne 1", "champs");
+    refused("0 mouse motion 3 4x\n", "ligne 1", "déplacement");
+    refused("0 mouse motion nan 4\n", "ligne 1", "déplacement");
+    refused("0 mouse motion 3 inf\n", "ligne 1", "déplacement");
+    refused("0 wheel\n", "ligne 1", "champs");
+    refused("0 wheel 1 2\n", "ligne 1", "champs");
+    refused("0 wheel up\n", "ligne 1", "crans");
+    refused("0 wheel inf\n", "ligne 1", "crans");
+    refused("2147483647 key down W\n", "ligne 1",
+            "image"); // « dernière image plus une » déborderait
+    refused("1000001 key down W\n", "ligne 1", "image");
+}
+
+TEST_CASE("la position de la souris n'est que pour l'interface : le jeu lit un déplacement")
+{
+    const Events events = eventsAt(parsed("2 mouse move 120.5 -4\n"), 2);
+    CHECK(events.input.empty());
+    REQUIRE(events.ui.size() == 1);
+    CHECK(events.ui[0].type == levain::platform::UiEventType::MouseMoved);
+    CHECK(events.ui[0].x == 120.5f);
+    CHECK(events.ui[0].y == -4.0f);
+}
+
+TEST_CASE("le mouvement relatif est pour le jeu et le vol, sans le curseur, et la molette pour "
+          "l'interface")
+{
+    const Events motion = eventsAt(parsed("3 mouse motion 12 -7.5\n"), 3);
+    REQUIRE(motion.input.size() == 2);
+    CHECK(motion.ui.empty()); // le curseur d'ImGui ne bouge pas : `mouse move` est à part
+    for (std::uint16_t axis = 0; axis < 2; ++axis)
+    {
+        CHECK(motion.input[axis].type == levain::platform::InputEventType::AxisMotion);
+        CHECK(motion.input[axis].device == levain::platform::InputDevice::Mouse);
+        CHECK(motion.input[axis].code == axis);
+    }
+    CHECK(motion.input[0].value == 12.0f);
+    CHECK(motion.input[1].value == -7.5f);
+
+    const Events wheel = eventsAt(parsed("4 wheel -2\n"), 4);
+    CHECK(wheel.input.empty()); // le jeu ne lit pas la molette
+    REQUIRE(wheel.ui.size() == 1);
+    CHECK(wheel.ui[0].type == levain::platform::UiEventType::MouseWheel);
+    CHECK(wheel.ui[0].x == 0.0f);
+    CHECK(wheel.ui[0].y == -2.0f);
+}
+
+TEST_CASE("un script sans aucun événement est refusé : il ne rejouerait rien")
+{
+    // Le contre-test de la règle n°7 : un fichier vidé par erreur ne passe pas pour un test vert.
+    for (const std::string_view text : {"", "\n\n", "# rien que des commentaires\n   \n"})
+    {
+        const auto script = parseInputScript(text);
+        REQUIRE_FALSE(script.has_value());
+        CHECK(script.error().message.starts_with("aucun événement"));
+    }
+    // Un script construit à la main par un test passe par la même porte.
+    CHECK_FALSE(levain::platform::checkInputScript(InputScript{}).has_value());
+    CHECK_FALSE(levain::platform::checkInputScript(InputScript{.frames = {{-1, Events{}}}}));
+    CHECK(levain::platform::checkInputScript(InputScript{.frames = {{0, Events{}}}}));
+}
+
+TEST_CASE("un script d'un éditeur de texte : tabulations, marque UTF-8 et fins de ligne de Windows")
+{
+    const InputScript script =
+        parsed("\xEF\xBB\xBF" // un « 0 » collé à la marque serait lu comme un chiffre hexadécimal
+               "0\tkey\tdown\tLeft Ctrl\r\n"
+               "1 key\tdown W\r\n");
+    CHECK(scriptLength(script) == 2);
+    CHECK(eventsAt(script, 1).ui[0].modifiers.ctrl);
+}
+
+TEST_CASE("un script se lit dans un fichier, et un refus nomme ce fichier")
+{
+    // Un nom à lui : deux worktrees lancent ctest en même temps sur cette machine.
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() /
+        ("levain-input-script-" + levain::assets::toString(levain::assets::generateAssetId()) +
+         ".txt");
+    std::ofstream(file) << "0 key down W\r\n1 key down Wxyz\r\n"; // les fins de ligne de Windows
+    const auto script = levain::platform::loadInputScript(file);
+    std::filesystem::remove(file);
+    REQUIRE_FALSE(script.has_value());
+    CHECK(script.error().message.find(file.string()) != std::string::npos);
+    CHECK(script.error().message.find("ligne 2, touche") != std::string::npos);
+    CHECK_FALSE(levain::platform::loadInputScript(file).has_value()); // effacé
+}
+
+TEST_CASE("keymap changed : l'événement de disposition, sans rien d'autre")
+{
+    const Events events = eventsAt(parsed("3 keymap changed\n"), 3);
+    CHECK(events.input.empty());
+    REQUIRE(events.ui.size() == 1);
+    CHECK(events.ui[0].type == levain::platform::UiEventType::KeymapChanged);
+    refused("0 keymap\n", "ligne 1", "champs");
+    refused("0 keymap change\n", "ligne 1", "champs");
+}
+
+TEST_CASE("window close : la croix de la fenêtre, un événement de fenêtre et rien d'autre")
+{
+    const Events events = eventsAt(parsed("4 window close\n"), 4);
+    CHECK(events.input.empty());
+    CHECK(events.ui.empty());
+    REQUIRE(events.window.size() == 1);
+    CHECK(events.window[0].type == levain::platform::WindowEventType::CloseRequested);
+    CHECK(eventsAt(parsed("4 window close\n"), 3).window.empty()); // pas aux autres images
+    refused("0 window\n", "ligne 1", "champs");
+    refused("0 window quit\n", "ligne 1",
+            "champs"); // pas de signal scripté : il se lève pour de vrai
+    refused("0 window close now\n", "ligne 1", "champs");
+}
+
+TEST_CASE("window scale : le zoom du système change, avec la nouvelle échelle, et rien d'autre")
+{
+    const Events events = eventsAt(parsed("6 window scale 1.5\n"), 6);
+    CHECK(events.input.empty());
+    CHECK(events.ui.empty());
+    REQUIRE(events.window.size() == 1);
+    CHECK(events.window[0].type == levain::platform::WindowEventType::ScaleChanged);
+    CHECK(events.window[0].displayScale == 1.5f);
+    // Les autres événements de fenêtre n'ont pas d'échelle : zéro, comme `pixelSize` hors de
+    // `Resized`.
+    CHECK(eventsAt(parsed("4 window close\n"), 4).window.at(0).displayScale == 0.0f);
+    CHECK(eventsAt(parsed("6 window scale 1.5\n"), 5).window.empty());
+    refused("0 window scale\n", "ligne 1", "champs");
+    refused("0 window scale 1 2\n", "ligne 1", "champs");
+    // Une échelle nulle, négative ou qui n'en est pas une rendrait l'interface invisible, ou
+    // fausse : refusée en nommant le champ.
+    refused("0 window scale 0\n", "ligne 1", "échelle");
+    refused("0 window scale -1\n", "ligne 1", "échelle");
+    refused("0 window scale deux\n", "ligne 1", "échelle");
+    refused("0 window scale nan\n", "ligne 1", "échelle");
+}
+
+TEST_CASE(
+    "la disposition du banc d'essai est un QWERTY, et keyAtPosition refuse une position inconnue")
+{
+    CHECK(levain::platform::qwertyKeyAtPosition(ScancodeW) == 'w');
+    CHECK(levain::platform::qwertyKeyAtPosition(44) == ' ');                 // Espace
+    CHECK(levain::platform::qwertyKeyAtPosition(58) == (0x40000000U | 58U)); // F1
+    // Hors des scancodes de SDL : rien, et non une lecture hors d'un tableau.
+    CHECK(levain::platform::keyAtPosition(60000) == 0);
+    // Les touches qui ne changent pas d'une disposition à l'autre : F1 (SDLK_F1) et Espace.
+    CHECK(levain::platform::keyAtPosition(58) == (0x40000000U | 58U));
+    CHECK(levain::platform::keyAtPosition(44) == ' ');
+}

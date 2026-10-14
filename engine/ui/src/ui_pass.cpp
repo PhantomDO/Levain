@@ -52,12 +52,15 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <format>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
 #include "levain/render/shader.hpp"
+#include "levain/render/tonemap.hpp"
 
 namespace levain::ui
 {
@@ -114,6 +117,46 @@ void ensureBuffer(nvrhi::IDevice& device, nvrhi::BufferHandle& buffer, std::size
             .setDebugName(isIndexBuffer ? "index de l'UI" : "sommets de l'UI"));
 }
 
+/// Le binding set qui fait lire `texture` à la passe : la constante, la texture, l'échantillonneur.
+/// Le même pour l'atlas d'ImGui et pour une texture que le programme montre (`registerUiTexture`),
+/// et sans format d'une vue (`Format::UNKNOWN`) : le texel se lit dans le format de la texture,
+/// donc décodé par le matériel si elle est sRGB, brut sinon.
+///
+/// `setTrackLiveness(true)` est la valeur par défaut de NVRHI, posée ici pour qu'elle ne change pas
+/// sans qu'on le voie : `releaseUiTexture` lâche la texture sans attendre le GPU, ce que seule la
+/// référence que les command lists prennent au binding set permet (`BindingSetDesc::trackLiveness`,
+/// nvrhi.h : à faux, c'est à l'appelant de ne rien libérer avant la fin des commandes).
+nvrhi::BindingSetHandle bindingsFor(nvrhi::IDevice& device, const UiPass& pass,
+                                    nvrhi::ITexture* texture)
+{
+    return device.createBindingSet(
+        nvrhi::BindingSetDesc()
+            .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, pass.constants))
+            .addItem(nvrhi::BindingSetItem::Texture_SRV(0, texture))
+            .addItem(nvrhi::BindingSetItem::Sampler(0, pass.sampler))
+            .setTrackLiveness(true),
+        pass.layout);
+}
+
+/// Les quatre formats de flottants sur 32 bits par canal. Le sampler de l'UI filtre (linéaire), et
+/// WebGPU ne filtre ces formats qu'avec la fonctionnalité facultative `float32-filterable` : Dawn
+/// refuse le bind group (« UnfilterableFloat … expected Float »), une erreur de NVRHI qui, en
+/// Debug, arrête sur l'assertion. Vulkan et Direct3D 12 les liraient d'ordinaire : on les refuse
+/// partout, pour qu'un même programme montre la même chose sur chaque backend.
+bool isUnfilterableFloat32(nvrhi::Format format)
+{
+    switch (format)
+    {
+    case nvrhi::Format::R32_FLOAT:
+    case nvrhi::Format::RG32_FLOAT:
+    case nvrhi::Format::RGB32_FLOAT:
+    case nvrhi::Format::RGBA32_FLOAT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 /// La texture d'ImGui sur le GPU, et son binding set. ImGui la donne en RGBA tant qu'on ne lui en
 /// demande pas une autre (`ImFontAtlas::TexDesiredFormat`) : le shader multiplie par toute la
 /// couleur, un atlas d'un seul canal y serait faux.
@@ -131,12 +174,7 @@ UiTexture createTexture(nvrhi::IDevice& device, const UiPass& pass, const ImText
                                  .setDebugName("texture de l'UI"));
     if (texture.texture)
     {
-        texture.bindings = device.createBindingSet(
-            nvrhi::BindingSetDesc()
-                .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, pass.constants))
-                .addItem(nvrhi::BindingSetItem::Texture_SRV(0, texture.texture))
-                .addItem(nvrhi::BindingSetItem::Sampler(0, pass.sampler)),
-            pass.layout);
+        texture.bindings = bindingsFor(device, pass, texture.texture);
     }
     return texture;
 }
@@ -229,7 +267,7 @@ core::Result<UiPass> createUiPass(nvrhi::IDevice& device, const nvrhi::Framebuff
 
 bool linearOnSrgbTarget(nvrhi::Format format)
 {
-    return nvrhi::getFormatInfo(format).isSRGB;
+    return render::targetIsSrgb(format);
 }
 
 std::optional<nvrhi::Rect> clampScissorToTarget(const ImVec4& clip, std::uint32_t width,
@@ -310,6 +348,85 @@ void updateUiTextures(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, 
     }
 }
 
+std::string_view uiTextureRefusal(const nvrhi::TextureDesc& desc)
+{
+    // Avant la dimension : NVRHI ne crée une texture multi-échantillon qu'en `Texture2DMS`, que la
+    // dimension refuserait sans dire pourquoi.
+    if (desc.sampleCount != 1)
+    {
+        return "l'UI ne lit pas une texture multi-échantillon (résoudre d'abord)";
+    }
+    if (desc.dimension != nvrhi::TextureDimension::Texture2D)
+    {
+        return "l'UI ne montre que des textures 2D";
+    }
+    // `isShaderResource` vaut vrai par défaut dans NVRHI (nvrhi.h, « backward compatibility ») :
+    // une texture qui le désactive n'a ni usage d'échantillonnage (Vulkan) ni SRV (Direct3D 12).
+    if (!desc.isShaderResource)
+    {
+        return "la texture n'est pas lisible par un shader (isShaderResource)";
+    }
+    const nvrhi::FormatInfo& format = nvrhi::getFormatInfo(desc.format);
+    if (format.hasDepth || format.hasStencil)
+    {
+        return "l'UI ne lit pas une profondeur ou un stencil";
+    }
+    // Le shader déclare un `Texture2D<float4>` : un format entier ne s'y lit pas (Vulkan : VUID
+    // 07753, le type de composante).
+    if (format.kind == nvrhi::FormatKind::Integer)
+    {
+        return "l'UI ne lit pas un format entier";
+    }
+    if (isUnfilterableFloat32(desc.format))
+    {
+        return "l'UI filtre ses textures, et WebGPU ne filtre pas les flottants sur 32 bits";
+    }
+    return {};
+}
+
+core::Result<ImTextureID> registerUiTexture(nvrhi::IDevice& device, UiPass& pass,
+                                            nvrhi::ITexture* texture)
+{
+    if (texture == nullptr)
+    {
+        return core::makeError(core::ErrorCode::InvalidData, "texture d'UI nulle");
+    }
+    if (const std::string_view refusal = uiTextureRefusal(texture->getDesc()); !refusal.empty())
+    {
+        return core::makeError(
+            core::ErrorCode::Unsupported,
+            std::format("texture d'UI « {} » : {}", texture->getDesc().debugName, refusal));
+    }
+    UiTexture shown{
+        .texture = texture, .bindings = bindingsFor(device, pass, texture), .registered = true};
+    if (!shown.bindings)
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               "binding set de la texture d'UI refusé par NVRHI");
+    }
+    const ImTextureID id = pass.nextTextureId++;
+    pass.textures.emplace(id, std::move(shown));
+    return id;
+}
+
+void releaseUiTexture(UiPass& pass, ImTextureID id)
+{
+    const auto found = pass.textures.find(id);
+    const bool isRegistered = found != pass.textures.end() && found->second.registered;
+    LEVAIN_ASSERT(isRegistered, "libération d'une texture d'UI qui n'est pas enregistrée");
+    if (!isRegistered)
+    {
+        core::log("ui", core::LogLevel::Error,
+                  "libération de la texture d'UI {} : elle n'est pas enregistrée (déjà libérée, ou "
+                  "à ImGui)",
+                  id);
+        return;
+    }
+    // Pas d'attente du GPU : le binding set, que les command lists d'une image en vol tiennent
+    // (`trackLiveness`, voir `bindingsFor`), garde la texture jusqu'à leur fin.
+    pass.textures.erase(found);
+}
+
 UiDrawStats recordUi(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, UiPass& pass,
                      ImDrawData& drawData, nvrhi::IFramebuffer& target)
 {
@@ -388,10 +505,21 @@ UiDrawStats recordUi(nvrhi::IDevice& device, nvrhi::ICommandList& commandList, U
                 continue;
             }
             const auto texture = pass.textures.find(command.GetTexID());
-            LEVAIN_ASSERT(texture != pass.textures.end(), "commande d'UI sur une texture inconnue");
+            if (texture == pass.textures.end())
+            {
+                // Une image libérée (`releaseUiTexture`) que le programme dessine encore, ou un
+                // identifiant venu de nulle part. En Debug, l'assertion arrête ; en Release, la
+                // commande saute, bruyamment (règle n°7), et ne touche à aucun binding set.
+                LEVAIN_ASSERT(false, "commande d'UI sur une texture inconnue");
+                core::log("ui", core::LogLevel::Error,
+                          "commande d'UI sur la texture {}, inconnue ou libérée : sautée",
+                          command.GetTexID());
+                ++stats.unknownTextures;
+                continue;
+            }
             const std::optional<nvrhi::Rect> scissor =
                 clampScissorToTarget(command.ClipRect, info.width, info.height);
-            if (!scissor || texture == pass.textures.end())
+            if (!scissor)
             {
                 ++stats.clipped;
                 continue;

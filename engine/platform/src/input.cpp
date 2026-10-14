@@ -24,6 +24,9 @@ static_assert(SDL_GAMEPAD_AXIS_COUNT <= PadAxisCount);
 // sur lesquels sa table repose. Une version de SDL qui les changerait casserait le build ici.
 // Une touche qui ne tape rien : son scancode, plus 2^30 (le bit 30, `SDLK_SCANCODE_MASK`).
 static_assert(SDLK_F1 == 0x40000000U + 58 && SDL_SCANCODE_F1 == 58);
+// Échap par sa position, le scancode 41 d'USB : l'éditeur la lit sans en-tête SDL (l'accord par
+// défaut de « Arrêter », editor/shortcuts.cpp), comme `app` lit F1 (`PanelsKey`).
+static_assert(SDL_SCANCODE_ESCAPE == 41);
 static_assert(SDL_SCANCODE_F13 == 104 && SDL_SCANCODE_F24 == 115);
 static_assert(SDLK_LEFT == 0x40000000U + 80 && SDLK_LCTRL == 0x40000000U + 224);
 static_assert(SDLK_CAPSLOCK == 0x40000000U + 57 && SDLK_PRINTSCREEN == 0x40000000U + 70 &&
@@ -53,16 +56,19 @@ std::optional<std::uint16_t> codeOf(int value, int invalid)
 
 /// Les deux axes de la souris, envoyés ensemble : un mouvement en diagonale donne deux
 /// déplacements, et `engine/input` les accumule séparément.
-void appendMouseMotion(std::vector<InputEvent>& events, const SDL_MouseMotionEvent& motion)
+void appendMouseMotion(std::vector<InputEvent>& events, const SDL_MouseMotionEvent& motion,
+                       float density)
 {
+    // En pixels de l'image comme la position : sans la densité, le pan de l'éditeur ne suivrait
+    // pas le curseur d'un écran HiDPI (SDL compte xrel en coordonnées de fenêtre).
     events.push_back({.type = InputEventType::AxisMotion,
                       .device = InputDevice::Mouse,
                       .code = 0,
-                      .value = motion.xrel});
+                      .value = motion.xrel * density});
     events.push_back({.type = InputEventType::AxisMotion,
                       .device = InputDevice::Mouse,
                       .code = 1,
-                      .value = motion.yrel});
+                      .value = motion.yrel * density});
 }
 
 /// La densité de pixels de la fenêtre `windowId` : 1 si SDL ne la connaît pas.
@@ -143,12 +149,35 @@ CursorPosition cursorPosition(const Window& window)
     return position;
 }
 
+void warpMouse(const Window& window, CursorPosition position)
+{
+    const float density = SDL_GetWindowPixelDensity(window.handle.get());
+    const float scale = density > 0.0f ? density : 1.0f;
+    SDL_WarpMouseInWindow(window.handle.get(), position.x / scale, position.y / scale);
+}
+
 void setMouseCaptured(const Window& window, bool captured)
 {
     if (!SDL_SetWindowRelativeMouseMode(window.handle.get(), captured))
     {
         core::log("platform", core::LogLevel::Warning, "souris non capturée : {}", SDL_GetError());
     }
+}
+
+std::uint32_t keyAtPosition(std::uint16_t scancode)
+{
+    // `key_event = true` : comme un événement de touche, donc avec SDL_HINT_KEYCODE_OPTIONS
+    // (french_numbers, latin_letters) que SDL n'applique qu'alors (SDL_keyboard.h,
+    // `SDL_GetKeyFromScancode`) : sans elle, la position 30 d'un AZERTY donnerait « & » et non
+    // « 1 », et celle d'une disposition russe « ц ». Sans Maj ni Alt-Gr (`SDL_KMOD_NONE`).
+    // Au-delà du dernier scancode, SDL refuse : 0.
+    if (scancode >= SDL_SCANCODE_COUNT)
+    {
+        return 0;
+    }
+    const SDL_Keycode key =
+        SDL_GetKeyFromScancode(static_cast<SDL_Scancode>(scancode), SDL_KMOD_NONE, true);
+    return key == SDLK_UNKNOWN ? 0U : static_cast<std::uint32_t>(key);
 }
 
 void startTextInput(const Window& window)
@@ -183,11 +212,16 @@ void setClipboardText(const std::string& text)
     }
 }
 
-float displayScale(const Window& window)
+float displayScaleOf(SDL_Window* window)
 {
     // 0 : SDL n'a pas su la lire. On garde l'échelle 1 plutôt qu'une interface invisible.
-    const float scale = SDL_GetWindowDisplayScale(window.handle.get());
+    const float scale = SDL_GetWindowDisplayScale(window);
     return scale > 0.0f ? scale : 1.0f;
+}
+
+float displayScale(const Window& window)
+{
+    return displayScaleOf(window.handle.get());
 }
 
 void appendUiEvent(Events& events, const SDL_Event& event, std::uint32_t windowId)
@@ -228,7 +262,12 @@ void appendUiEvent(Events& events, const SDL_Event& event, std::uint32_t windowI
                       .modifiers = {.ctrl = (event.key.mod & SDL_KMOD_CTRL) != 0,
                                     .shift = (event.key.mod & SDL_KMOD_SHIFT) != 0,
                                     .alt = (event.key.mod & SDL_KMOD_ALT) != 0,
-                                    .super = (event.key.mod & SDL_KMOD_GUI) != 0}});
+                                    .super = (event.key.mod & SDL_KMOD_GUI) != 0,
+                                    .altGr = (event.key.mod & SDL_KMOD_MODE) != 0}});
+        break;
+    case SDL_EVENT_KEYMAP_CHANGED:
+        // Un événement du système, sans fenêtre : le filtre sur l'identifiant n'a rien à lire.
+        ui.push_back({.type = UiEventType::KeymapChanged});
         break;
     case SDL_EVENT_TEXT_INPUT:
         events.text += event.text.text;
@@ -276,7 +315,7 @@ void appendInputEvent(std::vector<InputEvent>& events, const SDL_Event& event)
         break;
 
     case SDL_EVENT_MOUSE_MOTION:
-        appendMouseMotion(events, event.motion);
+        appendMouseMotion(events, event.motion, pixelDensityOf(event.motion.windowID));
         break;
 
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:

@@ -17,7 +17,7 @@ struct WebGpuCanvas
     wgpu::Surface surface;
     wgpu::Device device;
     wgpu::TextureFormat surfaceFormat = wgpu::TextureFormat::Undefined;
-    nvrhi::Format format = nvrhi::Format::UNKNOWN; ///< La vue sRGB de `surfaceFormat`.
+    nvrhi::Format format = nvrhi::Format::UNKNOWN; ///< `surfaceFormat`, en UNORM.
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     nvrhi::TextureHandle current; ///< L'image de la frame en cours.
@@ -29,7 +29,7 @@ void WebGpuCanvasDeleter::operator()(WebGpuCanvas* canvas) const noexcept
 }
 
 core::Result<WebGpuCanvasHandle> createWebGpuCanvas(nvrhi::IDevice& device,
-                                                    std::string_view selector, bool srgb)
+                                                    std::string_view selector)
 {
     // Les objets WebGPU sous le device NVRHI, validation comprise (getNativeObject).
     const wgpu::Instance instance{
@@ -52,20 +52,14 @@ core::Result<WebGpuCanvasHandle> createWebGpuCanvas(nvrhi::IDevice& device,
     canvas->device =
         wgpu::Device{static_cast<WGPUDevice>(device.getNativeObject(webgpu::object_types::Device))};
 
-    // Le format que préfère le navigateur (BGRA8 sur PC, parfois RGBA8 sur mobile), vu en sRGB.
+    // Le format que préfère le navigateur (BGRA8 sur PC, parfois RGBA8 sur mobile), en UNORM : le
+    // tonemapping encode en sRGB lui-même, comme sur les autres backends (ADR-0036, décision 15).
     wgpu::SurfaceCapabilities capabilities;
     canvas->surface.GetCapabilities(adapter, &capabilities);
     canvas->surfaceFormat =
         capabilities.formatCount > 0 ? capabilities.formats[0] : wgpu::TextureFormat::BGRA8Unorm;
     const bool rgba = canvas->surfaceFormat == wgpu::TextureFormat::RGBA8Unorm;
-    if (srgb)
-    {
-        canvas->format = rgba ? nvrhi::Format::SRGBA8_UNORM : nvrhi::Format::SBGRA8_UNORM;
-    }
-    else
-    {
-        canvas->format = rgba ? nvrhi::Format::RGBA8_UNORM : nvrhi::Format::BGRA8_UNORM;
-    }
+    canvas->format = rgba ? nvrhi::Format::RGBA8_UNORM : nvrhi::Format::BGRA8_UNORM;
     return canvas;
 }
 
@@ -82,16 +76,10 @@ nvrhi::ITexture* beginCanvasFrame(WebGpuCanvas& canvas, std::uint32_t width, std
     }
     if (width != canvas.width || height != canvas.height)
     {
-        // Le canvas n'est jamais en sRGB : on le configure avec une vue sRGB (viewFormats), où
-        // le moteur dessine, pour que les couleurs soient celles de la swapchain Vulkan.
-        const wgpu::TextureFormat view =
-            webgpu::textureFormatOf(canvas.format).value_or(canvas.surfaceFormat);
         wgpu::SurfaceConfiguration config{};
         config.device = canvas.device;
         config.format = canvas.surfaceFormat;
         config.usage = wgpu::TextureUsage::RenderAttachment;
-        config.viewFormatCount = 1;
-        config.viewFormats = &view;
         config.width = width;
         config.height = height;
         config.presentMode = wgpu::PresentMode::Fifo;

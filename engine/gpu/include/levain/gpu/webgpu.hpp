@@ -48,13 +48,13 @@ struct WebGpuCanvasDeleter
 using WebGpuCanvasHandle = std::unique_ptr<WebGpuCanvas, WebGpuCanvasDeleter>;
 
 /// La surface du canvas désigné par `selector` (« #canvas »), pour un device de
-/// `requestWebGpuDevice`. `srgb` : le moteur y dessine en sRGB, comme dans la swapchain Vulkan ;
-/// sans, les valeurs arrivent telles quelles, comme dans la cible du test de fumée.
-[[nodiscard]] core::Result<WebGpuCanvasHandle>
-createWebGpuCanvas(nvrhi::IDevice& device, std::string_view selector, bool srgb = true);
+/// `requestWebGpuDevice`. Le canvas est en UNORM, sans vue sRGB : le tonemapping encode lui-même
+/// (ADR-0036, décision 15), comme dans les swapchains Vulkan et Direct3D 12.
+[[nodiscard]] core::Result<WebGpuCanvasHandle> createWebGpuCanvas(nvrhi::IDevice& device,
+                                                                  std::string_view selector);
 
-/// Le format de l'image du canvas, pour créer les pipelines qui y dessinent : du sRGB par défaut,
-/// comme la swapchain Vulkan, pour que les couleurs soient les mêmes (ADR-0023, point 5).
+/// Le format de l'image du canvas, pour créer les pipelines qui y dessinent : de l'UNORM, comme
+/// les swapchains Vulkan et Direct3D 12 (ADR-0036, décision 15).
 [[nodiscard]] nvrhi::Format canvasFormat(const WebGpuCanvas& canvas);
 
 /// L'image où dessiner cette frame, à la taille `width` × `height` en pixels : la surface est

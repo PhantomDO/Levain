@@ -1,6 +1,10 @@
+#include <filesystem>
+#include <fstream>
+
 #include <doctest/doctest.h>
 
 #include "levain/app/app.hpp"
+#include "levain/assets/asset_ref.hpp"
 #include "levain/gpu/device.hpp"
 
 // Les options communes de la ligne de commande (ADR-0029) : le contrat que le sandbox et *Rando*
@@ -76,6 +80,89 @@ TEST_CASE("les chemins se rangent tels quels, et les options du programme lui re
     CHECK(settings.capturePath == std::filesystem::path{"out.png"});
     CHECK(levain::app::parseCommonOption(settings, "--sky", "none") == OptionUse::Taken);
     CHECK(settings.sky == std::filesystem::path{"none"});
+    CHECK(levain::app::parseCommonOption(settings, "--input-script", "gestes.txt") ==
+          OptionUse::Taken);
+    CHECK(settings.inputScriptFile == std::filesystem::path{"gestes.txt"});
     CHECK(levain::app::parseCommonOption(settings, "--view", "hike") == OptionUse::NotMine);
     CHECK(levain::app::parseCommonOption(settings, "--walk", "1,0") == OptionUse::NotMine);
+}
+
+TEST_CASE("inputScriptOf : le fichier est lu, un script refusé, absent ou vide est une erreur")
+{
+    // `runApp` s'arrête sur cette erreur avant sa fenêtre (tests/app_script_gpu.cpp le joue de bout
+    // en bout) : ici, sans fenêtre ni device, ce qu'elle refuse.
+    namespace fs = std::filesystem;
+    using levain::app::inputScriptOf;
+    const fs::path file = fs::temp_directory_path() /
+                          ("levain-app-options-" +
+                           levain::assets::toString(levain::assets::generateAssetId()) + ".txt");
+    levain::app::AppSettings settings;
+    CHECK_FALSE(inputScriptOf(settings).value().has_value()); // sans script, rien n'est touché
+
+    settings.inputScriptFile = file; // absent
+    CHECK_FALSE(inputScriptOf(settings).has_value());
+    std::ofstream(file) << "0 key down W\n1 key down Wxyz\n"; // touche inconnue
+    const auto refused = inputScriptOf(settings);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("ligne 2, touche") != std::string::npos);
+    std::ofstream(file) << "0 key down W\n";
+    const auto read = inputScriptOf(settings);
+    fs::remove(file);
+    CHECK((read && *read ? levain::platform::scriptLength(**read) : 0) == 1);
+
+    // L'API de test : un script sans événement, écrit à la main, ne rejouerait rien non plus.
+    settings.inputScriptFile.reset();
+    settings.inputScript = levain::platform::InputScript{};
+    CHECK_FALSE(inputScriptOf(settings).has_value());
+    settings.inputScript = levain::platform::InputScript{.frames = {{3, {}}}};
+    CHECK(inputScriptOf(settings).has_value());
+}
+
+TEST_CASE("isScriptedRun : chacune des cinq options scriptées, et elle seule")
+{
+    using levain::app::AppSettings;
+    using levain::app::isScriptedRun;
+    // Un humain devant sa fenêtre : aucune option.
+    CHECK_FALSE(isScriptedRun(AppSettings{}));
+    {
+        AppSettings settings;
+        settings.loopSeconds = 2.0; // --seconds
+        CHECK(isScriptedRun(settings));
+    }
+    {
+        AppSettings settings;
+        settings.steps = 3; // --steps
+        CHECK(isScriptedRun(settings));
+    }
+    {
+        AppSettings settings;
+        settings.frozenSeconds = 0.5; // --time
+        CHECK(isScriptedRun(settings));
+    }
+    {
+        AppSettings settings;
+        settings.capturePath = "x.png"; // --capture
+        CHECK(isScriptedRun(settings));
+    }
+    {
+        AppSettings settings;
+        settings.inputScriptFile = "gestes.txt"; // --input-script
+        CHECK(isScriptedRun(settings));
+    }
+    {
+        AppSettings settings;
+        settings.inputScript = levain::platform::InputScript{.frames = {{3, {}}}}; // l'API de test
+        CHECK(isScriptedRun(settings));
+        settings.testInteractive =
+            true; // le crochet des tests, et lui seul, y change quelque chose
+        CHECK_FALSE(isScriptedRun(settings));
+    }
+    // Les options lues sur une ligne de commande, de bout en bout : celles qui ne scriptent rien
+    // (--ui, --gpu, --sky) ne comptent pas.
+    AppSettings parsed;
+    CHECK(levain::app::parseCommonOption(parsed, "--ui", "on") == levain::app::OptionUse::Taken);
+    CHECK(levain::app::parseCommonOption(parsed, "--sky", "none") == levain::app::OptionUse::Taken);
+    CHECK_FALSE(isScriptedRun(parsed));
+    CHECK(levain::app::parseCommonOption(parsed, "--time", "1") == levain::app::OptionUse::Taken);
+    CHECK(isScriptedRun(parsed));
 }

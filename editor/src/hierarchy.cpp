@@ -7,20 +7,15 @@
 #include <span>
 #include <string>
 
+#include "levain/ui/flags.hpp"
+#include "levain/ui/style.hpp"
+#include "levain/ui/tr.hpp"
+
 namespace levain::editor
 {
 
 namespace
 {
-
-constexpr const char* HierarchyWindow = "Hiérarchie";
-
-/// Les drapeaux d'ImGui sont des `int` : les combiner en non signé, comme des bits qu'ils sont
-/// (comme `withFlags` d'engine/ui/src/context.cpp).
-int withFlags(int flags, int added)
-{
-    return static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(added));
-}
 
 /// Le nom de l'entité, ou son index si elle n'en a pas.
 std::string labelOf(flecs::entity entity)
@@ -87,17 +82,19 @@ void appendRow(const Hierarchy& hierarchy, flecs::entity entity, int depth,
 
 void drawSingletons(const flecs::world& world, flecs::entity_t& selected)
 {
-    if (!ImGui::TreeNode("Singletons"))
+    if (!ImGui::TreeNode(ui::labelOf("Singletons").c_str()))
     {
         return;
     }
     for (const flecs::entity_t singleton : singletonsOf(world))
     {
         pushEntityId(singleton);
+        const int accent = ui::pushSelectedRowColors(singleton == selected);
         if (ImGui::Selectable(labelOf(world.entity(singleton)).c_str(), singleton == selected))
         {
             selected = singleton;
         }
+        ImGui::PopStyleColor(accent);
         ImGui::PopID();
     }
     ImGui::TreePop();
@@ -107,16 +104,16 @@ void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow
              flecs::entity_t& selected)
 {
     // Pas de TreePush : l'arbre est déjà aplati en lignes, la profondeur donne le retrait.
-    ImGuiTreeNodeFlags flags =
-        withFlags(withFlags(ImGuiTreeNodeFlags_NoTreePushOnOpen, ImGuiTreeNodeFlags_OpenOnArrow),
-                  ImGuiTreeNodeFlags_SpanAvailWidth);
+    ImGuiTreeNodeFlags flags = ui::withFlags(
+        ui::withFlags(ImGuiTreeNodeFlags_NoTreePushOnOpen, ImGuiTreeNodeFlags_OpenOnArrow),
+        ImGuiTreeNodeFlags_SpanAvailWidth);
     if (!hasShownChildren(world, row.entity))
     {
-        flags = withFlags(flags, ImGuiTreeNodeFlags_Leaf);
+        flags = ui::withFlags(flags, ImGuiTreeNodeFlags_Leaf);
     }
     if (row.entity == selected)
     {
-        flags = withFlags(flags, ImGuiTreeNodeFlags_Selected);
+        flags = ui::withFlags(flags, ImGuiTreeNodeFlags_Selected);
     }
     // Le retrait de cette ligne seule, sans `Indent`, dont le zéro d'une racine vaudrait
     // l'espacement par défaut : ImGui revient à la marge à la ligne suivante.
@@ -124,7 +121,9 @@ void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow
                          (static_cast<float>(row.depth) * ImGui::GetStyle().IndentSpacing));
     pushEntityId(row.entity);
     ImGui::SetNextItemOpen(hierarchy.open.contains(row.entity));
-    ImGui::TreeNodeEx("entité", flags, "%s", labelOf(world.entity(row.entity)).c_str());
+    const int accent = ui::pushSelectedRowColors(row.entity == selected);
+    ImGui::TreeNodeEx("##entité", flags, "%s", labelOf(world.entity(row.entity)).c_str());
+    ImGui::PopStyleColor(accent);
     if (ImGui::IsItemToggledOpen())
     {
         if (hierarchy.open.erase(row.entity) == 0)
@@ -132,10 +131,21 @@ void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow
             hierarchy.open.insert(row.entity);
         }
     }
-    else if (ImGui::IsItemClicked())
+    else
     {
-        selected = row.entity;
+        if (ImGui::IsItemClicked())
+        {
+            selected = row.entity;
+        }
+        // Le double-clic choisit aussi la ligne, puis demande le cadrage : Unreal cadre au
+        // double-clic dans l'Outliner (supposé, ADR-0036 [E3]).
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+            selected = row.entity;
+            hierarchy.frameRequested = true;
+        }
     }
+    hierarchy.rects[row.entity] = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
     ImGui::PopID();
 }
 
@@ -148,7 +158,9 @@ Hierarchy createHierarchy(const flecs::world& world)
     // section « Parent storage details »).
     return {.roots = world.query_builder<const scene::Transform>().without<flecs::Parent>().build(),
             .open = {},
-            .rows = {}};
+            .rows = {},
+            .frameRequested = false,
+            .rects = {}};
 }
 
 bool isEngineInternal(const flecs::table& table)
@@ -229,11 +241,17 @@ void pushEntityId(flecs::entity_t entity)
 }
 
 void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entity_t& selected,
-                   ImGuiID dock)
+                   ImGuiID dock, bool* open)
 {
     listHierarchyRows(hierarchy, hierarchy.rows);
+    hierarchy.frameRequested = false;
+    hierarchy.rects.clear();
+    if (open != nullptr && !*open)
+    {
+        return;
+    }
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(HierarchyWindow))
+    if (ImGui::Begin(ui::labelOf(HierarchyWindow).c_str(), open))
     {
         drawSingletons(world, selected);
         // Ses lignes ont le retrait des racines qui suivent : le trait marque où le nœud s'arrête.

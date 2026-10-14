@@ -22,14 +22,15 @@
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/scene/reflection.hpp"
+#include "levain/ui/flags.hpp"
+#include "levain/ui/style.hpp"
+#include "levain/ui/tr.hpp"
 
 namespace levain::editor
 {
 
 namespace
 {
-
-constexpr const char* InspectorWindow = "Inspecteur";
 
 /// Ce qu'un pixel de glissé ajoute à un nombre ; Ctrl+clic pour le taper.
 constexpr float DragSpeed = 0.01f;
@@ -40,8 +41,27 @@ constexpr float RotationSpeed = 0.5f;
 /// Les nombres d'un tableau, quatre par ligne : une colonne de `glm::mat4` par ligne.
 constexpr std::int32_t NumbersPerRow = 4;
 
-/// La place du libellé, à droite du widget, en hauteurs de police.
+/// La place voulue du libellé, à droite du widget, en hauteurs de police ; `labelColumnFor` la
+/// rogne quand la fenêtre est étroite ou l'échelle grande.
 constexpr float LabelWidth = 10.0f;
+
+/// Ce qu'il en reste au moins, en hauteurs de police : la valeur passe avant le libellé, qui se
+/// coupe.
+constexpr float MinLabelWidth = 2.0f;
+
+/// Le plus large des nombres qu'un cadre doit contenir : un négatif de deux chiffres, au « %.3f »
+/// par défaut.
+constexpr const char* WidestNumber = "-00.000";
+
+/// **X rouge, Y vert, Z bleu** devant chaque composante, comme les champs de position d'Unreal
+/// (`ImGuiSliderFlags_ColorMarkers`, imgui.h). ImGui choisit les couleurs lui-même, dans l'ordre
+/// (`GDefaultRgbaColorMarkers`, imgui_widgets.cpp) et taille le repère par `ColorMarkerSize`. Pour
+/// un vecteur ou des angles seulement : sur un nombre seul, ce serait un repère rouge sans axe, et
+/// sur une ligne de tableau ou de matrice, quatre nombres qui ne sont pas des axes.
+constexpr int AxisMarkers = ImGuiSliderFlags_ColorMarkers;
+
+/// Les nombres que montre un vecteur, au plus.
+constexpr int VectorComponents = 3;
 
 /// Le parcours d'un composant : ce qu'il lit, les champs qu'il a dessinés, et si un widget a changé
 /// la copie.
@@ -113,20 +133,23 @@ template <class N, class Widget> bool rejectNonFinite(N* numbers, int count, con
 
 /// `count` nombres de type N côte à côte, glissables. Une borne se pose avec `AlwaysClamp` : sans
 /// lui, Ctrl+clic tape au-delà (imgui.h, « DragFloat »). Un entier glisse d'une unité par pixel.
+/// `markers` : `AxisMarkers` pour un vecteur, 0 sinon.
 template <class N>
-bool dragAs(ImGuiDataType type, const char* label, void* value, int count, const Range& range)
+bool dragAs(ImGuiDataType type, const char* label, void* value, int count, const Range& range,
+            int markers = 0)
 {
     constexpr float Speed = std::is_integral_v<N> ? 1.0f : DragSpeed;
     const N low = range ? minimumAs<N>(range->min) : N{};
     const N high = range ? maximumAs<N>(range->max) : N{};
-    return rejectNonFinite(static_cast<N*>(value), count,
-                           [&]
-                           {
-                               return ImGui::DragScalarN(
-                                   label, type, value, count, Speed, range ? &low : nullptr,
-                                   range ? &high : nullptr, nullptr,
-                                   range ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
-                           });
+    return rejectNonFinite(
+        static_cast<N*>(value), count,
+        [&]
+        {
+            return ImGui::DragScalarN(
+                label, type, value, count, Speed, range ? &low : nullptr, range ? &high : nullptr,
+                nullptr,
+                ui::withFlags(range ? static_cast<int>(ImGuiSliderFlags_AlwaysClamp) : 0, markers));
+        });
 }
 
 static_assert(sizeof(std::uintptr_t) == sizeof(std::uint64_t), "UPtr et IPtr se lisent en 64 bits");
@@ -226,11 +249,13 @@ bool comboEnum(const flecs::world& world, const char* label, flecs::entity_t typ
         {
             const void* bytes = valueOf(world, *constants, constant);
             const bool selected = current != nullptr && std::string_view{current} == constant.name;
+            const int accent = ui::pushSelectedRowColors(selected);
             if (ImGui::Selectable(constant.name, selected) && bytes != nullptr)
             {
                 std::memcpy(value, bytes, constants->size);
                 chosen = true;
             }
+            ImGui::PopStyleColor(accent);
         }
         ImGui::EndCombo();
     }
@@ -245,8 +270,21 @@ bool isAuthored(const flecs::world& world, flecs::entity_t component)
     return flecs::entity(world, component).has<scene::Authored>();
 }
 
-/// Un tableau, en ligne (`float w[4]`, le `count` d'un membre) ou de flecs (`glm::mat4`) : quatre
-/// nombres par ligne, sinon un élément par ligne.
+/// Relève la largeur du cadre d'un des `count` nombres qui viennent d'être dessinés côte à côte :
+/// la largeur du champ (`CalcItemWidth`) est partagée entre eux par `DragScalarN`, moins l'espace
+/// entre eux. (Le rectangle de l'item comprendrait aussi le libellé.)
+void noteFrames(Walk& walk, int count)
+{
+    const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+    const float frame =
+        std::floor((ImGui::CalcItemWidth() - (spacing * static_cast<float>(count - 1))) /
+                   static_cast<float>(count));
+    walk.inspector.narrowestFrame = std::min(walk.inspector.narrowestFrame, frame);
+}
+
+/// Un tableau, en ligne (`float w[4]`, le `count` d'un membre) ou de flecs (`glm::mat4`) : autant
+/// de nombres par ligne que la largeur du champ en tient (quatre au plus), sinon un élément par
+/// ligne.
 void drawElements(Walk& walk, const char* label, flecs::entity_t type, std::int32_t count,
                   void* value)
 {
@@ -256,15 +294,18 @@ void drawElements(Walk& walk, const char* label, flecs::entity_t type, std::int3
     }
     const std::int32_t size = ecs_get_type_info(walk.world, type)->size;
     const std::optional<ecs_primitive_kind_t> number = numberKindOf(walk.world, type);
+    const std::int32_t perRow = numbersPerRow(ImGui::CalcItemWidth(), numberCellWidth(),
+                                              ImGui::GetStyle().ItemInnerSpacing.x);
     for (std::int32_t first = 0; first < count;)
     {
-        const std::int32_t inRow = number.has_value() ? std::min(NumbersPerRow, count - first) : 1;
+        const std::int32_t inRow = number.has_value() ? std::min(perRow, count - first) : 1;
         const std::string row = inRow == 1 ? std::format("[{}]", first)
                                            : std::format("[{}-{}]", first, first + inRow - 1);
         if (number.has_value())
         {
             walk.changed |=
                 dragNumbers(*number, row.c_str(), fieldAt(value, first * size), inRow, {});
+            noteFrames(walk, inRow);
             ++walk.fields;
         }
         else
@@ -287,7 +328,11 @@ bool drawRotation(Walk& walk, const char* label, void* value)
         eulerHint(rotation, typed != walk.inspector.typedAngles.end() ? std::optional{typed->second}
                                                                       : std::nullopt);
     if (!rejectNonFinite(&degrees.x, 3,
-                         [&] { return ImGui::DragFloat3(label, &degrees.x, RotationSpeed); }))
+                         [&]
+                         {
+                             return ImGui::DragFloat3(label, &degrees.x, RotationSpeed, 0.0f, 0.0f,
+                                                      "%.3f", AxisMarkers);
+                         }))
     {
         return false;
     }
@@ -343,12 +388,14 @@ void drawValue(Walk& walk, const char* label, flecs::entity_t type, void* value,
     const auto* primitive = ecs_get(world, type, EcsPrimitive);
     if (type == inspector.vec2 || type == inspector.vec3) // ses flottants côte à côte
     {
-        walk.changed |=
-            dragAs<float>(ImGuiDataType_Float, label, value, type == inspector.vec2 ? 2 : 3, {});
+        walk.changed |= dragAs<float>(ImGuiDataType_Float, label, value,
+                                      type == inspector.vec2 ? 2 : 3, {}, AxisMarkers);
+        noteFrames(walk, type == inspector.vec2 ? 2 : 3);
     }
     else if (type == inspector.quat)
     {
         walk.changed |= drawRotation(walk, label, value);
+        noteFrames(walk, 3);
     }
     else if (type == inspector.assetRef) // en lecture seule : un asset se choisit par son GUID
     {
@@ -368,6 +415,7 @@ void drawValue(Walk& walk, const char* label, flecs::entity_t type, void* value,
     else if (const std::optional<ecs_primitive_kind_t> number = numberKindOf(world, type))
     {
         walk.changed |= dragNumbers(*number, label, value, 1, range);
+        noteFrames(walk, 1);
     }
     else if (primitive != nullptr && primitive->kind == EcsBool)
     {
@@ -449,7 +497,8 @@ Inspector createInspector(const flecs::world& world, const assets::AssetRegistry
             .assetRef = world.id<assets::AssetRef>(),
             .registry = registry,
             .typedAngles = {},
-            .fieldsDrawn = 0};
+            .fieldsDrawn = 0,
+            .wrote = false};
 }
 
 glm::vec3 eulerHint(const glm::quat& rotation, const std::optional<glm::vec3>& typed)
@@ -486,16 +535,16 @@ std::string entityLabelOf(flecs::entity entity)
 {
     if (entity.id() == 0)
     {
-        return "aucune";
+        return ui::tr("aucune");
     }
-    return entity.is_alive() ? std::string{entity.path("::", "").c_str()} : "(détruite)";
+    return entity.is_alive() ? std::string{entity.path("::", "").c_str()} : ui::tr("(détruite)");
 }
 
 std::string assetNameOf(const assets::AssetRegistry* registry, const assets::AssetRef& ref)
 {
     if (!ref.isSet())
     {
-        return "aucun";
+        return ui::tr("aucun");
     }
     std::string name = assets::toString(ref.asset);
     if (registry != nullptr)
@@ -568,33 +617,63 @@ int inspectComponent(flecs::world& world, Inspector& inspector, flecs::entity en
     ImGui::BeginDisabled(!isAuthored(world, component));
     drawMembers(walk, *description, copy);
     ImGui::EndDisabled();
-    if (walk.changed)
+    if (walk.changed && commitEdit(world, entity, component, current, copy))
     {
-        commitEdit(world, entity, component, current, copy);
+        inspector.wrote = true;
     }
     ecs_value_free(world, component, copy);
     return walk.fields;
 }
 
+float numberCellWidth()
+{
+    return ImGui::CalcTextSize(WidestNumber).x + (2.0f * ImGui::GetStyle().FramePadding.x) +
+           ImGui::GetStyle().ColorMarkerSize;
+}
+
+int numbersPerRow(float fieldWidth, float cell, float innerSpacing)
+{
+    const float fitting = std::floor((fieldWidth + innerSpacing) / (cell + innerSpacing));
+    return std::clamp(static_cast<int>(fitting), 1, static_cast<int>(NumbersPerRow));
+}
+
+float labelColumnFor(float available, float wanted, float minimum, float cell, float innerSpacing)
+{
+    const float room =
+        available - (VectorComponents * cell) - ((VectorComponents - 1) * innerSpacing);
+    return std::clamp(room, minimum, wanted);
+}
+
 void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t selected,
-                   ImGuiID dock)
+                   ImGuiID dock, bool* open)
 {
     LEVAIN_ASSERT(world.is_deferred(), "drawInspector : le monde doit être différé (defer_begin)");
     inspector.fieldsDrawn = 0;
+    inspector.wrote = false;
+    inspector.narrowestFrame = std::numeric_limits<float>::max();
+    if (open != nullptr && !*open)
+    {
+        return;
+    }
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(InspectorWindow))
+    if (ImGui::Begin(ui::labelOf(InspectorWindow).c_str(), open))
     {
         const flecs::entity entity = selectedIfAlive(world, selected);
         if (!entity)
         {
-            ImGui::TextDisabled("aucune entité choisie");
+            ImGui::TextDisabled("%s", ui::tr("aucune entité choisie"));
         }
         else
         {
             ImGui::TextUnformatted(entity.path("::", "").c_str());
             // Négative, la largeur laisse cette place au libellé, à droite (imgui.h,
-            // `PushItemWidth`).
-            ImGui::PushItemWidth(ImGui::GetFontSize() * -LabelWidth);
+            // `PushItemWidth`). Mesurée : à 125 % et 150 % la colonne fixe de 10 em prenait la
+            // moitié de la fenêtre et coupait les nombres.
+            const float fontSize = ImGui::GetFontSize();
+            const float innerSpacing = ImGui::GetStyle().ItemInnerSpacing.x;
+            ImGui::PushItemWidth(-labelColumnFor(ImGui::GetContentRegionAvail().x,
+                                                 fontSize * LabelWidth, fontSize * MinLabelWidth,
+                                                 numberCellWidth(), innerSpacing));
             entity.each(
                 [&](flecs::id component)
                 {

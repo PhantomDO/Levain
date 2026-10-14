@@ -219,20 +219,10 @@ jobs:
               || { echo "::error::$symbol absent : le sandbox n'est pas instrumenté"; exit 1; }
           done
 
-      # --timeout 120 : un test bloqué échoue en 2 min plutôt qu'au délai par défaut de ctest (1 500 s).
-      # Le plus lent mesure 5,75 s (smoke.triangle, démarrage de lavapipe), qui varie de 1 à plus de 10 s.
-      - name: Tests
-        env:
-          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
-        run: |
-          set -euo pipefail
-          ctest --test-dir build/${{ matrix.preset }} --output-on-failure --timeout 120
-          # Les dxil.* doivent exister : un add_test perdu ne laisse aucune trace (règle n°7, #354).
-          dxil=$(ctest --test-dir build/${{ matrix.preset }} -N -R '^dxil[.]' | sed -nE 's/^Total Tests: ([0-9]+)/\1/p')
-          [ "${dxil:-0}" -ge 27 ] || { echo "::error::seulement ${dxil:-0} tests dxil.*, 27 attendus"; exit 1; }
-
       # Les assets de test tiers (tools/assets.lock), jamais versionnés : téléchargés et vérifiés
-      # par SHA-256, en cache tant que la liste ne change pas.
+      # par SHA-256, en cache tant que la liste ne change pas. AVANT « Tests » : ui.fonts, gpu.editor-* et
+      # editor.vue-pick-* lisent les polices de assets-cache/Fonts ; placés après, ils échouaient, et le cache
+      # (enregistré au succès du job seulement) n'était jamais écrit, si bien que windows-test le manquait toujours.
       # Les fichiers cuits (.cooked) restent hors de ce cache : le camion doit se charger depuis sa
       # source, Sponza depuis sa version cuite, et les deux chemins rester vivants (ADR-0020). Le job
       # Release les garde dans un cache à lui, restauré juste avant la cuisson.
@@ -246,6 +236,18 @@ jobs:
 
       - name: Assets de test
         run: ./tools/fetch-assets.sh
+
+      # --timeout 120 : un test bloqué échoue en 2 min plutôt qu'au délai par défaut de ctest (1 500 s).
+      # Le plus lent mesure 5,75 s (smoke.triangle, démarrage de lavapipe), qui varie de 1 à plus de 10 s.
+      - name: Tests
+        env:
+          LD_PRELOAD: ${{ env.ASAN_VK_PRELOAD }}
+        run: |
+          set -euo pipefail
+          ctest --test-dir build/${{ matrix.preset }} --output-on-failure --timeout 120
+          # Les dxil.* doivent exister : un add_test perdu ne laisse aucune trace (règle n°7, #354).
+          dxil=$(ctest --test-dir build/${{ matrix.preset }} -N -R '^dxil[.]' | sed -nE 's/^Total Tests: ([0-9]+)/\1/p')
+          [ "${dxil:-0}" -ge 27 ] || { echo "::error::seulement ${dxil:-0} tests dxil.*, 27 attendus"; exit 1; }
 
       # Le runner n'a pas d'écran : SDL passe par son pilote « offscreen ».
       #
@@ -680,7 +682,8 @@ jobs:
 
       # Les assets de test, hors de l'artefact (licence de Sponza) : le cache des jobs Linux, lu sans être réécrit
       # (enableCrossOsArchive : une archive faite sous Linux se lit sous Windows), puis tools/fetch-assets.sh vérifie
-      # chaque fichier par son SHA-256 et prend sur le réseau ce qui manque.
+      # chaque fichier par son SHA-256 et prend sur le réseau ce qui manque. Le zip d'Inter s'y ouvre avec unzip,
+      # que Git pour Windows livre (/usr/bin/unzip.exe) ; 7z, que le runner a aussi, n'est que le repli.
       - name: Cache des assets de test (celui des jobs Linux)
         uses: actions/cache/restore@v4
         with:
@@ -741,7 +744,7 @@ jobs:
       # Direct3D 12 sur WARP (les tests d3d12-warp, #19) : le rendu logiciel est dans le système (d3d10warp.dll), et les
       # tests exigent les couches de debug de Direct3D 12 et de DXGI, aussi en Release (d3d12SDKLayers.dll, de la
       # fonctionnalité facultative « Outils graphiques » de Windows ; dxgidebug.dll, celle de DXGI). Une absence arrête
-      # le job ici en nommant le fichier, plutôt que dans huit tests rouges (règle n°7). Enfin lavapipe et les couches de
+      # le job ici en nommant le fichier, plutôt que dans dix tests rouges (règle n°7). Enfin lavapipe et les couches de
       # validation, que le chargeur doit trouver : vulkaninfo les nomme.
       - name: Vérifier le runner
         run: |

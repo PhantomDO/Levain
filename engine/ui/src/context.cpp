@@ -4,6 +4,7 @@
 
 #include "levain/core/assert.hpp"
 #include "levain/platform/input.hpp"
+#include "levain/ui/flags.hpp"
 
 namespace levain::ui
 {
@@ -24,12 +25,6 @@ const char* clipboardOf(ImGuiContext*)
 void setClipboardOf(ImGuiContext*, const char* text)
 {
     platform::setClipboardText(text != nullptr ? text : "");
-}
-
-/// Les drapeaux d'ImGui sont des `int` : les combiner en non signé, comme des bits qu'ils sont.
-int withFlags(int flags, int added)
-{
-    return static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(added));
 }
 
 } // namespace
@@ -60,6 +55,16 @@ UiContext createUiContext(float displayScale)
     ImGuiStyle& style = ImGui::GetStyle();
     style.ScaleAllSizes(displayScale);
     style.FontScaleDpi = displayScale;
+    // Fonds opaques. Les 94 % de l'alpha par défaut d'ImGui sont pensés pour un mélange en espace
+    // sRGB. Avant le morceau 17d, notre interface se mélangeait en linéaire sur une cible sRGB, où
+    // 94 % se lisait autour de 73 % : un menu laissait voir ce qui est dessous. Elle se mélange
+    // maintenant en gamma (cible UNORM, ADR-0036 décision 15), mais le choix reste : il protège
+    // aussi une future cible sRGB. ChildBg reste transparent : un enfant se pose sur le fond de sa
+    // fenêtre.
+    for (const ImGuiCol color : {ImGuiCol_WindowBg, ImGuiCol_PopupBg, ImGuiCol_MenuBarBg})
+    {
+        style.Colors[color].w = 1.0f;
+    }
     return context;
 }
 

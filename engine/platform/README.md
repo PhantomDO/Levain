@@ -28,8 +28,10 @@ clavier, de la souris et des manettes, avec la résolution des noms de SDL dont 
 | Fichier | Contenu |
 |---|---|
 | [`include/levain/platform/window.hpp`](include/levain/platform/window.hpp) | `createWindow` (et `GraphicsSurface`, la surface que la fenêtre annonce), `windowPixelSize`, `pollEvents`, `waitEvents`, `setWindowTitle` |
+| [`include/levain/platform/input_script.hpp`](include/levain/platform/input_script.hpp) | `InputScript`, `parseInputScript`, `loadInputScript`, `addScriptedEvents`, `withoutRealInput` : des événements écrits dans un fichier, rejoués image par image (ADR-0036) |
+| [`include/levain/platform/paths.hpp`](include/levain/platform/paths.hpp) | `prefPath` : le dossier des préférences de l'utilisateur (`SDL_GetPrefPath` : `%APPDATA%\<org>\<app>\` sous Windows, `$XDG_DATA_HOME` sous Linux), créé, et un échec qui dit pourquoi (ADR-0036, décision 10) |
 | [`include/levain/platform/process.hpp`](include/levain/platform/process.hpp) | `runProcess` — lance un programme, attend sa fin, rend sa sortie (standard et erreur mêlées) et son code de retour |
-| [`include/levain/platform/input.hpp`](include/levain/platform/input.hpp) | `InputEvent` (appuis, axes, souris), `keyCodeFromName` et ses cousines, `setMouseCaptured`, `cursorPosition` (la souris en pixels de la swapchain, pour viser à l'écran) ; pour une interface (ADR-0032) : `UiEvent`, `startTextInput`, `stopTextInput`, `clipboardText`, `setClipboardText`, `displayScale` |
+| [`include/levain/platform/input.hpp`](include/levain/platform/input.hpp) | `InputEvent` (appuis, axes, souris), `keyCodeFromName` et ses cousines, `setMouseCaptured`, `warpMouse` (le curseur remis avant de quitter la capture), `cursorPosition` (la souris en pixels de la swapchain, pour viser à l'écran) ; pour une interface (ADR-0032) : `UiEvent`, `startTextInput`, `stopTextInput`, `clipboardText`, `setClipboardText`, `displayScale` |
 
 ## Trois choses à savoir sur l'input brut
 
@@ -59,7 +61,65 @@ Le jeu lit des actions ; une interface (ImGui, `engine/ui`) a besoin d'autre cho
   propres répétitions), mais pas dans `InputEvent`, où une action ne doit partir qu'au vrai appui.
 - **Le texte n'arrive qu'entre `startTextInput` et `stopTextInput`.** C'est aussi ce qui ouvre le clavier d'un
   téléphone.
-- **La position de la souris est en pixels de l'image**, densité comprise, comme `cursorPosition`.
+- **La disposition du clavier** : `keyAtPosition(scancode)` rend la touche que la disposition d'aujourd'hui met à
+  une position (« z » pour le scancode du W, sur un AZERTY), pour afficher un raccourci ; `KeyAtPosition` en est le
+  type en paramètre, pour que la logique n'appelle pas SDL (ADR-0011). Un changement de disposition arrive comme
+  `UiEventType::KeymapChanged` (`SDL_EVENT_KEYMAP_CHANGED`) : qui garde un résultat de `keyAtPosition` le refait.
+  Le banc d'essai l'écrit `<image> keymap changed` ; sa disposition est `qwertyKeyAtPosition`.
+- **La position de la souris est en pixels de l'image**, densité comprise, comme `cursorPosition`. Le mouvement relatif (`AxisMotion` de la souris) l'est aussi : `xrel` et `yrel` de SDL, multipliés par la densité.
+
+## Le banc d'essai de l'input (ADR-0036)
+
+`parseInputScript` lit un fichier d'événements (format dans `input_script.hpp`) et `addScriptedEvents` les ajoute,
+image par image, à ceux de `pollEvents` : ImGui, `gameInputOf` et les actions ne savent pas d'où ils viennent. **Sous un
+script, la boucle de l'App ne garde des vrais que ceux de la fenêtre** (`withoutRealInput`) : sur un vrai bureau, le vrai
+curseur n'est pas celui du script, et le système le rapporte quand il veut (le runner Windows, en Debug, le rapportait
+après le déplacement scripté suivant). **Une
+touche y a deux identités**, comme chez SDL : sa position (le scancode, que lit le jeu) et sa lettre (le keycode, que
+lit ImGui) ; `key down W as z` simule un AZERTY. Sans `as`, la lettre est celle d'un QWERTY américain, par une table à
+nous : `SDL_GetKeyFromScancode` lit la disposition de la machine, et le même script doit donner les mêmes touches
+partout. Une ligne illisible, un script sans événement, une image au-delà de `MaxInputScriptFrame` sont refusés en
+nommant la ligne et le champ (règle n°7).
+
+**La position de la souris** s'écrit `mouse move <x> <y>` (en pixels de l'image, des nombres finis : `from_chars` lit
+aussi « nan »). Elle ne va qu'à l'interface (`UiEvent`) : le jeu lit un déplacement, jamais un lieu. Sous la route *jeu*
+(`app`), un clic scripté sans `mouse move` avant lui n'atteint pas le jeu : le curseur d'ImGui n'est encore nulle part.
+
+**Le mouvement relatif et la molette** (morceau 11) : `mouse motion <dx> <dy>` donne les deux axes de la souris au jeu
+(`InputEvent`, ce que lit le vol de l'éditeur) **sans bouger le curseur d'ImGui** (à la souris capturée, SDL n'envoie
+pas non plus de position) ; `wheel <crans>` (positif vers l'avant, comme SDL) va à l'interface seule. Un test qui veut
+le curseur et le mouvement écrit les deux lignes.
+
+**La fermeture** s'écrit `window close` : la croix (`CloseRequested`). Un signal ne s'écrit pas dans un script, il se lève pour de
+vrai (`raise(SIGTERM)`, `gpu.editor-close.*`) : il arrive en `QuitSignal` (SDL_EVENT_QUIT), et le programme n'est jamais
+consulté. `createWindow` coupe `SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE`, sans quoi SDL enverrait aussi QUIT à la croix
+(`SDL_windowevents.c`) et le signal et la croix ne se distingueraient plus. **Un test doctest ne peut pas lever ce
+signal** : SDL n'installe son gestionnaire que si SIGTERM est encore à SIG_DFL (`SDL_quit.c`), et doctest a pris le sien.
+
+**Le zoom du système** (M7.7, morceau 17b, revue) : `SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED` arrive en
+`WindowEventType::ScaleChanged`, avec la nouvelle échelle dans `WindowEvent::displayScale` (lue sur la fenêtre à cet
+instant : l'événement SDL ne la porte pas). `window scale <échelle>` l'écrit dans un script (strictement positive), car
+un pilote hors écran n'en envoie jamais. **La traduction de l'événement SDL réel n'a pas de
+test**, comme celle de `Hidden` ou de `Resized` : le pilote hors écran des tests n'envoie aucun changement d'échelle.
+Ce sont le script et la boucle qui le reçoit (`app::setUiStyle`) qui sont couverts.
+
+**Pas encore scriptés, et le morceau d'ADR-0036 qui les ajoute** (`addKey` et `addButton` montrent où) :
+
+| Événement | Morceau | Pour quel scénario |
+|---|---|---|
+| le texte | 12 | un champ texte qui garde son Ctrl+Z |
+| la répétition d'une touche | aucun | rien ne la demande |
+
+**Le piège du morceau 8, réglé** : `platform::cursorPosition` interroge SDL, pas les événements : une position
+scriptée n'y change rien. Le picking du sandbox lit donc `App::cursor` (la position des événements, qu'ImGui suit), ramenée
+au rectangle de la Vue par `scenePixelAt` ; `cursorPosition` ne sert plus qu'avant le premier mouvement.
+
+## Le titre en ASCII
+
+`setWindowTitle` n'accepte que l'ASCII (une assertion, absente en Release) et la boucle de `app` le réécrit chaque
+seconde : tout texte qui ne vient pas du code (un nom de scène) passe par `asciiTitleOf` (chaque caractère hors ASCII
+devient un « ? »), et `windowTitle` relit le titre pour qu'un test le prouve. Le nom de la scène et son « * » vont dans
+la barre de menus d'ImGui, jamais dans le titre (ADR-0036, décision 11).
 
 ## Trois choses à savoir sur les fenêtres
 
@@ -68,7 +128,7 @@ protocole ne le lui dit pas. Le compositeur peut seulement la déclarer « suspe
 `OCCLUDED`. Nos événements s'appellent donc `Hidden` et `Shown`, et répondent à la seule question qui compte pour
 le moteur : **y a-t-il quelque chose à dessiner ?** Quand la réponse est non, la boucle appelle `waitEvents` et
 dort, au plus jusqu'à son échéance (`--seconds` du sandbox) : bureau verrouillé, une fenêtre masquée peut ne plus
-rien recevoir. Mesuré avec `tools/kwin-window-smoke.sh` : **0 ms de CPU en 2 s minimisée, contre 2 010 ms visible**.
+rien recevoir. `waitEvents` rend la main au premier événement SDL, même un que le moteur ne traduit pas : `Events::woken` le dit, et le test de l'échéance (`tests/window_test.cpp`) ne mesure que les attentes que rien n'a écourtées. Mesuré avec `tools/kwin-window-smoke.sh` : **0 ms de CPU en 2 s minimisée, contre 2 010 ms visible**.
 
 **Sous Wayland, pas d'image, pas de fenêtre.** Une surface Wayland n'apparaît à l'écran qu'après avoir reçu son
 premier buffer. Jusqu'à M1.2, le moteur ne présentait rien et la fenêtre restait invisible ; depuis la swapchain
@@ -95,3 +155,4 @@ pixels, parce que c'est ce dont la swapchain aura besoin.
 | **Unreal** | `ApplicationCore` | `FGenericApplication` et `FGenericWindow`, une implémentation par plateforme. Sous Linux, `FLinuxApplication` est construit sur SDL : Unreal fait exactement le choix de l'ADR-0003 (**documenté** : sources publiques, `Runtime/ApplicationCore/Private/Linux/`). |
 | **Godot** | `DisplayServer` | Une classe par système (`DisplayServerX11`, `DisplayServerWayland`). La boucle principale saute le rendu quand aucune fenêtre ne peut dessiner (`can_any_window_draw`, `main/main.cpp`) : c'est notre `Hidden` (**documenté** : dépôt public). |
 | **Unity** | — | Côté C#, `OnApplicationFocus`, `OnApplicationPause` et `Application.runInBackground` exposent le même besoin. L'implémentation C++ n'est pas publique. |
+| **Test d'input** | `InputTestFixture` (Unity Input System), `Input.parse_input_event` (Godot), Automation Driver (Unreal) | Rejouer des événements dans la vraie boucle : **documenté** pour Unity et Godot ; chez Unreal, `IAutomationDriver` simule la souris et le clavier par Slate (**documenté** dans l'API, non lu en détail). |

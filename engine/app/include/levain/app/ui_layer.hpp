@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <vector>
@@ -46,13 +47,35 @@ struct FrameHistory
 };
 
 /// Les nœuds de la disposition des panneaux (`drawEnginePanels`), où l'éditeur ancre ses fenêtres
-/// (ADR-0034) : à gauche celui d'« Image », à droite, sous « Scène », celui de l'inspecteur : à lui
-/// seul, il est toujours visible. Nuls tant que les panneaux n'ont jamais été ouverts.
+/// (ADR-0034, ADR-0036 décision 10) : à gauche la hiérarchie, au centre la Vue, à droite
+/// l'inspecteur, **seul sur son nœud, donc toujours visible**, en bas la console, « Image »,
+/// « Passes » et « Scène », en onglets. Nuls tant que les panneaux n'ont jamais été ouverts.
 struct DockNodes
 {
     ImGuiID left = 0;
+    ImGuiID center = 0;
     ImGuiID inspector = 0;
+    ImGuiID bottom = 0;
 };
+
+/// L'identifiant de l'espace d'ancrage principal, celui de toute la disposition : l'éditeur y
+/// retrouve les nœuds d'une disposition relue (`DockBuilderGetNode`), et la sauvegarde ne garde le
+/// texte d'ImGui que s'il y existe (des panneaux jamais ouverts n'ont rien à dire de la
+/// disposition).
+[[nodiscard]] ImGuiID mainDockspaceId();
+
+/// Les fenêtres du moteur ouvertes ou fermées (le menu « Fenêtre » de l'éditeur les rouvre).
+struct EngineWindows
+{
+    bool image = true;
+    bool passes = true;
+    bool scene = true;
+};
+
+/// Règle un `ImGuiStyle` pour une échelle d'écran : `ui::applyEditorStyle` en est une. Elle part du
+/// style donné (ses polices), ne dépend que de lui et de l'échelle, et peut être rappelée à chaque
+/// changement d'échelle (`ui::applyEditorStyle` est idempotente).
+using UiStyleFunction = std::function<void(ImGuiStyle&, float displayScale)>;
 
 /// L'UI d'un programme. Elle tient des ressources du GPU : `App` la déclare avant ses points
 /// d'accroche, et la détruit avant le device (ADR-0029).
@@ -64,7 +87,22 @@ struct UiLayer
     render::GpuTimer timer{};
     /// Les panneaux de debug du moteur, ouverts par F1 ou `--ui on`.
     bool panelsOpen = false;
+    /// Un client (l'éditeur, quand il capture une touche pour un raccourci, ADR-0036, décision 13)
+    /// pose ceci pour que F1 ne ferme pas les panneaux : F1 y est une touche qu'on refuse, et les
+    /// fermer ferait disparaître la fenêtre qui la lit. Remis à chaque image par le client.
+    bool panelsKeyBlocked = false;
+    /// **Le propriétaire du style** quand un programme en règle un autre que celui de
+    /// `createUiContext` (l'éditeur pose `ui::applyEditorStyle`, par `setUiStyle`) : la boucle la
+    /// rappelle à chaque changement d'échelle de l'écran (`WindowEventType::ScaleChanged`). Vide
+    /// (le sandbox, *Rando*) : le style d'ImGui reste à l'échelle de l'ouverture.
+    UiStyleFunction style{};
     DockNodes dock{};
+    EngineWindows windows{};
+    /// **Un éditeur enveloppe ce programme** (`withEditor`) : la disposition à colonnes
+    /// (hiérarchie, Vue, inspecteur, onglets du bas) et les fenêtres du moteur à croix, que son
+    /// menu « Fenêtre » rouvre. Faux (le sandbox, *Rando*) : la disposition d'avant, et des
+    /// fenêtres sans croix, car rien ne les rouvrirait (F1 ferme tous les panneaux d'un coup).
+    bool editorLayout = false;
     bool textInputActive = false;
     /// Les touches d'ImGui envoyées à l'appui, à relâcher à l'identique (`feedInput`).
     ui::PressedKeys pressedKeys{};
@@ -78,21 +116,133 @@ struct UiLayer
     FrameHistory history{};
 };
 
-/// L'input que voit le jeu quand l'UI prend la souris ou le clavier (`gameInputOf`) : sans ça, un
-/// clic dans une fenêtre tirerait aussi dans la scène, et taper un nombre ferait marcher le renard.
+/// **Qui reçoit l'input** (ADR-0036, décision 4). Le programme qui n'est pas un éditeur garde `Ui`.
+/// L'éditeur la décide à la fin de l'image N pour l'image N+1 (le survol et le focus ne se savent
+/// que dans `FrameHooks::ui`), et la boucle la lit au début de la suivante (`devicesTakenBy`).
+enum class InputRoute : std::uint8_t
+{
+    /// Le filtre de M7.1 : l'UI garde ce que veut ImGui (`WantCaptureMouse` et `…Keyboard`).
+    Ui,
+    /// Le jeu joue : la souris lui va dans le rectangle de la scène (`App::sceneRect`) de l'image
+    /// d'avant, ou capturée ; le clavier lui va, et ImGui n'en reçoit que les relâchements et F1
+    /// (`uiEventsOf`) : Ctrl+S ne part pas en jouant.
+    Game,
+    /// L'éditeur travaille : rien n'arrive au jeu, et ce qu'il tenait est relâché.
+    Editor,
+};
+
+/// Un rectangle de l'image, en pixels depuis son coin haut gauche : le repère de la souris d'ImGui.
+struct ScreenRect
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+/// Le point est dans le rectangle ; le bord haut gauche en est, le bas droit non, comme un pixel.
+[[nodiscard]] constexpr bool rectContains(const ScreenRect& rect, float pointX, float pointY)
+{
+    return pointX >= rect.x && pointX < rect.x + rect.width && pointY >= rect.y &&
+           pointY < rect.y + rect.height;
+}
+
+/// Les appareils que l'UI garde pour elle à cette image : le jeu n'en voit ni appui ni mouvement.
+struct DevicesTaken
+{
+    bool mouse = false;
+    bool keyboard = false;
+    bool gamepad = false;
+};
+
+/// Ce que `devicesTakenBy` lit de l'image : ce que veut ImGui, et où est la souris.
+struct RouteFacts
+{
+    bool imguiWantsMouse = false;
+    bool imguiWantsKeyboard = false;
+    bool mouseInScene = false; ///< Le curseur est dans `App::sceneRect`.
+    bool mouseCaptured = false;
+};
+
+/// Les appareils que l'UI prend selon la route. *Jeu* ne regarde pas `imguiWantsMouse` : la Vue
+/// sera une fenêtre d'ImGui, que le survol met à `WantCaptureMouse`, et le jeu ne verrait plus un
+/// clic (ADR-0036, option 3B, rejetée pour cela).
+[[nodiscard]] constexpr DevicesTaken devicesTakenBy(InputRoute route, const RouteFacts& facts)
+{
+    switch (route)
+    {
+    case InputRoute::Game:
+        return {.mouse = !facts.mouseInScene && !facts.mouseCaptured,
+                .keyboard = false,
+                .gamepad = false};
+    case InputRoute::Editor:
+        return {.mouse = true, .keyboard = true, .gamepad = true};
+    case InputRoute::Ui:
+        break;
+    }
+    return {.mouse = facts.imguiWantsMouse, .keyboard = facts.imguiWantsKeyboard, .gamepad = false};
+}
+
+/// L'input que voit le jeu quand l'UI prend un appareil (`gameInputOf`) : sans ça, un clic dans une
+/// fenêtre tirerait aussi dans la scène, et taper un nombre ferait marcher le renard.
 /// - les appuis et les mouvements que l'UI garde sont retirés, **jamais un relâchement** : l'input
 ///   garde l'état des touches tenues, et un relâchement perdu laisserait une touche enfoncée ;
 /// - ce qui était tenu de l'appareil que l'UI prend est relâché ;
 /// - F1 (`PanelsKey`) est toujours retirée : c'est la touche de l'UI.
 [[nodiscard]] std::vector<platform::InputEvent>
 gameInputOf(std::span<const platform::InputEvent> events, const input::RawInput& held,
-            bool uiTakesMouse, bool uiTakesKeyboard);
+            DevicesTaken taken);
+
+/// La capture garde la souris pour la caméra : ni mouvement, ni molette, ni appui n'arrive à ImGui
+/// (le survol d'une fenêtre sous le curseur figé ne doit pas répondre au vol). **Jamais un
+/// relâchement** : ImGui garde l'état des boutons, et un relâchement perdu laisserait « enfoncé »
+/// le bouton droit qui a pris la capture ; après un vol, son menu contextuel ne s'ouvrirait plus
+/// (ADR-0036, décision 13 ; même règle que `gameInputOf` pour le jeu).
+///
+/// Le relâchement du vol atteint ImGui sans les mouvements qui l'ont précédé, donc ImGui y voit
+/// un *clic* (appui et relâchement au même point) : c'est la Vue de l'éditeur qui n'ouvre son menu
+/// que si le clic droit n'a pas volé (`GestureState::flew`, morceau 11 ; Unreal ne l'ouvre que sans
+/// glissé). `gpu.editor-shortcuts.*` épingle le comportement d'`app` seul.
+[[nodiscard]] constexpr bool mouseTakenByCapture(const platform::UiEvent& event, bool captured)
+{
+    switch (event.type)
+    {
+    case platform::UiEventType::MouseMoved:
+    case platform::UiEventType::MouseWheel:
+        return captured;
+    case platform::UiEventType::MouseButton:
+        return captured && event.down;
+    default:
+        return false;
+    }
+}
+
+/// F1 ouvre et ferme les panneaux **sans modificateur** (ADR-0036, décision 13) : Maj+F1 est
+/// « rendre la souris » du jeu, et ne doit pas aussi fermer les panneaux.
+[[nodiscard]] constexpr bool togglesPanels(bool f1Pressed, const platform::KeyModifiers& modifiers)
+{
+    return f1Pressed && !modifiers.ctrl && !modifiers.shift && !modifiers.alt && !modifiers.super;
+}
+
+/// Ce qu'ImGui reçoit des événements de l'image, quand ce n'est pas tous. Sous la route *jeu*, du
+/// clavier il n'a que les relâchements et F1 (un relâchement perdu laisserait une touche enfoncée
+/// pour lui aussi), et pas le texte tapé : une touche du jeu n'ouvre pas un menu, un Ctrl+S ne
+/// part pas. **Souris capturée** (le vol), quelle que soit la route : de la souris, les
+/// relâchements seuls (`mouseTakenByCapture`), et pas le texte tapé. Sous toute autre route et sans
+/// capture, **rien** (`nullopt`) : ImGui reçoit `events` tels quels, sans copie, ce que le sandbox
+/// et *Rando* font à chaque image.
+[[nodiscard]] std::optional<platform::Events>
+uiEventsOf(InputRoute route, const platform::Events& events, bool mouseCaptured);
 
 /// La souris capturée : le programme la veut, et les panneaux ne sont pas ouverts. `App` possède
 /// la capture (ADR-0032) ; le programme pose `mouseCaptureWanted` et lit `mouseCaptured`.
-[[nodiscard]] constexpr bool mouseShouldBeCaptured(bool wanted, bool panelsOpen)
+/// **`overPanels`** (`App::mouseCaptureOverPanels`, ADR-0036, décision 8) : le vol de la caméra de
+/// l'éditeur capture la souris panneaux ouverts aussi, car il se fait dans la Vue, qui est un
+/// panneau. Sans lui, F1 libérerait la souris pour tout programme qui la veut ; avec lui, seul qui
+/// le pose (l'éditeur, pendant un vol) la garde.
+[[nodiscard]] constexpr bool mouseShouldBeCaptured(bool wanted, bool panelsOpen, bool overPanels)
 {
-    return wanted && !panelsOpen;
+    return wanted && (!panelsOpen || overPanels);
 }
 
 /// Ajoute une image à l'historique des courbes. Une image sans mesure GPU (pas encore relue, ou

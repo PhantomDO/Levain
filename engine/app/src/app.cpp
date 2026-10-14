@@ -97,13 +97,24 @@ void forgetHiddenTime(Clock::time_point& previousFrameEnd, const platform::Windo
     }
 }
 
+/// Une demande de fermeture arrête-t-elle la boucle ? Oui, sauf quand le programme répond
+/// « demandons d'abord » à une exécution interactive : une exécution scriptée se ferme tout de
+/// suite, sans appeler le programme (ADR-0036, décision 11).
+bool closeStops(const AppSettings& settings, const std::function<bool(App&)>& closeRequested,
+                App& app)
+{
+    return isScriptedRun(settings) || !closeRequested || !closeRequested(app);
+}
+
 void applyWindowEvent(LoopState& state, const platform::WindowEvent& event)
 {
     using platform::WindowEventType;
 
     switch (event.type)
     {
+    // Le signal quitte sans demander. La croix, elle, passe par `closeStops` avant d'arriver ici.
     case WindowEventType::CloseRequested:
+    case WindowEventType::QuitSignal:
         state.isRunning = false;
         break;
     // Les deux arrivent en double : sous Wayland, SDL renvoie EXPOSED après chaque
@@ -126,6 +137,26 @@ void applyWindowEvent(LoopState& state, const platform::WindowEvent& event)
         core::log("app", core::LogLevel::Info, "redimensionnée : {} × {} px", event.pixelSize.width,
                   event.pixelSize.height);
         break;
+    // Le style est à l'`App`, pas à l'état de la boucle : `restyleOnScaleChange`.
+    case WindowEventType::ScaleChanged:
+        break;
+    }
+}
+
+/// Le zoom du système a changé : le style de l'UI se refait à la nouvelle échelle, avant
+/// `NewFrame` (ImGui lit son style à chaque widget, jamais en cours d'image). Sans fonction de
+/// style (`UiLayer::style` vide), le style de `createUiContext` reste à l'échelle de l'ouverture :
+/// le sandbox et *Rando* n'ont pas encore de réglage à refaire (app/README, « Pas encore »).
+void restyleOnScaleChange(App& app, const platform::WindowEvent& event)
+{
+    if (event.type != platform::WindowEventType::ScaleChanged)
+    {
+        return;
+    }
+    core::log("app", core::LogLevel::Info, "échelle d'écran : {}", event.displayScale);
+    if (app.ui.style)
+    {
+        app.ui.style(ImGui::GetStyle(), event.displayScale);
     }
 }
 
@@ -532,6 +563,11 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .sampler = render::createSampler(*gpu.nvrhi, sampler),
             .world = flecs::world{},
             .fixedStep = {},
+            .simulationPaused = false,
+            .realTime = true,
+            .stepsPlayed = 0,
+            .recomposeAfterUi = false,
+            .cameraOverride = std::nullopt,
             .camera = {},
             .registry = std::move(registry),
             .modelCache = {},
@@ -552,8 +588,18 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .frameTimer = render::createGpuTimer(*gpu.nvrhi),
             .totalGpu = {},
             .frameCount = 0,
+            .keyAtPosition = platform::keyAtPosition,
+            .keymapChanges = 0,
+            .inputRoute = InputRoute::Ui,
+            .sceneRect = {},
+            .cursor = {},
+            .rawFrameEvents = {},
+            .frameSeconds = 0.0f,
+            .sceneView = {},
             .mouseCaptureWanted = false,
+            .mouseCaptureOverPanels = false,
             .mouseCaptured = false,
+            .mouseReturnTo = std::nullopt,
             .ui = UiLayer{.context = ui::createUiContext(platform::displayScale(window)),
                           .pass = std::move(*uiPass),
                           .timer = render::createGpuTimer(*gpu.nvrhi),
@@ -574,6 +620,13 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
     return app;
 }
 
+/// Les changements de disposition du clavier de ces événements, ajoutés à `App::keymapChanges`.
+void countKeymapChanges(App& app, const platform::Events& events)
+{
+    app.keymapChanges += static_cast<int>(std::ranges::count(
+        events.ui, platform::UiEventType::KeymapChanged, &platform::UiEvent::type));
+}
+
 /// Le début d'une image d'UI (ADR-0032, « L'ordre d'une image ») : ImGui reçoit l'input, puis
 /// `NewFrame` le traite ; ce n'est qu'après que `WantCaptureMouse` et `WantCaptureKeyboard` sont à
 /// jour. F1 ouvre ou ferme les panneaux ; la saisie de texte suit ce que veut ImGui.
@@ -583,17 +636,32 @@ void beginUiFrame(App& app, const platform::Events& events, double frameSeconds)
     ui::feedInput(io, events, app.ui.pressedKeys);
     ui::prepareUiFrame(io, platform::windowPixelSize(app.window), frameSeconds);
     ImGui::NewFrame();
-    if (ImGui::IsKeyPressed(ImGuiKey_F1, false))
+    countKeymapChanges(app, events);
+    const platform::KeyModifiers held{
+        .ctrl = io.KeyCtrl, .shift = io.KeyShift, .alt = io.KeyAlt, .super = io.KeySuper};
+    if (!app.ui.panelsKeyBlocked && togglesPanels(ImGui::IsKeyPressed(ImGuiKey_F1, false), held))
     {
         app.ui.panelsOpen = !app.ui.panelsOpen;
     }
     ui::followTextInput(app.window, io.WantTextInput, app.ui.textInputActive);
+    // La position des événements, pas celle de SDL : un script d'input ne bouge que la première
+    // (platform README). Sans souris connue (`-FLT_MAX` : aucun mouvement encore), celle de SDL.
+    app.cursor = ImGui::IsMousePosValid() ? platform::CursorPosition{io.MousePos.x, io.MousePos.y}
+                                          : platform::cursorPosition(app.window);
 }
 
 /// La fin d'une image d'UI : les panneaux du moteur s'ils sont ouverts, les fenêtres du programme,
 /// puis `ImGui::Render`. Le rendu de l'image la dessinera.
 void endUiFrame(App& app)
 {
+    // La scène remplit la fenêtre, sauf si les panneaux la découpent ou si `ui` en dispose
+    // autrement (la Vue, ADR-0036) : le rectangle est refait à chaque image.
+    const platform::PixelSize window = platform::windowPixelSize(app.window);
+    app.sceneRect = {0.0f, 0.0f, static_cast<float>(window.width),
+                     static_cast<float>(window.height)};
+    // Les panneaux lisent encore où allait la scène à l'image d'avant (`SceneView::output`), la
+    // demande de la Vue de cette image ne se faisant que dans `ui`, après eux.
+    beginSceneRequest(app.sceneView);
     if (app.ui.panelsOpen)
     {
         drawEnginePanels(app);
@@ -602,6 +670,7 @@ void endUiFrame(App& app)
     {
         app.hooks.ui(app);
     }
+    settleSceneOutput(app.sceneView);
     ImGui::Render();
     app.ui.frameReady = true;
 }
@@ -611,13 +680,62 @@ void endUiFrame(App& app)
 /// quand l'UI la libère, et ne la reprendrait jamais.
 void applyMouseCapture(App& app)
 {
-    const bool captured = mouseShouldBeCaptured(app.mouseCaptureWanted, app.ui.panelsOpen);
+    const bool captured = mouseShouldBeCaptured(app.mouseCaptureWanted, app.ui.panelsOpen,
+                                                app.mouseCaptureOverPanels);
     if (captured != app.mouseCaptured)
     {
+        if (!captured)
+        {
+            if (app.mouseReturnTo)
+            {
+                // Avant de quitter le mode relatif : SDL y replace alors le curseur, à la position
+                // qu'on vient de lui donner.
+                platform::warpMouse(app.window, *app.mouseReturnTo);
+            }
+            app.mouseReturnTo.reset();
+        }
         platform::setMouseCaptured(app.window, captured);
         app.mouseCaptured = captured;
     }
 }
+
+/// Après les fenêtres (ADR-0036, décisions 2 et 6) : si `ui` a demandé la recomposition
+/// (`recomposeAfterUi`), les matrices monde sont recomposées pour que le rendu voie ce qu'elle a
+/// écrit ; la caméra est relue dans ce cas, et chaque fois qu'elle est imposée, puisque l'éditeur
+/// la bouge dans `ui`. `overrideBeforeUi` : la caméra était imposée avant `ui`. Si `ui` l'a rendue
+/// aux entités (`cameraOverride.reset()`), l'image se rend par la caméra de la scène, relue elle
+/// aussi, et non par celle de l'éditeur. Le drapeau est remis à faux : il ne vaut que pour l'image.
+/// `false` quand la caméra a disparu ou se multiplie (sans caméra imposée) : la boucle s'arrête
+/// (règle n°7).
+bool settleAfterUi(App& app, bool overrideBeforeUi)
+{
+    const bool recompose = std::exchange(app.recomposeAfterUi, false);
+    if (recompose)
+    {
+        scene::composeWorldTransforms(app.world);
+    }
+    if (!recompose && !overrideBeforeUi && !app.cameraOverride)
+    {
+        return true;
+    }
+    auto camera = renderCameraOr(app.cameraOverride, app.cameras);
+    if (!camera)
+    {
+        core::log("app", core::LogLevel::Error, "{}", camera.error().message);
+        return false;
+    }
+    app.camera = *camera;
+    return true;
+}
+
+/// Les deux horloges d'une image : celle de la scène, que lisent l'eau, l'herbe, les matériaux et
+/// le point d'accroche `record`, et celle des squelettes, qui s'arrête avec la simulation
+/// (`advanceAnimationClock`).
+struct FrameClocks
+{
+    double scene = 0.0;
+    double skeletons = 0.0;
+};
 
 /// L'UI de l'image, dans la command list, sur l'image finale : ses textures, ses sommets, ses
 /// dessins, et son minuteur GPU quand elle dessine quelque chose. Son temps CPU s'ajoute aux
@@ -650,12 +768,40 @@ void recordUiFrame(App& app, nvrhi::ICommandList& commandList, nvrhi::ITexture& 
     app.ui.frameReady = false;
 }
 
+/// La scène de l'image (ADR-0036, décision 7), là où `SceneView::output` la met : dans la fenêtre,
+/// comme avant la Vue ; dans la texture de la Vue, la swapchain étant effacée pour l'UI ; ou nulle
+/// part, une Vue fermée, la swapchain effacée quand même. La passe de l'UI qui suit est la même.
+void recordScene(App& app, nvrhi::ICommandList& commandList, const FrameClocks& clocks,
+                 nvrhi::ITexture& backBuffer)
+{
+    const SceneOutput output = app.sceneView.output;
+    if (output != SceneOutput::Nothing)
+    {
+        nvrhi::ITexture& target =
+            output == SceneOutput::Texture ? *app.sceneView.texture : backBuffer;
+        render::renderFrame(*app.gpu.nvrhi, commandList, app.renderer,
+                            {.camera = app.camera,
+                             .sun = app.sun,
+                             .environmentIntensity = 1.0f,
+                             .lights = app.lights,
+                             .tonemap = app.settings.tonemap,
+                             .background = app.background,
+                             .seconds = clocks.scene},
+                            target);
+    }
+    if (output != SceneOutput::Window)
+    {
+        clearSwapchain(commandList, backBuffer);
+    }
+}
+
 /// Enregistre l'image, la présente, et rend le temps GPU d'une image précédente, dès qu'il est
 /// lisible. Avec `capture`, l'image est aussi copiée pour être relue (`render::readBack`).
 /// `displayWait`, s'il est donné, reçoit le temps passé dans `beginFrame` et `presentFrame` :
 /// l'attente de l'écran ou du GPU, qui n'est pas du travail du moteur (#294). La recréation de la
 /// swapchain et le ramasse-miettes de NVRHI, courts, y sont comptés aussi.
-std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList, double seconds,
+std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList,
+                                  const FrameClocks& clocks,
                                   nvrhi::StagingTextureHandle* capture = nullptr,
                                   double* displayWait = nullptr)
 {
@@ -678,20 +824,13 @@ std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList, do
         gpuMs = render::beginGpuTimer(*app.gpu.nvrhi, commandList, app.frameTimer);
         // Les poses des modèles skinnés, avant les dessins qui lisent leurs sommets déformés.
         animateModels(*app.gpu.nvrhi, commandList, app.models, app.skinning, app.skinningState,
-                      app.hooks.motionOf ? app.hooks.motionOf : MotionOf{restingMotion}, seconds);
+                      app.hooks.motionOf ? app.hooks.motionOf : MotionOf{restingMotion},
+                      clocks.skeletons);
         if (app.hooks.record)
         {
-            app.hooks.record(app, commandList, seconds);
+            app.hooks.record(app, commandList, clocks.scene);
         }
-        render::renderFrame(*app.gpu.nvrhi, commandList, app.renderer,
-                            {.camera = app.camera,
-                             .sun = app.sun,
-                             .environmentIntensity = 1.0f,
-                             .lights = app.lights,
-                             .tonemap = app.settings.tonemap,
-                             .background = app.background,
-                             .seconds = seconds},
-                            *backBuffer);
+        recordScene(app, commandList, clocks, *backBuffer);
         // Après le tonemapping, sur l'image finale, et avant la copie d'une capture (ADR-0032).
         if (app.ui.frameReady)
         {
@@ -720,16 +859,22 @@ std::optional<double> renderFrame(App& app, nvrhi::ICommandList& commandList, do
 #ifndef __EMSCRIPTEN__
 /// Rend une dernière image et l'écrit en PNG. Un échec est bruyant (règle n°7) : une capture
 /// demandée et absente ferait croire à une image qui n'existe pas.
-bool captureFrame(App& app, nvrhi::ICommandList& commandList, double seconds,
+bool captureFrame(App& app, nvrhi::ICommandList& commandList, const FrameClocks& clocks,
                   const std::filesystem::path& path)
 {
     nvrhi::StagingTextureHandle staging;
     // Une image d'UI pour la capture, sans input : avec `--ui on`, les panneaux s'y voient.
     beginUiFrame(app, {}, app.fixedStep.stepSeconds);
+    const bool overrideBeforeUi = app.cameraOverride.has_value();
     endUiFrame(app);
+    if (!settleAfterUi(app, overrideBeforeUi))
+    {
+        return false;
+    }
     // std::addressof et non « & » : le RefCountPtr de NVRHI surcharge l'opérateur & (il rend
     // l'adresse du pointeur brut, comme les ComPtr de COM).
-    static_cast<void>(renderFrame(app, commandList, seconds, std::addressof(staging)));
+    static_cast<void>(renderFrame(app, commandList, clocks, std::addressof(staging)));
+    releaseRetiredScenes(app.sceneView, app.ui.pass);
     if (!staging)
     {
         core::log("app", core::LogLevel::Error,
@@ -766,6 +911,9 @@ struct Loop
     double periodEngineSeconds = 0.0;
     Clock::time_point loopStart;
     Clock::time_point previousFrameEnd;
+    /// Le temps de la scène passé « Temps réel » décoché (`App::realTime`) : la même horloge que
+    /// celle des squelettes, qui compte les images passées à l'arrêt.
+    AnimationClock realTimeClock;
     ShaderReload shaderReload;
     TextureReload textureReload;
     nvrhi::FramebufferInfo sceneTarget;
@@ -786,6 +934,7 @@ Loop startLoop(App& app)
                 .periodEngineSeconds = 0.0,
                 .loopStart = now,
                 .previousFrameEnd = now,
+                .realTimeClock = {},
                 .shaderReload = startShaderReload(app.settings.shaderBuild),
                 .textureReload = startTextureReload(app.registry),
                 .sceneTarget = render::sceneTargetInfo(),
@@ -798,15 +947,41 @@ double sceneSecondsOf(const Loop& loop)
     return loop.app.settings.frozenSeconds.value_or(secondsBetween(loop.loopStart, Clock::now()));
 }
 
+/// Les horloges de cette image. Appelée une fois par image rendue : l'horloge des squelettes
+/// compte le temps de la scène que cette image passe à l'arrêt. `simulationPaused` est la valeur
+/// que `advanceWorld` a lue pour cette image, non celle d'après `ui` : un Lecture / Arrêt cliqué
+/// dans `ui` vaut à partir de l'image suivante pour la simulation comme pour les squelettes.
+/// **`App::realTime`, au contraire, est lu ici, après `ui`** : la case « Temps réel » ou Ctrl+R
+/// cliqués dans `ui` gèlent ou libèrent le temps de la scène dès cette même image.
+FrameClocks advanceClocks(Loop& loop, bool simulationPaused)
+{
+    // Le temps réel d'abord : les squelettes suivent le temps de la scène, gelé ou non.
+    const double scene =
+        advanceAnimationClock(loop.realTimeClock, sceneSecondsOf(loop), !loop.app.realTime);
+    return {.scene = scene,
+            .skeletons =
+                advanceAnimationClock(loop.app.skinningState.clock, scene, simulationPaused)};
+}
+
+/// Le script d'input mène la boucle quand aucune autre fin n'est donnée : sans `--seconds` ni
+/// `--steps`, elle s'arrête après sa dernière image. Avec l'une d'elles, la première échéance
+/// gagne.
+bool scriptEndsRun(const AppSettings& settings, int frameCount)
+{
+    return settings.inputScript && !settings.steps && std::isinf(settings.loopSeconds) &&
+           frameCount >= platform::scriptLength(*settings.inputScript);
+}
+
 /// Une image de la boucle ; `false` quand elle s'arrête (fenêtre fermée, `--seconds` écoulées,
-/// `--steps` joués).
+/// `--steps` joués, script fini).
 bool runFrame(Loop& loop)
 {
     App& app = loop.app;
     const AppSettings& settings = app.settings;
-    if (!loop.state.isRunning ||
+    if (!loop.state.isRunning || app.quitRequested ||
         secondsBetween(loop.loopStart, Clock::now()) >= settings.loopSeconds ||
-        (settings.steps && app.frameCount >= *settings.steps))
+        (settings.steps && app.frameCount >= *settings.steps) ||
+        scriptEndsRun(settings, app.frameCount))
     {
         return false;
     }
@@ -821,10 +996,24 @@ bool runFrame(Loop& loop)
         // dormirait sinon indéfiniment. L'infini par défaut attend sans limite.
         const double remainingSeconds =
             settings.loopSeconds - secondsBetween(loop.loopStart, Clock::now());
-        for (const auto& event : platform::waitEvents(app.window, remainingSeconds).window)
+        const platform::Events whileHidden = platform::waitEvents(app.window, remainingSeconds);
+        for (const auto& event : whileHidden.window)
         {
+            if (event.type == platform::WindowEventType::CloseRequested &&
+                !closeStops(settings, app.hooks.closeRequested, app))
+            {
+                // La modale se dessine dans `ui`, que la boucle ne joue pas fenêtre masquée :
+                // personne ne la verrait, et ses clics seraient avalés. On remet la fenêtre devant
+                // (le banc d'essai n'a pas d'événement « masquée » : non couvert par un test).
+                platform::restoreAndRaise(app.window);
+                continue;
+            }
             applyWindowEvent(loop.state, event);
+            restyleOnScaleChange(app, event);
         }
+        // Un changement de disposition reçu fenêtre masquée compte aussi : qui garde une touche
+        // affichée la relirait sans cela à la restauration, trop tard pour la première image.
+        countKeymapChanges(app, whileHidden);
 
         // Le temps passé masquée n'est pas une image. Sans cette remise à l'heure, la première
         // image après la restauration durerait toute la minimisation, et le maximum affiché serait
@@ -835,22 +1024,54 @@ bool runFrame(Loop& loop)
 
     const Clock::time_point frameStart = Clock::now();
     double displayWait = 0.0;
+    bool simulationPaused = false; // lu une fois, par le bloc « monde », pour toute l'image
+    bool overrideBeforeUi = false; // la caméra imposée avant que `ui` ne la touche
     {
         LEVAIN_PROFILE_SCOPE_NAMED("événements");
 
-        const platform::Events events = platform::pollEvents(app.window);
+        platform::Events events = platform::pollEvents(app.window);
+        // Le banc d'essai : sous un script, il est la seule source d'input (invariant 12). Des
+        // vrais événements ne restent que ceux de la fenêtre, puis viennent ceux du script, et la
+        // suite de l'image (ImGui, `gameInputOf`, les actions) ne sait pas d'où ils viennent.
+        if (settings.inputScript)
+        {
+            events = platform::withoutRealInput(std::move(events));
+            platform::addScriptedEvents(events, *settings.inputScript, app.frameCount);
+        }
         for (const auto& event : events.window)
         {
+            if (event.type == platform::WindowEventType::CloseRequested &&
+                !closeStops(settings, app.hooks.closeRequested, app))
+            {
+                continue; // le programme demande d'abord : la modale s'ouvre dans `ui`
+            }
             applyWindowEvent(loop.state, event);
+            restyleOnScaleChange(app, event);
             forgetHiddenTime(loop.previousFrameEnd, event, frameStart);
         }
-        // ImGui d'abord : ce qu'il garde de l'input, le jeu ne le voit pas (`gameInputOf`).
+        // ImGui d'abord : ce qu'il garde de l'input, le jeu ne le voit pas (`gameInputOf`). La
+        // route est celle que l'éditeur a posée à la fin de l'image d'avant (ADR-0036).
         const Clock::time_point uiStart = Clock::now();
-        beginUiFrame(app, events, loop.lastFrameSeconds);
+        const InputRoute route = app.inputRoute;
+        const std::optional<platform::Events> uiEvents =
+            uiEventsOf(route, events, app.mouseCaptured);
+        beginUiFrame(app, uiEvents ? *uiEvents : events, loop.lastFrameSeconds);
         const ImGuiIO& io = ImGui::GetIO();
-        const std::vector<platform::InputEvent> gameEvents =
-            gameInputOf(events.input, app.input.raw, io.WantCaptureMouse, io.WantCaptureKeyboard);
+        const std::vector<platform::InputEvent> gameEvents = gameInputOf(
+            events.input, app.input.raw,
+            devicesTakenBy(
+                route, {.imguiWantsMouse = io.WantCaptureMouse,
+                        .imguiWantsKeyboard = io.WantCaptureKeyboard,
+                        .mouseInScene = rectContains(app.sceneRect, io.MousePos.x, io.MousePos.y),
+                        .mouseCaptured = app.mouseCaptured}));
         app.ui.frameCpuMs += secondsBetween(uiStart, Clock::now()) * 1000.0;
+        // Ce que l'image a reçu, avant tout filtre : l'éditeur y lit ses gestes
+        // (`App::rawFrameEvents`).
+        app.rawFrameEvents = std::move(events);
+        // La durée que le monde compte pour cette image (le pas fixe sous `--steps`, comme plus
+        // bas).
+        app.frameSeconds =
+            settings.steps ? app.fixedStep.stepSeconds : static_cast<float>(loop.lastFrameSeconds);
         input::updateInput(app.input, app.bindings, gameEvents,
                            static_cast<float>(loop.lastFrameSeconds));
         takeFrameInput(app.world.get_mut<PlayerInput>(), app.input);
@@ -872,10 +1093,12 @@ bool runFrame(Loop& loop)
         // de rendu qui interpole et compose les matrices monde (ADR-0016). La durée passée est
         // celle de l'image précédente : celle-ci n'est pas encore finie.
         LEVAIN_PROFILE_SCOPE_NAMED("monde");
-        scene::advanceWorld(app.world, app.fixedStep,
-                            settings.steps ? app.fixedStep.stepSeconds
-                                           : static_cast<float>(loop.lastFrameSeconds));
-        auto camera = renderCameraOf(app.cameras);
+        simulationPaused = app.simulationPaused;
+        app.stepsPlayed += scene::advanceWorld(
+            app.world, app.fixedStep,
+            settings.steps ? app.fixedStep.stepSeconds : static_cast<float>(loop.lastFrameSeconds),
+            simulationPaused);
+        auto camera = renderCameraOr(app.cameraOverride, app.cameras);
         if (!camera)
         {
             core::log("app", core::LogLevel::Error, "{}", camera.error().message);
@@ -888,15 +1111,28 @@ bool runFrame(Loop& loop)
     {
         LEVAIN_PROFILE_SCOPE_NAMED("interface");
         const Clock::time_point uiStart = Clock::now();
+        overrideBeforeUi = app.cameraOverride.has_value();
         endUiFrame(app);
         app.ui.frameCpuMs += secondsBetween(uiStart, Clock::now()) * 1000.0;
+    }
+
+    {
+        // Ce que `ui` a écrit doit se voir dans cette image (ADR-0036) : à la demande seulement,
+        // le sandbox et *Rando* ne paient rien.
+        LEVAIN_PROFILE_SCOPE_NAMED("recomposition");
+        if (!settleAfterUi(app, overrideBeforeUi))
+        {
+            loop.failed = true;
+            return false;
+        }
     }
 
     std::optional<float> frameGpuMs;
     {
         LEVAIN_PROFILE_SCOPE_NAMED("rendu");
         if (const auto gpuMs =
-                renderFrame(app, *loop.commandList, sceneSecondsOf(loop), nullptr, &displayWait))
+                renderFrame(app, *loop.commandList, advanceClocks(loop, simulationPaused), nullptr,
+                            &displayWait))
         {
             frameGpuMs = static_cast<float>(*gpuMs);
             loop.periodGpu.totalMs += *gpuMs;
@@ -905,6 +1141,8 @@ bool runFrame(Loop& loop)
             ++app.totalGpu.samples;
         }
     }
+    // L'ancienne scène de la Vue, remplacée dans cette image : plus aucun dessin ne la montre.
+    releaseRetiredScenes(app.sceneView, app.ui.pass);
     // Le coût CPU de l'UI (le critère de M7.1), compté à chaque image, présentée ou non : sans
     // image à dessiner (fenêtre réduite, swapchain à recréer), ses tranches s'ajouteraient sinon
     // à l'image suivante, qui paraîtrait coûter toute l'attente.
@@ -932,8 +1170,10 @@ bool runFrame(Loop& loop)
         LEVAIN_PROFILE_SCOPE_NAMED("titre");
         const FrameReport report = frameReportOf(*summary, loop.periodEngineSeconds,
                                                  platform::windowPixelSize(app.window));
-        platform::setWindowTitle(app.window, describeFrameTimes(settings.title, report,
-                                                                render::averageOf(loop.periodGpu)));
+        // Le titre du programme peut venir d'ailleurs que du code (un nom de scène) : ASCII.
+        platform::setWindowTitle(app.window,
+                                 platform::asciiTitleOf(describeFrameTimes(
+                                     settings.title, report, render::averageOf(loop.periodGpu))));
 #ifdef __EMSCRIPTEN__
         const UiCost& uiCost = app.ui.cost;
         reportFrame(report, uiCost.cpuSamples > 0 ? uiCost.cpuTotalMs / uiCost.cpuSamples : 0.0,
@@ -967,8 +1207,18 @@ bool finishLoop(Loop& loop)
     // ce que la CI vérifie ensuite : elle échoue (règle n°7).
     if (app.settings.steps && app.frameCount < *app.settings.steps)
     {
-        core::log("app", core::LogLevel::Error, "--steps : {} pas simulés sur les {} demandés",
+        core::log("app", core::LogLevel::Error, "--steps : {} images jouées sur les {} demandées",
                   app.frameCount, *app.settings.steps);
+        return false;
+    }
+    // Même règle pour le script : arrêtée avant sa dernière image, la boucle n'a pas rejoué ce que
+    // le test attend (règle n°7).
+    if (app.settings.inputScript &&
+        app.frameCount < platform::scriptLength(*app.settings.inputScript))
+    {
+        core::log("app", core::LogLevel::Error,
+                  "--input-script : {} images jouées sur les {} du script", app.frameCount,
+                  platform::scriptLength(*app.settings.inputScript));
         return false;
     }
     // Le critère de M5.3 : le temps GPU de la passe d'ombres, quatre cascades.
@@ -1021,7 +1271,8 @@ bool finishLoop(Loop& loop)
     return true;
 #else
     return !app.settings.capturePath ||
-           captureFrame(app, *loop.commandList, sceneSecondsOf(loop), *app.settings.capturePath);
+           captureFrame(app, *loop.commandList, advanceClocks(loop, app.simulationPaused),
+                        *app.settings.capturePath);
 #endif
 }
 
@@ -1040,9 +1291,10 @@ core::Result<std::unique_ptr<App>> startApp(platform::Window& window, gpu::GpuDe
         return std::unexpected(hooks.error());
     }
     (*app)->hooks = std::move(*hooks);
-    // Les matrices monde, avant la première image, et la caméra par laquelle elle se verra.
-    scene::advanceWorld((*app)->world, (*app)->fixedStep, 0.0f);
-    auto camera = renderCameraOf((*app)->cameras);
+    // Les matrices monde, avant la première image, et la caméra par laquelle elle se verra : celle
+    // que le programme impose, le cas échéant, sans consulter les entités (ADR-0036).
+    scene::advanceWorld((*app)->world, (*app)->fixedStep, 0.0f, (*app)->simulationPaused);
+    auto camera = renderCameraOr((*app)->cameraOverride, (*app)->cameras);
     if (!camera)
     {
         return std::unexpected(camera.error());
@@ -1105,6 +1357,21 @@ void startWebApp(core::Result<gpu::GpuDevice> gpu)
 
 } // namespace
 
+std::optional<ImTextureID> requestScene(App& app, const SceneSize& size)
+{
+    return requestSceneTexture(app.sceneView, *app.gpu.nvrhi, app.ui.pass,
+                               gpu::swapchainFormat(app.gpu), size);
+}
+
+void setUiStyle(App& app, UiStyleFunction style)
+{
+    app.ui.style = std::move(style);
+    if (app.ui.style)
+    {
+        app.ui.style(ImGui::GetStyle(), platform::displayScale(app.window));
+    }
+}
+
 void prepareAppWorld(flecs::world& world)
 {
     world.import<scene::SceneModule>();
@@ -1144,9 +1411,11 @@ std::optional<glm::vec3> parseVector(std::string_view text)
 
 OptionUse parseCommonOption(AppSettings& settings, std::string_view name, std::string_view value)
 {
-    if (name == "--capture" || name == "--sky")
+    if (name == "--capture" || name == "--sky" || name == "--input-script")
     {
-        (name == "--capture" ? settings.capturePath : settings.sky) = std::filesystem::path{value};
+        (name == "--capture" ? settings.capturePath
+         : name == "--sky"   ? settings.sky
+                             : settings.inputScriptFile) = std::filesystem::path{value};
         return OptionUse::Taken;
     }
     if (name == "--gpu")
@@ -1229,10 +1498,50 @@ OptionUse parseCommonOption(AppSettings& settings, std::string_view name, std::s
     return OptionUse::Taken;
 }
 
-int runApp(const AppSettings& settings, const StartFunction& start)
+bool isScriptedRun(const AppSettings& settings)
 {
-    auto window = platform::createWindow(settings.title, settings.width, settings.height,
-                                         gpu::surfaceFor(settings.api));
+    if (settings.testInteractive)
+    {
+        return false;
+    }
+    return std::isfinite(settings.loopSeconds) || settings.steps || settings.frozenSeconds ||
+           settings.capturePath || settings.inputScript || settings.inputScriptFile;
+}
+
+core::Result<std::optional<platform::InputScript>> inputScriptOf(const AppSettings& settings)
+{
+    if (settings.inputScriptFile)
+    {
+        auto script = platform::loadInputScript(*settings.inputScriptFile);
+        if (!script)
+        {
+            return std::unexpected(script.error());
+        }
+        return std::optional{std::move(*script)};
+    }
+    if (settings.inputScript)
+    {
+        if (auto checked = platform::checkInputScript(*settings.inputScript); !checked)
+        {
+            return std::unexpected(checked.error());
+        }
+    }
+    return settings.inputScript;
+}
+
+int runApp(const AppSettings& requested, const StartFunction& start)
+{
+    // Le script avant la fenêtre : un script refusé s'arrête sans ouvrir ni device ni fenêtre.
+    AppSettings settings = requested;
+    auto script = inputScriptOf(requested);
+    if (!script)
+    {
+        core::log("app", core::LogLevel::Critical, "--input-script : {}", script.error().message);
+        return 1;
+    }
+    settings.inputScript = std::move(*script);
+    auto window = platform::createWindow(platform::asciiTitleOf(settings.title), settings.width,
+                                         settings.height, gpu::surfaceFor(settings.api));
     if (!window)
     {
         core::log("app", core::LogLevel::Critical, "{}", window.error().message);
@@ -1251,8 +1560,9 @@ int runApp(const AppSettings& settings, const StartFunction& start)
     // Déclaré après window, gpu sera détruit avant elle : la surface Vulkan doit disparaître
     // avant la fenêtre SDL qui la porte. Et `app`, déclarée après gpu, avant lui.
     const Clock::time_point deviceStart = Clock::now();
-    auto gpu =
-        gpu::createGpuDevice(*window, {.enableValidation = EnableValidation, .api = settings.api});
+    auto gpu = gpu::createGpuDevice(
+        *window,
+        {.enableValidation = EnableValidation, .api = settings.api, .adapter = settings.adapter});
     if (!gpu)
     {
         core::log("app", core::LogLevel::Critical, "{}", gpu.error().message);
@@ -1271,6 +1581,12 @@ int runApp(const AppSettings& settings, const StartFunction& start)
     while (runFrame(loop))
     {
     }
+    // NVRHI Vulkan ne retient pas une texture que la command list ne fait qu'effacer
+    // (`clearTexture`, `clearDepthStencilTexture`) : un programme qui ne dessine aucun mesh libère
+    // son depth buffer à la fermeture alors que la dernière image est encore en vol, ce que la
+    // couche de validation refuse. Hors écran, `GpuDevice` attend à chaque image ; avec une
+    // swapchain, personne. Ici, avant que `app` ne soit détruite (build/GOTCHA.md).
+    gpu->nvrhi->waitForIdle();
     if (!finishLoop(loop))
     {
         return 1;

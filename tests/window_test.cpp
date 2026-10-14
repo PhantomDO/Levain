@@ -80,13 +80,27 @@ TEST_CASE("waitEvents rend la main à l'échéance quand aucun événement n'arr
     // Ce que la création a mis dans la file : sinon l'attente reviendrait tout de suite.
     (void)levain::platform::pollEvents(*window);
 
-    const auto start = std::chrono::steady_clock::now();
-    const levain::platform::Events events = levain::platform::waitEvents(*window, 0.05);
-    const auto elapsed = std::chrono::steady_clock::now() - start;
+    // `waitEvents` rend la main au premier événement SDL, même un que le moteur ne traduit pas (le
+    // pilote offscreen sonde toutes les millisecondes, et une souris branchée ou un focus perdu
+    // arrive dans la file) : une attente écourtée n'a rien à dire de l'échéance (`Events::woken`).
+    // On recommence jusqu'à une attente que rien n'a écourtée, et on exige qu'il y en ait une : le
+    // test ne devient pas muet quand des événements parasites arrivent (règle n°7).
+    bool slept = false;
+    for (int attempt = 0; attempt < 20 && !slept; ++attempt)
+    {
+        const auto start = std::chrono::steady_clock::now();
+        const levain::platform::Events events = levain::platform::waitEvents(*window, 0.05);
+        const auto elapsed = std::chrono::steady_clock::now() - start;
 
-    CHECK(events.window.empty());
-    CHECK(elapsed >= 40ms); // a bien dormi, pas une attente nulle
-    CHECK(elapsed < 5s);
+        CHECK(events.window.empty());
+        if (!events.woken)
+        {
+            CHECK(elapsed >= 40ms); // a bien dormi, pas une attente nulle
+            CHECK(elapsed < 5s);
+            slept = true;
+        }
+    }
+    REQUIRE(slept);
 }
 
 TEST_CASE("ce qu'une interface demande à la fenêtre : l'échelle, le presse-papiers, la saisie")
@@ -125,4 +139,39 @@ TEST_CASE("une fenêtre n'annonce Vulkan qu'à la demande : sans chargeur, seule
             .has_value());
     CHECK(levain::platform::createWindow("Levain", 64, 64, levain::platform::GraphicsSurface::None)
               .has_value());
+}
+
+TEST_CASE("asciiTitleOf : l'ASCII passe, chaque caractère hors ASCII devient un seul « ? »")
+{
+    using levain::platform::asciiTitleOf;
+    CHECK(asciiTitleOf("Levain - 3.2 ms (min 3.0)") == "Levain - 3.2 ms (min 3.0)");
+    CHECK(asciiTitleOf("") == "");
+    CHECK(asciiTitleOf("Sc\xC3\xA8ne") == "Sc?ne");               // « è », deux octets
+    CHECK(asciiTitleOf("A \xE2\x80\x94 B") == "A ? B");           // « — », trois octets
+    CHECK(asciiTitleOf("\xF0\x9F\xA6\x8A renard") == "? renard"); // un émoji, quatre octets
+    CHECK(asciiTitleOf("\xA9x") == "x");                          // une suite isolée est perdue
+    // Ce que setWindowTitle accepte : le résultat est toujours de l'ASCII.
+    for (const unsigned char byte : {0x80, 0xC3, 0xFF})
+    {
+        const std::string raw{static_cast<char>(byte)};
+        for (const char c : asciiTitleOf(raw))
+        {
+            CHECK(static_cast<unsigned char>(c) < 0x80);
+        }
+    }
+}
+
+TEST_CASE(
+    "la croix d'une fenêtre ne quitte pas : l'indice de SDL est posé, même contre l'environnement")
+{
+    // Sans lui, la croix enverrait CLOSE_REQUESTED puis QUIT, et l'éditeur quitterait sans modale
+    // : aucun test de la boucle ne le voit, la croix y est scriptée.
+    const ScopedOffscreenDriver offscreen;
+    // Une variable d'environnement SDL_QUIT_ON_LAST_WINDOW_CLOSE ferait échouer un SDL_SetHint
+    // ordinaire, en silence : l'indice est posé avec la priorité OVERRIDE.
+    const ScopedVariable environment("SDL_QUIT_ON_LAST_WINDOW_CLOSE", "1");
+    auto window =
+        levain::platform::createWindow("Levain", 64, 64, levain::platform::GraphicsSurface::None);
+    REQUIRE(window.has_value());
+    CHECK_FALSE(levain::platform::closeSendsQuit());
 }
