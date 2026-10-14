@@ -46,4 +46,13 @@ inline constexpr ImVec4 EditorAccentDark = srgb8(24, 80, 148);
 /// espace gamma, s'il vient, ne changera pas l'aspect.
 void applyEditorStyle(ImGuiStyle& style, float displayScale);
 
+/// La luminance relative d'une couleur sRGB (WCAG 2.x) : les canaux **linéarisés** d'abord, puis
+/// pondérés par la sensibilité de l'œil. Moyenner des valeurs sRGB brutes donne un rapport faux :
+/// la courbe sRGB n'est pas linéaire.
+[[nodiscard]] float relativeLuminance(const ImVec4& srgb);
+
+/// Le rapport de contraste de deux couleurs sRGB, de 1 (identiques) à 21 (noir sur blanc) ; 4,5 est
+/// le seuil de lisibilité d'un texte courant (WCAG 2.x).
+[[nodiscard]] float contrastRatio(const ImVec4& first, const ImVec4& second);
+
 } // namespace levain::ui

@@ -1,5 +1,8 @@
 #include "levain/ui/style.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 #include "levain/core/assert.hpp"
 
 namespace levain::ui
@@ -115,6 +118,13 @@ void setColors(ImVec4* colors)
     colors[ImGuiCol_ModalWindowDimBg] = {0.0f, 0.0f, 0.0f, 0.55f};
 }
 
+/// Le canal sRGB `value` (0 à 1) en lumière linéaire (IEC 61966-2-1), comme le matériel le fait en
+/// lisant une texture sRGB.
+float linearOfSrgbChannel(float value)
+{
+    return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
+}
+
 } // namespace
 
 void applyEditorStyle(ImGuiStyle& style, float displayScale)
@@ -128,6 +138,19 @@ void applyEditorStyle(ImGuiStyle& style, float displayScale)
     fresh.FontScaleMain = style.FontScaleMain;
     fresh.FontScaleDpi = displayScale;
     style = fresh;
+}
+
+float relativeLuminance(const ImVec4& srgb)
+{
+    return (0.2126f * linearOfSrgbChannel(srgb.x)) + (0.7152f * linearOfSrgbChannel(srgb.y)) +
+           (0.0722f * linearOfSrgbChannel(srgb.z));
+}
+
+float contrastRatio(const ImVec4& first, const ImVec4& second)
+{
+    const float a = relativeLuminance(first);
+    const float b = relativeLuminance(second);
+    return (std::max(a, b) + 0.05f) / (std::min(a, b) + 0.05f);
 }
 
 } // namespace levain::ui
