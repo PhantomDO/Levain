@@ -118,7 +118,7 @@ protocole ne le lui dit pas. Le compositeur peut seulement la déclarer « suspe
 `OCCLUDED`. Nos événements s'appellent donc `Hidden` et `Shown`, et répondent à la seule question qui compte pour
 le moteur : **y a-t-il quelque chose à dessiner ?** Quand la réponse est non, la boucle appelle `waitEvents` et
 dort, au plus jusqu'à son échéance (`--seconds` du sandbox) : bureau verrouillé, une fenêtre masquée peut ne plus
-rien recevoir. Mesuré avec `tools/kwin-window-smoke.sh` : **0 ms de CPU en 2 s minimisée, contre 2 010 ms visible**.
+rien recevoir. `waitEvents` rend la main au premier événement SDL, même un que le moteur ne traduit pas : `Events::woken` le dit, et le test de l'échéance (`tests/window_test.cpp`) ne mesure que les attentes que rien n'a écourtées. Mesuré avec `tools/kwin-window-smoke.sh` : **0 ms de CPU en 2 s minimisée, contre 2 010 ms visible**.
 
 **Sous Wayland, pas d'image, pas de fenêtre.** Une surface Wayland n'apparaît à l'écran qu'après avoir reçu son
 premier buffer. Jusqu'à M1.2, le moteur ne présentait rien et la fenêtre restait invisible ; depuis la swapchain

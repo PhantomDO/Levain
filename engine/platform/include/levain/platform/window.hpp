@@ -90,6 +90,10 @@ struct Events
     std::vector<InputEvent> input;
     std::vector<UiEvent> ui;
     std::string text; ///< Le texte tapé, en UTF-8, entre `startTextInput` et `stopTextInput`.
+    /// `waitEvents` : un événement SDL l'a réveillée avant l'échéance, y compris un que le moteur
+    /// ne traduit pas (une souris branchée, le focus) et qui ne laisse rien dans les listes
+    /// ci-dessus. Faux à l'échéance, et pour `pollEvents`.
+    bool woken = false;
 };
 
 /// Les événements arrivés depuis le dernier appel, sans attendre.
