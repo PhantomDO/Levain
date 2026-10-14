@@ -46,6 +46,22 @@ M7.7, morceau 17c (la grille du sol, relecture).
   `render::clipToFrustum` coupe chaque ligne au volume de vue avant le dessin (`drawDebugLines`). Pour toute autre passe
   qui dessine des primitives très longues, la même précaution, ou fixer `depthClipEnable` explicitement.
 
+## Un mélange que lavapipe ne fait pas comme le README (2026-10-14)
+
+M7.7, morceau 17b (revue : `tests/ui_style_test.cpp`).
+
+- **Symptôme** : une capture hors écran de l'éditeur sous lavapipe donne, pour du texte grisé à 60 %, le mélange **en espace
+  gamma** (140 à 60 % sur 34 : 98, et non les 113 d'un mélange linéaire), et un cadre `FrameBg` (41, 74, 122) à 54 % sur 15
+  sort à (29, 47, 73), le mélange gamma ; la 4070 en Direct3D 12 (`levain_sandbox.exe --gpu d3d12 --view physics --ui on
+  --capture`, hors écran) le rend (32, 56, 92), le mélange linéaire (92 en bleu). Le README d'`ui` décrivait un mélange en
+  linéaire sur une cible sRGB : vrai sur la 4070, pas sous lavapipe, que les aperçus d'un morceau et les tests Vulkan de la CI
+  utilisent. **Cause corrigée le 2026-10-14 (issue #493)** : pas `OffscreenFormat` (utilisé seulement sans swapchain, D3D12 hors
+  écran) ; le pilote `offscreen` de SDL a, sous Vulkan, une vraie swapchain sur `VK_EXT_headless_surface` (`device_vk.cpp`) dont
+  la cible lavapipe est `B8G8R8A8_UNORM` (repli de `swapchain_vk.cpp`) : la passe d'interface ne linéarise pas, mélange en
+  gamma, et la scène sort environ 3 fois trop sombre (ciel (38, 42, 124) contre (109, 114, 186) sur la 4070). **Parade** : ne pas conclure d'une capture lavapipe l'aspect d'un alpha sur un vrai GPU (un texte grisé y sort plus
+  sombre) ; un test de contraste qui compose en gamma est le pire des deux cas (le linéaire n'éclaircit que plus un
+  avant-plan plus clair que son fond), donc sûr pour les deux.
+
 ## Deux fenêtres dans un nœud d'ancrage : l'ordre des `Begin` choisit l'onglet visible (2026-10-11)
 
 M7.7, morceau 14 (la console, `gpu.editor-console.*`).

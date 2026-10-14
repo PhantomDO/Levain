@@ -44,7 +44,7 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 | [`include/levain/ui/input.hpp`](include/levain/ui/input.hpp) | `feedInput`, `imguiKeyOf`, `PressedKeys` |
 | [`include/levain/ui/context.hpp`](include/levain/ui/context.hpp) | `UiContext`, `createUiContext`, `prepareUiFrame`, `followTextInput` |
 | [`include/levain/ui/fonts.hpp`](include/levain/ui/fonts.hpp), [`icons.hpp`](include/levain/ui/icons.hpp) | `findFontFiles`, `addFonts`, `UiFonts` ; la table des icônes et `withIcon` |
-| [`include/levain/ui/style.hpp`](include/levain/ui/style.hpp) | `applyEditorStyle`, `EditorAccent` (et ses deux nuances), `srgb8` |
+| [`include/levain/ui/style.hpp`](include/levain/ui/style.hpp) | `applyEditorStyle`, `EditorAccent` (et ses deux nuances), `srgb8` ; les pièges `relativeLuminance` et `contrastRatio` |
 | [`include/levain/ui/tr.hpp`](include/levain/ui/tr.hpp) | `tr`, `trf`, `textf`, `labelOf` : le catalogue des textes vu de l'interface, la table est dans `core` (ADR-0036) |
 
 Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées),
@@ -116,6 +116,14 @@ journal en Release.
   **actif ou choisi** : l'onglet choisi (filet de 2 px), la case cochée, la poignée d'un curseur **tenue** (grise au repos,
   comme un histogramme), la pression d'un bouton. Tout le reste est un gris neutre, et
   `tests/ui_style_test.cpp` le tient : une couleur qui prendrait une teinte hors de sa liste est un deuxième accent.
+- **L'échelle des gris** : 15 (champs, fonds de courbes), 21 (barres de menus, de titres et d'onglets), 36 (le fond des
+  fenêtres), 46 (menus, en-têtes de composant), 68 (bordures) ; la barre de titre d'une fenêtre flottante passe de 21 à 44
+  quand elle a le focus. Proche de celle de l'éditeur d'Unreal 5 (**supposé** : #151515, #242424, #2F2F2F, #383838, non lus
+  dans ses sources). L'ancienne échelle (21, 28, 34) ne séparait pas l'onglet visible d'un nœud sans le focus de ses voisins
+  (21 contre 28, et un filet gris), ni une fenêtre flottante du panneau qu'elle couvre (28 contre 28, une bordure d'un
+  pixel). `ui_style_test.cpp` tient chaque marche (contraste d'au moins 1,12 entre plans voisins), la barre de titre plus
+  claire avec le focus, et, pour l'onglet visible d'un nœud avec ou sans le focus, son fond (1,12) et son filet de 2 px (3 :
+  WCAG 1.4.11, éléments qui ne sont pas du texte) contre la barre.
 - **Les couleurs du style n'ont aucun alpha**, hors celles qui en ont besoin par nature (le voile de la modale, l'aperçu
   d'ancrage, la cible d'un glisser-déposer, les trois « rien » : `ChildBg`, `BorderShadow`, `TableRowBg`) : l'interface se
   mélange en linéaire sur une cible sRGB, où un alpha se lit trop fort (« Fonds opaques », ci-dessous). Le mélange en espace
@@ -126,6 +134,17 @@ journal en Release.
   de 73 % : un menu laissait voir le texte de la barre d'outils, la modale le damier. `createUiContext` rend donc
   `WindowBg`, `PopupBg` et `MenuBarBg` opaques (`ChildBg` reste transparent). **Pas encore** : mélanger l'interface en
   espace gamma, qui rendrait aussi leur sens aux autres alphas du style ; noté au morceau 17 de M7.7 (ADR-0036).
+  **Mesuré le 2026-10-14, et pas partout pareil** : le cadre `FrameBg` du style par défaut, (41, 74, 122) à 54 % sur le
+  fond (15, 15, 15) (`levain_sandbox --view physics --ui on --capture`), se lit (29, 47, 73) sous lavapipe, le mélange en
+  **gamma** (0,54 × 122 + 0,46 × 15 = 72,8 en bleu), et (32, 56, 92) sur la 4070 en Direct3D 12 (`--gpu d3d12`, hors écran),
+  le mélange en **linéaire** (92 en bleu) que le paragraphe décrit. Une capture lavapipe, celle des aperçus d'un morceau et
+  des tests Vulkan de la CI, montre donc un alpha plus faible que celui d'un vrai GPU (un texte grisé à 60 % y sort plus
+  sombre) : elle ne dit rien de l'aspect d'un alpha sur la machine de Donnovan. **Cause (relue à la revue d'exécution, issue
+  #493)** : ce n'est pas `OffscreenFormat`, que le device n'utilise que **sans** swapchain (D3D12 hors écran). Sous Vulkan,
+  le pilote `offscreen` de SDL reçoit une vraie swapchain sur `VK_EXT_headless_surface` (`device_vk.cpp`), dont la cible
+  de lavapipe est un `B8G8R8A8_UNORM` (le repli de `swapchain_vk.cpp`) : la passe d'interface, qui ne linéarise que pour une
+  cible sRGB, mélange donc en gamma, et la scène y sort environ 3 fois trop sombre (le ciel du bac à sable : (38, 42, 124) sous
+  lavapipe, (109, 114, 186) sur la 4070 en D3D12). **Diagnostic non corrigé ici** : la swapchain reste à traiter (#493).
 - **Les polices ne sont pas dans le dépôt** (`fonts.hpp`, M7.7 morceau 17, ADR-0036 décision 15). `tools/fetch-assets.sh` met
   dans `assets-cache/Fonts/` Inter (SIL OFL 1.1, `Inter-LICENSE.txt`), Noto Sans (OFL 1.1, `NotoSans-OFL.txt`) et Material
   Symbols Outlined (Apache-2.0, `MaterialSymbols-LICENSE`) ; *Rando* les prend avec le préfixe `Fonts/`. `addFonts` en fait
