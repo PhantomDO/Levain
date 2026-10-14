@@ -5,7 +5,9 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -454,4 +456,23 @@ TEST_CASE("les lignes : un accord d'un autre genre que l'action est refusé et g
             CHECK(line.chords == positionForLetter.chords);
         }
     }
+}
+
+TEST_CASE("le filtre : le nom de l'action ou l'un de ses accords")
+{
+    const auto rows = helpRowsOf(defaultShortcuts(), Azerty);
+    const auto count = [&rows](std::string_view search)
+    {
+        std::size_t found = 0;
+        for (const HelpRow& row : rows)
+        {
+            found += shortcutRowMatches(row, search) ? 1U : 0U;
+        }
+        return found;
+    };
+    CHECK(count("") == rows.size());
+    CHECK(count("enregistrer") == 1);
+    CHECK(count("ctrl+maj+z") == 1); // le second accord de Rétablir
+    CHECK(count("introuvable") == 0);
+    CHECK(count("Vue") == 1); // « Vue de jeu » : le contexte seul ne répond pas au filtre
 }
