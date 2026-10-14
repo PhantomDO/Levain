@@ -17,10 +17,20 @@
 //   scripted       une exécution scriptée garde les défauts et n'écrit rien
 //   layout         un changement de disposition qui crée un conflit le dit à la console, sans
 //                  rien rebrancher
+//   play           une saisie ne survit pas à « Jouer », et Échap arrête le jeu
+//   focus          la saisie s'arrête quand un champ de texte prend le clavier, ou que la fenêtre
+//                  se ferme
+//   leak           la touche qui finit une saisie ne part pas aussi comme raccourci, et pendant
+//                  la saisie la molette sur la Vue ne déplace pas la caméra
+//   azerty         sur un AZERTY une position garde son scancode et une lettre son caractère, au
+//                  fichier et au vol après un redémarrage
+//   resetconflict  « Réinitialiser » d'un défaut pris nomme le conflit, rien ne change sans
+//                  « Remplacer »
 //   levain_editor_shortcut_settings <vulkan|d3d12|d3d12-warp> <scénario>
 //
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <exception>
@@ -45,10 +55,13 @@
 #include "levain/app/app.hpp"
 #include "levain/assets/asset_id.hpp"
 #include "levain/core/log.hpp"
+#include "levain/editor/camera.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/editor/preferences.hpp"
+#include "levain/editor/shortcut_window.hpp"
 #include "levain/platform/input_script.hpp"
 #include "levain/scene/components.hpp"
+#include "levain/ui/tr.hpp"
 
 namespace
 {
@@ -103,6 +116,10 @@ struct Seen
     ImVec2 confirmAllAt{};
     bool confirmShown = false;
     std::vector<Action> reached; ///< les actions que les raccourcis seuls ont atteintes
+    ImVec2 toolbarMode{};        ///< le bouton de mode de la barre d'outils
+    levain::editor::EditorCamera camera;
+    levain::app::ScreenRect viewImage{};
+    ImVec2 filterAt{};
 };
 
 std::string tableText(const levain::editor::ShortcutTable& table)
@@ -135,7 +152,11 @@ Seen seenOf(const App& app, const Editor& editor)
             .resetAllAt = window.resetAllAt,
             .confirmAllAt = window.confirmAllAt,
             .confirmShown = window.confirmShown,
-            .reached = editor.lastShortcuts};
+            .reached = editor.lastShortcuts,
+            .toolbarMode = editor.toolbar.mode,
+            .camera = editor.camera,
+            .viewImage = editor.view.image,
+            .filterAt = window.filterAt};
 }
 
 struct Run
@@ -158,20 +179,26 @@ struct Session
     int frames = 12;
     std::optional<fs::path> directory;
     bool interactive = true;
+    /// Un clavier AZERTY (W et Z, A et Q échangés) plutôt que le QWERTY du banc d'essai.
+    bool azerty = false;
     /// Ouvre la fenêtre « Raccourcis » à cette image, comme le ferait le menu (testé à part).
     std::optional<std::size_t> openAt;
+    /// Déplace la fenêtre une fois ouverte : par défaut elle recouvre le haut de la barre d'outils
+    /// (la bordure d'une fenêtre ImGui prend la souris quelques pixels autour d'elle).
+    std::optional<ImVec2> windowAt;
     /// Lit le fichier des préférences à cette image : il est écrit tout de suite, pas à la fin.
     std::optional<std::size_t> peekFileAt;
     /// Tourne à la fin de `ui` de chaque image, avec le nombre d'images relevées.
     std::function<void(Run&, std::size_t)> poke;
 };
 
-levain::app::StartFunction programOf(Run& run)
+levain::app::StartFunction programOf(Run& run, bool azerty)
 {
-    return [&run](App& app) -> levain::core::Result<levain::app::FrameHooks>
+    return [&run, azerty](App& app) -> levain::core::Result<levain::app::FrameHooks>
     {
         app.world.entity("camera").set(levain::scene::Transform{}).set(levain::app::CameraLens{});
-        app.keyAtPosition = levain::platform::qwertyKeyAtPosition; // épinglé
+        // Épinglé : un écran réel lirait la disposition de la machine.
+        app.keyAtPosition = azerty ? azertyAt : levain::platform::qwertyKeyAtPosition;
         run.app = &app;
         return levain::app::FrameHooks{};
     };
@@ -229,6 +256,11 @@ Run play(const levain::tests::TestBackend& backend, const Session& session)
         {
             run.editor->shortcutWindow.open = true;
         }
+        if (session.windowAt && session.openAt && recorded == *session.openAt + 1)
+        {
+            ImGui::SetWindowPos(levain::ui::labelOf(levain::editor::ShortcutWindowTitle).c_str(),
+                                *session.windowAt);
+        }
         if (session.peekFileAt && recorded == *session.peekFileAt && session.directory)
         {
             run.fileAtPeek = contentOf(fileIn(*session.directory));
@@ -238,8 +270,8 @@ Run play(const levain::tests::TestBackend& backend, const Session& session)
             session.poke(run, recorded);
         }
     };
-    run.exitCode =
-        levain::app::runApp(settings, levain::editor::withEditor(programOf(run), options));
+    run.exitCode = levain::app::runApp(
+        settings, levain::editor::withEditor(programOf(run, session.azerty), options));
     return run;
 }
 
@@ -341,13 +373,15 @@ std::string tapKey(int frame, std::string_view key)
 /// **Dans son propre dossier** : une session relit la disposition de la précédente (la taille et
 /// le défilement de la fenêtre « Raccourcis »), et ses lignes ne seraient plus où le sondage les a
 /// vues.
-Seen probeRows(const levain::tests::TestBackend& backend)
+Seen probeRows(const levain::tests::TestBackend& backend,
+               std::optional<ImVec2> windowAt = std::nullopt)
 {
     const TempDirectory scratch{"probe"};
     Session session;
     session.directory = scratch.path;
     session.frames = 10;
     session.openAt = 2;
+    session.windowAt = windowAt;
     const Run run = play(backend, session);
     if (run.seen.size() != 10 ||
         run.seen.back().rows.size() != static_cast<std::size_t>(Action::Count))
@@ -714,6 +748,280 @@ int playLayout(const levain::tests::TestBackend& backend)
                   "l'enregistrement garde l'action inconnue");
 }
 
+/// Où cliquer ou rester sur la Vue sans toucher la fenêtre « Raccourcis », qui couvre son centre :
+/// le bord droit de l'image. Une faute bruyante si ce bord est encore sous la fenêtre (règle n°7).
+ImVec2 viewSpotOf(const Seen& probe)
+{
+    const ImVec2 spot{probe.viewImage.x + probe.viewImage.width - 40.0f,
+                      probe.viewImage.y + probe.viewImage.height * 0.5f};
+    constexpr float WindowRight = 40.0f + 820.0f; // `drawShortcutWindow`, à la première ouverture
+    if (probe.viewImage.width <= 0.0f || spot.x <= WindowRight)
+    {
+        throw std::runtime_error{
+            "le sondage : le bord de la Vue est sous la fenêtre « Raccourcis »"};
+    }
+    return spot;
+}
+
+float distanceBetween(const levain::editor::EditorCamera& a, const levain::editor::EditorCamera& b)
+{
+    const float dx = a.position.x - b.position.x, dy = a.position.y - b.position.y,
+                dz = a.position.z - b.position.z;
+    return std::sqrt((dx * dx) + (dy * dy) + (dz * dz));
+}
+
+/// **Une saisie ne survit pas à « Jouer »** : hors de l'Édition les touches de l'éditeur n'arrivent
+/// plus à la saisie, qui ne pourrait plus finir, et F1 est refusée pendant elle. Le bouton de la
+/// barre d'outils joue, la saisie s'arrête, et Échap (que la saisie gardait) arrête le jeu.
+int playPlayMode(const levain::tests::TestBackend& backend)
+{
+    const TempDirectory directory{"play"};
+    constexpr ImVec2 Below{40.0f, 120.0f}; // sous la barre d'outils, qu'il faut cliquer
+    const Seen rows = probeRows(backend, Below);
+    Session real;
+    real.directory = directory.path;
+    real.frames = 50;
+    real.openAt = 2;
+    real.windowAt = Below;
+    real.script = clickScript(4, cellOf(rows, Action::Undo)) + clickScript(12, rows.toolbarMode) +
+                  tapKey(30, "Escape");
+    const Run run = play(backend, real);
+    if (run.exitCode != 0 || run.seen.size() != 50)
+    {
+        return expect(false, "jouer : code 0 et une image par image");
+    }
+    const std::string defaults = run.seen.front().table;
+    const bool playedAtAll = std::ranges::any_of(
+        run.seen, [](const Seen& seen) { return seen.mode != levain::editor::Mode::Edit; });
+    return expect(run.seen[9].capturing && run.seen[9].mode == levain::editor::Mode::Edit,
+                  "le clic démarre la saisie, en Édition") +
+           expect(playedAtAll, "le bouton de la barre d'outils joue") +
+           expect(run.seen[26].mode == levain::editor::Mode::PlayWithoutReturn &&
+                      !run.seen[26].capturing && !run.seen[26].pending,
+                  "en jeu la saisie est abandonnée, rien n'attend") +
+           expect(run.seen[26].panelsOpen && run.seen.back().panelsOpen,
+                  "les panneaux restent ouverts") +
+           expect(run.seen.back().mode == levain::editor::Mode::Edit,
+                  "Échap arrête le jeu, que la saisie ne retient plus") +
+           expect(run.seen.back().table == defaults && !run.seen.back().capturing,
+                  "aucun accord n'a changé, aucune saisie ne reste");
+}
+
+/// **La saisie s'arrête quand le clavier est pris ailleurs** : le filtre de la fenêtre devient le
+/// champ actif, « s » y est tapé et n'est pas l'accord ; une fenêtre fermée en pleine saisie ne
+/// coupe plus les raccourcis (Ctrl+S enregistre).
+int playFocus(const levain::tests::TestBackend& backend)
+{
+    const Seen rows = probeRows(backend);
+    const TempDirectory typing{"focus-text"};
+    Session text;
+    text.directory = typing.path;
+    text.frames = 32;
+    text.openAt = 2;
+    text.script = clickScript(4, cellOf(rows, Action::Undo)) + clickScript(12, rows.filterAt) +
+                  tapKey(20, "S");
+    const Run typed = play(backend, text);
+    if (typed.exitCode != 0 || typed.seen.size() != 32)
+    {
+        return expect(false, "le champ : code 0 et une image par image");
+    }
+    const std::string defaults = typed.seen.front().table;
+    int failures = expect(typed.seen[9].capturing, "le clic démarre la saisie") +
+                   expect(!typed.seen[18].capturing && !typed.seen[18].pending,
+                          "le champ de texte actif arrête la saisie") +
+                   expect(!typed.seen.back().pending && typed.seen.back().table == defaults,
+                          "« s » tapé dans le champ n'est pas devenu l'accord");
+
+    const TempDirectory closing{"focus-close"};
+    Session close;
+    close.directory = closing.path;
+    close.frames = 40;
+    close.openAt = 2;
+    close.script = clickScript(4, cellOf(rows, Action::Undo)) + ctrlKey(24, "S");
+    close.poke = [](Run& run, std::size_t recorded)
+    {
+        if (recorded == 14)
+        {
+            run.editor->shortcutWindow.open = false; // la croix de la fenêtre, en pleine saisie
+        }
+    };
+    const Run closed = play(backend, close);
+    if (closed.exitCode != 0 || closed.seen.size() != 40)
+    {
+        return failures + expect(false, "la fermeture : code 0 et une image par image");
+    }
+    const bool saved =
+        std::ranges::any_of(std::span{closed.seen}.subspan(22), [](const Seen& seen)
+                            { return std::ranges::contains(seen.reached, Action::Save); });
+    return failures + expect(closed.seen[9].capturing, "le clic démarre la saisie") +
+           expect(!closed.seen[20].capturing && !closed.seen[20].windowOpen,
+                  "fermer la fenêtre abandonne la saisie") +
+           expect(saved,
+                  "après la fermeture, Ctrl+S enregistre : les raccourcis ne sont plus coupés");
+}
+
+/// **La touche qui finit la saisie ne part pas comme raccourci**, et la saisie coupe les gestes :
+/// la molette sur la Vue ne déplace pas la caméra pendant la saisie (elle le fait après), et Espace
+/// capturée sur la Vue (où elle est « outil suivant ») est l'accord sans changer d'outil.
+int playLeak(const levain::tests::TestBackend& backend)
+{
+    const Seen rows = probeRows(backend);
+    const ImVec2 spot = viewSpotOf(rows);
+    const TempDirectory directory{"leak"};
+    Session real;
+    real.directory = directory.path;
+    real.frames = 40;
+    real.openAt = 2;
+    real.script = clickScript(4, cellOf(rows, Action::MoveUp, 1)) +
+                  std::format("10 mouse move {} {}\n12 wheel 3\n", spot.x, spot.y) +
+                  tapKey(18, "Space") + "26 wheel 3\n";
+    const Run run = play(backend, real);
+    if (run.exitCode != 0 || run.seen.size() != 40)
+    {
+        return expect(false, "la fuite : code 0 et une image par image");
+    }
+    const bool anyToolKey =
+        std::ranges::any_of(run.seen,
+                            [](const Seen& seen)
+                            {
+                                return std::ranges::contains(seen.reached, Action::NextTool) ||
+                                       std::ranges::contains(seen.reached, Action::ToolMove);
+                            });
+    return expect(run.seen[9].capturing, "le clic démarre la saisie") +
+           expect(distanceBetween(run.seen[16].camera, run.seen[9].camera) < 1e-4f,
+                  "pendant la saisie la molette sur la Vue ne déplace pas la caméra") +
+           expect(!run.seen[24].capturing && !run.seen[24].pending &&
+                      tableLine(run.seen[24], Action::MoveUp) == "Monter = pos:8, pos:44",
+                  "Espace, par sa position, est l'accord de « Monter »") +
+           expect(!anyToolKey, "la touche de l'accord n'a pas pris l'outil suivant sur la Vue") +
+           expect(distanceBetween(run.seen.back().camera, run.seen[24].camera) > 1e-3f,
+                  "la molette sur la Vue déplace la caméra une fois la saisie finie");
+}
+
+/// **Sur un AZERTY** : une action de position garde le scancode de la touche (la touche à la place
+/// du Z, qui tape « w »), une action de lettre le caractère ; le fichier les écrit ainsi ; après le
+/// redémarrage le clic droit tenu et cette touche physique déplacent la caméra, et sans le
+/// fichier non.
+int playAzerty(const levain::tests::TestBackend& backend)
+{
+    const TempDirectory directory{"azerty"};
+    const Seen rows = probeRows(backend);
+    Session first;
+    first.directory = directory.path;
+    first.azerty = true;
+    first.frames = 40;
+    first.openAt = 2;
+    first.script = clickScript(4, cellOf(rows, Action::MoveForward, 1)) + tapKey(10, "Z as w") +
+                   clickScript(16, cellOf(rows, Action::Undo, 1)) + ctrlKey(22, "Z as w");
+    const Run one = play(backend, first);
+    if (one.exitCode != 0 || one.seen.size() != 40)
+    {
+        return expect(false, "la première session : code 0 et une image par image");
+    }
+    const auto saved = savedIn(directory.path);
+    const ShortcutRowSeen* forward = rowOf(one.seen.back(), Action::MoveForward);
+    int failures =
+        expect(tableLine(one.seen.back(), Action::MoveForward) == "Avancer = pos:26, pos:29",
+               "la touche à la place du Z est liée par son scancode (position 29)") +
+        expect(forward != nullptr && forward->chords == "Z / W",
+               "elle s'affiche « W », la lettre qu'elle tape sur un AZERTY") +
+        expect(tableLine(one.seen.back(), Action::Undo) == "Annuler = Ctrl+Z, Ctrl+W",
+               "une action de lettre garde le caractère tapé : Ctrl+W") +
+        expect(saved && saved->shortcuts.size() == 2 &&
+                   saved->shortcuts.at(0).chords == std::vector<std::string>{"pos:26", "pos:29"},
+               "le fichier écrit la position par son numéro");
+
+    const ImVec2 center{rows.viewImage.x + (rows.viewImage.width * 0.5f),
+                        rows.viewImage.y + (rows.viewImage.height * 0.5f)};
+    const std::string fly =
+        std::format("4 mouse move {} {}\n8 button down right\n9 key down Z as w\n15 key up Z as w\n"
+                    "16 button up right\n",
+                    center.x, center.y);
+    Session second;
+    second.directory = directory.path;
+    second.azerty = true;
+    second.frames = 22;
+    second.script = fly;
+    const Run two = play(backend, second);
+    const TempDirectory fresh{"azerty-fresh"};
+    Session control;
+    control.directory = fresh.path;
+    control.azerty = true;
+    control.frames = 22;
+    control.script = fly;
+    const Run none = play(backend, control);
+    if (two.seen.size() != 22 || none.seen.size() != 22)
+    {
+        return failures + expect(false, "le vol : une image par image");
+    }
+    return failures +
+           expect(distanceBetween(two.seen.back().camera, two.seen.front().camera) > 0.5f,
+                  "après le redémarrage, clic droit et la touche liée déplacent la caméra") +
+           expect(distanceBetween(none.seen.back().camera, none.seen.front().camera) < 1e-4f,
+                  "sans le fichier, cette touche ne déplace rien");
+}
+
+/// **« Réinitialiser » d'un défaut pris** : Annuler a pris Ctrl+S à Enregistrer ; réinitialiser
+/// Enregistrer nomme le conflit et ne change rien ; « Annuler » l'abandonne, puis « Remplacer »
+/// rend Ctrl+S à Enregistrer et l'ôte à Annuler, fichier compris.
+int playResetConflict(const levain::tests::TestBackend& backend)
+{
+    const TempDirectory directory{"reset-conflict"};
+    const Seen rows = probeRows(backend);
+    const ImVec2 undo = cellOf(rows, Action::Undo);
+    const ImVec2 resetSave = rowOf(rows, Action::Save)->resetAt;
+    const TempDirectory scratch{"probe-reset-conflict"};
+    Session probe;
+    probe.directory = scratch.path;
+    probe.frames = 22;
+    probe.openAt = 2;
+    probe.script = clickScript(4, undo) + ctrlKey(10, "S");
+    const Run probed = play(backend, probe);
+    if (probed.seen.size() != 22 || !probed.seen.back().pending)
+    {
+        return expect(false, "le sondage : le conflit n'est pas apparu");
+    }
+    const ImVec2 replace = probed.seen.back().replaceAt;
+    const ImVec2 cancel = probed.seen.back().cancelAt;
+
+    Session real;
+    real.directory = directory.path;
+    real.frames = 90;
+    real.openAt = 2;
+    // Annuler prend Ctrl+S (Remplacer), puis Enregistrer demande ses défauts : annulé, puis
+    // remplacé.
+    real.script = clickScript(4, undo) + ctrlKey(10, "S") + clickScript(20, replace) +
+                  clickScript(28, resetSave) + clickScript(38, cancel) +
+                  clickScript(46, resetSave) + clickScript(56, replace);
+    const Run run = play(backend, real);
+    if (run.exitCode != 0 || run.seen.size() != 90)
+    {
+        return expect(false, "réinitialiser un défaut pris : code 0 et une image par image");
+    }
+    const Seen& taken = run.seen[26];
+    const Seen& waiting = run.seen[36];
+    const Seen& cancelled = run.seen[44];
+    const Seen& done = run.seen.back();
+    const auto file = savedIn(directory.path);
+    return expect(tableLine(taken, Action::Undo) == "Annuler = Ctrl+S, " &&
+                      tableLine(taken, Action::Save) == "Enregistrer = , ",
+                  "Annuler a pris Ctrl+S à Enregistrer") +
+           expect(waiting.pending && waiting.conflict == "Ctrl+S : Annuler",
+                  "« Réinitialiser » nomme le conflit « Ctrl+S : Annuler »") +
+           expect(waiting.table == taken.table, "rien ne change tant qu'on n'a pas remplacé") +
+           expect(!cancelled.pending && cancelled.table == taken.table,
+                  "« Annuler » abandonne : la table est inchangée") +
+           expect(!done.pending && tableLine(done, Action::Save) == "Enregistrer = Ctrl+S, " &&
+                      tableLine(done, Action::Undo) == "Annuler = , ",
+                  "« Remplacer » rend Ctrl+S à Enregistrer et l'ôte à Annuler") +
+           expect(loggedSays(run, "Ctrl+S : Annuler retiré"),
+                  "la console dit ce qui a été retiré") +
+           expect(file && file->shortcuts.size() == 1 &&
+                      file->shortcuts.front().action == "Annuler" &&
+                      file->shortcuts.front().chords.empty(),
+                  "le fichier ne tient plus que Annuler, sans accord");
+}
+
 /// Un scénario par nom : `levain_editor_shortcut_settings <backend> <scénario>`.
 struct Scenario
 {
@@ -721,13 +1029,18 @@ struct Scenario
     int (*run)(const levain::tests::TestBackend&);
 };
 
-constexpr std::array<Scenario, 7> Scenarios{{{"change", playChange},
-                                             {"conflict", playConflict},
-                                             {"capture", playCapture},
-                                             {"reset", playReset},
-                                             {"menu", playMenu},
-                                             {"scripted", playScripted},
-                                             {"layout", playLayout}}};
+constexpr std::array<Scenario, 12> Scenarios{{{"change", playChange},
+                                              {"conflict", playConflict},
+                                              {"capture", playCapture},
+                                              {"reset", playReset},
+                                              {"menu", playMenu},
+                                              {"scripted", playScripted},
+                                              {"layout", playLayout},
+                                              {"play", playPlayMode},
+                                              {"focus", playFocus},
+                                              {"leak", playLeak},
+                                              {"azerty", playAzerty},
+                                              {"resetconflict", playResetConflict}}};
 
 } // namespace
 
@@ -746,7 +1059,8 @@ int main(int argc, char** argv)
         {
             std::println(stderr,
                          "usage : levain_editor_shortcut_settings <vulkan|d3d12|d3d12-warp> "
-                         "<change|conflict|capture|reset|menu|scripted|layout>");
+                         "<change|conflict|capture|reset|menu|scripted|layout|play|focus|leak|"
+                         "azerty|resetconflict>");
             return 2;
         }
         return scenario->run(*backend) == 0 ? 0 : 1;
