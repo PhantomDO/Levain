@@ -331,7 +331,8 @@ M couverts par un test ».
     exécution scriptée (pas de dossier de préférences) : les défauts, jamais écrits. Limites : les accords de
     position d'une action ne sont posés que par la touche physique (pas de saisie « par lettre » d'une action de position),
     et la fenêtre n'a pas de profils comme le Shortcuts Manager d'Unity. Tests : `tests/editor_shortcut_edit_test.cpp` (la
-    logique). Équivalents :
+    logique) et, de bout en bout, `gpu.editor-shortcut-settings-*.*` (`tests/editor_shortcut_settings_gpu.cpp`, un
+    ctest par scénario : changer et redémarrer). Équivalents :
     *Editor Preferences > Keyboard Shortcuts* d'Unreal (deux accords par commande, un conflit averti par *Override*,
     **documenté**), le *Shortcuts Manager* d'Unity (liste filtrable, conflits listés, profils, **documenté**), *Editor
     Settings > Shortcuts* de Godot (**supposé**, non relu).
