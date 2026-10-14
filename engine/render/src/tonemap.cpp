@@ -16,8 +16,8 @@ struct TonemapConstants
 {
     float exposure;
     std::uint32_t tonemapper; ///< Un `Tonemapper`, en mot de 32 bits comme le lit le shader.
-    float padding1;
-    float padding2;
+    std::uint32_t encodeSrgb; ///< 1 : le shader encode en sRGB (`tonemapEncodesSrgb`).
+    float padding;
 };
 
 static_assert(sizeof(TonemapConstants) == 16, "disposition lue par shaders/tonemap.slang");
@@ -26,6 +26,20 @@ static_assert(sizeof(TonemapConstants) == 16, "disposition lue par shaders/tonem
 constexpr std::uint32_t MaxTonemapsPerCommandList = 4;
 
 } // namespace
+
+bool targetIsSrgb(nvrhi::Format format)
+{
+    return nvrhi::getFormatInfo(format).isSRGB;
+}
+
+bool tonemapEncodesSrgb(nvrhi::Format format)
+{
+    // Seul l'UNORM sans sRGB reçoit des octets encodés par le shader (8 bits ou 10 bits SDR). Un
+    // format flottant (RGBA16F, scRGB) ou HDR10 (ST2084) veut une autre fonction de transfert :
+    // l'encoder en sRGB serait faux, et demande un ADR.
+    return nvrhi::getFormatInfo(format).kind == nvrhi::FormatKind::Normalized &&
+           !targetIsSrgb(format);
+}
 
 core::Result<TonemapPass> createTonemapPass(nvrhi::IDevice& device,
                                             const nvrhi::FramebufferInfo& output)
@@ -46,6 +60,8 @@ core::Result<TonemapPass> createTonemapPass(nvrhi::IDevice& device,
     pass.vertexShader = std::move(*vertexShader);
     pass.pixelShader = std::move(*pixelShader);
     pass.layout = device.createBindingLayout(layoutDesc);
+    pass.encodeSrgb =
+        !output.colorFormats.empty() && tonemapEncodesSrgb(output.colorFormats.front());
     nvrhi::GraphicsPipelineDesc pipelineDesc;
     pipelineDesc.primType = nvrhi::PrimitiveType::TriangleList;
     pipelineDesc.VS = pass.vertexShader;
@@ -111,8 +127,8 @@ void tonemap(nvrhi::ICommandList& commandList, const TonemapPass& pass, const Hd
 {
     const TonemapConstants constants{.exposure = settings.exposure,
                                      .tonemapper = static_cast<std::uint32_t>(settings.tonemapper),
-                                     .padding1 = 0.0f,
-                                     .padding2 = 0.0f};
+                                     .encodeSrgb = pass.encodeSrgb ? 1U : 0U,
+                                     .padding = 0.0f};
     commandList.writeBuffer(pass.constants, &constants, sizeof(constants));
     nvrhi::GraphicsState state;
     state.pipeline = pass.pipeline;

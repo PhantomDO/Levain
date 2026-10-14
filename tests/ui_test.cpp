@@ -3,6 +3,8 @@
 #include <doctest/doctest.h>
 #include <imgui.h>
 
+#include "levain/core/color.hpp"
+#include "levain/render/tonemap.hpp"
 #include "levain/ui/context.hpp"
 #include "levain/ui/input.hpp"
 #include "levain/ui/ui_pass.hpp"
@@ -127,6 +129,37 @@ TEST_CASE("les couleurs d'ImGui ne sont linéarisées que sur une cible sRGB")
     CHECK(levain::ui::linearOnSrgbTarget(nvrhi::Format::SRGBA8_UNORM));
     CHECK_FALSE(levain::ui::linearOnSrgbTarget(nvrhi::Format::BGRA8_UNORM));
     CHECK_FALSE(levain::ui::linearOnSrgbTarget(nvrhi::Format::RGBA8_UNORM));
+}
+
+TEST_CASE("le tonemapping encode en sRGB sur une cible qui ne l'est pas")
+{
+    // La même question que l'UI, posée à la même fonction : l'un linéarise, l'autre encode, jamais
+    // les deux.
+    // Les formats 8 bits seulement : l'UI et le tonemapping ne répondent pas pareil sur un
+    // flottant.
+    for (const nvrhi::Format format : {nvrhi::Format::SBGRA8_UNORM, nvrhi::Format::SRGBA8_UNORM,
+                                       nvrhi::Format::BGRA8_UNORM, nvrhi::Format::RGBA8_UNORM})
+    {
+        CHECK(levain::render::tonemapEncodesSrgb(format) != levain::ui::linearOnSrgbTarget(format));
+    }
+    CHECK(levain::render::tonemapEncodesSrgb(nvrhi::Format::BGRA8_UNORM));
+    CHECK_FALSE(levain::render::tonemapEncodesSrgb(nvrhi::Format::SRGBA8_UNORM));
+    // Un format flottant (swapchain scRGB de la 4070) n'est pas encodé en sRGB ; le 10 bits SDR
+    // l'est.
+    CHECK_FALSE(levain::render::tonemapEncodesSrgb(nvrhi::Format::RGBA16_FLOAT));
+    CHECK(levain::render::tonemapEncodesSrgb(nvrhi::Format::R10G10B10A2_UNORM));
+}
+
+TEST_CASE("srgbFromLinear : les valeurs connues et le seuil")
+{
+    CHECK(levain::core::srgbFromLinear(0.0f) == doctest::Approx(0.0f));
+    CHECK(levain::core::srgbFromLinear(1.0f) == doctest::Approx(1.0f));
+    CHECK(levain::core::srgbFromLinear(0.5f) == doctest::Approx(0.7354f).epsilon(0.0005));
+    // Au seuil, la droite et la puissance se rejoignent : 0,0031308 vaut 0,04045.
+    CHECK(levain::core::srgbFromLinear(0.0031308f) == doctest::Approx(0.04045f).epsilon(0.0005));
+    // Sous le seuil, la pente est 12,92 ; au-dessus, la puissance : un octet d'écart se verrait.
+    CHECK(levain::core::srgbFromLinear(0.001f) == doctest::Approx(0.01292f));
+    CHECK(levain::core::srgbFromLinear(0.004f) == doctest::Approx(0.05071f).epsilon(0.0005));
 }
 
 TEST_CASE("une touche relâchée sous Maj, dans le navigateur, est bien relâchée pour ImGui")
