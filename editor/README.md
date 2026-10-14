@@ -96,6 +96,46 @@ ImGui sans fenêtre : Ctrl+S, le champ de texte, les clics des menus et des barr
 **Sa caméra se pilote** (M7.7, morceaux 9 et 11, `camera.hpp`, `gestures.hpp`, invariant 20) : la logique est en
 fonctions libres, les gestes lisent l'input brut (`App::rawFrameEvents`) et `App::cameraOverride` en est la sortie.
 
+**La grille, le menu « Afficher » et la vue de jeu** (M7.7, morceau 17, `grid.hpp`, `show.hpp`, décisions 13 et 15) : la
+grille est le plan du sol (Y en haut, main droite), des lignes de debug que l'éditeur dessine dans l'étape Transparent **par sa
+propre `DebugLinesPass`**, créée une fois pour la cible de la scène : un appel par command list, et le contour de la
+sélection du programme a la sienne (`render/debug_lines.hpp`). `gridLinesFor(GridView)` (la position de la caméra,
+l'exposition, le plan lointain, et si on le lui donne l'image) rend 6 060 tronçons au plus (`MaxGridLines` : trois familles
+de 202 lignes en 10 tronçons). **L'écart suit la
+hauteur de la caméra par puissances de 10, et la grille passe de l'une à l'autre sans saut** (`gridLevelsFor`) : trois
+familles à 10^(L−1), 10^L et 10^(L+1) mètres (`L` la partie entière du logarithme de la hauteur), la plus fine s'efface
+quand la caméra monte, la plus grosse apparaît, celle de la hauteur passe de majeure à mineure ; à 9,9 m des lignes tous
+les mètres et tous les 10 m, à 10,1 m les mêmes, au fondu près (avant, un seul écart par ordre : le sol couvert passait
+de 50 m à 500 m d'un coup, et l'axe X à 60 m disparaissait). Une ligne que deux familles ont en commun est tracée par les
+deux, leurs opacités se composent : c'est ce qui la fait majeure. **Chaque famille est un disque** autour du point du sol
+sous la caméra, calé sur son pas pour que les lignes ne glissent pas : 50 pas, **et pas plus que les neuf dixièmes du plan
+lointain** (`gridReachFor`, `farDistanceOf` lit le plan dans le frustum), chaque ligne s'arrêtant à la corde du disque,
+là où son opacité est nulle : rien n'est coupé net par le plan lointain (une caméra à 100 m avait un pas de 100 m, une
+portée de 5 km et une clôture à 1 km). **Mêlée par son opacité** (la passe a une variante `DebugBlend::Alpha`, opacité par
+sommet) dans l'étape Transparent après le ciel, la grille s'estompe avec la distance au centre sans jamais noircir, **et
+avec l'écart que deux lignes voisines ont à l'écran** (`projectedSpacing`, mesuré perpendiculairement à la ligne ;
+`spacingFade` : rien sous 2 pixels, tout à partir de 6) : une ligne de 1 pixel sans anti-crénelage, que sa voisine suit à
+2 ou 3 pixels, fait des marches d'escalier qui crépitent. **Ses couleurs sont divisées par l'exposition** du tonemapper :
+un gris moyen (0,33, 70 % d'opacité, 95 % pour les majeures) qui assombrit une case claire et éclaircit une case sombre,
+parce qu'une ligne plus claire que le sol se perd dans la case claire (l'AgX écrase les hautes lumières) ; les axes sont
+saturés à luminance moyenne (l'AgX délave le reste), X rouge, Z bleu. Chaque ligne est coupée au volume de vue avant le
+dessin (`clipToFrustum`, appliqué par `drawDebugLines` à toutes les lignes de debug) : une ligne de 100 pas qui passe sous
+la caméra a un bout derrière l'œil. Relevées d'un rien (`GridLift`) : dans le plan même d'un sol (y = 0, un monde vide, un terrain), elles perdraient le test de profondeur à
+égalité ; le sol du bac à sable est à y = −1, la grille y flotte un mètre au-dessus, ce qui est voulu (elle est le plan
+y = 0 du monde). Le menu
+**Afficher** est dans la barre de la Vue, à côté du bouton de mode, en Édition : « Grille » et « Vue de jeu » (son raccourci
+vient de la table, comme dans les autres menus). **La vue de jeu cache les aides de l'éditeur** : la grille, et le contour de
+la sélection du programme, par un seul drapeau, `App::editorHelpersVisible` (engine/app/README.md) que l'éditeur pose à la fin
+de `ui` (`helpersVisibleIn` : Édition et pas de vue de jeu ; **Jouer cache aussi les aides**, comme le viewport de PIE
+d'Unreal). **G** passe par `viewKeyActionOf` : à la position G, dans la Vue active (survolée ou focalisée), jamais en vol ni
+dans un champ de texte ; le menu atteint la même action (`runAction` puis `applyShowAction`, un seul chemin).
+**Pas encore** : l'état de « Grille » et de « Vue de jeu » est celui de la session, il n'est pas dans le fichier des
+préférences (une clé de plus demande une décision de version) ; le contour de la sélection du bac à sable n'apparaît pas
+dans l'éditeur avant M7.4 (la sélection au clic), son arrêt en vue de jeu est donc écrit mais sans scénario. Équivalents :
+le menu *Show* du viewport d'Unreal (la grille, *Game View* sous G : **documenté**, GESTES.md [E1]), les *Gizmos* et la
+grille de la Scene View d'Unity (**supposé**), View > Grid et View > Gizmos de Godot (**supposé**). Tests :
+`tests/editor_grid_test.cpp` (la logique : nombre de lignes, familles et leur continuité à 10 m, portée, écart à l'écran, gris, axes, centre, G, aides).
+
 La suite : l'[ADR-0036](../docs/adr/0036-mode-edition-vue-et-camera-de-l-editeur.md), proposé pour M7.7, que
 suivent M7.5, M7.3, M7.4 et M7.6. Les gestes quotidiens d'Unity et d'Unreal que l'éditeur doit rendre, chacun avec son
 milestone et le scénario qui le prouvera, sont dans [GESTES.md](GESTES.md) : chaque clôture y compte « N gestes sur
@@ -397,9 +437,11 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   `acceptPending`, `drawShortcutWindow`, `shortcutCaptureActive` (`shortcut_window.hpp`, `editor.hpp`) : changer la table.
 - `drawMenuBar(inputs, windowLayout, layout, help)`, `drawHelp`, `helpRowsOf`, `helpRowMatches`, `equivalentsOf`
   (`menus.hpp`) ; `drawToolbar`, `drawStatusBar`, `statusOf` (`bars.hpp`) ; `availabilityOf`, `runAction`,
-  `shortcutsPressed`, `keyPressesOf`, `toolActionOf`, `viewActiveIn`, `switchRealTime`, `ActionCounters`
+  `shortcutsPressed`, `keyPressesOf`, `toolActionOf`, `viewKeyActionOf`, `viewActiveIn`, `switchRealTime`, `ActionCounters`
   (`actions.hpp`) : les menus, les barres, la
   fenêtre Aide et ce que les raccourcis atteignent, en fonctions libres.
+- `gridLinesFor`, `gridSpacingFor`, `drawGrid`, `GridState` (`grid.hpp`) ; `drawShowMenu`, `applyShowAction`, `helpersVisibleIn`,
+  `gridVisibleIn`, `ShowState` (`show.hpp`) : la grille au sol, le menu « Afficher » et la vue de jeu.
 - `drawView(view, app, mode)`, `View`, `sceneSizeOfContent`, `sceneFocusedIn` (`view.hpp`) ; `drawWindowMenuItems(entries,
   layout)`, `WindowEntry` (`window_menu.hpp`) ; `windowEntriesOf(editor, app)` (`editor.hpp`) : la Vue, son menu. À la
   fin, `withEditor` écrit aussi `editor.view width=W height=H -- vue : W×H`, sous son nom stable.
@@ -541,6 +583,9 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
 | **Unreal**, la caméra | La caméra de la vue de niveau | Ses gestes (clic droit tenu, Alt+clic gauche, bouton du milieu, molette, F) : **documenté** (*Viewport Controls*, ADR-0036 [1]). Elle n'est pas un acteur : **supposé** (`FEditorViewportClient`). Levain en prend les gestes, mais **le sens du pan est un choix, pas une copie** : le contenu suit le curseur (la vue va à l'opposé), comme la main d'Unity et de Godot (**supposé**, non relu). Unreal a, je crois, un réglage pour l'inverser (*Invert Middle Mouse Pan*, **supposé**, non relu) : le morceau 11 le lit avant de le retourner. |
 | **Unity**, la caméra | La caméra de la vue Scène | Une vitesse bornée et le *Dynamic Clipping*, qui « calculate the Camera's near and far clipping planes relative to the viewport size of the Scene » (**documenté**, ADR-0036 [4]). Cette « viewport size » est, je crois, `SceneView.size`, le zoom autour du pivot, et non la taille de la fenêtre en pixels (**supposé**, UnityCsReference, non relu) : Levain fait donc de même, ses plans suivent la vue sans réglage, mais ils se mesurent sur la profondeur de la scène (`clipPlanesFor`) et non sur le zoom. |
 | **Godot**, la caméra | La vue 3D de l'éditeur | Clic droit tenu pour regarder et voler en WASD, E et Q, la molette pour la vitesse, le **bouton du milieu pour l'orbite** (**documenté**, ADR-0036 [7]) : Levain suit Unreal, où le bouton du milieu fait glisser et Alt+clic gauche tourne. |
+| **Unreal**, la grille et la vue de jeu | Le menu *Show* du viewport, la touche G | G passe le viewport en *Game View*, qui cache ce que le jeu ne montre pas (la grille, les icônes : **documenté**, GESTES.md [E1]) ; la grille se règle dans ses préférences (**supposé**). Levain suit : « Vue de jeu » cache la grille et le contour de la sélection, et Jouer les cache aussi (le viewport de PIE n'en a pas, **supposé**). |
+| **Unity**, la grille | La grille de la Scene View et les *Gizmos* | Un bouton *Gizmos* montre ou cache les aides, la grille se règle dans la barre de la Scene View (**supposé**, non relu pour ce morceau) ; l'écart par puissances de 10 suivant le zoom est aussi le comportement que je lui connais (**supposé**). |
+| **Godot**, la grille | View > Grid et View > Gizmos | Le menu *View* du viewport 3D active la grille et les gizmos (**supposé**, non relu pour ce morceau). |
 | **Unreal**, les modes | Édition, puis *Play* (PIE) | Échap arrête le jeu, Alt+S simule (**documenté**, ADR-0036 [2]), Alt+P joue (**supposé**) ; PIE joue une copie du niveau, que notre « Jouer (sans retour) » ne fait pas avant M7.5 (**supposé**). |
 | **Unity**, les modes | Le mode Play | Un mode Édition où rien ne tourne, Play à part, et les changements faits en jeu perdus à l'arrêt (**documenté**, GESTES.md [U20]) ; ici, rien n'est restauré avant M7.5. |
 | **Godot**, les modes | Jouer la scène | Le jeu tourne dans une fenêtre à part, l'éditeur ne change pas de mode (**supposé**) : l'écart est assumé. |

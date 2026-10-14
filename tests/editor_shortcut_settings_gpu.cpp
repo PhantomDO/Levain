@@ -115,6 +115,7 @@ struct Seen
     std::string messageLine;
     std::string message;
     levain::editor::Mode mode = levain::editor::Mode::Edit;
+    bool gameView = false; ///< « Vue de jeu » (Afficher, touche G)
     std::vector<ShortcutRowSeen> rows;
     levain::editor::MenuBarLayout bar{};
     ImVec2 replaceAt{};
@@ -155,6 +156,7 @@ Seen seenOf(const App& app, const Editor& editor)
             .messageLine = window.messageLine,
             .message = window.message != nullptr ? window.message : "",
             .mode = editor.mode.current,
+            .gameView = editor.view.show.gameView,
             .rows = window.rows,
             .bar = editor.bar,
             .replaceAt = window.replaceAt,
@@ -920,13 +922,16 @@ int playLeak(const levain::tests::TestBackend& backend)
     const TempDirectory directory{"leak"};
     Session real;
     real.directory = directory.path;
-    real.frames = 40;
+    real.frames = 56;
     real.openAt = 2;
+    // Une seconde saisie, G sur la Vue : la touche de l'accord ne bascule pas la vue de jeu.
     real.script = clickScript(4, cellOf(rows, Action::MoveUp, 1)) +
                   std::format("10 mouse move {} {}\n12 wheel 3\n", spot.x, spot.y) +
-                  tapKey(18, "Space") + "26 wheel 3\n";
+                  tapKey(18, "Space") + "26 wheel 3\n" +
+                  clickScript(30, cellOf(rows, Action::MoveUp, 1)) +
+                  std::format("36 mouse move {} {}\n", spot.x, spot.y) + tapKey(40, "G");
     const Run run = play(backend, real);
-    if (run.exitCode != 0 || run.seen.size() != 40)
+    if (run.exitCode != 0 || run.seen.size() != 56)
     {
         return expect(false, "la fuite : code 0 et une image par image");
     }
@@ -944,8 +949,14 @@ int playLeak(const levain::tests::TestBackend& backend)
                       tableLine(run.seen[24], Action::MoveUp) == "Monter = pos:8, pos:44",
                   "Espace, par sa position, est l'accord de « Monter »") +
            expect(!anyToolKey, "la touche de l'accord n'a pas pris l'outil suivant sur la Vue") +
-           expect(distanceBetween(run.seen.back().camera, run.seen[24].camera) > 1e-3f,
-                  "la molette sur la Vue déplace la caméra une fois la saisie finie");
+           expect(distanceBetween(run.seen[28].camera, run.seen[24].camera) > 1e-3f,
+                  "la molette sur la Vue déplace la caméra une fois la saisie finie") +
+           expect(run.seen[39].capturing, "la seconde saisie est en cours quand G est pressée") +
+           expect(!run.seen[48].capturing && !run.seen.back().gameView &&
+                      std::ranges::none_of(
+                          run.seen, [](const Seen& seen)
+                          { return std::ranges::contains(seen.reached, Action::GameView); }),
+                  "G, touche de l'accord sur la Vue, ne bascule pas la vue de jeu");
 }
 
 /// **Sur un AZERTY** : une action de position garde le scancode de la touche (la touche à la place

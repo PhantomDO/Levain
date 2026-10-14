@@ -16,6 +16,7 @@
 
 #include "levain/app/app.hpp"
 #include "levain/editor/mode.hpp"
+#include "levain/editor/show.hpp"
 
 namespace levain::editor
 {
@@ -59,6 +60,13 @@ struct View
     std::string modeHint;  ///< Le rappel de la touche du mode (`modeHintOf`), posé par l'éditeur.
     bool menuOpen = false; ///< Le menu est ouvert à la dernière image.
     bool frameRequested = false; ///< L'entrée « Cadrer la sélection » du menu a été choisie.
+    /// Le menu « Afficher » (`show.hpp`) : ce que la Vue montre, où il a été dessiné, et « Vue de
+    /// jeu » choisie à cette image dans le menu (l'éditeur atteint alors l'action, comme la
+    /// touche).
+    ShowState show;
+    ShowMenuLayout showMenu;
+    std::string gameViewShortcut; ///< L'accord affiché dans l'entrée (« G »), selon le clavier.
+    bool gameViewRequested = false;
 };
 
 /// La taille en pixels que la Vue demande pour un contenu de `width` × `height` : l'entier en

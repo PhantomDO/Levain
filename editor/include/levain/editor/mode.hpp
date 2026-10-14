@@ -150,9 +150,10 @@ void drawModeBar(Mode current, const app::ScreenRect& scene, const std::string& 
 /// bouton : la Vue n'existe que panneaux ouverts. Fond semi-opaque, pour que le rappel de la touche
 /// se lise sur un ciel clair. `hovered` dit si la souris est sur la barre : la Vue en tire la
 /// route *UI* de l'image suivante, sans quoi un clic sur le bouton atteindrait aussi le jeu (la
-/// barre est dans le rectangle de la scène).
+/// barre est dans le rectangle de la scène). `rectMax` : son coin bas droit à l'écran, d'où la Vue
+/// place le menu « Afficher » (le dernier item dessiné n'est plus la barre dès qu'on y ajoute).
 [[nodiscard]] std::optional<Mode> drawModeBarOverlay(Mode current, ImVec2 corner, bool& hovered,
-                                                     const std::string& hint);
+                                                     ImVec2& rectMax, const std::string& hint);
 
 /// Alt+P est pressée, par la lettre que la table donne à « Jouer » (`imguiChordOf`, ADR-0036,
 /// décision 13) : le raccourci d'Unreal pour jouer. ImGui doit recevoir le clavier : sous la route
