@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstddef>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -71,6 +72,22 @@ struct GridLevel
 /// grille de la Scene View d'Unity (supposé, non relu pour ce morceau).
 [[nodiscard]] std::array<GridLevel, GridLevelCount> gridLevelsFor(float cameraHeight);
 
+/// Une famille moins visible que cela (une demi-valeur de 8 bits sur l'opacité d'une ligne) n'est
+/// pas envoyée : elle ne changerait aucun pixel.
+inline constexpr float MinGridVisibility = 0.005f;
+
+/// Ce que la grille lit de la vue : où est la caméra, l'exposition du tonemapper et jusqu'où elle
+/// voit (le plan lointain). Rien d'autre : la logique ne touche ni le GPU ni ImGui.
+struct GridView
+{
+    glm::vec3 cameraPosition{0.0f};
+    /// Celle que le tonemapper applique (`App::settings.tonemap`).
+    float exposure = 1.0f;
+    /// La distance de l'œil au plan lointain (`farDistanceOf`), en mètres. Rien de la grille ne
+    /// doit en dépasser les neuf dixièmes : voir `gridReachFor`.
+    float farPlane = 1000.0f;
+};
+
 /// La part du plan lointain que la grille garde : au-delà, une ligne serait coupée net par le plan
 /// lointain, et l'horizon aurait une clôture au lieu de se fondre dans le ciel.
 inline constexpr float GridFarFraction = 0.9f;
@@ -88,5 +105,28 @@ inline constexpr float GridFarFraction = 0.9f;
 /// `render::frustumOf`), mesurée le long de l'axe de la vue. Les plans sont normalisés et tournés
 /// vers l'intérieur : la distance signée de l'œil au plan est celle-là.
 [[nodiscard]] float farDistanceOf(const render::Frustum& frustum, const glm::vec3& cameraPosition);
+
+/// Les lignes d'**une** famille : un disque de `gridReachFor` autour du point du sol sous la
+/// caméra, calé sur le pas de la famille, avec les axes si l'origine y tombe ; vide si la famille
+/// est invisible (`MinGridVisibility`) ou que le plan lointain ne laisse pas même une case. Séparée
+/// de `gridLinesFor` pour qu'un test regarde une famille à la fois.
+[[nodiscard]] std::vector<render::DebugLine> gridLevelLines(const GridView& view,
+                                                            const GridLevel& level);
+
+/// Les lignes de la grille pour la vue `view`. Le monde de Levain est **Y en haut, main droite**
+/// (`lookAtRH`, la caméra regarde vers −Z) : la grille est le plan du sol, y = 0, relevé d'un rien
+/// (`GridLift` dans grid.cpp) pour ne pas se battre avec un sol de la scène. Chaque famille de
+/// `gridLevelsFor` est un **disque** (`gridReachFor`) centré sur le point du sol sous la caméra,
+/// **calé sur son pas** (les lignes restent aux multiples du pas : elles ne glissent pas quand la
+/// caméra bouge) ; chaque ligne s'arrête à la corde du disque, où son opacité est nulle. Une ligne
+/// que deux familles ont en commun (un multiple de 10 pas) est tracée par les deux : leurs
+/// opacités se composent, elle en ressort plus marquée, et c'est ce qui la fait majeure. L'axe X
+/// est rouge et l'axe Z bleu, comme les gizmos d'Unity et d'Unreal, quand ils tombent dans la
+/// grille ; les lignes majeures sont plus opaques que les mineures, et toutes
+/// s'estompent avec la distance au centre (par l'opacité, jamais vers le noir). **Les couleurs sont
+/// divisées par l'exposition** : à `--exposure 2` la grille garde la même luminosité à l'écran.
+/// Elles sont un gris moyen, entre le sol clair et le sol sombre : plus clair, il se perd dans une
+/// case claire.
+[[nodiscard]] std::vector<render::DebugLine> gridLinesFor(const GridView& view);
 
 } // namespace levain::editor
