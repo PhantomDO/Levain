@@ -116,8 +116,8 @@
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante au 10/10/2026 (15,85 h, M7.7 à M8.3), selon le rythme : **2 h/sem. → 8 semaines** (05/12/2026) ·
-**1,5 h/sem. → 11 semaines** (26/12/2026) · **1 h/sem. → 16 semaines** (30/01/2027).
+Durée restante au 14/10/2026 (14,85 h, M7.5 à M8.3), selon le rythme : **2 h/sem. → 8 semaines** (09/12/2026) ·
+**1,5 h/sem. → 10 semaines** (23/12/2026) · **1 h/sem. → 15 semaines** (27/01/2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 23/05/2027.
@@ -409,7 +409,7 @@ pourquoi c'est presque toujours une bibliothèque.
 |---|---:|---:|---|
 | M7.1 ImGui et panneaux de debug | 1,0 (réel, 1,1 estimées) | 1 | fini le 07/10/2026 |
 | M7.2 Réflexion et inspecteur | 0,75 (réel, 1,25 estimées) | 1 | fini le 10/10/2026 |
-| M7.7 L'atelier (ajouté en v0.16) | 1,0 | 2 | 21/03/2027 |
+| M7.7 L'atelier (ajouté en v0.16) | 2,0 (réel, 1,0 estimée) | 2 | fini le 14/10/2026 |
 | M7.5 Play/Stop dans l'éditeur | 0,75 | 1 | 28/03/2027 |
 | M7.3 Sérialisation et undo/redo | 1,5 | 2 | 04/04/2027 |
 | M7.4 Gizmos et picking | 1,5 | 2 | 11/04/2027 |
@@ -440,7 +440,8 @@ Symbols. Un mode temporaire, « Jouer (sans retour) », garde le jeu d'aujourd'h
 l'accumulateur immobile et `PlayerInput` vide, touches tenues ; une écriture faite depuis le point d'accroche `ui` se
 voit dans l'image rendue de la même image ; la Vue rend la scène à sa taille ; chaque geste de navigation passe en
 QWERTY et en AZERTY simulés ; un raccourci changé survit à un redémarrage ; un conflit est nommé, et rien ne change
-sans « Remplacer ».
+sans « Remplacer ». *Fini le 14/10/2026* : 2,0 h pour 1,0 estimée, chaque critère prouvé par un test (journal, clôture
+de M7.7) ; M7.5 suit.
 
 **M7.5 — Play/Stop.** Sauvegarde de la scène, simulation, restauration. Remonté après M7.7 (v0.16) : Stop doit
 restaurer la scène en place, sans relire de fichier (prévu, ADR à venir).
