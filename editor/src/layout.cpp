@@ -19,6 +19,8 @@
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
+#include "levain/editor/shortcut_edit.hpp"
+#include "levain/editor/shortcut_window.hpp"
 #include "levain/editor/view.hpp"
 #include "levain/platform/paths.hpp"
 #include "levain/ui/tr.hpp"
@@ -120,7 +122,9 @@ Preferences preferencesOf(const app::App& app, const Editor& editor)
                            .image = app.ui.windows.image,
                            .passes = app.ui.windows.passes,
                            .scene = app.ui.windows.scene};
-    preferences.shortcuts = editor.shortcutLines;
+    // Les actions changées, puis les lignes d'un fichier que ce code ne connaît pas ou n'a pas pu
+    // appliquer.
+    preferences.shortcuts = withKeptLines(linesOf(editor.shortcuts), editor.shortcutLines);
     // Sans espace d'ancrage, pas de disposition : celle d'un fichier relu l'a créé dès la lecture
     // (`applyPreferences`), il n'y a donc rien d'autre à garder que « la défaut se construira ».
     if (hasDockspace())
@@ -130,6 +134,27 @@ Preferences preferencesOf(const app::App& app, const Editor& editor)
         preferences.layout.assign(text, size);
     }
     return preferences;
+}
+
+void applyShortcutLines(const app::App& app, Editor& editor, const std::vector<ShortcutLine>& lines)
+{
+    AppliedLines applied = shortcutsFromLines(lines);
+    for (const std::string& problem : applied.problems)
+    {
+        core::log("editor", core::LogLevel::Error, "{}",
+                  ui::trf("préférences, [raccourcis] : {}", problem));
+    }
+    for (const ShortcutLine& line : applied.unknown)
+    {
+        core::log("editor", core::LogLevel::Warning, "{}",
+                  ui::trf("préférences, [raccourcis] : action inconnue « {} », gardée telle quelle",
+                          line.action));
+    }
+    editor.shortcuts = std::move(applied.table);
+    editor.shortcutLines = std::move(applied.unknown);
+    editor.shortcutLines.insert(editor.shortcutLines.end(), applied.refused.begin(),
+                                applied.refused.end());
+    logShortcutConflicts(editor.shortcuts, app.keyAtPosition, "préférences");
 }
 
 void applyPreferences(app::App& app, Editor& editor, const Preferences& preferences)
@@ -144,7 +169,7 @@ void applyPreferences(app::App& app, Editor& editor, const Preferences& preferen
     editor.camera.flySpeed = clampFlySpeed(preferences.flySpeed);
     app.realTime = preferences.realTime;
     editor.realTimeEdit = preferences.realTime;
-    editor.shortcutLines = preferences.shortcuts;
+    applyShortcutLines(app, editor, preferences.shortcuts);
     if (preferences.layout.empty())
     {
         return;

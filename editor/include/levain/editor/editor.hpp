@@ -31,6 +31,7 @@
 #include "levain/editor/preferences.hpp"
 #include "levain/editor/quit.hpp"
 #include "levain/editor/scene_bounds.hpp"
+#include "levain/editor/shortcut_window.hpp"
 #include "levain/editor/shortcuts.hpp"
 #include "levain/editor/view.hpp"
 #include "levain/editor/window_menu.hpp"
@@ -125,8 +126,10 @@ struct Editor
     /// que les raccourcis de position (les outils) lisent dans `ui`. Vide hors de l'Édition et sous
     /// la modale « Quitter ? ».
     std::vector<KeyPress> presses;
-    /// **La table des raccourcis** (ADR-0036, décision 13) : les défauts, que les gestes, le menu,
-    /// la fenêtre Aide et les raccourcis lisent tous. Le morceau 16 la rend modifiable.
+    /// **La table des raccourcis** (ADR-0036, décision 13) : celle de l'utilisateur (les défauts,
+    /// puis les lignes de `[raccourcis]` relues), que les gestes, le menu, la fenêtre Aide et les
+    /// raccourcis lisent tous, et que la fenêtre « Raccourcis » modifie. Sans préférences (une
+    /// exécution scriptée), les défauts, jamais écrits.
     ShortcutTable shortcuts;
     /// Toute entité placée dans le monde : de quoi bornes de la scène et plans de découpe.
     flecs::query<const scene::WorldTransform> everything;
@@ -150,13 +153,29 @@ struct Editor
     /// fichier refusé n'a pu être mis de côté), les lignes de `[raccourcis]` relues (le morceau 16
     /// les applique et les réécrit).
     std::optional<std::filesystem::path> preferencesFile;
+    /// Les lignes de `[raccourcis]` que ce code ne connaît pas ou n'a pas pu appliquer
+    /// (`AppliedLines::unknown`, `refused`), gardées pour que l'enregistrement ne les perde pas ;
+    /// la table s'écrit par `linesOf` (`withKeptLines`).
     std::vector<ShortcutLine> shortcutLines;
     /// « Réinitialiser la disposition » a été cliquée : le `frame` de l'image suivante la fait
     /// (entre `NewFrame` et l'espace d'ancrage), et `savePreferencesNext` réécrit le fichier à la
     /// fin de `ui`, une fois les fenêtres sur leurs nœuds.
     bool layoutResetRequested = false;
     bool savePreferencesNext = false;
+    /// La fenêtre Édition > Préférences > Raccourcis. **Sa saisie en cours coupe tous les
+    /// raccourcis** (`shortcutCaptureActive`) : ni `ImGui::Shortcut`, ni les positions, ni Alt+P,
+    /// ni F1 (`UiLayer::panelsKeyBlocked`).
+    ShortcutWindow shortcutWindow;
+    /// Les changements de disposition du clavier déjà vus (`App::keymapChanges`) : un de plus, et
+    /// la table est revérifiée.
+    int keymapSeen = 0;
 };
+
+/// Une saisie d'accord est en cours : aucun raccourci ne part, aucun geste ne commence.
+[[nodiscard]] inline bool shortcutCaptureActive(const Editor& editor)
+{
+    return editor.shortcutWindow.capturing.has_value();
+}
 
 /// Le backend graphique où l'éditeur tourne : tous sauf WebGPU (ADR-0036, décision 7). La page web
 /// n'a pas d'éditeur, et l'éditeur natif sur Dawn, qui le pourrait, n'est pas du périmètre de M7.7

@@ -146,9 +146,11 @@ bool viewActiveOf(const app::App& app, const Editor& editor)
 /// Le contexte des gestes de cette image : ce qu'ImGui a dit de la Vue à l'image d'avant.
 GestureContext gestureContextOf(const app::App& app, const Editor& editor)
 {
+    // **Pendant la saisie d'un accord rien ne part** : ni geste (le vol, F), ni outil.
+    const bool capturing = shortcutCaptureActive(editor);
     return {.region = gestureRegionOf(app, editor),
-            .sceneHovered = sceneHoveredIn(app, editor),
-            .viewActive = viewActiveOf(app, editor),
+            .sceneHovered = sceneHoveredIn(app, editor) && !capturing,
+            .viewActive = viewActiveOf(app, editor) && !capturing,
             .textInput = ImGui::GetIO().WantTextInput};
 }
 
@@ -203,11 +205,27 @@ void frameGestures(app::App& app, Editor& editor)
     editor.view.menuAllowed = !editor.gestures.flew && editor.gestures.rightPressInScene;
 }
 
+/// La disposition du clavier a changé depuis la dernière image (`App::keymapChanges`) : la position
+/// du W n'est plus la lettre qu'elle était, les conflits sont refaits. Ceux qui sont nés ainsi vont
+/// à la console ; aucun accord n'est rebranché en silence.
+void recheckShortcutsAfterKeymap(const app::App& app, Editor& editor)
+{
+    if (std::exchange(editor.keymapSeen, app.keymapChanges) == app.keymapChanges)
+    {
+        return;
+    }
+    dropPendingAfterKeymapChange(editor.shortcutWindow);
+    logShortcutConflicts(editor.shortcuts, app.keyAtPosition, "disposition du clavier");
+}
+
 /// Passe de mode. Jouer met la Vue en avant : le jeu reçoit le clavier sans qu'il faille cliquer
 /// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`).
 void changeMode(app::App& app, Editor& editor, Mode mode)
 {
     const Mode from = editor.mode.current;
+    // Une saisie d'accord ne survit pas au changement de mode : hors de l'Édition les touches ne
+    // lui parviennent plus (`frameGestures`), et plus rien ne pourrait la finir.
+    abandonCapture(editor.shortcutWindow);
     enterMode(app, editor.mode, mode);
     switchRealTime(from, mode, app.realTime, editor.realTimeEdit);
     editor.view.focusRequested = mode == Mode::PlayWithoutReturn;
@@ -236,6 +254,13 @@ std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>&
     editor.status = statusOf(*editor.log->ring);
     drawStatusBar(editor.status);
     drawHelp(editor.help, inputs);
+    editor.shortcutWindow.open = editor.shortcutWindow.open || menus.openShortcuts;
+    // Les touches de l'image sont celles que la saisie lit ; elle les prend avant les raccourcis.
+    if (drawShortcutWindow(editor.shortcutWindow, editor.shortcuts, app.keyAtPosition,
+                           editor.presses, editor.mode.current == Mode::Edit))
+    {
+        editor.savePreferencesNext = true; // enregistré tout de suite, à la fin de `ui`
+    }
     if (menus.quit)
     {
         askToQuit(editor.quit);
@@ -254,16 +279,18 @@ std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>&
 /// (`shortcutsPressed`) : un seul chemin, `runAction`, que le clic et la touche partagent. Les
 /// touches sont celles des événements bruts (`Editor::presses`, posées par `frameGestures`) ; la
 /// Vue est « active » selon `viewActiveOf`, et le vol est celui des gestes (`inFlight`), qui
-/// commande aussi la capture de la souris.
-void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reached)
+/// commande aussi la capture de la souris. `capturing` : la saisie d'un accord **au début de
+/// l'image** (voir `ui`), non ce qu'elle est devenue depuis.
+void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reached, bool capturing)
 {
-    editor.lastShortcuts = shortcutsPressed({.table = editor.shortcuts,
-                                             .presses = editor.presses,
-                                             .editing = editor.mode.current == Mode::Edit,
-                                             .globalAllowed = globalChordsAllowed(editor.quit),
-                                             .viewActive = viewActiveOf(app, editor),
-                                             .flight = inFlight(editor.gestures),
-                                             .textInput = ImGui::GetIO().WantTextInput});
+    editor.lastShortcuts =
+        shortcutsPressed({.table = editor.shortcuts,
+                          .presses = editor.presses,
+                          .editing = editor.mode.current == Mode::Edit,
+                          .globalAllowed = globalChordsAllowed(editor.quit) && !capturing,
+                          .viewActive = viewActiveOf(app, editor),
+                          .flight = inFlight(editor.gestures),
+                          .textInput = ImGui::GetIO().WantTextInput});
     reached.insert(reached.end(), editor.lastShortcuts.begin(), editor.lastShortcuts.end());
     for (const Action action : reached)
     {
@@ -377,7 +404,9 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .preferencesFile = {},
                    .shortcutLines = {},
                    .layoutResetRequested = false,
-                   .savePreferencesNext = false});
+                   .savePreferencesNext = false,
+                   .shortcutWindow = {},
+                   .keymapSeen = 0});
         editor->console.font = fonts->console;
         if (options.select)
         {
@@ -403,6 +432,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         // Avant la première image de panneaux, et après la caméra du jeu, dont la vitesse n'est pas
         // celle qu'on a gardée : la disposition relue, ou la défaut qui se construira.
         startPreferences(app, *editor, options.preferencesDirectory);
+        editor->keymapSeen = app.keymapChanges;
         imposeCamera(app, *editor, true);
         hooks->frame = [frame = std::move(hooks->frame), editor](app::App& app)
         {
@@ -431,6 +461,11 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 ui(app);
             }
             std::optional<Mode> requested;
+            // **La saisie telle qu'elle commence l'image** : la touche qui la finit (l'accord, ou
+            // Échap) ne doit pas partir aussi comme raccourci, et `drawBars` l'a déjà terminée
+            // quand les raccourcis sont lus.
+            const bool capturing = shortcutCaptureActive(*editor);
+            recheckShortcutsAfterKeymap(app, *editor);
             // L'écriture de cette image seulement : `inspector.wrote` survit, panneaux fermés.
             bool wroteWorld = false;
             // Ce que les menus, les barres et les raccourcis atteignent à cette image.
@@ -477,7 +512,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             {
                 app.quitRequested = true;
             }
-            runReachedActions(app, *editor, std::move(reached));
+            runReachedActions(app, *editor, std::move(reached), capturing);
             // La barre de mode : en calque de la Vue panneaux ouverts, bandeau flottant sinon (le
             // bandeau de « Jouer » et le rappel de la touche valent panneaux fermés aussi).
             // `modeRequested` décide, avec Alt+P, qui ne joue pas sous la modale.
@@ -487,9 +522,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                             modeHintOf(editor->mode.current, editor->shortcuts, app.keyAtPosition));
             }
             if (const auto next = modeRequested(
-                    editor->mode.current, {.toolbar = requested,
-                                           .playShortcut = globalChordsAllowed(editor->quit) &&
-                                                           playShortcutPressed(editor->shortcuts)}))
+                    editor->mode.current,
+                    {.toolbar = requested,
+                     .playShortcut = globalChordsAllowed(editor->quit) && !capturing &&
+                                     playShortcutPressed(editor->shortcuts)}))
             {
                 changeMode(app, *editor, *next);
             }
@@ -504,6 +540,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 inputRouteFor(editor->mode.current,
                               sceneFocusedIn(app.ui.panelsOpen, viewHasFocus(editor->view),
                                              !sceneHasFocus(), editor->view.barHovered)));
+            app.ui.panelsKeyBlocked = shortcutCaptureActive(*editor); // F1 est refusée, pas obéie
             if (std::exchange(editor->savePreferencesNext, false))
             {
                 savePreferencesNow(app, *editor);
