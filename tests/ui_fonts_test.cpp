@@ -99,8 +99,8 @@ std::string interBytes()
     return {std::istreambuf_iterator<char>{real}, std::istreambuf_iterator<char>{}};
 }
 
-/// Les caractères de tests/data/ui-glyphs.txt, en points de code. La règle de lecture : une ligne
-/// qui commence par « # » est un commentaire, et
+/// Les caractères de tests/data/ui-glyphs.txt, en points de code. LA règle de lecture, la même que
+/// celle de tests/check_untranslated.py : une ligne qui commence par « # » est un commentaire, et
 /// l'espace, la tabulation et le retour chariot séparent ; tout autre caractère est un glyphe (une
 /// espace insécable aussi : elle doit se dessiner). Un BOM est refusé : il deviendrait un glyphe.
 std::vector<unsigned> listedGlyphs()
