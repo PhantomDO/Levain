@@ -169,8 +169,9 @@ journal en Release.
   (17b). **Histoire** : avant 17d, la cible sRGB de la 4070 (Direct3D 12) mélangeait en linéaire, celle de lavapipe (UNORM
   sous `VK_EXT_headless_surface`) en gamma et sortait la scène trois fois trop sombre (le ciel du bac à sable (38, 42, 124)
   contre (109, 114, 186), #493) ; `FrameBg`, (41, 74, 122) à 54 % sur (15, 15, 15), se lisait (29, 47, 73) sous lavapipe et
-  (32, 56, 92) sur la 4070. Maintenant lavapipe, WARP et la 4070 mélangent pareil : `levain_ui_gpu` mesure un voile noir à
-  50 % sur 188 (94 attendu, 137 en linéaire) sur chaque backend.
+  (32, 56, 92) sur la 4070. Maintenant lavapipe, WARP et la 4070 mélangent pareil : `levain_ui_gpu` mesure deux voiles à
+  50 % sur 188 sur chaque backend : le noir (94 attendu, 137 en linéaire) sépare les deux mélanges, le gris 128 (158
+  attendu, 121 s'il était linéarisé à tort) attrape une UI qui linéariserait sur une cible UNORM.
 - **Les polices ne sont pas dans le dépôt** (`fonts.hpp`, M7.7 morceau 17, ADR-0036 décision 15). `tools/fetch-assets.sh` met
   dans `assets-cache/Fonts/` Inter (SIL OFL 1.1, `Inter-LICENSE.txt`), Noto Sans (OFL 1.1, `NotoSans-OFL.txt`) et Material
   Symbols Outlined (Apache-2.0, `MaterialSymbols-LICENSE`) ; *Rando* les prend avec le préfixe `Fonts/`. `addFonts` en fait
