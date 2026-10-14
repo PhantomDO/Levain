@@ -172,7 +172,7 @@ M couverts par un test ».
     l'arrêt (M7.5 viendra avec Play et Stop). **Alt+P ne fait que jouer** (la table de la décision 13 : « Jouer »),
     **Échap ne fait qu'arrêter**, et seul le bouton va dans les deux sens : `modeRequested` en décide, testée. Sous la
     route *jeu*, ImGui n'a pas Alt+P ; une Alt+P qui basculerait ne ramènerait qu'aux images où un panneau a le focus.
-    Échap est lue sur l'input brut par position (`StopScancode`) : elle vaut partout où le jeu reçoit le clavier,
+    Échap est lue sur l'input brut par la position que la table donne à « Arrêter » (`stopPressed`) : elle vaut partout où le jeu reçoit le clavier,
     donc sous la route *jeu* mais aussi sous la route *UI* quand une fenêtre a le focus sans qu'un champ soit actif ;
     la décision 13 la réserve au contexte *jeu*, ce que la table des raccourcis (morceau 10) rendra. **Chaque
     changement de mode remet `mouseCaptureWanted` à faux** (`enterMode`) : le `frame` du programme, qui le repose,

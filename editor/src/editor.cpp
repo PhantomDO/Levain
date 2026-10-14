@@ -461,6 +461,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 editor->view.canFrame =
                     canFrameEntity(selectedIfAlive(app.world, editor->selected));
                 editor->view.frameShortcut = frameShortcutOf(*editor, app);
+                editor->view.modeHint =
+                    modeHintOf(editor->mode.current, editor->shortcuts, app.keyAtPosition);
                 if (const auto fromView = drawView(editor->view, app, editor->mode.current))
                 {
                     requested = fromView; // le bouton de la Vue, avant celui de la barre d'outils
@@ -481,7 +483,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             // `modeRequested` décide, avec Alt+P, qui ne joue pas sous la modale.
             if (!app.ui.panelsOpen)
             {
-                drawModeBar(editor->mode.current, app.sceneRect);
+                drawModeBar(editor->mode.current, app.sceneRect,
+                            modeHintOf(editor->mode.current, editor->shortcuts, app.keyAtPosition));
             }
             if (const auto next = modeRequested(
                     editor->mode.current, {.toolbar = requested,

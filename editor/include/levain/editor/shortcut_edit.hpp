@@ -42,7 +42,8 @@ struct ChordConflict
 
 /// Les accords qui entrent en conflit avec `chord` posé sur l'une des places de `action` : dans le
 /// même contexte, ou entre le global et n'importe quel autre. L'action elle-même ne compte pas,
-/// ni sa place ni son autre place : reposer sur l'une l'accord de l'autre n'est pas un conflit.
+/// ni sa place ni son autre place : reposer sur l'une l'accord de l'autre n'est pas un conflit,
+/// `replaceChord` vide l'autre.
 [[nodiscard]] std::vector<ChordConflict> conflictsOf(const ShortcutTable& table, Action action,
                                                      const Chord& chord,
                                                      const platform::KeyAtPosition& keyAtPosition);
@@ -51,6 +52,32 @@ struct ChordConflict
 /// disposition d'aujourd'hui, action dans la langue de l'interface).
 [[nodiscard]] std::string conflictName(const ChordConflict& conflict,
                                        const platform::KeyAtPosition& keyAtPosition);
+
+/// **« Remplacer »** (l'*Override* d'Unreal) : pose `chord` sur la place de l'action et le retire
+/// à chaque action en conflit. Rend ce qui a été retiré (la console le dit). Une action qui
+/// garde un seul accord le garde à la première place.
+std::vector<ChordConflict> replaceChord(ShortcutTable& table, Action action, std::size_t slot,
+                                        const Chord& chord,
+                                        const platform::KeyAtPosition& keyAtPosition);
+
+/// Ce que rendre ses défauts à l'action prendrait aux autres, sans rien changer : les défauts
+/// qu'une autre action tient maintenant (reçus par « Remplacer »). Vide : « Réinitialiser » peut
+/// agir.
+[[nodiscard]] std::vector<ChordConflict>
+resetConflictsOf(const ShortcutTable& table, Action action,
+                 const platform::KeyAtPosition& keyAtPosition);
+
+/// Rend ses accords par défaut à l'action. Si un défaut est pris par une autre action (qui l'a
+/// reçu par « Remplacer »), il lui est retiré, comme `replaceChord` : rien ne reste en conflit
+/// (`resetConflictsOf` le dit avant). Rend ce qui a été retiré aux autres.
+std::vector<ChordConflict> resetAction(ShortcutTable& table, Action action,
+                                       const platform::KeyAtPosition& keyAtPosition);
+
+/// L'action a ses accords par défaut : « Réinitialiser » n'a rien à faire.
+[[nodiscard]] bool isDefault(const ShortcutTable& table, Action action);
+
+/// Toutes les actions rendent leurs défauts.
+void resetAll(ShortcutTable& table);
 
 /// Deux accords de la table qui se disputent la même touche : ce qu'on rencontre en relisant un
 /// fichier écrit à la main, ou quand la disposition du clavier change (la position du W n'est

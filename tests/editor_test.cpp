@@ -21,6 +21,8 @@
 #include "levain/editor/editor.hpp"
 #include "levain/editor/hierarchy.hpp"
 #include "levain/editor/inspector.hpp"
+#include "levain/editor/shortcut_edit.hpp"
+#include "levain/platform/input_script.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
@@ -709,19 +711,26 @@ TEST_CASE(
     CHECK(levain::editor::otherMode(Mode::PlayWithoutReturn) == Mode::Edit);
 }
 
+namespace
+{
+
+constexpr std::uint16_t ScanEscape = 41, ScanF5 = 62; // USB HID, vérifiés contre SDL par `platform`
+
+} // namespace
+
 TEST_CASE("Échap ramène à l'Édition à son appui, pas tant qu'elle est tenue")
 {
     levain::editor::ModeState state{.current = levain::editor::Mode::PlayWithoutReturn};
     levain::input::RawInput raw;
     const auto table = levain::editor::defaultShortcuts();
     CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
-    raw.keys.set(levain::editor::StopScancode);
+    raw.keys.set(ScanEscape);
     CHECK(levain::editor::stopPressed(state, raw, table));
     CHECK_FALSE(
         levain::editor::stopPressed(state, raw, table)); // toujours tenue : le front est passé
-    raw.keys.reset(levain::editor::StopScancode);
+    raw.keys.reset(ScanEscape);
     CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
-    raw.keys.set(levain::editor::StopScancode);
+    raw.keys.set(ScanEscape);
     CHECK(levain::editor::stopPressed(state, raw, table)); // un nouvel appui
 }
 
@@ -733,7 +742,7 @@ TEST_CASE("l'arrêt lit la position que la table donne à « Arrêter », non É
     table.bindings.push_back({.action = levain::editor::Action::Stop,
                               .context = levain::editor::Context::Game,
                               .chords = {levain::editor::positionChord(20), {}}});
-    raw.keys.set(levain::editor::StopScancode);
+    raw.keys.set(ScanEscape);
     CHECK_FALSE(levain::editor::stopPressed(state, raw, table)); // Échap n'est plus l'arrêt
     raw.keys.set(20);
     CHECK(levain::editor::stopPressed(state, raw, table));
@@ -765,14 +774,27 @@ TEST_CASE("Alt+P joue, Échap arrête, seul le bouton va dans les deux sens")
     CHECK(modeRequested(Play, {.toolbar = Play, .stop = true}) == Edit);
 }
 
-TEST_CASE("le rappel de la barre de mode ne promet pas d'Alt+P pour revenir")
+TEST_CASE("le rappel de la barre de mode suit la table, et ne promet pas d'Alt+P pour revenir")
 {
     using levain::editor::Mode;
-    CHECK(std::string_view{levain::editor::modeHintOf(Mode::Edit)}.contains("Alt+P"));
+    const auto qwerty = levain::platform::qwertyKeyAtPosition;
+    levain::editor::ShortcutTable table = levain::editor::defaultShortcuts();
+    CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty) == "Alt+P : jouer");
     // En jeu, seule Échap ramène : Alt+P n'y fait rien (`modeRequested`).
-    const std::string_view inPlay = levain::editor::modeHintOf(Mode::PlayWithoutReturn);
-    CHECK(inPlay.contains("Échap"));
+    const std::string inPlay = levain::editor::modeHintOf(Mode::PlayWithoutReturn, table, qwerty);
+    CHECK(inPlay == "Échap : revenir à l'édition");
     CHECK_FALSE(inPlay.contains("Alt+P"));
+    // Un accord changé change le rappel : jouer sur Ctrl+K, arrêter sur la position du F5 (62).
+    levain::editor::replaceChord(table, levain::editor::Action::Play, 0,
+                                 levain::editor::letterChord('k', {.ctrl = true}), qwerty);
+    levain::editor::replaceChord(table, levain::editor::Action::Stop, 0,
+                                 levain::editor::positionChord(ScanF5), qwerty);
+    CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty) == "Ctrl+K : jouer");
+    CHECK(levain::editor::modeHintOf(Mode::PlayWithoutReturn, table, qwerty) ==
+          "F5 : revenir à l'édition");
+    // Sans accord, rien n'est promis.
+    levain::editor::replaceChord(table, levain::editor::Action::Play, 0, {}, qwerty);
+    CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty).empty());
 }
 
 namespace
