@@ -33,12 +33,19 @@ enum class WindowEventType : std::uint8_t
     Resized, ///< Nouvelle taille dans `WindowEvent::pixelSize`.
     Hidden,  ///< Minimisée ou entièrement recouverte : plus rien à dessiner.
     Shown,   ///< De nouveau visible.
+    /// L'échelle d'affichage a changé (la fenêtre passe sur un autre écran, ou l'utilisateur change
+    /// le zoom du système) : la nouvelle valeur est dans `WindowEvent::displayScale`.
+    ScaleChanged,
 };
 
 struct WindowEvent
 {
     WindowEventType type;
     PixelSize pixelSize{}; ///< Renseignée pour `Resized` uniquement, zéro sinon.
+    /// Renseignée pour `ScaleChanged` uniquement, zéro sinon : la même valeur que `displayScale`
+    /// (input.hpp) lirait à cet instant. Dans l'événement, et non relue par le programme : le banc
+    /// d'essai (`window scale`, input_script.hpp) en écrit une que SDL ne donne pas.
+    float displayScale = 0.0f;
 };
 
 /// Détruit la fenêtre puis arrête SDL, dans cet ordre. Défini dans `window.cpp`, le seul

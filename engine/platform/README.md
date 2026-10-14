@@ -93,6 +93,13 @@ consulté. `createWindow` coupe `SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE`, sans quoi 
 (`SDL_windowevents.c`) et le signal et la croix ne se distingueraient plus. **Un test doctest ne peut pas lever ce
 signal** : SDL n'installe son gestionnaire que si SIGTERM est encore à SIG_DFL (`SDL_quit.c`), et doctest a pris le sien.
 
+**Le zoom du système** (M7.7, morceau 17b, revue) : `SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED` arrive en
+`WindowEventType::ScaleChanged`, avec la nouvelle échelle dans `WindowEvent::displayScale` (lue sur la fenêtre à cet
+instant : l'événement SDL ne la porte pas). `window scale <échelle>` l'écrit dans un script (strictement positive), car
+un pilote hors écran n'en envoie jamais. **La traduction de l'événement SDL réel n'a pas de
+test**, comme celle de `Hidden` ou de `Resized` : le pilote hors écran des tests n'envoie aucun changement d'échelle.
+Ce sont le script et la boucle qui le reçoit (`app::setUiStyle`) qui sont couverts.
+
 **Pas encore scriptés, et le morceau d'ADR-0036 qui les ajoute** (`addKey` et `addButton` montrent où) :
 
 | Événement | Morceau | Pour quel scénario |

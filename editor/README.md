@@ -55,6 +55,14 @@ Inter derrière (`Console::font`). **Une police absente arrête l'éditeur avant
 `tools/fetch-assets.sh` (`gpu.editor-console.*`, `playMissingFont`) : les tests de l'éditeur posent `fontRoots = {assets-cache}`
 et seulement elle : leurs racines d'assets restent `data/`, sans le scan et les `.meta` des 86 fichiers d'`assets-cache`. Le bouton de mode et son bandeau portent une icône (`modeButtonLabel`).
 
+**Le style** (morceau 17b, `withEditor`, ADR-0036 décision 15) : `withEditor` donne à l'`App`
+`ui::applyEditorStyle(style, displayScale)` comme style (`app::setUiStyle`) : réglé à l'ouverture, après les polices, puis
+refait par la boucle à chaque changement de zoom du système (`WindowEventType::ScaleChanged` ; `gpu.editor-modes.*`, ligne
+`window scale`) ; engine/ui/README : sombre, plat, un seul accent bleu pour l'actif ou le choisi, fonds opaques, rondeurs de
+2 à 4 px, pensé pour Inter à 15 px. Le sandbox seul et *Rando* gardent le style d'ImGui.
+Que `withEditor` règle bien le style, c'est `gpu.editor-modes.*` (sans l'appel,
+l'éditeur resterait au style d'ImGui, et rien d'autre ne le dirait).
+
 **Les menus, les barres et la fenêtre Aide sont écrits** (M7.7, morceau 12, `menus.hpp`, `bars.hpp`, `actions.hpp`,
 ADR-0036, décisions 12 et 13). **La barre de menus** : Fichier, Édition, Entité, Fenêtre (celui du morceau 8, au
 milieu de la barre) et Aide ; chaque entrée montre le raccourci de la table, selon la disposition du clavier. **Une

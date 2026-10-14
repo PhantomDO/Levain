@@ -290,12 +290,46 @@ core::Result<void> addKeymapChange(Events& events, int line, const Words& words)
 /// lève pour de vrai (`raise`), dans le test.
 core::Result<void> addWindowClose(Events& events, int line, const Words& words)
 {
-    if (words.size() != 3 || words[2] != "close")
+    if (words.size() != 3)
     {
         return refusal(line, "champs", "window close est attendu");
     }
     events.window.push_back({.type = WindowEventType::CloseRequested});
     return {};
+}
+
+/// `window scale <échelle>` : le zoom du système change (DISPLAY_SCALE_CHANGED), ce que SDL ne fait
+/// jamais sur un pilote hors écran. Strictement positif : une échelle nulle rendrait l'interface
+/// invisible (`displayScale`, input.hpp).
+core::Result<void> addWindowScale(Events& events, int line, const Words& words)
+{
+    if (words.size() != 4)
+    {
+        return refusal(line, "champs", "window scale <échelle> est attendu");
+    }
+    const auto scale = coordinateOf(words[3]);
+    if (!scale || *scale <= 0.0f)
+    {
+        return refusal(line, "échelle",
+                       std::format("« {} » : un nombre fini, plus grand que 0", words[3]));
+    }
+    events.window.push_back({.type = WindowEventType::ScaleChanged, .displayScale = *scale});
+    return {};
+}
+
+/// `window close` ou `window scale <x>` : ce que fait la fenêtre.
+core::Result<void> addWindow(Events& events, int line, const Words& words)
+{
+    const std::string_view what = words.size() > 2 ? words[2] : "";
+    if (what == "close")
+    {
+        return addWindowClose(events, line, words);
+    }
+    if (what == "scale")
+    {
+        return addWindowScale(events, line, words);
+    }
+    return refusal(line, "champs", "window close ou window scale <échelle> est attendu");
 }
 
 } // namespace
@@ -348,7 +382,7 @@ core::Result<InputScript> parseInputScript(std::string_view text)
             : kind == "wheel"  ? addWheel(events, line, words)
             : kind == "keymap" ? addKeymapChange(events, line, words)
             : kind == "window"
-                ? addWindowClose(events, line, words)
+                ? addWindow(events, line, words)
                 : refusal(line, "type", "key, button, mouse, wheel, keymap ou window est attendu");
         if (!added)
         {

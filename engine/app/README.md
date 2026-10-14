@@ -26,7 +26,14 @@ et plus tard l'éditeur partagent, au lieu de le réécrire chacun. Il est au-de
   programme ajoute ses fenêtres ; et la capture de la souris, que `App` possède. La disposition des panneaux
   garde ses nœuds (`UiLayer::dock`), où l'éditeur ancre les siens (ADR-0034). Sous un éditeur
   (`UiLayer::editorLayout`, posé par `withEditor`) la disposition est celle des colonnes et les fenêtres du moteur
-  ont une croix (son menu « Fenêtre » les rouvre) ; sinon (le sandbox, *Rando*) c'est celle d'avant, sans croix ;
+  ont une croix (son menu « Fenêtre » les rouvre) ; sinon (le sandbox, *Rando*) c'est celle d'avant, sans croix.
+  **Le style d'ImGui** a un seul propriétaire, `App` : un programme qui en règle un autre que celui de
+  `createUiContext` le pose par `setUiStyle(app, fonction)` (l'éditeur : `ui::applyEditorStyle`), qui le règle à
+  l'échelle de la fenêtre ; la boucle rappelle la fonction à chaque `WindowEventType::ScaleChanged` (le zoom du système
+  change, ou la fenêtre passe sur un autre écran), avant `NewFrame` (`gpu.editor-modes.*`, ligne `window scale`).
+  **Pas encore** : le style de `createUiContext` (le sandbox, *Rando*) ne suit pas un changement d'échelle, il reste à
+  celle de l'ouverture ; et le changement reçu fenêtre masquée refait le style aussitôt (la boucle masquée lit les
+  événements), sans test (le banc d'essai n'a pas d'événement « masquée », comme pour la croix) ;
 - **la scène dans une texture** (M7.7, morceau 7, ADR-0036 décision 7) : `requestScene(app, taille)`, que la Vue appellera dans
   `ui`, rend l'identifiant de l'image à montrer par `ImGui::Image` ; la scène se rend alors dans cette texture, la
   swapchain est effacée et seule l'UI y est dessinée (`scene_view.hpp`). Voir l'invariant 15 ;
@@ -205,13 +212,13 @@ attend le code 1.
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `realTime`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `editorHelpersVisible`, `inputRoute`, `sceneRect`, `cursor`, `rawFrameEvents`, `frameSeconds`, `mouseCaptureOverPanels`, `mouseReturnTo`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `runApp` |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `realTime`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `editorHelpersVisible`, `inputRoute`, `sceneRect`, `cursor`, `rawFrameEvents`, `frameSeconds`, `mouseCaptureOverPanels`, `mouseReturnTo`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `setUiStyle`, `runApp` |
 | [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf`, `renderCameraOr` (la caméra imposée d'abord) : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
 | [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `AnimationClock`, `advanceAnimationClock`, `SkinningState`, `createSkinningState`, `animateModels` |
 | [`include/levain/app/scene_view.hpp`](include/levain/app/scene_view.hpp) | `SceneSize`, `SceneOutput`, `StableFramesBeforeResize`, `SizeSettling`, `shouldRecreateScene`, `sceneOutputFor`, `dockspaceFlagsFor`, `ScenePixel`, `scenePixelAt`, `SceneExtent`, `sceneExtentOf`, `SceneView` ; `createSceneTexture`, `requestSceneTexture`, `beginSceneRequest`, `settleSceneOutput`, `releaseRetiredScenes`, `clearSwapchain` : la scène dans la texture de la Vue |
-| [`include/levain/app/ui_layer.hpp`](include/levain/app/ui_layer.hpp) | `UiLayer`, `UiCost`, `FrameHistory`, `PanelsKey`, `InputRoute`, `ScreenRect`, `rectContains`, `DevicesTaken`, `RouteFacts`, `devicesTakenBy`, `gameInputOf`, `uiEventsOf`, `mouseTakenByCapture`, `togglesPanels`, `mouseShouldBeCaptured`, `recordHistory`, `recordUiCpu` : l'interface dans la boucle |
+| [`include/levain/app/ui_layer.hpp`](include/levain/app/ui_layer.hpp) | `UiLayer`, `UiStyleFunction`, `UiCost`, `FrameHistory`, `PanelsKey`, `InputRoute`, `ScreenRect`, `rectContains`, `DevicesTaken`, `RouteFacts`, `devicesTakenBy`, `gameInputOf`, `uiEventsOf`, `mouseTakenByCapture`, `togglesPanels`, `mouseShouldBeCaptured`, `recordHistory`, `recordUiCpu` : l'interface dans la boucle |
 | [`src/panels.hpp`](src/panels.hpp) | `drawEnginePanels` : les panneaux de debug du moteur, ancrés ; `buildLayout` et les clés de leurs fenêtres (`ImageWindow`…) pour `ui_i18n_test.cpp` ; interne |
 | [`include/levain/app/texture_reload.hpp`](include/levain/app/texture_reload.hpp) | `TextureReload`, `startTextureReload`, `reloadChangedTextures` : le hot-reload des textures |
 | [`src/model_textures.hpp`](src/model_textures.hpp) | `textureTargetOf`, `UploadedTexture`, `uploadTexture` : une texture au format que le GPU échantillonne ; interne, partagé par l'envoi et le hot-reload |

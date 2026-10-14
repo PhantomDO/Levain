@@ -16,11 +16,13 @@
 #include "levain/core/log.hpp"
 #include "levain/editor/layout.hpp"
 #include "levain/editor/scene_bounds.hpp"
+#include "levain/platform/input.hpp"
 #include "levain/render/debug_lines.hpp"
 #include "levain/render/renderer.hpp"
 #include "levain/render/stages.hpp"
 #include "levain/scene/scene.hpp"
 #include "levain/ui/fonts.hpp"
+#include "levain/ui/style.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -407,6 +409,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
         {
             return std::unexpected(fonts.error());
         }
+        // L'allure de l'éditeur, avant la première image : ImGui lit son style à chaque widget. Le
+        // sandbox seul et *Rando* gardent celui d'ImGui. `App` en est le propriétaire : il le
+        // refait à chaque changement d'échelle de l'écran (`setUiStyle`).
+        app::setUiStyle(app, ui::applyEditorStyle);
         auto hooks = start(app);
         if (!hooks)
         {

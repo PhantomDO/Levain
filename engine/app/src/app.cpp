@@ -137,6 +137,26 @@ void applyWindowEvent(LoopState& state, const platform::WindowEvent& event)
         core::log("app", core::LogLevel::Info, "redimensionnée : {} × {} px", event.pixelSize.width,
                   event.pixelSize.height);
         break;
+    // Le style est à l'`App`, pas à l'état de la boucle : `restyleOnScaleChange`.
+    case WindowEventType::ScaleChanged:
+        break;
+    }
+}
+
+/// Le zoom du système a changé : le style de l'UI se refait à la nouvelle échelle, avant
+/// `NewFrame` (ImGui lit son style à chaque widget, jamais en cours d'image). Sans fonction de
+/// style (`UiLayer::style` vide), le style de `createUiContext` reste à l'échelle de l'ouverture :
+/// le sandbox et *Rando* n'ont pas encore de réglage à refaire (app/README, « Pas encore »).
+void restyleOnScaleChange(App& app, const platform::WindowEvent& event)
+{
+    if (event.type != platform::WindowEventType::ScaleChanged)
+    {
+        return;
+    }
+    core::log("app", core::LogLevel::Info, "échelle d'écran : {}", event.displayScale);
+    if (app.ui.style)
+    {
+        app.ui.style(ImGui::GetStyle(), event.displayScale);
     }
 }
 
@@ -989,6 +1009,7 @@ bool runFrame(Loop& loop)
                 continue;
             }
             applyWindowEvent(loop.state, event);
+            restyleOnScaleChange(app, event);
         }
         // Un changement de disposition reçu fenêtre masquée compte aussi : qui garde une touche
         // affichée la relirait sans cela à la restauration, trop tard pour la première image.
@@ -1023,6 +1044,7 @@ bool runFrame(Loop& loop)
                 continue; // le programme demande d'abord : la modale s'ouvre dans `ui`
             }
             applyWindowEvent(loop.state, event);
+            restyleOnScaleChange(app, event);
             forgetHiddenTime(loop.previousFrameEnd, event, frameStart);
         }
         // ImGui d'abord : ce qu'il garde de l'input, le jeu ne le voit pas (`gameInputOf`). La
@@ -1337,6 +1359,15 @@ std::optional<ImTextureID> requestScene(App& app, const SceneSize& size)
 {
     return requestSceneTexture(app.sceneView, *app.gpu.nvrhi, app.ui.pass,
                                gpu::swapchainFormat(app.gpu), size);
+}
+
+void setUiStyle(App& app, UiStyleFunction style)
+{
+    app.ui.style = std::move(style);
+    if (app.ui.style)
+    {
+        app.ui.style(ImGui::GetStyle(), platform::displayScale(app.window));
+    }
 }
 
 void prepareAppWorld(flecs::world& world)
