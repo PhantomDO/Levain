@@ -134,7 +134,10 @@ préférences (une clé de plus demande une décision de version) ; le contour d
 dans l'éditeur avant M7.4 (la sélection au clic), son arrêt en vue de jeu est donc écrit mais sans scénario. Équivalents :
 le menu *Show* du viewport d'Unreal (la grille, *Game View* sous G : **documenté**, GESTES.md [E1]), les *Gizmos* et la
 grille de la Scene View d'Unity (**supposé**), View > Grid et View > Gizmos de Godot (**supposé**). Tests :
-`tests/editor_grid_test.cpp` (la logique : nombre de lignes, familles et leur continuité à 10 m, portée, écart à l'écran, gris, axes, centre, G, aides).
+`tests/editor_grid_test.cpp` (la logique : nombre de lignes, familles et leur continuité à 10 m, portée, écart à l'écran, gris, axes, centre, G, aides) et de bout en bout
+`gpu.editor-grid-*.*` (`tests/editor_grid_gpu.cpp`, un ctest par scénario : la touche, jouer) : ce que la grille a
+dessiné est lu sur l'étape de rendu (`GridState::framesDrawn`, `lastLines` : les lignes envoyées après la coupe), non sur
+la case.
 
 La suite : l'[ADR-0036](../docs/adr/0036-mode-edition-vue-et-camera-de-l-editeur.md), proposé pour M7.7, que
 suivent M7.5, M7.3, M7.4 et M7.6. Les gestes quotidiens d'Unity et d'Unreal que l'éditeur doit rendre, chacun avec son
