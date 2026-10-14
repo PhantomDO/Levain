@@ -32,6 +32,7 @@ free -h
 | Vulkan SDK de LunarG | Validation layers, `vulkaninfo`, `slangc`, `dxc` |
 | RenderDoc | Débogage GPU |
 | Tracy (profiler) | Profiling |
+| `unzip` (ou `7z`, ou Python 3) | `tools/fetch-assets.sh` : Inter ne publie son TTF que dans un zip |
 | Claude Code | Développement |
 
 vcpkg sera installé et configuré en M0.2 ; NVRHI et flecs arrivent par vcpkg.
@@ -58,6 +59,12 @@ tools/winsysroot.sh "$d" && export LEVAIN_WINSYSROOT=$d
 
 Le `~/winsysroot` du portable (des liens vers l'installation des Build Tools 2026, que le script n'a pas faite)
 reste tel quel.
+
+**Les polices de l'éditeur** (M7.7, ADR-0036 décision 15) ne sont pas dans le dépôt : `tools/fetch-assets.sh` les
+télécharge dans `assets-cache/Fonts/`, avec leur licence à côté, et vérifie leur SHA-256.
+Inter (TTF statique de la version 4.1, `Inter-LICENSE.txt`) et Noto Sans
+(`NotoSans-OFL.txt`) sont sous SIL Open Font License 1.1 ; Material Symbols (`MaterialSymbols-LICENSE`), pour les
+icônes, sous Apache-2.0. Le script ouvre le zip d'Inter avec `unzip`, sinon `7z`, sinon Python 3 (Git pour Windows livre `unzip` ; `7z` et Python ne sont que des replis) ; sans aucun des trois, il le dit.
 
 Depuis un PC Windows : une distro WSL dédiée, outillée comme la CI, avec Claude Code en ligne de commande, et
 supprimable d'une commande ([`tools/wsl/README.md`](../tools/wsl/README.md)).

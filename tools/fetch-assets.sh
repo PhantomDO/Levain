@@ -3,7 +3,9 @@
 # git (ADR-0018 : les assets tiers ne sont jamais versionnés). Chaque fichier est vérifié par son
 # SHA-256 ; un fichier déjà présent et intact n'est pas retéléchargé. Une ligne est « hash chemin »
 # pour un fichier de glTF-Sample-Assets, au commit du lock, ou « hash chemin adresse » pour un
-# fichier pris ailleurs (une HDRI de Poly Haven).
+# fichier pris ailleurs (une HDRI de Poly Haven). « hash chemin adresse membre » : l'adresse est une
+# archive zip, dont on extrait le membre (Inter ne publie ses TTF que dans le zip de sa version) ; le
+# hash est celui du fichier extrait, pas de l'archive.
 #
 #   ./tools/fetch-assets.sh
 #   ./tools/fetch-assets.sh <dossier> [préfixe…]
@@ -30,8 +32,34 @@ done
 commit=$(awk '$1 == "commit" { print $2 }' "$lock")
 [[ -n "$commit" ]] || { echo "aucun commit dans $lock" >&2; exit 1; }
 
+# Écrit sur la sortie standard le membre d'un zip. `unzip` d'abord (Linux, WSL, et Git pour Windows
+# qui livre /usr/bin/unzip.exe) ; `7z` et Python ne sont que des replis. Aucun des trois : code 2 et
+# une erreur qui le dit, pas un « membre introuvable ». Un membre absent est le code 1.
+extract_member() {
+    if command -v unzip > /dev/null; then
+        unzip -p "$1" "$2"
+    elif command -v 7z > /dev/null; then
+        # 7z rend 0 et une sortie vide pour un membre absent : on le transforme en échec. Un
+        # fichier, pas une substitution de commande : bash y perdrait les octets nuls de la police.
+        local out
+        out=$(mktemp) || return 1
+        if 7z e -so "$1" "$2" > "$out" 2> /dev/null && [[ -s "$out" ]]; then
+            cat "$out"
+            rm -f "$out"
+        else
+            rm -f "$out"
+            return 1
+        fi
+    elif command -v python3 > /dev/null; then
+        python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))' "$1" "$2"
+    else
+        echo "ni unzip, ni 7z, ni python3 : impossible d'ouvrir le zip $1" >&2
+        return 2
+    fi
+}
+
 count=0
-while read -r hash path url; do
+while read -r hash path url member; do
     [[ -z "$hash" || "$hash" == \#* || "$hash" == commit ]] && continue
     if [[ ${#prefixes[@]} -gt 0 ]]; then
         wanted=false
@@ -49,6 +77,13 @@ while read -r hash path url; do
     curl --fail --silent --show-error --location \
         "${url:-https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/$commit/$path}" \
         --output "$file.part"
+    if [[ -n "${member:-}" ]]; then
+        extract_member "$file.part" "$member" > "$file.member" \
+            || { rc=$?; rm -f "$file.part" "$file.member"
+                 [[ $rc -eq 2 ]] || echo "membre $member introuvable dans l'archive de $path" >&2
+                 exit 1; }
+        mv "$file.member" "$file.part"
+    fi
     if ! echo "$hash  $file.part" | sha256sum --check --status; then
         rm -f "$file.part"
         echo "SHA-256 inattendu pour $path" >&2
