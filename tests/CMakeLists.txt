@@ -550,9 +550,9 @@ endforeach()
 
 # La grille au sol, le menu « Afficher » et la touche G (ADR-0036, morceau 17) : ce que la grille dessine est observé (ses
 # lignes au rendu), pas seulement la case. Un scénario par ctest (quatre lancements au plus chacun).
-set(editorGridScenarios key play)
+set(editorGridScenarios menu key play pixels)
 add_executable(levain_editor_grid editor_grid_gpu.cpp)
-target_link_libraries(levain_editor_grid PRIVATE levain::editor levain::app levain::core levain::render levain::platform levain::scene)
+target_link_libraries(levain_editor_grid PRIVATE levain::editor levain::app levain::assets levain::core levain::render levain::platform levain::scene)
 target_compile_definitions(levain_editor_grid PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
     LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
 foreach(scenario ${editorGridScenarios})

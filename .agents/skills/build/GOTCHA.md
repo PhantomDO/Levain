@@ -11,6 +11,27 @@ M7.7, morceau 16 (revue du passage réel).
 - **Symptôme** : une fenêtre en pixels fixes (190 px par bouton, 820 × 640) coupe « Réinitialiser » et cache cinq lignes sur vingt à 125 %. **Cause** : l'échelle de l'écran grandit la police et le style, pas les nombres du code ; `ImGuiStyle::ScaleAllSizes` tronque ses marges à l'entier (3 × 1,25 devient 3), la hauteur d'une ligne grandit de moins de 25 %. **Parade** : tout en multiples de `ImGui::GetFontSize()` et du style lu, dans une fonction pure testable sans contexte (`shortcutWindowFit`).
 - **Symptôme** : un bouton sous le tableau saute d'une ligne quand un message paraît, et le clic scripté, pris sans message, le rate. **Parade** : la ligne du message est toujours réservée (`Dummy`).
 
+## Un test de pixels compare des pixels de texte d'ImGui : ils changent d'une exécution à l'autre (2026-10-14)
+
+M7.7, morceau 17c (la grille du sol, passage de relecture).
+
+- **Symptôme** : `gpu.editor-grid-pixels.vulkan` échoue une exécution sur deux en Release sur lavapipe (10 échecs sur 16, 16
+  sur 20 sans la parade ci-dessous), jamais en Debug, jamais sur WARP : deux pixels du rappel « Alt+P : jouer » (289,128) et
+  (289,129) diffèrent entre la capture « grille cochée » et « grille décochée », donc la « première rangée changée » tombe
+  dans la barre de mode, au-dessus de celle où la grille finit. **Cause** (déduite, non démontrée) : ImGui 1.92 construit
+  son atlas de glyphes à la volée ; les chiffres du temps d'image changent l'ordre d'empaquetage, donc le dessin d'un
+  glyphe qui n'a pas changé. **Parade** : un test qui lit l'image de la scène laisse de côté les rectangles où ImGui
+  écrit par-dessus (`View::modeBarRect`, `ShowMenuLayout::bar`, à 2 pixels près, notés dans `Seen`) et reste exact
+  partout ailleurs ; il vérifie que ces rectangles existent et restent petits (sinon le contrôle ne dirait rien, ou
+  cacherait la Vue).
+- **Symptôme** : `doctest -tc='*9,9 m*'` ne lance rien, sans erreur. **Cause** : `-tc` sépare ses filtres par des virgules :
+  « *9 » et « 9 m* ». **Parade** : pas de virgule dans un nom de cas qu'on filtre, ou le filtre en entier avec ses
+  guillemets autour d'un mot sans virgule.
+- **Symptôme** : une grille claire sur un sol clair devient invisible (215 contre 214), et ses axes saturés sortent rose et
+  bleu pâle. **Cause** : le tonemapper AgX écrase les hautes lumières et désature ce qui les dépasse. **Parade** : un gris
+  moyen entre le sol clair et le sol sombre, à forte opacité, et des couleurs d'axes saturées à luminance moyenne, réglés en
+  regardant des captures (`captures/piece17c/*-4.png`), non en calculant.
+
 ## Le plan proche n'écrête pas pareil sous Vulkan et Direct3D 12 : écrêter soi-même les lignes (2026-10-13)
 
 M7.7, morceau 17c (la grille du sol, relecture).

@@ -57,6 +57,9 @@ bool drawShowMenu(ShowState& show, ImVec2 corner, const std::string& gameViewSho
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();
+    const ImVec2 barMin = ImGui::GetItemRectMin();
+    const ImVec2 barMax = ImGui::GetItemRectMax();
+    layout.bar = {barMin.x, barMin.y, barMax.x - barMin.x, barMax.y - barMin.y};
     // La souris sur le menu ouvert n'est pas sur la scène non plus (le menu déborde sur l'image).
     layout.hovered = ImGui::IsItemHovered() || popupHovered;
     return gameViewClicked;
