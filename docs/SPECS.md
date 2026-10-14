@@ -265,9 +265,10 @@ La machine de référence est sous Linux. Le code Windows est vérifié à trois
    ([ADR-0035](adr/0035-windows-compile-depuis-linux.md)).
 2. **Le PC Windows de Donnovan, à chaque milestone de rendu** (depuis le 10/10/2026) : le sandbox, en Debug, lancé
    nativement sur sa RTX 4070 (point 3), en Vulkan puis en Direct3D 12, fenêtré, sans un message des couches de
-   validation ni de la couche de debug D3D12. En Direct3D 12, de la distro, depuis la racine du dépôt,
-   `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20` le
-   redimensionne, le réduit et le restaure (`tools/wsl/README.md`). Les tests Direct3D 12 sous WARP tournent en CI
+   validation ni de la couche de debug D3D12. De la distro, depuis la racine du dépôt,
+   `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20`, puis le même
+   avec `--gpu vulkan`, et pour l'éditeur (`levain_sandbox_editor.exe`) dans les deux backends (la réduction
+   recréait la swapchain à 0 × 0 sous Vulkan, build/GOTCHA.md 2026-10-14), le redimensionne, le réduit et le restaure (`tools/wsl/README.md`). Les tests Direct3D 12 sous WARP tournent en CI
    (point 1), et dans la distro par
    `SDL_VIDEO_DRIVER=offscreen WSLENV=SDL_VIDEO_DRIVER ctest --test-dir build/windows-debug -R d3d12-warp`
    (build/SKILL.md, « Compiler et tester »). Ce point remplace le binaire de la CI lancé sous Proton sur la machine

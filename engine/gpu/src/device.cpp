@@ -98,12 +98,6 @@ namespace
 /// 15), le tonemapping y écrit des octets sRGB.
 constexpr nvrhi::Format OffscreenFormat = nvrhi::Format::RGBA8_UNORM;
 
-/// Minimisée sous X11, la fenêtre mesure 0 × 0 : aucune swapchain ne peut avoir cette taille.
-bool isEmpty(platform::PixelSize size)
-{
-    return size.width <= 0 || size.height <= 0;
-}
-
 /// Sans swapchain, une image hors écran à la taille de la fenêtre, recréée quand elle change.
 nvrhi::ITexture* offscreenFrame(GpuDevice& gpu, platform::PixelSize size)
 {
@@ -136,7 +130,7 @@ nvrhi::Format swapchainFormat(const GpuDevice& gpu)
 nvrhi::ITexture* beginFrame(GpuDevice& gpu, const platform::Window& window)
 {
     const platform::PixelSize size = platform::windowPixelSize(window);
-    if (isEmpty(size))
+    if (!extentUsable(size))
     {
         return nullptr;
     }

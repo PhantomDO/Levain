@@ -1,5 +1,5 @@
 # Le pilote de resize-sandbox.sh, à côté, qui le passe à powershell.exe par -EncodedCommand : redimensionne,
-# réduit et restaure la fenêtre de levain_sandbox par user32.dll, comme le ferait un utilisateur. C'est Windows
+# réduit et restaure la fenêtre de l'exe lancé par le .sh par user32.dll, comme le ferait un utilisateur. C'est Windows
 # qui agit, pas le programme : le moteur reçoit les mêmes événements que d'une souris.
 #
 # Pas « -Command - < resize-sandbox.ps1 » : lu sur l'entrée standard, un script qui contient un Add-Type @" … "@
@@ -22,16 +22,30 @@ public static class LevainWindow {
 "@
 
 # La fenêtre n'a de poignée qu'une fois le device créé et les assets parcourus : jusqu'à 60 s en Debug.
-$process = $null
-for ($i = 0; $i -lt 120 -and -not $process; $i++) {
-    Start-Sleep -Milliseconds 500
-    $process = Get-Process levain_sandbox -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-}
-if (-not $process) {
-    "pilote : aucune fenêtre levain_sandbox en 60 s"
+# Le processus que le .sh vient de lancer, et lui seul (règle du portable : jamais un autre). Le .sh donne le nom
+# de l'exe (LEVAIN_RESIZE_EXE, sans « .exe »), son chemin Windows (LEVAIN_RESIZE_PATH) et les PID de ce nom déjà en
+# cours avant le lancement (LEVAIN_RESIZE_BEFORE, séparés par des virgules), que l'on écarte. Il faut un candidat,
+# un seul : zéro ou plusieurs, on échoue sans toucher à rien.
+$exeName = $env:LEVAIN_RESIZE_EXE
+$exePath = $env:LEVAIN_RESIZE_PATH
+if (-not $exeName -or -not $exePath) {
+    "pilote : LEVAIN_RESIZE_EXE et LEVAIN_RESIZE_PATH manquent (lancer par resize-sandbox.sh)"
     exit 1
 }
+$before = @()
+if ($env:LEVAIN_RESIZE_BEFORE) { $before = $env:LEVAIN_RESIZE_BEFORE -split "," | ForEach-Object { [int]$_ } }
+$candidates = @()
+for ($i = 0; $i -lt 120 -and $candidates.Count -eq 0; $i++) {
+    Start-Sleep -Milliseconds 500
+    # -ieq : Windows ne distingue pas la casse des chemins. Path peut manquer à un processus protégé : $null.
+    $candidates = @(Get-Process $exeName -ErrorAction SilentlyContinue | Where-Object {
+        $_.MainWindowHandle -ne 0 -and $before -notcontains $_.Id -and $_.Path -ieq $exePath })
+}
+if ($candidates.Count -ne 1) {
+    "pilote : $($candidates.Count) fenêtres $exeName candidates en 60 s (une seule attendue), rien n'est touché"
+    exit 1
+}
+$process = $candidates[0]
 $window = $process.MainWindowHandle
 
 # SWP_NOZORDER | SWP_NOACTIVATE : la place et la taille seulement, sans changer l'ordre des fenêtres ni prendre

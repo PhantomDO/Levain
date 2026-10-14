@@ -3,6 +3,24 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Vulkan, Windows : la fenêtre réduite recrée la swapchain à 0 × 0 (2026-10-14)
+
+M7.7, `tools/wsl/resize-sandbox.sh … --gpu vulkan` : après « pilote : réduite », `vkCreateSwapchainKHR(): pCreateInfo->imageExtent
+(width = 0, height = 0) is invalid` (VUID-…-imageExtent-01689), puis l'assertion de Debug (code 3). Même chose sur un build de M1.4 :
+le bug n'est pas de M7.7. `--gpu d3d12` passe.
+
+- **Cause** : `beginFrame` ne refusait que la taille de la *fenêtre* nulle (X11). Windows minimise sans que SDL change la taille en pixels
+  (elle reste 1582 × 853), mais la surface Vulkan annonce `currentExtent` 0 × 0 ; `acquireNextImageKHR` rend OUT_OF_DATE, la frame
+  suivante reconstruit, et vk-bootstrap reprend `currentExtent`. Direct3D 12 compare à la taille de la fenêtre pour
+  `ResizeBuffers`, qui ne change pas : rien n'est reconstruit.
+- **Parade** : dans la branche de reconstruction d'`acquireImage` (swapchain_vk.cpp), juste avant `rebuildSwapchain`,
+  `vkGetPhysicalDeviceSurfaceCapabilitiesKHR` est interrogée ; tant que `surfaceExtentUsable(currentExtent)` est faux
+  la frame est sautée (`nullptr`) et la swapchain reste périmée, reconstruite à la restauration. Acquisition et
+  présentation ne sont pas toujours sautées : réduite, Windows répond OUT_OF_DATE à l'acquisition, ce qui rend
+  `nullptr` aussi. `0xFFFFFFFF` (Wayland) n'est pas refusé. Cas doctest
+  « une swapchain n'existe pas à une taille nulle » et son contre-test (`||` au lieu de `&&`, rouge). Le script vérifie
+  désormais aussi les messages de validation Vulkan, et SPECS §10 le lance dans les deux backends.
+
 ## Sous un script, le vrai curseur revenait après le déplacement scripté (2026-10-14)
 
 M7.7, `gpu.editor-gestures.vulkan`, rouge sur le runner Windows en Debug seulement (vraie fenêtre, lavapipe de
