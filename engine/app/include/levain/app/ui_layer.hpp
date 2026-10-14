@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <vector>
@@ -71,6 +72,11 @@ struct EngineWindows
     bool scene = true;
 };
 
+/// Règle un `ImGuiStyle` pour une échelle d'écran : `ui::applyEditorStyle` en est une. Elle part du
+/// style donné (ses polices), ne dépend que de lui et de l'échelle, et peut être rappelée à chaque
+/// changement d'échelle (`ui::applyEditorStyle` est idempotente).
+using UiStyleFunction = std::function<void(ImGuiStyle&, float displayScale)>;
+
 /// L'UI d'un programme. Elle tient des ressources du GPU : `App` la déclare avant ses points
 /// d'accroche, et la détruit avant le device (ADR-0029).
 struct UiLayer
@@ -85,6 +91,11 @@ struct UiLayer
     /// pose ceci pour que F1 ne ferme pas les panneaux : F1 y est une touche qu'on refuse, et les
     /// fermer ferait disparaître la fenêtre qui la lit. Remis à chaque image par le client.
     bool panelsKeyBlocked = false;
+    /// **Le propriétaire du style** quand un programme en règle un autre que celui de
+    /// `createUiContext` (l'éditeur pose `ui::applyEditorStyle`, par `setUiStyle`) : la boucle la
+    /// rappelle à chaque changement d'échelle de l'écran (`WindowEventType::ScaleChanged`). Vide
+    /// (le sandbox, *Rando*) : le style d'ImGui reste à l'échelle de l'ouverture.
+    UiStyleFunction style{};
     DockNodes dock{};
     EngineWindows windows{};
     /// **Un éditeur enveloppe ce programme** (`withEditor`) : la disposition à colonnes

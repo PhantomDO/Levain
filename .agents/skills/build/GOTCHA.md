@@ -62,6 +62,18 @@ M7.7, morceau 17b (revue : `tests/ui_style_test.cpp`).
   sombre) ; un test de contraste qui compose en gamma est le pire des deux cas (le linéaire n'éclaircit que plus un
   avant-plan plus clair que son fond), donc sûr pour les deux.
 
+## Un style d'ImGui mis à l'échelle deux fois (2026-10-13)
+
+M7.7, morceau 17b (le style de l'éditeur).
+
+- **Symptôme** : `applyEditorStyle` qui part du style de `createUiContext` (déjà passé par `ScaleAllSizes`) ne rate rien dans un
+  test qui compare les champs qu'elle règle : la faute « partir du style donné au lieu d'un style neuf » passait verte
+  (contre-test C2). Les tailles qu'elle ne pose pas (`ScrollbarPadding`, `DockingSeparatorSize`, `WindowBorderHoverPadding`) sont
+  pourtant multipliées deux fois, et tronquées deux fois. **Cause** : `ScaleAllSizes` tronque à l'entier à chaque appel
+  (`ImTrunc`, imgui.cpp, « This operation is lossy » : à 0,75 un bord d'un pixel tombe à 0) ; une taille posée en dur est
+  juste quoi qu'il arrive, une taille d'ImGui laissée telle quelle ne l'est pas. **Parade** : le test contrôle un style déjà à l'échelle, sur des champs que la fonction ne règle pas elle-même
+  (`tests/ui_style_test.cpp`).
+
 ## Deux fenêtres dans un nœud d'ancrage : l'ordre des `Begin` choisit l'onglet visible (2026-10-11)
 
 M7.7, morceau 14 (la console, `gpu.editor-console.*`).

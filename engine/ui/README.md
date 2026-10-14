@@ -48,7 +48,7 @@ La boucle (`app`, ADR-0029) décide de l'ordre d'une image et de ce que l'UI gar
 | [`include/levain/ui/tr.hpp`](include/levain/ui/tr.hpp) | `tr`, `trf`, `textf`, `labelOf` : le catalogue des textes vu de l'interface, la table est dans `core` (ADR-0036) |
 
 Les tests : `tests/ui_test.cpp` (le contexte, les touches, l'input, la découpe, le choix sRGB, les textures refusées),
-`tests/ui_style_test.cpp` (le style de l'éditeur : fonds opaques, un seul accent), et
+`tests/ui_style_test.cpp` (le style de l'éditeur : fonds opaques, un seul accent, tailles à deux échelles), et
 `levain_ui_gpu [vulkan|d3d12|d3d12-warp|webgpu]` (`gpu.ui.*` dans ctest, WARP compris), qui relit la couleur d'un rectangle
 dessiné dans une cible sRGB puis UNORM, puis un gris moyen montré par `ImGui::Image` dans chaque combinaison de formats,
 plusieurs textures dans la même image, une image libérée en vol, et la table des identifiants. `gpu.ui-released-id.*`
@@ -109,13 +109,22 @@ journal en Release.
 - **Le style de l'éditeur est ici, appelé par l'éditeur, pas par `createUiContext`** (M7.7 morceau 17b, ADR-0036 décision 15). Le
   sandbox et *Rando* gardent le style par défaut d'ImGui : un HUD de jeu ne doit pas avoir l'air d'un outil, et les panneaux
   de debug du moteur, que le sandbox dessine aussi, restent ce qu'ils étaient. `applyEditorStyle(style, displayScale)` vit
-  dans `ui` (pas dans `editor/`) parce que ses tests sont ceux d'un `ImGuiStyle` seul, sans fenêtre ni contexte.
-  **L'accent est un bleu**, `EditorAccent` (0, 112, 224) : celui de
+  dans `ui` (pas dans `editor/`) parce que ses tests sont ceux d'un `ImGuiStyle` seul, sans fenêtre ni contexte ;
+  `withEditor` l'appelle une fois, après les polices. **L'accent est un bleu**, `EditorAccent` (0, 112, 224) : celui de
   l'éditeur d'Unreal 5, et un bleu aussi chez Unity et chez Godot (**supposé** pour les trois : leurs valeurs ne sont pas
   lues dans leurs sources) ; un orange aurait fait un deuxième rouge à côté du X des vecteurs. Il ne désigne que le
   **actif ou choisi** : l'onglet choisi (filet de 2 px), la case cochée, la poignée d'un curseur **tenue** (grise au repos,
   comme un histogramme), la pression d'un bouton. Tout le reste est un gris neutre, et
   `tests/ui_style_test.cpp` le tient : une couleur qui prendrait une teinte hors de sa liste est un deuxième accent.
+- **Repartir d'un `ImGuiStyle` neuf, toujours** : `ScaleAllSizes` **tronque** chaque taille à l'entier (`ImTrunc` : à 0,75 un
+  bord d'un pixel tombe à 0), et sur un style déjà mis à l'échelle (celui de `createUiContext`) il tronque deux fois ; les
+  tailles qu'`applyEditorStyle` ne règle pas (le rembourrage des barres de défilement, `DockingSeparatorSize`) seraient
+  multipliées par 1,5 × 2. `ui_style_test.cpp` le contrôle sur un style déjà à l'échelle, par des champs que la fonction ne
+  pose pas. Les polices (`FontSizeBase`, `FontScaleMain`) passent telles quelles, `FontScaleDpi` prend l'échelle.
+  **Idempotente, donc rappelable** : à chaque changement de zoom du système, `App` la rappelle (`app::setUiStyle`,
+  `WindowEventType::ScaleChanged`, engine/app/README) ; le style rendu ne dépend que de l'échelle et des polices du style
+  donné. **Pas encore** : le style par défaut du sandbox et de *Rando*, que `createUiContext` met à l'échelle une fois, ne suit
+  pas ce changement.
 - **L'échelle des gris** : 15 (champs, fonds de courbes), 21 (barres de menus, de titres et d'onglets), 36 (le fond des
   fenêtres), 46 (menus, en-têtes de composant), 68 (bordures) ; la barre de titre d'une fenêtre flottante passe de 21 à 44
   quand elle a le focus. Proche de celle de l'éditeur d'Unreal 5 (**supposé** : #151515, #242424, #2F2F2F, #383838, non lus

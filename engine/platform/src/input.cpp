@@ -212,11 +212,16 @@ void setClipboardText(const std::string& text)
     }
 }
 
-float displayScale(const Window& window)
+float displayScaleOf(SDL_Window* window)
 {
     // 0 : SDL n'a pas su la lire. On garde l'échelle 1 plutôt qu'une interface invisible.
-    const float scale = SDL_GetWindowDisplayScale(window.handle.get());
+    const float scale = SDL_GetWindowDisplayScale(window);
     return scale > 0.0f ? scale : 1.0f;
+}
+
+float displayScale(const Window& window)
+{
+    return displayScaleOf(window.handle.get());
 }
 
 void appendUiEvent(Events& events, const SDL_Event& event, std::uint32_t windowId)

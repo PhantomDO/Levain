@@ -55,6 +55,7 @@ struct InputScript
 ///     <image> wheel <crans>                        la molette, positive vers l'avant (SDL)
 ///     <image> keymap changed                       la disposition du clavier a changé
 ///     <image> window close                         la croix de la fenêtre
+///     <image> window scale <échelle>               le zoom du système change (> 0)
 // clang-format on
 ///
 /// **Une touche a deux identités** : sa position (`W`, le scancode, que lit le jeu) et la lettre

@@ -30,6 +30,7 @@
 #include "levain/editor/editor.hpp"
 #include "levain/platform/input_script.hpp"
 #include "levain/scene/components.hpp"
+#include "levain/ui/style.hpp"
 
 namespace
 {
@@ -121,7 +122,28 @@ struct Run
     int exitCode = 0;
     std::vector<Seen> seen;
     int programFrames = 0;
+    bool editorStyled = false; ///< Le style d'ImGui, à la dernière image, est celui de l'éditeur.
+    /// L'échelle (`FontScaleDpi`) et le rembourrage des champs du style d'ImGui, à chaque image,
+    /// après les événements de l'image : ce que le zoom du système (`window scale`) a refait.
+    std::vector<float> dpi;
+    std::vector<float> framePadding;
 };
+
+/// `withEditor` règle le style d'ImGui à l'échelle de l'écran (`applyEditorStyle`) : sans cette
+/// ligne, l'éditeur resterait au style par défaut, et aucun autre test ne le verrait. Le style
+/// attendu est refait à l'échelle de celui d'ImGui, sans valeur en dur ; quelques champs qui
+/// diffèrent du défaut.
+bool hasEditorStyle(const ImGuiStyle& live)
+{
+    ImGuiStyle expected;
+    levain::ui::applyEditorStyle(expected, live.FontScaleDpi);
+    const ImVec4& liveOverline = live.Colors[ImGuiCol_TabSelectedOverline];
+    const ImVec4& wanted = expected.Colors[ImGuiCol_TabSelectedOverline];
+    return live.FramePadding.x == expected.FramePadding.x &&
+           live.FrameRounding == expected.FrameRounding &&
+           live.ColorMarkerSize == expected.ColorMarkerSize && liveOverline.z == wanted.z &&
+           live.Colors[ImGuiCol_WindowBg].x == expected.Colors[ImGuiCol_WindowBg].x;
+}
 
 /// Le programme sous `withEditor`, dans la vraie boucle, hors écran, une image par pas de temps
 /// (`--steps` : ce que fait la simulation ne dépend pas de la machine).
@@ -153,6 +175,9 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
     options.fontRoots = {{LEVAIN_TEST_ASSETS_DIR}};
     options.afterUi = [&run](const levain::editor::Editor& editor)
     {
+        run.editorStyled = hasEditorStyle(ImGui::GetStyle());
+        run.dpi.push_back(ImGui::GetStyle().FontScaleDpi);
+        run.framePadding.push_back(ImGui::GetStyle().FramePadding.x);
         if (editor.view.shown && !run.seen.empty())
         {
             Seen& seen = run.seen.back();
@@ -219,8 +244,10 @@ constexpr std::string_view Script =
 int playModes(const levain::tests::TestBackend& backend)
 {
     const Run run = play(backend, Script, ScriptFrames, false, true);
-    int failures = expect(run.exitCode == 0, "le script mène l'éditeur jusqu'à sa fin, code 0") +
-                   expect(run.seen.size() == ScriptFrames, "une image relevée par image du script");
+    int failures =
+        expect(run.exitCode == 0, "le script mène l'éditeur jusqu'à sa fin, code 0") +
+        expect(run.seen.size() == ScriptFrames, "une image relevée par image du script") +
+        expect(run.editorStyled, "l'éditeur a réglé le style d'ImGui (applyEditorStyle)");
     int played = 0;
     for (std::size_t i = 0; i < run.seen.size(); ++i)
     {
@@ -461,6 +488,38 @@ int playBar(const levain::tests::TestBackend& backend)
     return failures;
 }
 
+/// Le zoom du système change en route (`window scale 2`, image 3) : `App` refait le style de
+/// l'éditeur à la nouvelle échelle, avant l'image où il l'a reçu. Sans la fonction de style de
+/// `setUiStyle` (ou sans son rappel par la boucle), l'éditeur resterait à l'échelle de l'ouverture
+/// : ses panneaux trop petits sur l'écran qu'on vient de changer, et rien ne le dirait.
+int playRescale(const levain::tests::TestBackend& backend)
+{
+    constexpr int Frames = 8;
+    constexpr int ChangeAt = 3;
+    const Run run = play(backend, "3 window scale 2\n", Frames, false, true);
+    if (run.exitCode != 0 || run.dpi.size() != Frames)
+    {
+        return expect(false, "le zoom : code 0 et une échelle relevée par image");
+    }
+    // Ce que l'éditeur donne à 2 : le style refait à neuf, sans valeur écrite en dur.
+    ImGuiStyle doubled;
+    levain::ui::applyEditorStyle(doubled, 2.0f);
+    const float opening = run.dpi.front();
+    int failures = expect(opening > 0.0f && opening != 2.0f,
+                          "le zoom : l'ouverture n'est pas déjà à l'échelle 2");
+    for (int frame = 0; frame < Frames; ++frame)
+    {
+        const std::size_t at = static_cast<std::size_t>(frame);
+        const std::string where = std::format("le zoom, image {} : ", frame);
+        const bool rescaled = frame >= ChangeAt;
+        failures += expect(run.dpi.at(at) == (rescaled ? 2.0f : opening),
+                           where + "l'échelle est celle de l'ouverture, puis celle du zoom");
+        failures += expect((run.framePadding.at(at) == doubled.FramePadding.x) == rescaled,
+                           where + "les tailles suivent l'échelle");
+    }
+    return failures + expect(run.editorStyled, "le zoom : le style refait est celui de l'éditeur");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -476,7 +535,8 @@ int main(int argc, char** argv)
             return 2;
         }
         const int failures = playModes(*backend) + playPanels(*backend) +
-                             playWholeWindow(*backend) + playButton(*backend) + playBar(*backend);
+                             playWholeWindow(*backend) + playButton(*backend) + playBar(*backend) +
+                             playRescale(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

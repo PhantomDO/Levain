@@ -9,6 +9,7 @@
 // En-tête privé du module : il passe des types SDL entre `window.cpp`, qui pompe les événements,
 // et `input.cpp`, qui les traduit. Aucun en-tête SDL ne sort de `platform/` (ADR-0003).
 union SDL_Event;
+struct SDL_Window;
 
 namespace levain::platform
 {
@@ -22,6 +23,10 @@ void appendInputEvent(std::vector<InputEvent>& events, const SDL_Event& event);
 /// sortie de la fenêtre et le focus. Ignore tout le reste. Seuls la sortie et le focus sont filtrés
 /// sur `windowId` : la souris et le clavier n'ont qu'une fenêtre, celle de `platform`.
 void appendUiEvent(Events& events, const SDL_Event& event, std::uint32_t windowId);
+
+/// L'échelle d'affichage de cette fenêtre SDL (`displayScale`, input.hpp, pour une `Window`) : 1 si
+/// SDL ne sait pas la lire.
+[[nodiscard]] float displayScaleOf(SDL_Window* window);
 
 /// Referme la manette d'identifiant `instanceId`, si elle était ouverte.
 void closeGamepad(std::uint32_t instanceId);

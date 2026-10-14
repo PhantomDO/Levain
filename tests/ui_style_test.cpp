@@ -126,6 +126,45 @@ TEST_CASE(
     }
 }
 
+TEST_CASE(
+    "le style de l'éditeur : les tailles suivent l'échelle de l'écran, sans les tronquer deux fois")
+{
+    const ImGuiStyle one = editorStyleAt(1.0f);
+    const ImGuiStyle two = editorStyleAt(2.0f);
+    CHECK(one.FontScaleDpi == 1.0f);
+    CHECK(two.FontScaleDpi == 2.0f);
+    CHECK(two.FramePadding.x == 2.0f * one.FramePadding.x);
+    CHECK(two.FramePadding.y == 2.0f * one.FramePadding.y);
+    CHECK(two.ItemSpacing.y == 2.0f * one.ItemSpacing.y);
+    CHECK(two.ScrollbarSize == 2.0f * one.ScrollbarSize);
+    CHECK(two.FrameRounding == 2.0f * one.FrameRounding);
+    CHECK(two.ColorMarkerSize == 2.0f * one.ColorMarkerSize);
+    // Des rondeurs de 2 à 4 px, et des repères X, Y, Z assez larges pour se voir (à 0, ImGui n'en
+    // dessine aucun, sans rien dire).
+    CHECK(one.FrameRounding >= 2.0f);
+    CHECK(one.FrameRounding <= 4.0f);
+    CHECK(one.ColorMarkerSize >= 2.0f);
+
+    // Le style de `createUiContext` est déjà à l'échelle : repartir de lui, c'est le seul chemin du
+    // contexte, et `ScaleAllSizes` tronque à chaque appel. Les polices passent telles quelles.
+    ImGuiStyle already;
+    already.ScaleAllSizes(1.5f);
+    already.FontSizeBase = 15.0f;
+    already.FontScaleMain = 1.25f;
+    applyEditorStyle(already, 2.0f);
+    CHECK(already.FramePadding.x == two.FramePadding.x);
+    CHECK(already.ScrollbarSize == two.ScrollbarSize);
+    // Des tailles que `applyEditorStyle` ne règle pas elle-même : celles d'ImGui, mises à l'échelle
+    // une fois et pas deux (un style qui ne repartirait pas d'un style neuf les multiplierait par
+    // 3).
+    CHECK(already.ScrollbarPadding == two.ScrollbarPadding);
+    CHECK(already.DockingSeparatorSize == two.DockingSeparatorSize);
+    CHECK(already.WindowBorderHoverPadding == two.WindowBorderHoverPadding);
+    CHECK(already.FontSizeBase == 15.0f);
+    CHECK(already.FontScaleMain == 1.25f);
+    CHECK(already.FontScaleDpi == 2.0f);
+}
+
 namespace
 {
 

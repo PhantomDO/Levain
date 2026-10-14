@@ -65,6 +65,12 @@ std::optional<WindowEvent> translateEvent(const SDL_Event& event, SDL_WindowID w
             .type = WindowEventType::Resized,
             .pixelSize = {.width = event.window.data1, .height = event.window.data2}};
 
+    // Le zoom du système, ou un autre écran : la valeur n'est pas dans l'événement SDL, elle se lit
+    // sur la fenêtre à cet instant.
+    case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+        return WindowEvent{.type = WindowEventType::ScaleChanged,
+                           .displayScale = displayScaleOf(SDL_GetWindowFromID(windowId))};
+
     // Wayland ne dit jamais à une application qu'elle a été minimisée : le compositeur la
     // « suspend », ce que SDL traduit en OCCLUDED, puis la réveille avec EXPOSED. X11 envoie
     // MINIMIZED et RESTORED. On accepte les deux paires : le moteur n'a besoin que de savoir

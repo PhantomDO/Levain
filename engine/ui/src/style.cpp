@@ -30,6 +30,40 @@ constexpr ImVec4 SoftLine = grey(54); // filets entre les cellules d'un tableau
 constexpr ImVec4 Text = grey(215);    // le texte
 constexpr ImVec4 Clear{0.0f, 0.0f, 0.0f, 0.0f};
 
+/// Les tailles, **à l'échelle 1** : `ScaleAllSizes` les multiplie ensuite. Réglées pour Inter à
+/// 15 px : une ligne de champ de 23 px, des rondeurs de 2 à 4 px, des fenêtres carrées (celles d'un
+/// éditeur à panneaux se touchent).
+void setMetrics(ImGuiStyle& style)
+{
+    style.WindowPadding = {8.0f, 8.0f};
+    style.FramePadding = {6.0f, 4.0f};
+    style.ItemSpacing = {8.0f, 4.0f};
+    style.ItemInnerSpacing = {6.0f, 4.0f};
+    style.CellPadding = {6.0f, 3.0f};
+    style.IndentSpacing = 18.0f;
+    style.ScrollbarSize = 12.0f;
+    style.GrabMinSize = 10.0f;
+
+    style.WindowRounding = 0.0f;
+    style.ChildRounding = 2.0f;
+    style.PopupRounding = 3.0f;
+    style.FrameRounding = 3.0f;
+    style.GrabRounding = 2.0f;
+    style.ScrollbarRounding = 3.0f;
+    style.TabRounding = 3.0f;
+
+    style.WindowBorderSize = 1.0f;
+    style.ChildBorderSize = 1.0f;
+    style.PopupBorderSize = 1.0f;
+    style.FrameBorderSize = 1.0f;
+    style.TabBorderSize = 0.0f;
+    style.TabBarOverlineSize = 2.0f;
+    style.SeparatorTextBorderSize = 1.0f;
+    // Les repères X, Y, Z des champs de vecteur (`ImGuiSliderFlags_ColorMarkers`) : à 0, ImGui n'en
+    // dessine aucun, en silence.
+    style.ColorMarkerSize = 3.0f;
+}
+
 /// Les couleurs, en gris neutres et un accent. Aucun alpha (`applyEditorStyle`), sauf `Clear` là où
 /// rien ne doit se voir, et le voile de la modale.
 void setColors(ImVec4* colors)
@@ -132,6 +166,7 @@ void applyEditorStyle(ImGuiStyle& style, float displayScale)
     LEVAIN_ASSERT(displayScale > 0.0f,
                   "applyEditorStyle : une échelle d'écran strictement positive");
     ImGuiStyle fresh;
+    setMetrics(fresh);
     setColors(fresh.Colors);
     fresh.ScaleAllSizes(displayScale);
     fresh.FontSizeBase = style.FontSizeBase;

@@ -30,12 +30,12 @@ inline constexpr ImVec4 EditorAccentLight = srgb8(88, 166, 255);
 /// Le même, foncé : le fond d'une ligne choisie, sous un texte clair.
 inline constexpr ImVec4 EditorAccentDark = srgb8(24, 80, 148);
 
-/// Règle le style de l'éditeur : ses couleurs, des gris neutres et un accent, à l'échelle
+/// Règle le style de l'éditeur : couleurs, rondeurs, espacements, pour Inter à 15 px, à l'échelle
 /// de l'écran. **Repart d'un style neuf** : `ScaleAllSizes` tronque chaque taille à l'entier
 /// (`ImTrunc` : à 0,75 un bord d'un pixel tombe à 0), et appelé sur un style déjà mis à l'échelle
 /// (celui de `createUiContext`) il tronquerait deux fois. **Idempotente** : le style rendu ne
 /// dépend que de `displayScale` et des polices du style donné, de sorte qu'on peut la rappeler à
-/// chaque changement d'échelle de l'écran.
+/// chaque changement d'échelle de l'écran (`app::setUiStyle`).
 /// Les polices (`FontSizeBase`, `FontScaleMain`) ne bougent pas, `FontScaleDpi` prend
 /// `displayScale`.
 ///

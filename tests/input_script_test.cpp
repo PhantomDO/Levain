@@ -232,6 +232,28 @@ TEST_CASE("window close : la croix de la fenêtre, un événement de fenêtre et
     refused("0 window close now\n", "ligne 1", "champs");
 }
 
+TEST_CASE("window scale : le zoom du système change, avec la nouvelle échelle, et rien d'autre")
+{
+    const Events events = eventsAt(parsed("6 window scale 1.5\n"), 6);
+    CHECK(events.input.empty());
+    CHECK(events.ui.empty());
+    REQUIRE(events.window.size() == 1);
+    CHECK(events.window[0].type == levain::platform::WindowEventType::ScaleChanged);
+    CHECK(events.window[0].displayScale == 1.5f);
+    // Les autres événements de fenêtre n'ont pas d'échelle : zéro, comme `pixelSize` hors de
+    // `Resized`.
+    CHECK(eventsAt(parsed("4 window close\n"), 4).window.at(0).displayScale == 0.0f);
+    CHECK(eventsAt(parsed("6 window scale 1.5\n"), 5).window.empty());
+    refused("0 window scale\n", "ligne 1", "champs");
+    refused("0 window scale 1 2\n", "ligne 1", "champs");
+    // Une échelle nulle, négative ou qui n'en est pas une rendrait l'interface invisible, ou
+    // fausse : refusée en nommant le champ.
+    refused("0 window scale 0\n", "ligne 1", "échelle");
+    refused("0 window scale -1\n", "ligne 1", "échelle");
+    refused("0 window scale deux\n", "ligne 1", "échelle");
+    refused("0 window scale nan\n", "ligne 1", "échelle");
+}
+
 TEST_CASE(
     "la disposition du banc d'essai est un QWERTY, et keyAtPosition refuse une position inconnue")
 {

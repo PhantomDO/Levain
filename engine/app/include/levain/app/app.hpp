@@ -426,6 +426,12 @@ struct App
 /// l'ouverture suivante.
 [[nodiscard]] DockNodes resetEditorLayout(App& app);
 
+/// **Pose le style de l'UI** et le règle tout de suite à l'échelle de la fenêtre ; la boucle le
+/// refait à chaque changement d'échelle de l'écran (`UiLayer::style`). L'éditeur l'appelle une
+/// fois, dans son démarrage (`withEditor`), après les polices : un seul propriétaire du style,
+/// `App`, au lieu d'un réglage de l'éditeur que personne ne referait.
+void setUiStyle(App& app, UiStyleFunction style);
+
 /// Le monde d'une application, sans fenêtre ni GPU : la scène, les assets, les composants d'`app`
 /// décrits (ADR-0034), et `PlayerInput` enregistré (`createApp` le pose ensuite). Appelée par
 /// `createApp`, et par le test des composants décrits, qui voit ainsi le monde de l'application.
