@@ -25,17 +25,27 @@ int withFlags(int flags, int added)
     return static_cast<int>(static_cast<unsigned>(flags) | static_cast<unsigned>(added));
 }
 
-/// Un contrôle grisé jusqu'à son milestone : sans fond et en texte éteint, donc visiblement autre
-/// chose qu'un bouton qui répond (le fond atténué seul se lisait « cliquable »), et qui dit au
-/// survol quand il arrive.
+/// Un contrôle grisé jusqu'à son milestone : sans fond ni contour et en texte éteint, donc
+/// visiblement autre chose qu'un bouton qui répond (le fond atténué seul se lisait « cliquable »),
+/// et qui dit au survol quand il arrive.
+///
+/// **Dessiné tel que le test le mesure** : `BeginDisabled` multiplierait le texte, déjà éteint
+/// (`TextDisabled`), par `DisabledAlpha` : à 0,6, un contraste de 2,6 contre la barre. Le grisé est
+/// donc celui de la couleur, à un alpha de 1 (`ImGuiStyleVar_DisabledAlpha`, lu à l'appel de
+/// `BeginDisabled`), et le contraste de `TextDisabled` est celui que `tests/ui_style_test.cpp`
+/// tient. Le contour (`Border`, `FrameBorderSize`) redessinerait la forme qu'on a retirée : rien
+/// à encadrer, il resterait pour les champs de saisie.
 ImVec2 disabledButton(const char* french, const char* milestone)
 {
+    ImGui::PushStyleVar(ImGuiStyleVar_DisabledAlpha, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
     ImGui::BeginDisabled();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::Button(ui::labelOf(french).c_str());
     ImGui::PopStyleColor(2);
     ImGui::EndDisabled();
+    ImGui::PopStyleVar(2);
     saySoon(milestone, SoonSide::Below);
     return centerOfLastItem();
 }

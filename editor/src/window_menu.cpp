@@ -30,6 +30,15 @@ void saySoon(const char* milestone, SoonSide side)
     ImGui::SetTooltip("%s", ui::trf("Arrive en {}", milestone).c_str());
 }
 
+void greyedMenuItem(const char* label, const char* shortcut)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_DisabledAlpha, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::MenuItem(label, shortcut, false, false);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+}
+
 bool drawWindowMenuItems(std::span<const WindowEntry> entries, WindowMenuLayout& layout)
 {
     layout.itemsShown = false;

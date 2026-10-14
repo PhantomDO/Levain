@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -18,8 +19,11 @@
 #include "levain/editor/bars.hpp"
 #include "levain/editor/camera.hpp"
 #include "levain/editor/menus.hpp"
+#include "levain/editor/window_menu.hpp"
 #include "levain/platform/input_script.hpp"
 #include "levain/ui/context.hpp"
+#include "levain/ui/style.hpp"
+#include "levain/ui/tr.hpp"
 
 using namespace levain::editor;
 
@@ -148,7 +152,8 @@ struct BarBench
     bool realTime = true;
     std::function<std::uint32_t(std::uint16_t)> layout = levain::platform::qwertyKeyAtPosition;
 
-    void frame()
+    /// `render` : `ImGui::Render` au lieu de `EndFrame`, pour lire ce que l'image a dessiné.
+    void frame(bool render = false)
     {
         levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 960, .height = 540}, 1.0 / 60.0);
         ImGui::NewFrame();
@@ -169,7 +174,14 @@ struct BarBench
         }
         drawStatusBar(statusOf(ring));
         drawHelp(help, inputs);
-        ImGui::EndFrame();
+        if (render)
+        {
+            ImGui::Render();
+        }
+        else
+        {
+            ImGui::EndFrame();
+        }
     }
 
     void settle(int frames = 4)
@@ -297,4 +309,158 @@ TEST_CASE("la barre d'outils : le mode, la vitesse bornée, Temps réel, et des 
     CHECK(bench.speeds.back() > DefaultFlySpeed);
     CHECK(bench.speeds.back() <= MaxFlySpeed);
     CHECK(bench.flySpeed == bench.speeds.back());
+}
+
+namespace
+{
+
+/// Les sommets de la dernière image rendue, tous.
+std::vector<ImDrawVert> drawnVertices()
+{
+    std::vector<ImDrawVert> all;
+    for (const ImDrawList* list : ImGui::GetDrawData()->CmdLists)
+    {
+        all.insert(all.end(), list->VtxBuffer.begin(), list->VtxBuffer.end());
+    }
+    return all;
+}
+
+ImU32 packed(const ImVec4& color)
+{
+    return ImGui::ColorConvertFloat4ToU32(color);
+}
+
+bool sameRgb(ImU32 a, ImU32 b)
+{
+    return (a & ~static_cast<ImU32>(IM_COL32_A_MASK)) == (b & ~static_cast<ImU32>(IM_COL32_A_MASK));
+}
+
+/// Un bouton de la barre d'outils vu dans ce qu'elle a dessiné : les sommets de sa couleur de
+/// contour (`Border`) et de son texte, dans sa largeur (le centre, de `ToolbarLayout`, et la place
+/// du libellé plus le rembourrage de chaque côté).
+struct ButtonDrawing
+{
+    int borderVertices = 0;
+    int textVertices = 0;
+    int translucentTextVertices = 0; ///< du texte grisé dessiné à moins de 100 %
+};
+
+ButtonDrawing drawingOf(const std::vector<ImDrawVert>& vertices, const ImVec2& center,
+                        const std::string& label, ImU32 textColor)
+{
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float half = (ImGui::CalcTextSize(label.c_str()).x / 2.0f) + style.FramePadding.x + 1.5f;
+    const ImU32 border = packed(style.Colors[ImGuiCol_Border]);
+    ButtonDrawing drawing;
+    for (const ImDrawVert& vertex : vertices)
+    {
+        if (std::abs(vertex.pos.x - center.x) > half)
+        {
+            continue;
+        }
+        drawing.borderVertices += sameRgb(vertex.col, border) ? 1 : 0;
+        if (sameRgb(vertex.col, textColor))
+        {
+            ++drawing.textVertices;
+            drawing.translucentTextVertices += (vertex.col >> IM_COL32_A_SHIFT) != 255U ? 1 : 0;
+        }
+    }
+    return drawing;
+}
+
+} // namespace
+
+TEST_CASE("un bouton grisé de la barre d'outils : texte éteint plein, ni contour ni alpha de plus")
+{
+    BarBench bench;
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    bench.settle();
+    bench.frame(true);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const std::vector<ImDrawVert> vertices = drawnVertices();
+    const ImU32 dim = packed(style.Colors[ImGuiCol_TextDisabled]);
+
+    // Le bouton « Simuler » : son texte est `TextDisabled` à 100 %, tel que le test des contrastes
+    // le mesure (`BeginDisabled` y ajouterait `DisabledAlpha`, soit 2,6 de contraste à 0,6), et il
+    // n'a pas de contour : il redessinerait la forme qu'on a retirée.
+    const ButtonDrawing simulate =
+        drawingOf(vertices, bench.toolbar.simulate, levain::ui::tr("Simuler"), dim);
+    REQUIRE(simulate.textVertices > 0);
+    CHECK(simulate.translucentTextVertices == 0);
+    CHECK(simulate.borderVertices == 0);
+
+    // Le contrôle du contrôle : le bouton qui répond, lui, a son contour, et le même relevé le
+    // voit.
+    const ButtonDrawing mode =
+        drawingOf(vertices, bench.toolbar.mode, modeButtonLabel(otherMode(bench.mode)),
+                  packed(style.Colors[ImGuiCol_Text]));
+    CHECK(mode.borderVertices > 0);
+}
+
+TEST_CASE("une entrée de menu grisée est dessinée comme un bouton grisé : TextDisabled plein, "
+          "libellé et raccourci, jamais le Text à DisabledAlpha")
+{
+    BarBench bench;
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    bench.settle();
+    bench.click(bench.bar.edit);
+    REQUIRE(bench.bar.editOpen);
+    bench.frame(true);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    // `MenuItem` grisé ouvre un `BeginDisabled` : le libellé (`Text`) sortait à `DisabledAlpha`,
+    // 196 contre 215 sur la 4070, et l'entrée ne semblait pas grisée. Maintenant libellé et
+    // raccourci sont du `TextDisabled` à 100 %.
+    REQUIRE(style.DisabledAlpha < 1.0f); // le style garde son grisé pour les widgets d'ImGui
+    int dimOpaque = 0;
+    // L'alpha 0 est la coche invisible d'une entrée, que `MenuItem` dessine toujours : ni compté
+    // ni fautif.
+    int dimFaded = 0;
+    int textFaded = 0;
+    for (const ImDrawVert& vertex : drawnVertices())
+    {
+        const ImU32 vertexAlpha = vertex.col >> IM_COL32_A_SHIFT;
+        dimOpaque += (sameRgb(vertex.col, packed(style.Colors[ImGuiCol_TextDisabled])) &&
+                      vertexAlpha == 255U)
+                         ? 1
+                         : 0;
+        dimFaded += (sameRgb(vertex.col, packed(style.Colors[ImGuiCol_TextDisabled])) &&
+                     vertexAlpha > 0U && vertexAlpha < 255U)
+                        ? 1
+                        : 0;
+        textFaded += (sameRgb(vertex.col, packed(style.Colors[ImGuiCol_Text])) &&
+                      vertexAlpha > 0U && vertexAlpha < 255U)
+                         ? 1
+                         : 0;
+    }
+    CHECK(dimOpaque > 0);
+    CHECK(textFaded == 0);
+    CHECK(dimFaded == 0); // ni le grisé du style par-dessus
+}
+
+TEST_CASE("greyedMenuItem : le libellé et le raccourci en TextDisabled plein, jamais en Text")
+{
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 640, .height = 480}, 1.0 / 60.0);
+        ImGui::NewFrame();
+        ImGui::SetNextWindowSize({300.0f, 100.0f});
+        ImGui::Begin("Menu", nullptr, ImGuiWindowFlags_NoTitleBar);
+        greyedMenuItem("Annuler", "Ctrl+Z");
+        ImGui::End();
+        ImGui::Render();
+    }
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImU32 dim = packed(style.Colors[ImGuiCol_TextDisabled]);
+    const ImU32 text = packed(style.Colors[ImGuiCol_Text]);
+    int dimOpaque = 0;
+    int anyText = 0;
+    for (const ImDrawVert& vertex : drawnVertices())
+    {
+        dimOpaque += (sameRgb(vertex.col, dim) && (vertex.col >> IM_COL32_A_SHIFT) == 255U) ? 1 : 0;
+        anyText += (sameRgb(vertex.col, text) && (vertex.col >> IM_COL32_A_SHIFT) != 0U) ? 1 : 0;
+    }
+    CHECK(dimOpaque > 0);
+    CHECK(anyText == 0); // le libellé n'est pas en Text, à aucun alpha
 }

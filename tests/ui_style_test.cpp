@@ -172,7 +172,7 @@ namespace
 /// espace gamma**, sur les valeurs sRGB. Le pire des deux mélanges **pour un avant-plan plus clair
 /// que son fond** : en linéaire il ressort toujours plus clair (la courbe d'encodage est concave),
 /// donc plus lisible. Pour un fond sombre translucide sur une scène claire, c'est l'inverse : le
-/// linéaire est le pire.
+/// linéaire est le pire (`blendInLinear`).
 ImVec4 blendInGamma(const ImVec4& foreground, const ImVec4& background, float alpha)
 {
     return {(alpha * foreground.x) + ((1.0f - alpha) * background.x),
@@ -191,7 +191,68 @@ float blendChannelInLinear(float foreground, float background, float alpha)
                                 : (1.055f * std::pow(linear, 1.0f / 2.4f)) - 0.055f;
 }
 
+ImVec4 blendInLinear(const ImVec4& foreground, const ImVec4& background, float alpha)
+{
+    return {blendChannelInLinear(foreground.x, background.x, alpha),
+            blendChannelInLinear(foreground.y, background.y, alpha),
+            blendChannelInLinear(foreground.z, background.z, alpha), 1.0f};
+}
+
+/// 4,5 : le seuil de lisibilité d'un texte courant (WCAG 2.x).
+constexpr float Readable = 4.5f;
+
+/// « Se voit grisé » : le texte plein et le texte grisé, l'un contre l'autre, au moins ce rapport
+/// (Text 215 contre TextDisabled 150 : 2,06 ; à 196 contre 215 on ne voyait pas la différence).
+constexpr float LooksDisabled = 1.8f;
+
 } // namespace
+
+TEST_CASE("le texte grisé de l'éditeur reste lisible et se voit grisé, dessiné plein")
+{
+    const ImGuiStyle style = editorStyleAt(1.0f);
+    const ImVec4& disabled = style.Colors[ImGuiCol_TextDisabled];
+    const ImVec4& text = style.Colors[ImGuiCol_Text];
+    for (const ImGuiCol background :
+         {ImGuiCol_WindowBg, ImGuiCol_PopupBg, ImGuiCol_MenuBarBg, ImGuiCol_FrameBg})
+    {
+        INFO("sur " << ImGui::GetStyleColorName(background));
+        const ImVec4& behind = style.Colors[background];
+        // `TextDisabled` **plein** : les entrées de menu (`greyedMenuItem`) et les boutons
+        // (`disabledButton`) l'ont à un alpha de 1. Un texte plein n'est mélangé avec rien : le
+        // mélange de la cible (gamma ou linéaire) n'y change rien.
+        CHECK(contrastRatio(disabled, behind) >= Readable);
+        CHECK(contrastRatio(text, behind) >= 7.0f);
+    }
+    // « Grisé » se voit : le libellé grisé contre le libellé, sur le gris le plus bas comme le plus
+    // haut des menus.
+    CHECK(contrastRatio(text, disabled) >= LooksDisabled);
+}
+
+TEST_CASE("les widgets d'ImGui grisés par DisabledAlpha restent lisibles et se voient grisés, "
+          "mélangés en gamma comme en linéaire")
+{
+    const ImGuiStyle style = editorStyleAt(1.0f);
+    const ImVec4& text = style.Colors[ImGuiCol_Text];
+    const float alpha = style.DisabledAlpha;
+    CHECK(alpha > 0.0f);
+    CHECK(alpha < 1.0f);
+    for (const ImGuiCol background :
+         {ImGuiCol_WindowBg, ImGuiCol_PopupBg, ImGuiCol_MenuBarBg, ImGuiCol_FrameBg})
+    {
+        INFO("sur " << ImGui::GetStyleColorName(background));
+        const ImVec4& behind = style.Colors[background];
+        const ImVec4 inGamma = blendInGamma(text, behind, alpha);
+        const ImVec4 inLinear = blendInLinear(text, behind, alpha);
+        // Lisible : le gamma est le pire (le plus sombre)...
+        CHECK(contrastRatio(inGamma, behind) >= Readable);
+        CHECK(contrastRatio(inLinear, behind) >= Readable);
+        // ... se voit grisé : le linéaire est le pire (le plus clair, donc le plus proche du
+        // texte). 1,56 à 0,6 : un rapport de 1,8 y est hors d'atteinte sans tomber sous 4,5 en
+        // gamma ; les entrées de menu, elles, ne passent pas par là.
+        CHECK(contrastRatio(text, inGamma) >= LooksDisabled);
+        CHECK(contrastRatio(text, inLinear) >= 1.5f);
+    }
+}
 
 TEST_CASE("blendInGamma, pour un avant-plan clair : jamais plus clair que le mélange en linéaire")
 {
