@@ -129,3 +129,27 @@ TEST_CASE("requestGpuDevice rend le refus par son callback, avant de revenir et 
         CHECK(answer->message == requireBackendBuilt(api).error().message);
     }
 }
+
+TEST_CASE("une swapchain n'existe pas à une taille nulle, côté fenêtre comme côté surface")
+{
+    using levain::gpu::extentUsable;
+    using levain::gpu::surfaceExtentUsable;
+
+    CHECK(extentUsable({.width = 1280, .height = 720}));
+    CHECK_FALSE(extentUsable({.width = 0, .height = 720}));
+    CHECK_FALSE(extentUsable({.width = 1280, .height = 0}));
+    CHECK_FALSE(extentUsable({.width = 0, .height = 0}));
+
+    CHECK(surfaceExtentUsable(1280, 720));
+    // Windows, fenêtre minimisée : la surface annonce 0 × 0 alors que SDL garde l'ancienne taille.
+    CHECK_FALSE(surfaceExtentUsable(0, 0));
+    CHECK_FALSE(surfaceExtentUsable(0, 720));
+    CHECK_FALSE(surfaceExtentUsable(1280, 0));
+}
+
+TEST_CASE("une surface qui suit la swapchain (Wayland) n'est pas refusée")
+{
+    // Contre-test : 0xFFFFFFFF n'est pas une taille, c'est « à toi de choisir » ; le lire comme
+    // nul bloquerait tout dessin sous Wayland.
+    CHECK(levain::gpu::surfaceExtentUsable(0xFFFFFFFFu, 0xFFFFFFFFu));
+}

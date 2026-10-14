@@ -51,6 +51,7 @@ struct VulkanSwapchain final : Swapchain
 
     vkb::Device device; ///< Copie sans propriété : de quoi reconstruire la swapchain.
     vkb::DispatchTable vk;
+    vkb::InstanceDispatchTable instanceVk; ///< Pour interroger la surface (`currentExtent`).
     VkQueue queue = VK_NULL_HANDLE;
     nvrhi::vulkan::DeviceHandle nvrhi;
 
@@ -127,6 +128,23 @@ bool growSemaphores(std::vector<VkSemaphore>& semaphores, std::size_t count,
         semaphores.push_back(semaphore);
     }
     return true;
+}
+
+/// La surface accepte-t-elle une swapchain maintenant ? Windows annonce une étendue de 0 × 0 à une
+/// fenêtre minimisée, tandis que SDL garde sa taille d'avant : comparer à la fenêtre ne voit rien
+/// (build/GOTCHA.md, 2026-10-14). Si l'interrogation échoue, on laisse faire : la création dira
+/// elle-même ce qui ne va pas.
+bool surfaceAllowsSwapchain(const VulkanSwapchain& swapchain)
+{
+    VkSurfaceCapabilitiesKHR capabilities; // rempli par l'appel, pas de `{}` : voir
+                                           // bugprone-invalid-enum-default-initialization
+    if (swapchain.instanceVk.getPhysicalDeviceSurfaceCapabilitiesKHR(
+            swapchain.device.physical_device.physical_device, swapchain.device.surface,
+            &capabilities) != VK_SUCCESS)
+    {
+        return true;
+    }
+    return surfaceExtentUsable(capabilities.currentExtent.width, capabilities.currentExtent.height);
 }
 
 core::Result<void> rebuildSwapchain(VulkanSwapchain& swapchain, platform::PixelSize size)
@@ -208,6 +226,12 @@ nvrhi::Format formatOf(const VulkanSwapchain& swapchain)
 
 nvrhi::ITexture* acquireImage(VulkanSwapchain& swapchain, platform::PixelSize size)
 {
+    // Minimisée : ni reconstruction (un `imageExtent` nul est une erreur de validation), ni
+    // acquisition, ni présentation. La swapchain périmée se reconstruit à la restauration.
+    if (!surfaceAllowsSwapchain(swapchain))
+    {
+        return nullptr;
+    }
     // Sous Wayland, la swapchain n'est jamais déclarée périmée au redimensionnement : c'est à nous
     // de comparer sa taille à celle de la fenêtre.
     if (swapchain.isOutOfDate || !matchesExtent(swapchain.swapchain.extent, size))
@@ -282,6 +306,7 @@ createSwapchain(const VulkanContext& vulkan, nvrhi::vulkan::IDevice& nvrhi,
     auto swapchain = std::make_unique<VulkanSwapchain>();
     swapchain->device = vulkan.device;
     swapchain->vk = vulkan.device.make_table();
+    swapchain->instanceVk = vulkan.instance.make_table();
     swapchain->queue = vulkan.graphicsQueue;
     swapchain->nvrhi = &nvrhi;
 

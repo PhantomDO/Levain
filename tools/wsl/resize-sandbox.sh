@@ -10,7 +10,7 @@
 # autre). Le pilote attend sa fenêtre, la passe en 1280 × 720 puis 1600 × 900, la réduit, la restaure, la passe en
 # 1920 × 1080. Le script échoue bruyamment (règle n°7) si le pilote échoue, si le sandbox sort en erreur (en Debug,
 # une erreur des couches de debug est une assertion : code 3), si le journal n'a pas vu les trois redimensionnements,
-# la fenêtre masquée puis visible, ou s'il porte un message de Direct3D 12, de DXGI ou de NVRHI.
+# la fenêtre masquée puis visible, ou s'il porte un message de Vulkan, de Direct3D 12, de DXGI ou de NVRHI.
 set -u
 
 if [ $# -lt 1 ]; then
@@ -46,8 +46,10 @@ resized=$(grep -c 'redimensionnée :' "$log")
 [ "$resized" -ge 3 ] || fail "$resized redimensionnements dans le journal, 3 au moins attendus"
 grep -q 'masquée :' "$log" || fail "la fenêtre n'a pas été vue masquée"
 grep -q 'visible :' "$log" || fail "la fenêtre n'a pas été vue de nouveau visible"
-layers=$(grep -cE '\] \[(d3d12|dxgi|nvrhi)\] ' "$log")
-[ "$layers" -eq 0 ] || fail "$layers messages de Direct3D 12, DXGI ou NVRHI dans $log"
+# Vulkan : seulement les messages de validation (« vkXxx(): … »), le chargeur se plaint aussi de couches tierces
+# d'autres éditeurs installées sur la machine (SocialClubVulkanLayer.json), sans rapport avec le moteur.
+layers=$(grep -cE '\] \[(d3d12|dxgi|nvrhi)\] |\] \[vulkan\] vk[A-Za-z]+\(\)' "$log")
+[ "$layers" -eq 0 ] || fail "$layers messages de Vulkan, Direct3D 12, DXGI ou NVRHI dans $log"
 if [ "$failed" -eq 0 ]; then
     echo "resize-sandbox : OK ($resized redimensionnements, masquée puis visible, sans message des couches ; $log)"
 fi

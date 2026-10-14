@@ -177,6 +177,28 @@ inline constexpr float PresentClearLevel = 0.02f;
 /// création.
 [[nodiscard]] nvrhi::Format swapchainFormat(const GpuDevice& gpu);
 
+/// Une taille de fenêtre, en pixels, où une swapchain peut exister ? Non dès qu'un côté est nul :
+/// minimisée, la fenêtre peut mesurer 0 × 0 (X11), et Vulkan refuse un `imageExtent` nul
+/// (VUID-VkSwapchainCreateInfoKHR-imageExtent-01689).
+[[nodiscard]] constexpr bool extentUsable(platform::PixelSize size)
+{
+    return size.width > 0 && size.height > 0;
+}
+
+/// Même question pour l'étendue que la surface Vulkan annonce (`currentExtent`). Windows y met 0 ×
+/// 0 pour une fenêtre minimisée alors que SDL, lui, garde la taille d'avant la réduction : la
+/// taille de la fenêtre ne suffit pas. `0xFFFFFFFF` dans les deux côtés veut dire « la surface suit
+/// la swapchain » (Wayland) : rien à refuser.
+[[nodiscard]] constexpr bool surfaceExtentUsable(std::uint32_t width, std::uint32_t height)
+{
+    constexpr std::uint32_t FollowsSwapchain = 0xFFFFFFFFu;
+    if (width == FollowsSwapchain && height == FollowsSwapchain)
+    {
+        return true;
+    }
+    return width > 0 && height > 0;
+}
+
 /// Commence une frame : l'image de la swapchain où dessiner, ou `nullptr` si cette frame est à
 /// sauter (fenêtre de taille nulle, swapchain en cours de reconstruction). La swapchain est
 /// reconstruite ici dès que la taille de la fenêtre change.
