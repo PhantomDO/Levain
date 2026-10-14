@@ -13,9 +13,11 @@ le bug n'est pas de M7.7. `--gpu d3d12` passe.
   (elle reste 1582 × 853), mais la surface Vulkan annonce `currentExtent` 0 × 0 ; `acquireNextImageKHR` rend OUT_OF_DATE, la frame
   suivante reconstruit, et vk-bootstrap reprend `currentExtent`. Direct3D 12 compare à la taille de la fenêtre pour
   `ResizeBuffers`, qui ne change pas : rien n'est reconstruit.
-- **Parade** : `acquireImage` (swapchain_vk.cpp) interroge `vkGetPhysicalDeviceSurfaceCapabilitiesKHR` et saute la frame
-  (`nullptr`, ni reconstruction, ni acquisition, ni présentation) tant que `surfaceExtentUsable(currentExtent)` est faux ; la
-  swapchain, restée périmée, se reconstruit à la restauration. `0xFFFFFFFF` (Wayland) n'est pas refusé. Cas doctest
+- **Parade** : dans la branche de reconstruction d'`acquireImage` (swapchain_vk.cpp), juste avant `rebuildSwapchain`,
+  `vkGetPhysicalDeviceSurfaceCapabilitiesKHR` est interrogée ; tant que `surfaceExtentUsable(currentExtent)` est faux
+  la frame est sautée (`nullptr`) et la swapchain reste périmée, reconstruite à la restauration. Acquisition et
+  présentation ne sont pas toujours sautées : réduite, Windows répond OUT_OF_DATE à l'acquisition, ce qui rend
+  `nullptr` aussi. `0xFFFFFFFF` (Wayland) n'est pas refusé. Cas doctest
   « une swapchain n'existe pas à une taille nulle » et son contre-test (`||` au lieu de `&&`, rouge). Le script vérifie
   désormais aussi les messages de validation Vulkan, et SPECS §10 le lance dans les deux backends.
 

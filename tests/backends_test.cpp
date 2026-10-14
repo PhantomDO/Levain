@@ -149,7 +149,7 @@ TEST_CASE("une swapchain n'existe pas à une taille nulle, côté fenêtre comme
 
 TEST_CASE("une surface qui suit la swapchain (Wayland) n'est pas refusée")
 {
-    // Contre-test : 0xFFFFFFFF n'est pas une taille, c'est « à toi de choisir » ; le lire comme
-    // nul bloquerait tout dessin sous Wayland.
+    // Garde contre un excès de zèle (pas une injection de faute) : 0xFFFFFFFF n'est pas une taille,
+    // c'est « à toi de choisir » ; le lire comme nul bloquerait tout dessin sous Wayland.
     CHECK(levain::gpu::surfaceExtentUsable(0xFFFFFFFFu, 0xFFFFFFFFu));
 }

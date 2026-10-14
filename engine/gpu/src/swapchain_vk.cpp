@@ -226,16 +226,19 @@ nvrhi::Format formatOf(const VulkanSwapchain& swapchain)
 
 nvrhi::ITexture* acquireImage(VulkanSwapchain& swapchain, platform::PixelSize size)
 {
-    // Minimisée : ni reconstruction (un `imageExtent` nul est une erreur de validation), ni
-    // acquisition, ni présentation. La swapchain périmée se reconstruit à la restauration.
-    if (!surfaceAllowsSwapchain(swapchain))
-    {
-        return nullptr;
-    }
     // Sous Wayland, la swapchain n'est jamais déclarée périmée au redimensionnement : c'est à nous
     // de comparer sa taille à celle de la fenêtre.
     if (swapchain.isOutOfDate || !matchesExtent(swapchain.swapchain.extent, size))
     {
+        // Minimisée sous Windows, la surface annonce 0 × 0 : pas de reconstruction (un
+        // `imageExtent` nul est une erreur de validation), la frame est sautée et la swapchain
+        // reste périmée jusqu'à la restauration. Interrogée ici seulement : c'est la reconstruction
+        // qu'elle protège, pas chaque frame. Pendant la minimisation, l'acquisition rend
+        // OUT_OF_DATE (plus bas), donc nullptr aussi.
+        if (!surfaceAllowsSwapchain(swapchain))
+        {
+            return nullptr;
+        }
         if (auto rebuilt = rebuildSwapchain(swapchain, size); !rebuilt)
         {
             core::log("gpu", core::LogLevel::Error, "{}", rebuilt.error().message);

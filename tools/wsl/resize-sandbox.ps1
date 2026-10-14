@@ -22,25 +22,30 @@ public static class LevainWindow {
 "@
 
 # La fenêtre n'a de poignée qu'une fois le device créé et les assets parcourus : jusqu'à 60 s en Debug.
-# Le processus que le .sh vient de lancer, et lui seul : le nom de l'exe qu'il a reçu (LEVAIN_RESIZE_EXE, sans
-# « .exe »), démarré après l'instant où il l'a lancé (LEVAIN_RESIZE_START, secondes Unix). Jamais un autre
-# processus du même nom, ni un nom fixe : la machine peut faire tourner d'autres programmes (règle du portable).
+# Le processus que le .sh vient de lancer, et lui seul (règle du portable : jamais un autre). Le .sh donne le nom
+# de l'exe (LEVAIN_RESIZE_EXE, sans « .exe »), son chemin Windows (LEVAIN_RESIZE_PATH) et les PID de ce nom déjà en
+# cours avant le lancement (LEVAIN_RESIZE_BEFORE, séparés par des virgules), que l'on écarte. Il faut un candidat,
+# un seul : zéro ou plusieurs, on échoue sans toucher à rien.
 $exeName = $env:LEVAIN_RESIZE_EXE
-$startedAfter = [DateTimeOffset]::FromUnixTimeSeconds([long]$env:LEVAIN_RESIZE_START).LocalDateTime.AddSeconds(-2)
-if (-not $exeName -or -not $env:LEVAIN_RESIZE_START) {
-    "pilote : LEVAIN_RESIZE_EXE et LEVAIN_RESIZE_START manquent (lancer par resize-sandbox.sh)"
+$exePath = $env:LEVAIN_RESIZE_PATH
+if (-not $exeName -or -not $exePath) {
+    "pilote : LEVAIN_RESIZE_EXE et LEVAIN_RESIZE_PATH manquent (lancer par resize-sandbox.sh)"
     exit 1
 }
-$process = $null
-for ($i = 0; $i -lt 120 -and -not $process; $i++) {
+$before = @()
+if ($env:LEVAIN_RESIZE_BEFORE) { $before = $env:LEVAIN_RESIZE_BEFORE -split "," | ForEach-Object { [int]$_ } }
+$candidates = @()
+for ($i = 0; $i -lt 120 -and $candidates.Count -eq 0; $i++) {
     Start-Sleep -Milliseconds 500
-    $process = Get-Process $exeName -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowHandle -ne 0 -and $_.StartTime -ge $startedAfter } | Select-Object -First 1
+    # -ieq : Windows ne distingue pas la casse des chemins. Path peut manquer à un processus protégé : $null.
+    $candidates = @(Get-Process $exeName -ErrorAction SilentlyContinue | Where-Object {
+        $_.MainWindowHandle -ne 0 -and $before -notcontains $_.Id -and $_.Path -ieq $exePath })
 }
-if (-not $process) {
-    "pilote : aucune fenêtre $exeName en 60 s"
+if ($candidates.Count -ne 1) {
+    "pilote : $($candidates.Count) fenêtres $exeName candidates en 60 s (une seule attendue), rien n'est touché"
     exit 1
 }
+$process = $candidates[0]
 $window = $process.MainWindowHandle
 
 # SWP_NOZORDER | SWP_NOACTIVATE : la place et la taille seulement, sans changer l'ordre des fenêtres ni prendre

@@ -135,8 +135,10 @@ saute l'étape.
 
 Pour redimensionner, réduire et restaurer la fenêtre de l'exe comme un utilisateur (le pendant de
 `tools/kwin-window-smoke.sh`) : `tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu
-d3d12 --seconds 20`. Il échoue si la séquence n'a pas atteint le moteur, ou si le journal porte un message de
-Direct3D 12, de DXGI ou de NVRHI.
+d3d12 --seconds 20` (aussi `levain_sandbox_editor.exe`, et `--gpu vulkan`). Il échoue si la séquence n'a pas atteint
+le moteur, ou si le journal porte un message de Direct3D 12, de DXGI, de NVRHI ou de validation Vulkan (`vkXxx():`).
+Le pilote n'agit que sur le processus que le script a lancé : il écarte les PID du même nom déjà en cours, exige le
+chemin de l'exe et un seul candidat, sinon il échoue sans rien toucher.
 
 ## Les limites
 

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Redimensionne, réduit et restaure la fenêtre du sandbox Windows lancé de la distro WSL, comme un utilisateur :
+# Redimensionne, réduit et restaure la fenêtre du sandbox Windows (ou de l'éditeur) lancé de la distro WSL, comme un utilisateur :
 # le pendant de tools/kwin-window-smoke.sh pour un exe Windows (ADR-0035), par le pilote resize-sandbox.ps1, à côté.
 #
 # Usage, de la distro, depuis la racine du dépôt (assez de secondes pour la séquence, qui en prend une douzaine
 # après l'ouverture de la fenêtre) :
 #   tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox.exe --gpu d3d12 --seconds 20
+#   tools/wsl/resize-sandbox.sh build/windows-debug/sandbox/levain_sandbox_editor.exe --gpu vulkan --seconds 20
 #
 # Le sandbox tourne avec les arguments donnés, son journal dans build/resize-sandbox.log (RESIZE_LOG pour un
 # autre). Le pilote attend sa fenêtre, la passe en 1280 × 720 puis 1600 × 900, la réduit, la restaure, la passe en
@@ -23,12 +24,18 @@ mkdir -p "$(dirname "$log")"
 exe=$1
 shift
 
-# Au pilote : le nom de l'exe lancé et l'instant du lancement, pour qu'il ne trouve que notre processus.
+# Au pilote, de quoi ne reconnaître que NOTRE processus (règle du portable : on n'agit jamais sur un autre) : le nom
+# de l'exe, son chemin Windows, et les PID de ce nom déjà en cours avant le lancement, qu'il écartera. Windows ne
+# donne pas le PID du processus lancé (le `$!` d'ici est celui du relais WSL).
 export LEVAIN_RESIZE_EXE
 LEVAIN_RESIZE_EXE=$(basename "$exe" .exe)
-export LEVAIN_RESIZE_START
-LEVAIN_RESIZE_START=$(date +%s)
-export WSLENV="${WSLENV:+$WSLENV:}LEVAIN_RESIZE_EXE:LEVAIN_RESIZE_START"
+export LEVAIN_RESIZE_PATH
+LEVAIN_RESIZE_PATH=$(wslpath -wa "$exe")
+export LEVAIN_RESIZE_BEFORE
+# tasklist rend du CSV, « "image.exe","PID",… », ou un message sans guillemets quand rien ne correspond.
+LEVAIN_RESIZE_BEFORE=$(tasklist.exe /FI "IMAGENAME eq $LEVAIN_RESIZE_EXE.exe" /FO CSV /NH | tr -d '\r' |
+    awk -F'","' '/^"/ { gsub(/"/, "", $2); printf "%s%s", sep, $2; sep = "," }')
+export WSLENV="${WSLENV:+$WSLENV:}LEVAIN_RESIZE_EXE:LEVAIN_RESIZE_PATH:LEVAIN_RESIZE_BEFORE"
 "$exe" "$@" > "$log" 2>&1 &
 sandbox=$!
 # -EncodedCommand : le script en UTF-16LE, en base64 ; « -Command - < resize-sandbox.ps1 » ne ferait rien, sans un
