@@ -12,6 +12,7 @@
 
 #include <doctest/doctest.h>
 
+#include "levain/editor/mode.hpp"
 #include "levain/editor/preferences.hpp"
 #include "levain/editor/shortcut_edit.hpp"
 #include "levain/editor/shortcut_window.hpp"
@@ -23,8 +24,8 @@ using levain::platform::KeyModifiers;
 namespace
 {
 
-constexpr std::uint16_t ScanA = 4, ScanQ = 20, ScanW = 26, ScanZ = 29, ScanS = 22, ScanEscape = 41,
-                        ScanF1 = 58, ScanLeftCtrl = 224;
+constexpr std::uint16_t ScanA = 4, ScanE = 8, ScanQ = 20, ScanW = 26, ScanZ = 29, ScanS = 22,
+                        ScanEscape = 41, ScanF1 = 58, ScanLeftCtrl = 224;
 constexpr KeyModifiers Ctrl{.ctrl = true};
 constexpr KeyModifiers CtrlShift{.ctrl = true, .shift = true};
 
@@ -190,39 +191,152 @@ TEST_CASE("réinitialiser : une action, puis toutes, un défaut pris est repris 
 TEST_CASE("saisie : F1 seule, un modificateur seul et Échap ne deviennent jamais un accord")
 {
     const KeyPress f1{.scancode = ScanF1, .keycode = 0x4000003A, .modifiers = {}};
-    CHECK(captureChord(f1, ChordKind::Position).outcome == CaptureOutcome::Reserved);
-    CHECK(captureChord(f1, ChordKind::Letter).outcome == CaptureOutcome::Reserved);
+    CHECK(captureChord(f1, ChordKind::Position, false).outcome == CaptureOutcome::Reserved);
+    CHECK(captureChord(f1, ChordKind::Letter, false).outcome == CaptureOutcome::Reserved);
     // Maj+F1 est « rendre la souris » : liable.
     KeyPress shiftF1 = f1;
     shiftF1.modifiers.shift = true;
-    const auto shifted = captureChord(shiftF1, ChordKind::Position);
+    const auto shifted = captureChord(shiftF1, ChordKind::Position, false);
     CHECK(shifted.outcome == CaptureOutcome::Chord);
     CHECK(shifted.chord == positionChord(ScanF1, {.shift = true}));
     const KeyPress ctrl{.scancode = ScanLeftCtrl, .keycode = 0x400000E0, .modifiers = Ctrl};
-    CHECK(captureChord(ctrl, ChordKind::Letter).outcome == CaptureOutcome::ModifierOnly);
+    CHECK(captureChord(ctrl, ChordKind::Letter, false).outcome == CaptureOutcome::ModifierOnly);
     const KeyPress escape{.scancode = ScanEscape, .keycode = 0x1B, .modifiers = {}};
-    CHECK(captureChord(escape, ChordKind::Position).outcome == CaptureOutcome::Cancel);
+    CHECK(captureChord(escape, ChordKind::Position, false).outcome == CaptureOutcome::Cancel);
     // Alt-Gr tenu ne s'écrirait pas : refusé plutôt que d'être un accord qui ne part jamais.
     KeyPress altGr = letterPress('e');
     altGr.modifiers.altGr = true;
-    CHECK(captureChord(altGr, ChordKind::Letter).outcome == CaptureOutcome::Unbindable);
+    CHECK(captureChord(altGr, ChordKind::Letter, false).outcome == CaptureOutcome::Unbindable);
     // Une flèche n'a pas de lettre : un accord de lettre la refuse.
     const KeyPress arrow{.scancode = 80, .keycode = 0x40000050, .modifiers = {}};
-    CHECK(captureChord(arrow, ChordKind::Letter).outcome == CaptureOutcome::Unbindable);
+    CHECK(captureChord(arrow, ChordKind::Letter, false).outcome == CaptureOutcome::Unbindable);
 }
 
 TEST_CASE("saisie : le genre de l'accord suit celui de l'action")
 {
     // Une position garde le scancode, même sur un AZERTY où la touche est un « z ».
     const KeyPress onW{.scancode = ScanW, .keycode = 'z', .modifiers = {}};
-    const auto position = captureChord(onW, defaultKindOf(Action::ToolMove));
+    const auto position = captureChord(onW, defaultKindOf(Action::ToolMove), false);
     CHECK(position.chord == positionChord(ScanW));
     // Une lettre garde le caractère de la touche, en minuscule.
     const auto letter = captureChord({.scancode = ScanW, .keycode = 'Z', .modifiers = Ctrl},
-                                     defaultKindOf(Action::Save));
+                                     defaultKindOf(Action::Save), false);
     CHECK(letter.chord == letterChord('z', Ctrl));
     CHECK(defaultKindOf(Action::MoveForward) == ChordKind::Position);
     CHECK(defaultKindOf(Action::Redo) == ChordKind::Letter);
+}
+
+TEST_CASE("saisie : Ctrl+Alt+lettre est refusée comme Alt-Gr, sur toutes les plateformes")
+{
+    // Sous Windows Alt-Gr arrive comme Ctrl+Alt (`altGr` y reste faux) : AltGr+E d'un AZERTY serait
+    // devenu « Ctrl+Alt+E », que Linux refusait. Les deux plateformes donnent le même résultat.
+    const KeyModifiers ctrlAlt{.ctrl = true, .alt = true};
+    CHECK(captureChord(letterPress('e', ctrlAlt), ChordKind::Letter, false).outcome ==
+          CaptureOutcome::Unbindable);
+    CHECK(captureChord({.scancode = 8, .keycode = 'e', .modifiers = ctrlAlt}, ChordKind::Position,
+                       false)
+              .outcome == CaptureOutcome::Unbindable);
+    // Les paires voisines restent des accords : c'est la lettre avec les deux qui est refusée.
+    CHECK(captureChord(letterPress('e', Ctrl), ChordKind::Letter, false).outcome ==
+          CaptureOutcome::Chord);
+    CHECK(captureChord(letterPress('e', {.alt = true}), ChordKind::Letter, false).outcome ==
+          CaptureOutcome::Chord);
+    // Une touche sans lettre (une flèche) avec Ctrl+Alt n'est pas du texte tapé.
+    CHECK(captureChord({.scancode = 80, .keycode = 0x40000050, .modifiers = ctrlAlt},
+                       ChordKind::Position, false)
+              .outcome == CaptureOutcome::Chord);
+}
+
+TEST_CASE("saisie : une action tenue ne garde aucun modificateur, et le dit")
+{
+    CHECK(isHeldAction(Action::MoveForward));
+    CHECK(isHeldAction(Action::MoveDown));
+    CHECK(isHeldAction(Action::Stop));
+    CHECK_FALSE(isHeldAction(Action::ToolMove)); // un appui : ses modificateurs comptent
+    CHECK_FALSE(isHeldAction(Action::Save));
+    CHECK_FALSE(isHeldAction(Action::GiveMouseBack));
+    const KeyPress shiftE{.scancode = ScanE, .keycode = 'e', .modifiers = {.shift = true}};
+    const auto held = captureChord(shiftE, ChordKind::Position, true);
+    CHECK(held.outcome == CaptureOutcome::Chord);
+    CHECK(held.chord == positionChord(ScanE)); // la touche nue : Maj ne ferait rien au vol
+    CHECK(held.modifiersDropped);
+    // Une touche nue ne dit rien : rien n'a été retiré.
+    CHECK_FALSE(captureChord({.scancode = ScanE, .keycode = 'e', .modifiers = {}},
+                             ChordKind::Position, true)
+                    .modifiersDropped);
+    // Une action de position qui se joue en appui garde ses modificateurs.
+    const auto pressed = captureChord(shiftE, ChordKind::Position, false);
+    CHECK(pressed.chord == positionChord(ScanE, {.shift = true}));
+    CHECK_FALSE(pressed.modifiersDropped);
+    // F1 est jugée sans les modificateurs retirés (Maj+F1 pour le vol est F1 seule : réservée),
+    // et Alt-Gr ne se retire pas : ce n'est pas « la touche E ».
+    const KeyPress shiftF1{.scancode = ScanF1, .keycode = 0x4000003A, .modifiers = {.shift = true}};
+    CHECK(captureChord(shiftF1, ChordKind::Position, true).outcome == CaptureOutcome::Reserved);
+    KeyPress altGr = shiftE;
+    altGr.modifiers = {.altGr = true};
+    CHECK(captureChord(altGr, ChordKind::Position, true).outcome == CaptureOutcome::Unbindable);
+}
+
+TEST_CASE("saisie : Maj+E pour « Avancer » est E, en conflit avec « Monter », rien n'est pris sans "
+          "le dire")
+{
+    ShortcutTable table = defaultShortcuts();
+    ShortcutWindow window;
+    beginCapture(window, {Action::MoveForward, 1});
+    const KeyPress shiftE{.scancode = ScanE, .keycode = 'e', .modifiers = {.shift = true}};
+    CHECK_FALSE(stepCapture(window, table, Qwerty, std::vector{shiftE}));
+    REQUIRE(window.pending.has_value());
+    // Lu par un accès gardé : clang-tidy ne suit pas `REQUIRE` (build/GOTCHA.md).
+    const PendingChord waiting = window.pending.value_or(PendingChord{});
+    REQUIRE(waiting.conflicts.size() == 1);
+    CHECK(conflictName(waiting.conflicts.front(), Qwerty) == "E : Monter");
+    CHECK(waiting.chord == positionChord(ScanE)); // sans le Maj : c'est la touche E
+    REQUIRE(window.message != nullptr);
+    CHECK(std::string_view{window.message}.contains("modificateur")); // la fenêtre le dit
+    CHECK(isDefault(table, Action::MoveForward)); // rien ne change avant « Remplacer »
+    CHECK(isDefault(table, Action::MoveUp));
+    // « Remplacer » : E va à Avancer, qui garde W ; Monter n'a plus de touche.
+    const auto removed = acceptPending(window, table, Qwerty);
+    REQUIRE(removed.size() == 1);
+    CHECK(removed.front().action == Action::MoveUp);
+    CHECK(chordsOf(table, Action::MoveForward)[1] == positionChord(ScanE));
+    CHECK_FALSE(isBound(chordsOf(table, Action::MoveUp)[0]));
+    // Le message d'une candidate abandonnée ne reste pas : une saisie neuve le retire.
+    beginCapture(window, {Action::MoveForward, 1});
+    CHECK(window.message == nullptr);
+}
+
+TEST_CASE("saisie : « Arrêter » ne garde pas Ctrl, Ctrl+Q est Q et l'indicateur dit la vérité")
+{
+    ShortcutTable table = defaultShortcuts();
+    ShortcutWindow window;
+    beginCapture(window, {Action::Stop, 0});
+    const KeyPress ctrlQ{.scancode = ScanQ, .keycode = 'q', .modifiers = Ctrl};
+    CHECK(stepCapture(window, table, Qwerty, std::vector{ctrlQ}));
+    CHECK(chordsOf(table, Action::Stop)[0] == positionChord(ScanQ)); // pas « Ctrl+pos:20 »
+    CHECK(window.message != nullptr);
+    // Ce que l'indicateur de la barre de mode dit est ce que la touche fait : Q, pas « Ctrl+Q ».
+    CHECK(modeHintOf(Mode::PlayWithoutReturn, table, Qwerty) == "Q : revenir à l'édition");
+}
+
+TEST_CASE("les lignes : un modificateur sur une action tenue est refusé, dit et gardé tel quel")
+{
+    const ShortcutLine forward{.action = "Avancer", .chords = {"Shift+pos:8"}};
+    const ShortcutLine stop{.action = "Arrêter", .chords = {"Ctrl+pos:20"}};
+    const ShortcutLine bareStop{.action = "Arrêter", .chords = {"pos:20"}};
+    const ShortcutLine tool{.action = "Outil déplacer", .chords = {"Shift+pos:26"}};
+    const AppliedLines applied = shortcutsFromLines({forward, stop, tool});
+    CHECK(applied.problems.size() == 2);
+    CHECK(isDefault(applied.table, Action::MoveForward)); // les défauts restent
+    CHECK(isDefault(applied.table, Action::Stop));
+    // Une action qui se joue en appui garde ses modificateurs : la règle ne vaut que pour le tenu.
+    CHECK(chordsOf(applied.table, Action::ToolMove)[0] == positionChord(ScanW, {.shift = true}));
+    REQUIRE(applied.refused.size() == 2);
+    CHECK(applied.refused.front().chords == forward.chords); // gardée telle qu'écrite
+    CHECK(applied.refused.back().action == "Arrêter");
+    const AppliedLines bare = shortcutsFromLines({bareStop});
+    CHECK(bare.problems.empty());
+    CHECK(chordsOf(bare.table, Action::Stop)[0] == positionChord(ScanQ));
 }
 
 TEST_CASE("saisie : un conflit attend, la table ne bouge pas avant « Remplacer »")
