@@ -41,6 +41,7 @@ set(nativeTests
     editor_actions_test.cpp
     editor_camera_test.cpp
     editor_gestures_test.cpp
+    editor_grid_test.cpp
     editor_menus_test.cpp
     editor_preferences_test.cpp
     editor_shortcut_edit_test.cpp
