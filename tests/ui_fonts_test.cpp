@@ -2,6 +2,7 @@
 // dans assets-cache/Fonts. Absentes, le test échoue en disant quoi lancer (règle n°7) : il ne se
 // contente pas de ne pas s'exécuter.
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -60,7 +61,37 @@ void writeBytes(const fs::path& path, const std::string& bytes)
     std::ofstream{path, std::ios::binary} << bytes;
 }
 
-/// Les octets d'Inter, la vraie : une copie que findFontFiles accepte, quoi qu'il vérifie.
+void putBigEndian(std::string& bytes, unsigned value, unsigned count)
+{
+    for (unsigned i = count; i > 0; --i)
+    {
+        bytes.push_back(static_cast<char>((value >> (8U * (i - 1U))) & 0xFFU));
+    }
+}
+
+/// Un fichier dont l'en-tête OpenType (CFF) et les cinq tables que stb_truetype exige sont là mais
+/// vides : il passe le premier contrôle de findFontFiles (fontProblem), pas le second (stb_truetype
+/// l'ouvre). Il sert aux cas corrompus, jamais à un fichier qu'on veut accepté (interBytes).
+std::string fakeFontBytes(const std::vector<std::string>& tags = {"cmap", "head", "hhea", "hmtx",
+                                                                  "CFF "},
+                          std::size_t padding = 200, const char* signature = "OTTO")
+{
+    std::string bytes = signature;
+    putBigEndian(bytes, static_cast<unsigned>(tags.size()), 2);
+    bytes.append(6, '\0'); // searchRange, entrySelector, rangeShift : six octets nuls
+    for (const std::string& tag : tags)
+    {
+        bytes += tag;
+        putBigEndian(bytes, 0, 4);  // somme de contrôle
+        putBigEndian(bytes, 12, 4); // décalage
+        putBigEndian(bytes, 0, 4);  // longueur : une table vide tient dans tout fichier
+    }
+    bytes.append(padding, '\0');
+    return bytes;
+}
+
+/// Les octets d'Inter, la vraie : stb_truetype la lit jusqu'au bout (findFontFiles aussi), un faux
+/// fichier minimal ne passerait plus.
 std::string interBytes()
 {
     std::ifstream real{assetsDir() / levain::ui::UiFontFile, std::ios::binary};
@@ -149,6 +180,57 @@ TEST_CASE("ui.fonts : une police absente des racines est une erreur qui la nomme
                   "l'erreur liste les racines cherchées");
     writeBytes(dir.path / levain::ui::IconFontFile, inter);
     CHECK(levain::ui::findFontFiles(roots));
+}
+
+TEST_CASE("ui.fonts : un fichier qui n'est pas une police est une erreur nommée, sans assertion")
+{
+    const TempDir dir;
+    const std::string inter = interBytes();
+    for (const char* name :
+         {levain::ui::UiFontFile, levain::ui::FallbackFontFile, levain::ui::IconFontFile})
+    {
+        writeBytes(dir.path / name, inter);
+    }
+    const std::vector<fs::path> roots{dir.path};
+    REQUIRE(levain::ui::findFontFiles(roots));
+    // Un vrai fichier coupé net : la table des tables est intacte, les tables dépassent.
+    const std::string truncated = inter.substr(0, 3000);
+    // Un vrai fichier de la bonne taille dont le milieu est à zéro : la table des tables et les
+    // tables sont en place, seul stb_truetype voit que l'intérieur est vide (sans ce contrôle,
+    // ImGui s'arrêterait sur une assertion en Debug).
+    std::string zeroed = inter;
+    std::fill(zeroed.begin() + 100000, zeroed.begin() + 300000, '\0');
+
+    struct Case
+    {
+        const char* what;
+        std::string bytes;
+    };
+
+    const Case corrupt[] = {
+        {"vide", ""},
+        {"tronqué après la signature", "OTTOxx"},
+        {"page d'erreur", "<html>404 Not Found</html>" + std::string(200, ' ')},
+        {"signature fausse", "wOFF" + std::string(200, 'x')},
+        {"signature juste, rien derrière",
+         std::string("\x00\x01\x00\x00", 4) + std::string(400, '\0')},
+        {"un vrai fichier tronqué", truncated},
+        {"un vrai fichier dont le milieu est à zéro (octets 100000 à 300000)", zeroed},
+        {"signature fausse, tables justes",
+         fakeFontBytes({"cmap", "head", "hhea", "hmtx", "CFF "}, 200, "wOFF")},
+        {"tables justes mais 92 octets seulement",
+         fakeFontBytes({"cmap", "head", "hhea", "hmtx", "CFF "}, 0)},
+        {"une table manque (hmtx)", fakeFontBytes({"cmap", "head", "hhea", "CFF "})},
+        {"ni glyf ni CFF", fakeFontBytes({"cmap", "head", "hhea", "hmtx"})}};
+    for (const Case& broken : corrupt)
+    {
+        CAPTURE(broken.what);
+        writeBytes(dir.path / levain::ui::FallbackFontFile, broken.bytes);
+        const auto files = levain::ui::findFontFiles(roots);
+        REQUIRE_FALSE(files);
+        CHECK(files.error().message.find("NotoSans-Regular.ttf") != std::string::npos);
+        CHECK(files.error().message.find("corrompue") != std::string::npos);
+    }
 }
 
 TEST_CASE("ui.fonts : les vraies polices ont chaque glyphe de la liste, dans l'interface et dans "

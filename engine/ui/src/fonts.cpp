@@ -1,8 +1,21 @@
 #include "levain/ui/fonts.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cstdint>
 #include <format>
+#include <fstream>
+#include <optional>
 #include <span>
 #include <string>
+#include <vector>
+
+// stb_truetype, le décodeur d'ImGui, pour lui poser nous-mêmes la question qu'il se pose en
+// assertion (voir `stbttRefuses`) : `STBTT_STATIC` garde ses fonctions privées à ce fichier, elles
+// ne heurtent pas celles de imgui_draw.cpp. Les en-têtes de vcpkg sont des en-têtes système.
+#define STBTT_STATIC                // NOLINT(readability-identifier-naming) : le nom de stb
+#define STB_TRUETYPE_IMPLEMENTATION // NOLINT(readability-identifier-naming) : idem
+#include <imstb_truetype.h>
 
 namespace levain::ui
 {
@@ -44,6 +57,93 @@ constexpr float InterCapCentre = 745.0f / 2478.0f;
 constexpr float MaterialCentre = 480.0f / 1152.0f;
 constexpr float IconOffsetY = MaterialCentre * IconScale - InterCapCentre;
 
+/// Moins que cela n'est pas une police (ImGui s'arrête sur `IM_ASSERT(font_data_size > 100)`).
+constexpr std::uintmax_t MinimumFontSize = 100;
+
+/// Un vrai fichier a une vingtaine de tables ; au-delà, la table des tables est lue de travers.
+constexpr std::size_t MaxTables = 128;
+constexpr std::size_t DirectoryHeader = 12; // signature, numTables, trois champs de recherche
+constexpr std::size_t TableRecord = 16;     // tag, somme de contrôle, décalage, longueur
+
+std::uint32_t bigEndian32(std::span<const unsigned char> bytes, std::size_t at)
+{
+    std::uint32_t value = 0;
+    for (std::size_t i = 0; i < 4; ++i)
+    {
+        value = (value << 8U) | std::uint32_t{bytes[at + i]};
+    }
+    return value;
+}
+
+/// Pourquoi un fichier n'est pas une police qu'ImGui peut ouvrir ; nul s'il l'est. `prefix` est le
+/// début du fichier (au moins sa table des tables), `size` sa taille entière. ImGui ne rend pas
+/// d'erreur sur une police malformée : en Debug `AddFontFromFileTTF` s'arrête sur une assertion
+/// (`ImFontFlags_NoLoadError` ne couvre que le fichier absent), et `stbtt_InitFont` n'accepte que
+/// les polices qui ont ces tables : on les vérifie donc ici, avant de lui donner le fichier.
+const char* fontProblem(std::span<const unsigned char> prefix, std::uintmax_t size)
+{
+    if (size <= MinimumFontSize || prefix.size() < DirectoryHeader)
+    {
+        return "trop court pour une police";
+    }
+    // 0x00010000 (TrueType), « true » (Apple) ou « OTTO » (OpenType à contours CFF) : un fichier
+    // HTML d'erreur enregistré sous le nom de la police n'en a aucune.
+    const std::uint32_t signature = bigEndian32(prefix, 0);
+    if (signature != 0x00010000 && signature != 0x74727565 && signature != 0x4F54544F)
+    {
+        return "ni TrueType ni OpenType (signature inconnue)";
+    }
+    const std::size_t tables = std::size_t{prefix[4]} * 256U + std::size_t{prefix[5]};
+    if (tables == 0 || tables > MaxTables || prefix.size() < DirectoryHeader + tables * TableRecord)
+    {
+        return "table des tables illisible";
+    }
+    bool cmap = false, head = false, hhea = false, hmtx = false, glyf = false, loca = false,
+         cff = false;
+    for (std::size_t i = 0; i < tables; ++i)
+    {
+        const std::size_t at = DirectoryHeader + i * TableRecord;
+        const std::uint64_t end =
+            std::uint64_t{bigEndian32(prefix, at + 8)} + bigEndian32(prefix, at + 12);
+        if (end > size)
+        {
+            return "tronquée (une table dépasse la fin du fichier)";
+        }
+        const std::uint32_t tag = bigEndian32(prefix, at);
+        cmap = cmap || tag == 0x636D6170;
+        head = head || tag == 0x68656164;
+        hhea = hhea || tag == 0x68686561;
+        hmtx = hmtx || tag == 0x686D7478;
+        glyf = glyf || tag == 0x676C7966;
+        loca = loca || tag == 0x6C6F6361;
+        cff = cff || tag == 0x43464620;
+    }
+    if (!(cmap && head && hhea && hmtx && ((glyf && loca) || cff)))
+    {
+        return "il manque une table (cmap, head, hhea, hmtx, glyf et loca, ou CFF)";
+    }
+    return nullptr;
+}
+
+/// Vrai si stb_truetype refuse la police, ce que `fontProblem` ne voit pas : une police dont la
+/// table des tables est juste mais dont l'intérieur est abîmé (des octets à zéro au milieu, par
+/// exemple). ImGui s'arrête alors sur `IM_ASSERT_USER_ERROR` dans `stbtt_InitFont`
+/// (imgui_draw.cpp, `ImGui_ImplStbTrueType_FontSrcInit`), que `ImFontFlags_NoLoadError` ne couvre
+/// pas.
+bool stbttRefuses(const std::filesystem::path& path)
+{
+    std::ifstream file{path, std::ios::binary};
+    file.seekg(0, std::ios::end);
+    const std::streamsize size = file.is_open() ? static_cast<std::streamsize>(file.tellg()) : 0;
+    std::vector<unsigned char> data(static_cast<std::size_t>(std::max<std::streamsize>(size, 0)));
+    file.seekg(0, std::ios::beg);
+    file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    stbtt_fontinfo info;
+    const int offset = stbtt_GetFontOffsetForIndex(data.data(), 0);
+    return file.gcount() != static_cast<std::streamsize>(data.size()) || offset < 0 ||
+           stbtt_InitFont(&info, data.data(), offset) == 0;
+}
+
 /// Le chemin tel qu'ImGui l'ouvre : de l'UTF-8 (sous Windows, `path::string()` est la page de
 /// code ANSI et un nom accentué serait mal lu).
 std::string utf8Of(const std::filesystem::path& path)
@@ -74,6 +174,33 @@ std::string rootsText(std::span<const std::filesystem::path> roots)
         text += (text.empty() ? "" : ", ") + utf8Of(root);
     }
     return text.empty() ? "aucune" : text;
+}
+
+/// Vérifie qu'un fichier trouvé est une police qu'ImGui peut ouvrir (voir `fontProblem`), avant de
+/// la lui donner : on veut une erreur qui nomme le fichier (règle n°7), pas un `abort` en Debug.
+std::optional<core::Error> checkFontFile(const std::filesystem::path& path)
+{
+    std::error_code error;
+    const std::uintmax_t size = std::filesystem::file_size(path, error);
+    std::array<unsigned char, DirectoryHeader + MaxTables * TableRecord> buffer{};
+    std::ifstream file{path, std::ios::binary};
+    file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
+    const char* problem =
+        error || !file.is_open()
+            ? "illisible"
+            : fontProblem({buffer.data(), static_cast<std::size_t>(file.gcount())}, size);
+    if (problem == nullptr && stbttRefuses(path))
+    {
+        problem = "stb_truetype la refuse (contenu abîmé)";
+    }
+    if (problem == nullptr)
+    {
+        return std::nullopt;
+    }
+    return core::Error{core::ErrorCode::InvalidData,
+                       std::format("police corrompue : {} ({}, {} octets) ; relancer "
+                                   "tools/fetch-assets.sh",
+                                   utf8Of(path), problem, error ? 0 : size)};
 }
 
 /// Une police lue d'un fichier, fusionnée derrière la précédente si `merge`, sans glyphes dans
@@ -115,6 +242,10 @@ core::Result<FontFiles> findFontFiles(std::span<const std::filesystem::path> roo
                                    std::format("police absente : {} (racines d'assets cherchées : "
                                                "{}) ; lancer tools/fetch-assets.sh",
                                                name, rootsText(roots)));
+        }
+        if (const auto corrupt = checkFontFile(*path))
+        {
+            return std::unexpected(*corrupt);
         }
     }
     return files;
