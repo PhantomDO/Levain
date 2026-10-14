@@ -73,7 +73,7 @@ M7.7, morceau 17b (revue : `tests/ui_style_test.cpp`, `editor/src/bars.cpp`).
 
 ## Un grisé qui passe le test de lisibilité mais ne se voit pas, un calque qui s'éclaircit en linéaire (2026-10-14)
 
-M7.7, morceau 17b (revue d'exécution sur la 4070, `tests/ui_style_test.cpp`, `editor/src/menus.cpp`).
+M7.7, morceau 17b (revue d'exécution sur la 4070, `tests/ui_style_test.cpp`, `editor/src/menus.cpp`, `inspector.cpp`).
 
 - **Symptôme** : « Annuler » grisé mesure 196 contre 215 pour « Préférences » sur la 4070 : l'entrée ne semble pas grisée, alors
   que le test des contrastes passe. **Cause** : le test ne vérifiait que la lisibilité (4,5), jamais que le grisé se distingue du
@@ -84,10 +84,14 @@ M7.7, morceau 17b (revue d'exécution sur la 4070, `tests/ui_style_test.cpp`, `e
   cas ». **Cause** : c'est vrai d'un texte clair sur fond sombre ; pour un fond sombre translucide sur une scène claire, le
   mélange **linéaire** est le pire (le fond monte à 131 sur du blanc à un alpha de 0,78). **Parade** : alpha 0,93 (78) et rappel
   en `Text` (5,7) ; le test pose le calque sur du blanc, mélangé en linéaire comme en gamma.
+- **Symptôme** : l'inspecteur coupe « 0.98 » en « 0.0( » à 125 % et ne se lit plus à 150 %. **Cause** : une colonne de libellé
+  fixe (10 em) et un rembourrage plus grand ; le nombre de cellules d'une matrice par ligne ne tenait pas compte de la largeur.
+  **Parade** : `labelColumnFor` (le champ garde la place de trois nombres avant le libellé), `numbersPerRow` ; le test lit la
+  largeur de cadre que `drawInspector` relève (`Inspector::narrowestFrame`) à 1, 1,25 et 1,5.
 
-## Un style d'ImGui mis à l'échelle deux fois (2026-10-13)
+## Un style d'ImGui mis à l'échelle deux fois, et des repères de couleur qu'un test ne voit pas grisés (2026-10-13)
 
-M7.7, morceau 17b (le style de l'éditeur).
+M7.7, morceau 17b (le style de l'éditeur, les repères X, Y, Z de l'inspecteur).
 
 - **Symptôme** : `applyEditorStyle` qui part du style de `createUiContext` (déjà passé par `ScaleAllSizes`) ne rate rien dans un
   test qui compare les champs qu'elle règle : la faute « partir du style donné au lieu d'un style neuf » passait verte
@@ -96,6 +100,13 @@ M7.7, morceau 17b (le style de l'éditeur).
   (`ImTrunc`, imgui.cpp, « This operation is lossy » : à 0,75 un bord d'un pixel tombe à 0) ; une taille posée en dur est
   juste quoi qu'il arrive, une taille d'ImGui laissée telle quelle ne l'est pas. **Parade** : le test contrôle un style déjà à l'échelle, sur des champs que la fonction ne règle pas elle-même
   (`tests/ui_style_test.cpp`).
+- **Symptôme** : un test qui cherche les repères d'axe (`ImGuiSliderFlags_ColorMarkers`) par leur couleur exacte, alpha compris,
+  ne verrait pas un repère dessiné dans un composant en lecture seule : `BeginDisabled` multiplie l'alpha (`DisabledAlpha`) et le
+  sommet n'a plus la couleur cherchée ; « aucun repère » serait vrai pour la mauvaise raison. **Parade** : comparer la teinte, alpha
+  retiré (`sameRgb`, `tests/editor_test.cpp`), et chercher dans la liste de dessin de la fenêtre (`ImGui::GetWindowDrawList()`, avant
+  `End`) ; les couleurs sont celles d'ImGui (`GDefaultRgbaColorMarkers`, imgui_widgets.cpp), écrites en dur : une mise à jour d'ImGui qui
+  les change fait échouer le test, voulu. Un contre-test dont la faute ne compile pas ne prouve rien : voir l'entrée du
+  2026-10-10 (« une faute qui doit compiler »).
 
 ## Deux fenêtres dans un nœud d'ancrage : l'ordre des `Begin` choisit l'onglet visible (2026-10-11)
 

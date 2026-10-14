@@ -55,7 +55,7 @@ Inter derrière (`Console::font`). **Une police absente arrête l'éditeur avant
 `tools/fetch-assets.sh` (`gpu.editor-console.*`, `playMissingFont`) : les tests de l'éditeur posent `fontRoots = {assets-cache}`
 et seulement elle : leurs racines d'assets restent `data/`, sans le scan et les `.meta` des 86 fichiers d'`assets-cache`. Le bouton de mode et son bandeau portent une icône (`modeButtonLabel`).
 
-**Le style** (morceau 17b, `withEditor`, ADR-0036 décision 15) : `withEditor` donne à l'`App`
+**Le style et les repères d'axe** (morceau 17b, `withEditor`, ADR-0036 décision 15) : `withEditor` donne à l'`App`
 `ui::applyEditorStyle(style, displayScale)` comme style (`app::setUiStyle`) : réglé à l'ouverture, après les polices, puis
 refait par la boucle à chaque changement de zoom du système (`WindowEventType::ScaleChanged` ; `gpu.editor-modes.*`, ligne
 `window scale`) ; engine/ui/README : sombre, plat, un seul accent bleu pour l'actif ou le choisi, fonds opaques, rondeurs de
@@ -66,12 +66,20 @@ contour redessinerait la forme retirée ; les champs de saisie gardent le leur) 
 barre dessine. **Les entrées de menu grisées** (`greyedMenuItem`) sont dessinées de même (`TextDisabled` plein, libellé et
 raccourci), non à `DisabledAlpha` : à 0,8 sur la 4070 le libellé ne se distinguait pas du texte. Le bandeau de la barre de
 mode et celui d'« Afficher », dans la Vue, prennent `ui::overlayBackground` (un gris de la palette, à 0,93) et le rappel de touche
-est en `Text`, lisible sur une scène blanche. Le menu « Afficher » s'ouvre sous son bouton.
-**La hiérarchie** colorie sa ligne choisie en accent (`pushSelectedRowColors`, comme la
-constante courante d'une liste déroulante), les en-têtes de composant restent gris.
-Que `withEditor` règle bien le style, c'est `gpu.editor-modes.*` (sans l'appel,
+est en `Text`, lisible sur une scène blanche. Le menu « Afficher » s'ouvre sous son bouton. **Le champ de l'inspecteur** garde
+la place de trois nombres avant le libellé (`labelColumnFor`), et une matrice passe à moins de quatre nombres par ligne quand
+la fenêtre est étroite (`numbersPerRow`) : à 125 % et 150 % la colonne fixe de 10 em coupait les valeurs. **La hiérarchie** colorie sa ligne choisie en accent (`pushSelectedRowColors`, comme la
+constante courante d'une liste déroulante), les en-têtes de composant restent gris. **L'inspecteur** pose
+`ImGuiSliderFlags_ColorMarkers` (`AxisMarkers`) sur chaque `vec2`, `vec3` et sur les trois angles d'une rotation : X rouge,
+Y vert, Z bleu (X et Y seuls pour un `vec2`), comme les champs de position d'Unreal ; **jamais** sur un nombre seul (un
+repère rouge sans axe) ni sur une ligne de tableau ou de matrice (`[0-3]`, quatre nombres qui ne sont pas des axes).
+ImGui choisit les couleurs lui-même (`GDefaultRgbaColorMarkers`) : le test les cherche dans la liste de dessin
+(`tests/editor_test.cpp`, « un vecteur de trois composantes porte les repères… », trois cas) et échoue si le drapeau
+manque, ou s'il fuit sur un nombre seul. Que `withEditor` règle bien le style, c'est `gpu.editor-modes.*` (sans l'appel,
 l'éditeur resterait au style d'ImGui, et rien d'autre ne le dirait) ; la ligne choisie de la hiérarchie,
-« la ligne choisie de la hiérarchie prend l'accent… ».
+« la ligne choisie de la hiérarchie prend l'accent… ». Équivalents : le panneau Details d'Unreal montre X, Y, Z en rouge,
+vert et bleu ; les libellés X, Y, Z des champs de vecteur d'Unity ne sont pas colorés, ceux de Godot 4 le sont (**supposé**
+pour les trois : l'aspect est connu de l'interface, non relu dans une documentation pour ce morceau).
 
 **Les menus, les barres et la fenêtre Aide sont écrits** (M7.7, morceau 12, `menus.hpp`, `bars.hpp`, `actions.hpp`,
 ADR-0036, décisions 12 et 13). **La barre de menus** : Fichier, Édition, Entité, Fenêtre (celui du morceau 8, au

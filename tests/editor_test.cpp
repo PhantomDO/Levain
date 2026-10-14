@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -226,6 +227,11 @@ struct Facing // une rotation : le dessinateur d'angles
     glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
 };
 
+struct Pan // un vecteur à deux composantes : X et Y seulement
+{
+    glm::vec2 uv{0.0f};
+};
+
 /// Un composant neuf, tel qu'un jeu l'écrirait : le critère de M7.2 (« éditable en une seule
 /// déclaration »). `intensity` est le dernier champ : le test tape dans le dernier widget dessiné.
 struct Beacon
@@ -253,6 +259,7 @@ void describeTestComponents(flecs::world& world)
                                                                     1.0);
     levain::scene::describe<editor_test::Gauge>(world);
     levain::scene::describeAuthored<editor_test::Facing>(world);
+    levain::scene::describeAuthored<editor_test::Pan>(world);
 }
 
 /// Une image d'ImGui, sans GPU, le monde différé comme l'éditeur le fait pour ses panneaux.
@@ -281,7 +288,14 @@ TEST_CASE("l'inspecteur dessine un widget par champ, en suivant la description d
                                      .set(editor_test::Undescribed{})
                                      .add<editor_test::Tag>();
 
-    uiFrame(world, [&] { levain::editor::drawInspector(world, inspector, entity, 0); });
+    // Large : quatre nombres par ligne de matrice (la largeur décide, `numbersPerRow`).
+    const auto drawWide = [&]
+    {
+        ImGui::SetNextWindowSize({900.0f, 400.0f});
+        levain::editor::drawInspector(world, inspector, entity, 0);
+    };
+    uiFrame(world, drawWide);
+    uiFrame(world, drawWide);
     // Tuning : gain, count, enabled, mode, inner.a, inner.b, offset. WorldTransform : les quatre
     // colonnes de sa matrice. Weights : [0-3] et [4-5]. Le composant non décrit, l'étiquette et le
     // nom : une ligne chacun, aucun champ.
@@ -296,6 +310,61 @@ TEST_CASE("l'inspecteur dessine un widget par champ, en suivant la description d
     inspector.wrote = true;
     uiFrame(world, [&] { levain::editor::drawInspector(world, inspector, entity, 0); });
     CHECK_FALSE(inspector.wrote);
+}
+
+TEST_CASE("l'inspecteur, à 125 % et 150 % dans une fenêtre de 395 px : chaque valeur tient dans "
+          "son cadre")
+{
+    // 395 px : la largeur de l'inspecteur dans la disposition par défaut à 125 % (captures de la
+    // revue du morceau 17b). Une colonne de libellé fixe de 10 em y laissait 0,98 coupé en « 0.0( »
+    // et le moins de -2.098 sous le repère rouge.
+    for (const float scale : {1.0f, 1.25f, 1.5f})
+    {
+        INFO("échelle " << scale);
+        const levain::ui::UiContext context = levain::ui::createUiContext(scale);
+        flecs::world world;
+        describeTestComponents(world);
+        levain::editor::Inspector inspector = levain::editor::createInspector(world);
+        const flecs::entity entity =
+            world.entity("réglée")
+                .set(Tuning{.offset = {-2.098f, 0.98f, -12.345f}})
+                .set(levain::scene::WorldTransform{.matrix = glm::mat4{-2.098f}})
+                .set(editor_test::Facing{});
+        float widestValue = 0.0f;
+        for (int frame = 0; frame < 3; ++frame)
+        {
+            uiFrame(world,
+                    [&]
+                    {
+                        ImGui::SetNextWindowPos({0.0f, 0.0f});
+                        ImGui::SetNextWindowSize({395.0f, 460.0f});
+                        levain::editor::drawInspector(world, inspector, entity, 0);
+                        widestValue = ImGui::CalcTextSize("-12.345").x;
+                    });
+        }
+        REQUIRE(inspector.narrowestFrame < std::numeric_limits<float>::max());
+        const ImGuiStyle& style = ImGui::GetStyle();
+        // Le texte, le rembourrage des deux côtés et le repère d'axe, dessiné dans le cadre.
+        const float needed = widestValue + (2.0f * style.FramePadding.x) + style.ColorMarkerSize;
+        CHECK(inspector.narrowestFrame >= needed);
+    }
+}
+
+TEST_CASE("numbersPerRow et labelColumnFor : le champ garde sa place avant le libellé")
+{
+    constexpr float Cell = 70.0f;
+    constexpr float Gap = 6.0f;
+    // Quatre cellules et leurs trois espaces : 298 ; un pixel de moins, trois.
+    CHECK(levain::editor::numbersPerRow((4.0f * Cell) + (3.0f * Gap), Cell, Gap) == 4);
+    CHECK(levain::editor::numbersPerRow((4.0f * Cell) + (3.0f * Gap) - 1.0f, Cell, Gap) == 3);
+    CHECK(levain::editor::numbersPerRow(1000.0f, Cell, Gap) == 4); // jamais plus de quatre
+    CHECK(levain::editor::numbersPerRow(10.0f, Cell, Gap) == 1);   // au moins un
+    // Large : la colonne voulue. Étroit : elle rend la place au champ, sans passer sous son
+    // minimum.
+    CHECK(levain::editor::labelColumnFor(800.0f, 150.0f, 60.0f, Cell, Gap) == 150.0f);
+    CHECK(levain::editor::labelColumnFor(300.0f, 150.0f, 60.0f, Cell, Gap) ==
+          doctest::Approx(300.0f - (3.0f * Cell) - (2.0f * Gap)));
+    CHECK(levain::editor::labelColumnFor(100.0f, 150.0f, 60.0f, Cell, Gap) == 60.0f);
 }
 
 TEST_CASE("un composant non décrit, une étiquette, une paire : une ligne à leur nom")
@@ -614,12 +683,141 @@ TEST_CASE("les angles tapés restent affichés d'une modification à l'autre, la
 namespace
 {
 
-/// La couleur d'un sommet sans son alpha : les franges de l'anticrénelage sont transparentes, et
-/// c'est la teinte qui compte.
+/// Les repères de X, Y et Z que dessine `ImGuiSliderFlags_ColorMarkers` : rouge, vert, bleu
+/// (`GDefaultRgbaColorMarkers`, imgui_widgets.cpp). ImGui les écrit en dur : une mise à jour
+/// d'ImGui qui les change fait échouer le test, et c'est voulu.
+constexpr std::array<ImU32, 3> AxisMarkerColors = {
+    IM_COL32(240, 20, 20, 255), IM_COL32(20, 240, 20, 255), IM_COL32(20, 20, 240, 255)};
+
+/// La couleur d'un sommet sans son alpha : un composant en lecture seule (grisé) dessine ses
+/// repères à 60 %, les franges de l'anticrénelage sont transparentes, et c'est la teinte qui
+/// compte.
 bool sameRgb(ImU32 a, ImU32 b)
 {
     return (a & ~static_cast<ImU32>(IM_COL32_A_MASK)) == (b & ~static_cast<ImU32>(IM_COL32_A_MASK));
 }
+
+/// Où une couleur a été dessinée : le rectangle des sommets de la liste de dessin de cette teinte.
+/// `found` faux : aucun sommet de cette teinte (pas un `std::optional`, que clang-tidy veut vérifié
+/// à chaque accès, et que `REQUIRE` ne lui montre pas).
+struct Spot
+{
+    bool found = false;
+    float left = 0.0f;
+    float top = 0.0f;
+    float bottom = 0.0f;
+};
+
+Spot spotOf(const ImDrawList& list, ImU32 color)
+{
+    Spot spot;
+    for (const ImDrawVert& vertex : list.VtxBuffer)
+    {
+        if (!sameRgb(vertex.col, color))
+        {
+            continue;
+        }
+        spot = spot.found ? Spot{.found = true,
+                                 .left = std::min(spot.left, vertex.pos.x),
+                                 .top = std::min(spot.top, vertex.pos.y),
+                                 .bottom = std::max(spot.bottom, vertex.pos.y)}
+                          : Spot{.found = true,
+                                 .left = vertex.pos.x,
+                                 .top = vertex.pos.y,
+                                 .bottom = vertex.pos.y};
+    }
+    return spot;
+}
+
+/// Les repères X, Y, Z qu'un composant a fait dessiner, dans le style de l'éditeur (le repère n'a
+/// de taille que par `ColorMarkerSize`), et la hauteur d'une ligne de champ.
+struct AxisMarkers
+{
+    std::array<Spot, 3> spots;
+    float rowHeight = 0.0f;
+};
+
+template <class T> AxisMarkers axisMarkersOf(Typing& typing, flecs::entity entity)
+{
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    AxisMarkers markers;
+    uiFrame(typing.world,
+            [&]
+            {
+                ImGui::SetNextWindowPos({0.0f, 0.0f});
+                ImGui::SetNextWindowSize({500.0f, 400.0f});
+                ImGui::Begin("repères");
+                levain::editor::inspectComponent(typing.world, typing.inspector, entity,
+                                                 typing.world.id<T>());
+                for (std::size_t axis = 0; axis < markers.spots.size(); ++axis)
+                {
+                    markers.spots.at(axis) =
+                        spotOf(*ImGui::GetWindowDrawList(), AxisMarkerColors.at(axis));
+                }
+                markers.rowHeight = ImGui::GetFrameHeight();
+                ImGui::End();
+            });
+    return markers;
+}
+
+} // namespace
+
+TEST_CASE("un vecteur de trois composantes porte les repères X rouge, Y vert, Z bleu, d'une seule "
+          "ligne")
+{
+    Typing typing;
+    // Tuning a un vec3 parmi des nombres seuls, un booléen, une enum et un agrégat : seul le vec3
+    // porte des repères, donc ils tiennent tous dans une seule ligne de champ.
+    const AxisMarkers markers =
+        axisMarkersOf<Tuning>(typing, typing.world.entity("réglée").set(Tuning{}));
+    for (const Spot& spot : markers.spots)
+    {
+        REQUIRE(spot.found);
+    }
+    const Spot& redSpot = markers.spots.at(0);
+    CHECK(redSpot.left < markers.spots.at(1).left); // X, Y, Z de gauche à droite
+    CHECK(markers.spots.at(1).left < markers.spots.at(2).left);
+    for (const Spot& spot : markers.spots)
+    {
+        CHECK(spot.top == doctest::Approx(redSpot.top).epsilon(0.01));
+        // la frange d'anticrénelage dépasse d'un pixel
+        CHECK(spot.bottom - spot.top <= markers.rowHeight + 2.0f);
+    }
+}
+
+TEST_CASE("un vecteur de deux composantes porte X et Y, une rotation X, Y et Z")
+{
+    Typing typing;
+    const AxisMarkers pan =
+        axisMarkersOf<editor_test::Pan>(typing, typing.world.entity("a").set(editor_test::Pan{}));
+    CHECK(pan.spots.at(0).found);
+    CHECK(pan.spots.at(1).found);
+    CHECK_FALSE(pan.spots.at(2).found); // pas de Z : un repère bleu sans axe serait faux
+    const AxisMarkers facing = axisMarkersOf<editor_test::Facing>(
+        typing, typing.world.entity("b").set(editor_test::Facing{}));
+    CHECK(facing.spots.at(0).found);
+    CHECK(facing.spots.at(1).found);
+    CHECK(facing.spots.at(2).found);
+}
+
+TEST_CASE("un nombre seul et une ligne de tableau n'ont aucun repère : ce ne sont pas des axes")
+{
+    Typing typing;
+    const AxisMarkers dial =
+        axisMarkersOf<editor_test::Dial>(typing, typing.world.entity("c").set(editor_test::Dial{}));
+    const AxisMarkers weights = axisMarkersOf<editor_test::Weights>(
+        typing, typing.world.entity("d").set(editor_test::Weights{}));
+    for (const AxisMarkers* markers : {&dial, &weights})
+    {
+        for (const Spot& spot : markers->spots)
+        {
+            CHECK_FALSE(spot.found);
+        }
+    }
+}
+
+namespace
+{
 
 /// Une couleur dans ce qu'ImGui a dessiné à la dernière image (`Render` a tout rassemblé).
 bool drawn(ImU32 color)

@@ -4,6 +4,7 @@
 // widget par champ, lus dans la description de flecs sans une ligne propre à un composant. Un
 // composant non décrit est une ligne à son nom.
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -43,7 +44,27 @@ struct Inspector
     /// de recomposer les matrices monde après `ui` (`recomposeAfterUi`, ADR-0036, décision 2), pour
     /// que l'image montre le `Transform` tapé. Remis à faux au début de chaque `drawInspector`.
     bool wrote = false;
+    /// La largeur du plus étroit des cadres de nombre dessinés à la dernière image (un composant
+    /// d'un vecteur, une cellule de matrice), lue sur le rectangle de l'item d'ImGui : ce que lit
+    /// le test des échelles pour dire qu'une valeur y tient. Maximal sans nombre dessiné.
+    float narrowestFrame = std::numeric_limits<float>::max();
 };
+
+/// numberCellWidth : la largeur minimale du cadre d'un nombre : « -0.000 » (le plus large des
+/// formats par défaut), le rembourrage des deux côtés, et le repère d'axe, dessiné dans le cadre.
+/// Plus étroit, le texte se coupe (« 0.0( ») ou passe sous le repère. Selon la police et l'échelle
+/// courantes d'ImGui.
+[[nodiscard]] float numberCellWidth();
+
+/// numbersPerRow : combien de nombres d'une matrice tiennent côte à côte dans `fieldWidth` (la
+/// largeur du champ, ImGui::CalcItemWidth), au plus quatre ; au moins un.
+[[nodiscard]] int numbersPerRow(float fieldWidth, float cell, float innerSpacing);
+
+/// labelColumnFor : la place du libellé, à droite du champ. Au plus `wanted`, mais jamais au prix
+/// du champ : trois nombres de `cell` (un vecteur) gardent leur place avant le libellé, qui garde
+/// au moins `minimum` (il se coupe plutôt que de disparaître).
+[[nodiscard]] float labelColumnFor(float available, float wanted, float minimum, float cell,
+                                   float innerSpacing);
 
 /// L'inspecteur d'un monde qui a importé la scène (ses feuilles glm) ; `registry` nomme les assets.
 [[nodiscard]] Inspector createInspector(const flecs::world& world,
