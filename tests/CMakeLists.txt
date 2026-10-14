@@ -536,7 +536,7 @@ endforeach()
 
 # La fenêtre « Raccourcis » de l'éditeur (ADR-0036, morceau 16) : changer un accord, le retrouver au redémarrage, nommer un
 # conflit, rien ne part pendant la saisie, réinitialiser. Un scénario par ctest (cinq lancements au plus chacun).
-set(editorShortcutSettingsScenarios change conflict capture reset menu scripted layout play focus leak azerty resetconflict held)
+set(editorShortcutSettingsScenarios change conflict capture reset menu scripted layout play focus leak azerty resetconflict held refusedreset)
 add_executable(levain_editor_shortcut_settings editor_shortcut_settings_gpu.cpp)
 target_link_libraries(levain_editor_shortcut_settings PRIVATE levain::editor levain::app levain::assets levain::core levain::platform levain::scene levain::ui)
 target_compile_definitions(levain_editor_shortcut_settings PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"

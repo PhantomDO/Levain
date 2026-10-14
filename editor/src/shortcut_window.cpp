@@ -44,6 +44,17 @@ std::string chordCellText(const Chord& chord, const platform::KeyAtPosition& key
     return isBound(chord) ? displayNameOf(chord, keyAtPosition) : std::string{ui::tr("(aucun)")};
 }
 
+/// Note l'action écrite, et celles qu'elle a dépouillées de leur accord (`removed`) : leur table
+/// ne dit plus ce que leur ligne de fichier disait non plus.
+void noteWritten(ShortcutWindow& window, Action action, const std::vector<ChordConflict>& removed)
+{
+    window.written.push_back(action);
+    for (const ChordConflict& conflict : removed)
+    {
+        window.written.push_back(conflict.action);
+    }
+}
+
 /// Un bouton de largeur fixe, dont le texte change sans changer l'identifiant (`##`).
 bool cellButton(const std::string& text, const char* id)
 {
@@ -99,9 +110,7 @@ void drawResetAll(ShortcutWindow& window, ShortcutTable& table, bool& changed)
         ImGui::TextUnformatted(ui::tr("Tous les raccourcis reprennent leurs accords par défaut."));
         if (ImGui::Button(ui::labelOf("Réinitialiser").c_str()))
         {
-            resetAll(table);
-            window.capturing.reset();
-            window.pending.reset();
+            resetEverything(window, table);
             changed = true;
             ImGui::CloseCurrentPopup();
         }
@@ -170,6 +179,7 @@ bool stepCapture(ShortcutWindow& window, ShortcutTable& table,
             return false;
         }
         replaceChord(table, target.action, target.slot, captured.chord, keyAtPosition);
+        noteWritten(window, target.action, {});
         return true;
     }
     return false;
@@ -184,12 +194,12 @@ std::vector<ChordConflict> acceptPending(ShortcutWindow& window, ShortcutTable& 
         return {};
     }
     const PendingChord& pending = *taken;
-    if (pending.resets)
-    {
-        return resetAction(table, pending.target.action, keyAtPosition);
-    }
-    return replaceChord(table, pending.target.action, pending.target.slot, pending.chord,
-                        keyAtPosition);
+    const std::vector<ChordConflict> removed =
+        pending.resets ? resetAction(table, pending.target.action, keyAtPosition)
+                       : replaceChord(table, pending.target.action, pending.target.slot,
+                                      pending.chord, keyAtPosition);
+    noteWritten(window, pending.target.action, removed);
+    return removed;
 }
 
 bool requestReset(ShortcutWindow& window, ShortcutTable& table, Action action,
@@ -207,8 +217,24 @@ bool requestReset(ShortcutWindow& window, ShortcutTable& table, Action action,
         return false;
     }
     window.pending.reset();
-    resetAction(table, action, keyAtPosition);
+    noteWritten(window, action, resetAction(table, action, keyAtPosition));
     return true;
+}
+
+void resetEverything(ShortcutWindow& window, ShortcutTable& table)
+{
+    resetAll(table);
+    for (std::size_t action = 0; action < static_cast<std::size_t>(Action::Count); ++action)
+    {
+        window.written.push_back(static_cast<Action>(action));
+    }
+    window.capturing.reset();
+    window.pending.reset();
+}
+
+void forgetWrittenLines(ShortcutWindow& window, std::vector<ShortcutLine>& kept)
+{
+    kept = withoutLinesOf(std::move(kept), std::exchange(window.written, {}));
 }
 
 void dropPendingAfterKeymapChange(ShortcutWindow& window)

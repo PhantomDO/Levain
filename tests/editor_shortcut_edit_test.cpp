@@ -572,6 +572,70 @@ TEST_CASE("les lignes : un accord d'un autre genre que l'action est refusé et g
     }
 }
 
+TEST_CASE("les lignes : une ligne refusée ne revient pas une fois son action écrite par la fenêtre")
+{
+    const ShortcutLine refused{.action = "Avancer", .chords = {"Z"}}; // une lettre pour le vol
+    const ShortcutLine refusedUp{.action = "Monter", .chords = {"Z"}};
+    const ShortcutLine unknown{.action = "Action d'une autre branche", .chords = {"Ctrl+Q"}};
+    const AppliedLines applied = shortcutsFromLines({refused, refusedUp, unknown});
+    REQUIRE(applied.refused.size() == 2);
+    std::vector<ShortcutLine> kept = applied.unknown;
+    kept.insert(kept.end(), applied.refused.begin(), applied.refused.end());
+    const auto namesOf = [](const std::vector<ShortcutLine>& lines)
+    {
+        std::vector<std::string> names;
+        names.reserve(lines.size());
+        for (const ShortcutLine& line : lines)
+        {
+            names.push_back(line.action);
+        }
+        return names;
+    };
+    ShortcutTable table = applied.table;
+    ShortcutWindow window;
+    // Avancer change : le fichier ne relirait plus « Avancer = Z », mais rien n'oublie la ligne
+    // tant que la fenêtre ne le dit pas.
+    beginCapture(window, {Action::MoveForward, 0});
+    REQUIRE(stepCapture(window, table, Qwerty,
+                        std::vector{KeyPress{.scancode = ScanZ, .keycode = 'z', .modifiers = {}}}));
+    CHECK(namesOf(withKeptLines(linesOf(table), kept)).size() == 3);
+    forgetWrittenLines(window, kept);
+    CHECK(namesOf(kept) == std::vector<std::string>{"Action d'une autre branche", "Monter"});
+    CHECK(window.written.empty()); // relevée : la prochaine image repart de rien
+    // « Réinitialiser » : les défauts d'Avancer, que `linesOf` n'écrit pas ; l'ancienne ligne ne
+    // revient pas, c'était le défaut (« Avancer = Z » revenait à chaque démarrage, refusée de
+    // nouveau).
+    REQUIRE(requestReset(window, table, Action::MoveForward, Qwerty));
+    forgetWrittenLines(window, kept);
+    const auto afterReset = withKeptLines(linesOf(table), kept);
+    CHECK(namesOf(afterReset) == std::vector<std::string>{"Action d'une autre branche", "Monter"});
+    // « Remplacer » dépouille « Monter » de sa touche : sa ligne refusée part aussi.
+    beginCapture(window, {Action::MoveForward, 1});
+    CHECK_FALSE(
+        stepCapture(window, table, Qwerty,
+                    std::vector{KeyPress{.scancode = ScanE, .keycode = 'e', .modifiers = {}}}));
+    forgetWrittenLines(window, kept);
+    CHECK(namesOf(kept).size() == 2); // rien n'est écrit tant que « Remplacer » n'a pas tranché
+    REQUIRE_FALSE(acceptPending(window, table, Qwerty).empty());
+    forgetWrittenLines(window, kept);
+    CHECK(namesOf(kept) == std::vector<std::string>{"Action d'une autre branche"});
+    // Une action que la table a quittée par un autre chemin que cette fenêtre (« Monter » ci-dessus
+    // l'a été par « Remplacer », ici posée à la main) : « Réinitialiser » écrit aussi son action.
+    ShortcutTable moved = defaultShortcuts();
+    setChord(moved, Action::MoveUp, 0, positionChord(ScanZ));
+    std::vector<ShortcutLine> keptUp{refusedUp};
+    REQUIRE(requestReset(window, moved, Action::MoveUp, Qwerty));
+    forgetWrittenLines(window, keptUp);
+    CHECK(keptUp.empty());
+    // Une action inconnue n'est jamais « écrite » : « Tout réinitialiser » les garde, et vide le
+    // reste.
+    kept.push_back(refused);
+    resetEverything(window, table);
+    forgetWrittenLines(window, kept);
+    CHECK(namesOf(kept) == std::vector<std::string>{"Action d'une autre branche"});
+    CHECK(linesOf(table).empty());
+}
+
 TEST_CASE("le filtre : le nom de l'action ou l'un de ses accords")
 {
     const auto rows = helpRowsOf(defaultShortcuts(), Azerty);

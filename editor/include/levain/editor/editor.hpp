@@ -155,7 +155,9 @@ struct Editor
     std::optional<std::filesystem::path> preferencesFile;
     /// Les lignes de `[raccourcis]` que ce code ne connaît pas ou n'a pas pu appliquer
     /// (`AppliedLines::unknown`, `refused`), gardées pour que l'enregistrement ne les perde pas ;
-    /// la table s'écrit par `linesOf` (`withKeptLines`).
+    /// la table s'écrit par `linesOf` (`withKeptLines`). La ligne d'une action que la fenêtre
+    /// « Raccourcis » a écrite est oubliée (`forgetWrittenLines`) : un refus ne revient pas après
+    /// que l'utilisateur a choisi.
     std::vector<ShortcutLine> shortcutLines;
     /// « Réinitialiser la disposition » a été cliquée : le `frame` de l'image suivante la fait
     /// (entre `NewFrame` et l'espace d'ancrage), et `savePreferencesNext` réécrit le fichier à la

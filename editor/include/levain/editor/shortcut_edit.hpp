@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -162,5 +163,13 @@ struct AppliedLines
 /// fichier relirait deux fois la même action.
 [[nodiscard]] std::vector<ShortcutLine> withKeptLines(std::vector<ShortcutLine> written,
                                                       const std::vector<ShortcutLine>& kept);
+
+/// Oublie les lignes gardées des actions que la fenêtre vient d'écrire : **une ligne refusée ne
+/// survit pas au premier choix de l'utilisateur sur son action**. Sans cela, `withKeptLines` la
+/// rendait dès que `linesOf` omettait l'action (changer « Avancer » puis la réinitialiser rouvrait
+/// « Avancer = Z », qui refusait de nouveau à chaque démarrage). Une action inconnue n'est jamais
+/// une action écrite : sa ligne reste.
+[[nodiscard]] std::vector<ShortcutLine> withoutLinesOf(std::vector<ShortcutLine> kept,
+                                                       std::span<const Action> written);
 
 } // namespace levain::editor

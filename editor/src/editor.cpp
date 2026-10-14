@@ -261,6 +261,7 @@ std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>&
     {
         editor.savePreferencesNext = true; // enregistré tout de suite, à la fin de `ui`
     }
+    forgetWrittenLines(editor.shortcutWindow, editor.shortcutLines);
     if (menus.quit)
     {
         askToQuit(editor.quit);

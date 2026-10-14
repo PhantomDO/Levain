@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <span>
 #include <utility>
 
 #include "levain/ui/tr.hpp"
@@ -377,6 +378,18 @@ std::vector<ShortcutLine> withKeptLines(std::vector<ShortcutLine> written,
         }
     }
     return written;
+}
+
+std::vector<ShortcutLine> withoutLinesOf(std::vector<ShortcutLine> kept,
+                                         std::span<const Action> written)
+{
+    std::erase_if(kept,
+                  [written](const ShortcutLine& line)
+                  {
+                      return std::ranges::any_of(written, [&line](Action action)
+                                                 { return line.action == nameOf(action); });
+                  });
+    return kept;
 }
 
 } // namespace levain::editor
