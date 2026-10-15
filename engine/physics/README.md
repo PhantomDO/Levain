@@ -102,6 +102,15 @@ plugin `character`.
     des bornes suivent les refus de `whyNotThisShape` et `whyNotThisCharacter` ; les plafonds et le [0, 1] du
     frottement et du rebond sont le domaine de l'éditeur, que rien ne refuse au-delà. Pas `Collider` (un
     `std::variant`, sans réflexion), ni les handles, les étiquettes et les singletons.
+14. **Le jeu de l'éditeur commence et finit proprement** (ADR-0037) : `freshPhysicsWorld` remplace le monde
+    Jolt par un neuf au Play (identifiants de corps de zéro, `OverlapState` vide) et **refuse** si une entité
+    porte encore un `BodyHandle` ou un `CharacterHandle` ; `endPlay` retire les paires `(InsideOf, *)` au Stop
+    **sans qu'aucun `onExit` du gameplay ne parte** (les observateurs d'`onEnter` et d'`onExit`, étiquetés
+    `TriggerCallback`, sont désactivés le temps du retrait). Un observateur que le gameplay poserait lui-même sur
+    `InsideOf` n'est pas tu. Les deux sont `[[nodiscard]]`, et `endPlay` **refuse dans le mode différé**, dans
+    tous les builds. Le retrait des handles suffit à reconstruire les corps dans le monde neuf : un
+    `without<BodyHandle>` devient un `OnRemove`, `RecheckRefusedBody` et `RecheckRefusedCharacter` remettent
+    `BodyDirty` et `CharacterDirty` (testé), et le premier pas du jeu bâtit tout.
 
 ## Les volumes déclencheurs, par l'exemple
 
@@ -192,7 +201,7 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | [`include/levain/physics/outlines.hpp`](include/levain/physics/outlines.hpp) | `Segment`, `CircleSegments`, `appendOutline` — les arêtes de chaque forme, pour les lignes de debug de `render` ; sans Jolt |
 | [`include/levain/physics/character.hpp`](include/levain/physics/character.hpp) | `CharacterController`, `whyNotThisCharacter`, `GroundState`, `CharacterGround`, `isWalking`, `CharacterVelocity`, `CharacterState`, `createCharacter`, `moveCharacter`, `teleportCharacter`, `turnCharacter`, `refreshCharacterGround`, `characterVelocity`, `characterGround` : le personnage, un `CharacterVirtual` de Jolt (ADR-0028), sans flecs |
 | [`include/levain/physics/body_rules.hpp`](include/levain/physics/body_rules.hpp) | `whyNotABody`, `whyNotThisLayer`, `poseOf` |
-| [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs ; `CharacterDirty` ; `inIdOrder`, `indexOfEntity` : l'ordre des index (ADR-0037) |
+| [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs ; `CharacterDirty` ; `inIdOrder`, `freshPhysicsWorld`, `endPlay` : le jeu de l'éditeur (ADR-0037) |
 | [`src/physics_world.cpp`](src/physics_world.cpp) | Jolt : les couches, le job system, les corps, le pas |
 | [`src/physics_state.hpp`](src/physics_state.hpp) | L'état de Jolt partagé par les fichiers du module ; interne, aucun en-tête de Jolt n'en sort |
 | [`src/character.cpp`](src/character.cpp) | Le personnage : sa capsule posée sur ses pieds, son corps intérieur, son `ExtendedUpdate` |
