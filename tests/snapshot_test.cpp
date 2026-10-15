@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -556,6 +557,41 @@ TEST_CASE("Stop rend un volume sans son observateur détruit, et le rapport le n
     REQUIRE(restored->lostInternalChildren.size() == 1);
     CHECK(restored->lostInternalChildren[0].find("zone") != std::string::npos);
     CHECK(volume.is_alive());
+}
+
+TEST_CASE("compareWithSnapshot compte les vraies différences à part des enfants internes perdus")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    // Plus de vingt volumes à observateur (le plafond des lignes est 20), et une entité à part.
+    std::vector<flecs::entity> volumes;
+    for (std::size_t i = 0; i < levain::scene::MaxReportedDifferences + 5; ++i)
+    {
+        const flecs::entity volume =
+            world.entity(std::format("zone_{}", i).c_str()).set(Transform{});
+        world.observer<Mass>().event(flecs::OnSet).each([](Mass&) {}).child_of(volume);
+        volumes.push_back(volume);
+    }
+    const flecs::entity alone = world.entity("seule").set(Mass{.kilograms = 1.0f});
+    const Snapshot snapshot = snapshotOf(world);
+
+    levain::scene::usePlayIds(world, *ranges);
+    for (const flecs::entity& volume : volumes)
+    {
+        volume.destruct();
+    }
+    REQUIRE(restoreSnapshot(world, *ranges, snapshot).has_value());
+    alone.set(Mass{.kilograms = 2.0f}); // la seule vraie différence
+
+    const levain::scene::Comparison comparison =
+        levain::scene::compareWithSnapshot(world, snapshot);
+
+    CHECK(comparison.differenceCount == 1);
+    CHECK(comparison.differences.size() == 1);
+    CHECK(comparison.lostInternalChildren.size() == volumes.size());
+    // `differencesFrom` garde son contrat : tout, plafonné.
+    CHECK(differencesFrom(world, snapshot).size() == levain::scene::MaxReportedDifferences + 1);
 }
 
 TEST_CASE("restoreSnapshot refuse une liste d'enfants qui n'est pas celle du parent")

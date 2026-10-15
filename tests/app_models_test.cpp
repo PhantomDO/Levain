@@ -1,3 +1,4 @@
+#include <map>
 #include <optional>
 #include <string>
 
@@ -91,4 +92,51 @@ TEST_CASE("l'horloge des squelettes démarrée à l'arrêt : la première image 
     CHECK(advanceAnimationClock(running, 0.25, true) == 0.25);
     CHECK(advanceAnimationClock(running, 1.25, true) == 0.25);
     CHECK(advanceAnimationClock(running, 2.0, false) == 1.0);
+}
+
+TEST_CASE(
+    "l'animation se retient avant Play et se rend à Stop : horloge, animateur, dernière image")
+{
+    using levain::app::ModelGpu;
+    std::map<levain::assets::AssetId, ModelGpu> models;
+    const levain::assets::AssetId animated = levain::assets::generateAssetId();
+    const levain::assets::AssetId still = levain::assets::generateAssetId();
+    const levain::assets::AssetId unloadedInPlay = levain::assets::generateAssetId();
+    models[animated].animation = levain::animation::AnimationSet{};
+    models[animated].animator.emplace().stateSeconds = 1.5f;
+    models[animated].lastSeconds = 2.0f;
+    models[unloadedInPlay].animation = levain::animation::AnimationSet{};
+    models[unloadedInPlay].lastSeconds = 7.0f;
+    models[still].lastSeconds = 9.0f; // sans squelette : rien à retenir
+    levain::app::AnimationClock clock{.pausedSeconds = 3.0, .lastSceneSeconds = 4.0};
+
+    const levain::app::AnimationMemo memo = levain::app::rememberAnimation(models, clock);
+    CHECK(memo.models.size() == 2);
+    CHECK_FALSE(memo.models.contains(still));
+
+    // Le jeu avance l'animation, décharge un modèle, en charge un autre.
+    clock = {.pausedSeconds = 3.0, .lastSceneSeconds = 10.0};
+    levain::animation::Animator moved;
+    moved.stateSeconds = 8.0f;
+    moved.state = levain::animation::MotionState::Jump;
+    models[animated].animator = moved;
+    models[animated].lastSeconds = 9.5f;
+    models.erase(unloadedInPlay);
+    const levain::assets::AssetId bornInPlay = levain::assets::generateAssetId();
+    models[bornInPlay].lastSeconds = 5.0f;
+
+    levain::app::restoreAnimation(models, clock, memo);
+
+    CHECK(clock.lastSceneSeconds == 4.0);
+    CHECK(clock.pausedSeconds == 3.0);
+    const std::optional<levain::animation::Animator>& animator = models.at(animated).animator;
+    CHECK(animator.has_value());
+    if (animator)
+    {
+        CHECK(animator->stateSeconds == 1.5f);
+        CHECK(animator->state == levain::animation::MotionState::Ground);
+    }
+    CHECK(models.at(animated).lastSeconds == 2.0f);
+    CHECK_FALSE(models.contains(unloadedInPlay));     // rien ne le recrée
+    CHECK(models.at(bornInPlay).lastSeconds == 5.0f); // né en jeu : intact
 }

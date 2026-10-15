@@ -162,6 +162,32 @@ struct SkinningState
 
 [[nodiscard]] SkinningState createSkinningState(nvrhi::IDevice& device);
 
+/// Ce que Play garde de l'animation pour que Stop la rende (ADR-0037, décision 5) : l'horloge des
+/// squelettes, et pour chaque modèle animé son animateur et le temps de sa dernière image. La pose
+/// et les matrices ne se gardent pas : elles se recalculent de ces deux-là, à l'image suivante.
+/// Un modèle chargé pendant le jeu n'y est pas, et sa pose repart de zéro à Stop.
+struct AnimationMemo
+{
+    struct Model
+    {
+        std::optional<animation::Animator> animator;
+        float lastSeconds = 0.0f;
+    };
+
+    AnimationClock clock;
+    std::map<assets::AssetId, Model> models;
+};
+
+/// Retient l'animation des modèles animés.
+[[nodiscard]] AnimationMemo rememberAnimation(const std::map<assets::AssetId, ModelGpu>& models,
+                                              const AnimationClock& clock);
+
+/// Rend ce que `rememberAnimation` a retenu, pour les modèles encore chargés (les assets retenus
+/// pendant le jeu, `holdAssetsInUse`, font qu'ils le sont tous). Les mesures du coût du skinning
+/// ne sont pas de l'animation : elles ne reviennent pas.
+void restoreAnimation(std::map<assets::AssetId, ModelGpu>& models, AnimationClock& clock,
+                      const AnimationMemo& memo);
+
 /// Anime les modèles skinnés (ADR-0022) : la pose de leur clip à `seconds` (le temps des
 /// squelettes, `advanceAnimationClock`, non celui de la scène), ou celle de leur
 /// animateur selon `motionOf`, ses matrices, puis un dispatch par mesh skinné. À enregistrer avant

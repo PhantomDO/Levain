@@ -17,6 +17,7 @@
 #include "levain/scene/components.hpp"
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
+#include "levain/scene/snapshot.hpp"
 
 namespace levain::physics
 {
@@ -234,14 +235,13 @@ void describePhysicsComponents(flecs::world& world)
 
 std::uint32_t indexOfEntity(flecs::entity_t id)
 {
-    return static_cast<std::uint32_t>(id);
+    return scene::entityIndexOf(id);
 }
 
-int inIdOrder(flecs::entity_t first, const void*, flecs::entity_t second, const void*)
+int inIdOrder(flecs::entity_t first, const void* firstValue, flecs::entity_t second,
+              const void* secondValue)
 {
-    const std::uint32_t a = indexOfEntity(first);
-    const std::uint32_t b = indexOfEntity(second);
-    return (a > b) - (a < b);
+    return scene::byEntityIndex(first, firstValue, second, secondValue);
 }
 
 std::optional<std::string> freshPhysicsWorld(flecs::world& world)
@@ -328,6 +328,11 @@ PhysicsModule::PhysicsModule(flecs::world& world)
     // Enregistrée ici et non à la première pose : `endPlay` la cherche, et le monde peut n'avoir
     // aucun déclencheur.
     world.component<TriggerCallback>();
+    // Les handles désignent des corps du monde Jolt : un instantané de la scène ne les copie pas
+    // (ils désigneraient des corps détruits), et Stop les retire avant `freshPhysicsWorld`
+    // (ADR-0037, décision 1).
+    world.component<BodyHandle>().add<scene::Transient>();
+    world.component<CharacterHandle>().add<scene::Transient>();
 
     // Ce que la physique déplace est interpolé par le rendu, comme ce qui a une Velocity
     // (ADR-0016) : le trait With lui attache l'état du pas précédent.
