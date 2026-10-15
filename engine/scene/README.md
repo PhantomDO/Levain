@@ -74,7 +74,12 @@ Play garde la scène, Stop la rend **en place**, avec les mêmes identifiants ([
   (`(ChildOf, *)`), car un enfant de `flecs::Parent` répond oui à `entity.has(ChildOf, *)`.
 - **`takeSnapshot`** copie, pour chaque entité de la scène, son identifiant avec sa génération, son type complet, la
   valeur de chaque composant **par les crochets du type** (`ecs_value_copy`), son nom, son parent, l'ordre de ses
-  enfants et ses enfants internes (l'observateur d'un `onEnter`).
+  enfants et ses enfants internes (l'observateur d'un `onEnter`). Play **ne part pas**, en nommant l'entité et la
+  cause, pour : un composant qui ne se copie pas (`COPY_ILLEGAL`) ou sans constructeur par défaut (`CTOR_ILLEGAL`) ;
+  une instance de prefab `(IsA, *)` ; deux frères du même nom (`lookup` n'en rend qu'un) ; une entité à `Transform`
+  rangée par `ChildOf` sous autre chose qu'un module, que la Hiérarchie montre mais que l'instantané ne garde pas.
+  Un type à copie supprimée mais à déplacement défini par défaut compte pour trivialement copiable pour flecs : il est
+  copié par `memcpy`, sans risque puisque son destructeur est trivial ; ce qui pend, ce sont les handles, d'où `Transient`.
 - **`Transient`**, une étiquette sur un composant comme `Authored`, posée à l'import de `SceneModule` : un module
   marque ce qui n'est pas la scène (les handles de Jolt). Jamais copié, jamais refusé, retiré des entités à Stop.
 

@@ -2,8 +2,12 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <format>
+#include <set>
 #include <span>
 #include <utility>
+
+#include "levain/scene/components.hpp"
 
 namespace levain::scene
 {
@@ -14,6 +18,19 @@ namespace
 std::uint32_t indexOf(flecs::entity_t entity)
 {
     return static_cast<std::uint32_t>(entity);
+}
+
+/// Le chemin sans le « :: » de tête que flecs met aux enfants de `flecs::Parent` : lisible, et
+/// `lookup` le relit aussi bien.
+std::string pathOf(const flecs::world& world, flecs::entity_t entity)
+{
+    std::string path = world.entity(entity).path().c_str();
+    return path.starts_with("::") ? path.substr(2) : path;
+}
+
+std::string idLabel(const flecs::world& world, flecs::entity_t id)
+{
+    return flecs::id(world, id).str().c_str();
 }
 
 /// Un identifiant du type qui n'est pas de l'état de la scène : ce que flecs tient lui-même (le
@@ -135,6 +152,56 @@ EntityRecord readRecord(const flecs::world& world, flecs::entity_t entity)
     return record;
 }
 
+/// Une entité de la scène en apparence, mais rangée par `ChildOf` sous autre chose qu'un module
+/// (`world.entity("a::b")`, `child_of`) : `isSceneEntity` la laisse hors de l'instantané, alors que
+/// la Hiérarchie montre ce qui porte un `Transform`. Les modules rangent ainsi leurs propres
+/// entités, qui sont internes ou n'ont pas de `Transform`.
+struct PlacedByChildOf
+{
+    flecs::entity_t entity;
+    flecs::entity_t parent;
+};
+
+std::vector<PlacedByChildOf> placedByChildOf(const flecs::world& world)
+{
+    const ecs_entities_t all = ecs_get_entities(world);
+    std::vector<PlacedByChildOf> placed;
+    for (const flecs::entity_t entity :
+         std::span{all.ids, static_cast<std::size_t>(all.alive_count)})
+    {
+        const flecs::table table = world.entity(entity).table();
+        if (indexOf(entity) >= EcsFirstUserEntityId && !isEngineInternal(table) &&
+            table.has(flecs::ChildOf, flecs::Wildcard))
+        {
+            placed.push_back({entity, ecs_get_parent(world, entity)});
+        }
+    }
+    std::ranges::sort(placed, {}, [](const PlacedByChildOf& p) { return indexOf(p.entity); });
+    return placed;
+}
+
+/// Pourquoi Stop ne saurait pas rendre cet identifiant du type, ou rien.
+std::optional<std::string> refusalFor(const flecs::world& world, flecs::id_t id)
+{
+    if (ECS_IS_PAIR(id) && ecs_pair_first(world, id) == EcsIsA)
+    {
+        return std::format("instance de prefab {} : ses valeurs héritées ne se copient pas entité "
+                           "par entité",
+                           idLabel(world, id));
+    }
+    const ecs_type_info_t* info = ecs_get_type_info(world, id);
+    // Une copie interdite, ou pas de constructeur par défaut : `ecs_value_new` ne saurait pas
+    // construire la copie (flecs s'arrête sur une assertion).
+    constexpr ecs_flags32_t Uncopyable = ECS_TYPE_HOOK_COPY_ILLEGAL | ECS_TYPE_HOOK_CTOR_ILLEGAL;
+    if (info != nullptr && (info->hooks.flags & Uncopyable) != 0)
+    {
+        return std::format("le composant {} ne se copie pas (marquer `scene::Transient` s'il n'est "
+                           "pas de la scène)",
+                           idLabel(world, id));
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 bool isEngineInternal(const flecs::table& table)
@@ -156,7 +223,8 @@ bool isSceneEntity(const flecs::world& world, flecs::entity_t entity)
 ValueBox::ValueBox(const flecs::world& world, flecs::entity_t type, const void* source)
     : m_world(world.c_ptr()), m_type(type), m_data(ecs_value_new(world, type))
 {
-    // `ecs_value_*` passe par les crochets du type (flecs.h, « Values »).
+    // `ecs_value_*` passe par les crochets du type (flecs.h, « Values ») ; `takeSnapshot` a refusé
+    // avant un type qui ne se copie pas.
     (void)ecs_value_copy(world, type, m_data, source);
 }
 
@@ -202,17 +270,49 @@ std::vector<flecs::entity_t> sceneEntities(const flecs::world& world)
 core::Result<Snapshot> takeSnapshot(const flecs::world& world)
 {
     world.component<Transient>(); // avant la liste des entités : l'enregistrer en crée une
+    for (const PlacedByChildOf& placed : placedByChildOf(world))
+    {
+        if (world.entity(placed.entity).table().has<Transform>() &&
+            !world.entity(placed.parent).table().has(flecs::Module))
+        {
+            return core::makeError(
+                core::ErrorCode::Unsupported,
+                std::format(
+                    "Play ne part pas : {} est rangée par ChildOf sous {} : la scène n'emploie "
+                    "que flecs::Parent (ADR-0015), et Stop ne la rendrait pas",
+                    pathOf(world, placed.entity), pathOf(world, placed.parent)));
+        }
+    }
     Snapshot snapshot;
+    std::set<std::pair<flecs::entity_t, std::string>> siblingNames;
     for (const flecs::entity_t entity : sceneEntities(world))
     {
         EntityRecord record = readRecord(world, entity);
         for (const flecs::entity_t id : record.type)
         {
+            if (auto refusal = refusalFor(world, id))
+            {
+                return core::makeError(
+                    core::ErrorCode::Unsupported,
+                    std::format("Play ne part pas : {} : {}", pathOf(world, entity), *refusal));
+            }
             if (const flecs::entity_t type = valueTypeOf(world, id); type != 0)
             {
                 record.values.push_back(
                     {.id = id, .value = ValueBox{world, type, ecs_get_id(world, entity, id)}});
             }
+        }
+        // Deux frères du même nom : flecs les accepte, mais `lookup` n'en rend qu'un, et Stop
+        // échouerait à chaque fois sur ce `lookup`.
+        if (record.name && !siblingNames.emplace(record.parent, *record.name).second)
+        {
+            return core::makeError(
+                core::ErrorCode::Unsupported,
+                std::format("Play ne part pas : deux frères s'appellent « {} » "
+                            "sous {}, dont {}",
+                            *record.name,
+                            record.parent != 0 ? pathOf(world, record.parent) : "la racine",
+                            pathOf(world, entity)));
         }
         snapshot.entities.push_back(std::move(record));
     }

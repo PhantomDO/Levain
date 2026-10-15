@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -148,6 +149,20 @@ TEST_CASE(
     CHECK(record(watcher) == snapshot.entities.end()); // un observateur n'est pas de la scène
 }
 
+TEST_CASE(
+    "l'instantané refuse un composant qui ne se copie pas, en nommant l'entité et le composant")
+{
+    flecs::world world = makeWorld();
+    world.entity("clé").set(Unique{});
+
+    const auto snapshot = takeSnapshot(world);
+
+    REQUIRE_FALSE(snapshot.has_value());
+    CHECK(snapshot.error().message.find("clé") != std::string::npos);
+    CHECK(snapshot.error().message.find("Unique") != std::string::npos);
+    CHECK(snapshot.error().message.find("ne se copie pas") != std::string::npos);
+}
+
 TEST_CASE("un composant Transient n'est ni copié ni refusé")
 {
     flecs::world world = makeWorld();
@@ -161,4 +176,70 @@ TEST_CASE("un composant Transient n'est ni copié ni refusé")
     CHECK(snapshot.entities[0].id == owner.id());
     CHECK(snapshot.entities[0].type.size() == 1); // Mass seul
     CHECK(snapshot.entities[0].values.size() == 1);
+}
+
+TEST_CASE("l'instantané refuse une instance de prefab")
+{
+    flecs::world world = makeWorld();
+    const flecs::entity prefab = world.prefab("modèle").set(Mass{});
+    world.entity("instance").is_a(prefab);
+
+    const auto snapshot = takeSnapshot(world);
+
+    REQUIRE_FALSE(snapshot.has_value());
+    CHECK(snapshot.error().message.find("instance") != std::string::npos);
+    CHECK(snapshot.error().message.find("prefab") != std::string::npos);
+}
+
+TEST_CASE("l'instantané refuse deux frères du même nom, en nommant l'entité")
+{
+    flecs::world world = makeWorld();
+    const flecs::entity parent = world.entity("parent");
+    child(world, parent, "jumeau");
+    child(world, parent, "jumeau");
+
+    const auto snapshot = takeSnapshot(world);
+
+    REQUIRE_FALSE(snapshot.has_value());
+    CHECK(snapshot.error().message.find("jumeau") != std::string::npos);
+    CHECK(snapshot.error().message.find("deux frères") != std::string::npos);
+}
+
+namespace
+{
+
+/// Un composant sans constructeur par défaut, posé par `emplace` : `ecs_value_new` ne saurait pas
+/// en construire la copie.
+struct NoDefault
+{
+    explicit NoDefault(int start) : value(start) {}
+
+    int value;
+};
+
+} // namespace
+
+TEST_CASE("l'instantané refuse un composant sans constructeur par défaut")
+{
+    flecs::world world = makeWorld();
+    world.entity("sans défaut").emplace<NoDefault>(3);
+
+    const auto snapshot = takeSnapshot(world);
+
+    REQUIRE_FALSE(snapshot.has_value());
+    CHECK(snapshot.error().message.find("sans défaut") != std::string::npos);
+    CHECK(snapshot.error().message.find("NoDefault") != std::string::npos);
+}
+
+TEST_CASE(
+    "l'instantané refuse une entité à Transform rangée par ChildOf sous autre chose qu'un module")
+{
+    flecs::world world = makeWorld();
+    world.entity("rangée::dessous").set(Transform{}); // « rangée » est une entité ordinaire
+
+    const auto snapshot = takeSnapshot(world);
+
+    REQUIRE_FALSE(snapshot.has_value());
+    CHECK(snapshot.error().message.find("dessous") != std::string::npos);
+    CHECK(snapshot.error().message.find("ChildOf") != std::string::npos);
 }
