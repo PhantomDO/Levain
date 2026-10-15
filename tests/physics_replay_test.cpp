@@ -1,6 +1,7 @@
 // Jouer deux fois la même scène donne les mêmes résultats, au bit près (ADR-0037, décision 4) : les
-// corps et les personnages se construisent et avancent dans l'ordre des index, non des tables. Le
-// déterminisme de Jolt : https://jrouwe.github.io/JoltPhysics/#deterministic-simulation
+// corps et les personnages se construisent et avancent dans l'ordre des index, non des tables, et
+// la fin du jeu se fait en silence. Le déterminisme de Jolt :
+// https://jrouwe.github.io/JoltPhysics/#deterministic-simulation
 
 #include <bit>
 #include <cmath>
@@ -22,6 +23,7 @@
 
 using levain::physics::Box;
 using levain::physics::CharacterController;
+using levain::physics::CharacterHandle;
 using levain::physics::CharacterVelocity;
 using levain::physics::Collider;
 using levain::physics::Layer;
@@ -243,4 +245,110 @@ TEST_CASE("une planche posée sur quatre personnages : l'ordre de construction n
         CHECK(sameBits(straight[i], detoured[i]));
     }
     CHECK(straight[0].position.y > 1.0f); // posée sur les têtes, pas tombée au sol
+}
+
+TEST_CASE("freshPhysicsWorld refuse tant qu'un handle est posé, et rend un monde neuf sinon")
+{
+    flecs::world world = groundWorld();
+    const flecs::entity crate = world.entity()
+                                    .set(Transform{.position = {0.0f, 3.0f, 0.0f}})
+                                    .set(Collider{.shape = Box{{0.5f, 0.5f, 0.5f}}})
+                                    .set(RigidBody{});
+    advance(world, 1);
+    const std::uint32_t firstHandle = crate.get<levain::physics::BodyHandle>().value;
+
+    const auto refusal = levain::physics::freshPhysicsWorld(world);
+    const std::string reason = refusal.value_or("");
+    REQUIRE_FALSE(reason.empty());
+    CHECK(reason.find("freshPhysicsWorld refusé") != std::string::npos);
+    CHECK(reason.find("BodyHandle") != std::string::npos);
+    CHECK(levain::physics::bodyCount(world.get<levain::physics::PhysicsWorld>()) == 2); // intact
+
+    // Les handles retirés (ce que scene::Transient fera à Stop), le monde est remplacé.
+    // Par la crate et le sol, pas en parcourant : flecs verrouille la table pendant `each`.
+    const flecs::entity ground = world.lookup("Ground");
+    crate.remove<levain::physics::BodyHandle>();
+    ground.remove<levain::physics::BodyHandle>();
+    // Ce que Play attend du retrait : RecheckRefusedBody (un `without<BodyHandle>` qui devient un
+    // OnRemove) remet BodyDirty tout seul, et le premier pas du jeu reconstruit les corps.
+    CHECK(crate.has<levain::physics::BodyDirty>());
+    CHECK(ground.has<levain::physics::BodyDirty>());
+    CHECK_FALSE(levain::physics::freshPhysicsWorld(world).has_value());
+    CHECK(levain::physics::bodyCount(world.get<levain::physics::PhysicsWorld>()) == 0);
+
+    // Les identifiants de corps repartent de zéro : la même caisse reçoit le même.
+    advance(world, 1);
+    CHECK(crate.get<levain::physics::BodyHandle>().value == firstHandle);
+}
+
+TEST_CASE(
+    "freshPhysicsWorld refuse aussi un CharacterHandle, et sa suppression remet CharacterDirty")
+{
+    flecs::world world = groundWorld();
+    const flecs::entity walker =
+        world.entity().set(Transform{.position = {0.0f, 0.01f, 0.0f}}).set(CharacterController{});
+    advance(world, 1);
+    REQUIRE(walker.has<CharacterHandle>());
+    // Le sol sans son corps : seul le personnage peut faire refuser.
+    world.lookup("Ground").remove<levain::physics::BodyHandle>();
+
+    const std::string reason = levain::physics::freshPhysicsWorld(world).value_or("");
+    REQUIRE_FALSE(reason.empty());
+    CHECK(reason.find("CharacterHandle") != std::string::npos);
+    CHECK(walker.has<CharacterHandle>()); // rien n'a changé
+
+    walker.remove<CharacterHandle>();
+    CHECK(walker.has<levain::physics::CharacterDirty>());
+    CHECK_FALSE(levain::physics::freshPhysicsWorld(world).has_value());
+    advance(world, 1);
+    CHECK(walker.has<CharacterHandle>());
+}
+
+TEST_CASE("endPlay vide InsideOf sans qu'aucun onExit ne parte, et les rappels reviennent après")
+{
+    flecs::world world = groundWorld();
+    const flecs::entity volume =
+        world.entity("Volume")
+            .set(Transform{.position = {0.0f, 1.0f, 0.0f}})
+            .set(Collider{.shape = Box{{2.0f, 2.0f, 2.0f}}, .layer = Layer::Sensor});
+    const auto crateAt = [&world](float x)
+    {
+        return world.entity()
+            .set(Transform{.position = {x, 0.6f, 0.0f}})
+            .set(Collider{.shape = Box{{0.5f, 0.5f, 0.5f}}})
+            .set(RigidBody{});
+    };
+    const flecs::entity crate = crateAt(0.0f);
+    int entered = 0;
+    int left = 0;
+    levain::physics::onEnter(world, volume, [&](flecs::entity) { ++entered; });
+    levain::physics::onExit(world, volume, [&](flecs::entity) { ++left; });
+    advance(world, 30);
+    REQUIRE(crate.has<levain::physics::InsideOf>(volume));
+    REQUIRE(entered == 1);
+
+    // Dans le mode différé (sous un parcours, ou `defer_begin`), flecs mettrait les retraits en
+    // file et les rejouerait observateurs allumés : endPlay refuse, dans tous les builds, et ne
+    // touche à rien.
+    world.defer_begin();
+    const std::string refusal = levain::physics::endPlay(world).value_or("");
+    world.defer_end();
+    CHECK(refusal.find("endPlay refusé") != std::string::npos);
+    CHECK(left == 0);
+    CHECK(crate.has<levain::physics::InsideOf>(volume));
+
+    CHECK_FALSE(levain::physics::endPlay(world).has_value());
+    CHECK(left == 0);
+    CHECK_FALSE(crate.has<levain::physics::InsideOf>(volume));
+    CHECK(levain::physics::occupantsOf(world, volume).empty());
+    CHECK(world.get<levain::physics::OverlapState>().current.empty());
+    crate.destruct(); // plus de paire : aucune sortie à annoncer
+    CHECK(left == 0);
+
+    // Réactivés : un corps qui entre ensuite est entendu, et celui qui sort aussi.
+    const flecs::entity other = crateAt(0.5f);
+    advance(world, 30);
+    CHECK(entered == 2);
+    other.destruct();
+    CHECK(left == 1);
 }
