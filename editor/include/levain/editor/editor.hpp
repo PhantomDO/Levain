@@ -54,6 +54,10 @@ struct EditorOptions
     /// d'essai de l'App (ADR-0036, morceau 2) y lit ce que les fenêtres ont dessiné, que la boucle
     /// ne montre pas de l'extérieur. Vide hors des tests.
     std::function<void(const Editor&)> afterUi;
+    /// **Pour les tests seulement** : appelé juste après `afterUi`, avec l'éditeur modifiable. Un
+    /// test y pose la sélection (`Editor::selected`) sans passer par un clic dans la Hiérarchie, le
+    /// seul endroit où l'éditeur la pose. Vide hors des tests.
+    std::function<void(Editor&)> afterUiMutable;
     /// **Pour les tests seulement** : le dossier des préférences, à la place de celui de
     /// l'utilisateur (`platform::prefPath`). Une exécution scriptée ne les lit ni ne les écrit,
     /// dossier injecté ou non (`isScriptedRun`) : un test qui veut les éprouver pose aussi

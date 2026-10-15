@@ -499,7 +499,7 @@ add_test(NAME gpu.editor-modes.vulkan COMMAND levain_editor_modes vulkan)
 set_tests_properties(gpu.editor-modes.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
 # Jouer et Arrêter dans la vraie boucle (ADR-0037, morceau 4) : le critère (Alt+P, 120 pas, Échap, la scène identique), l'Édition
-# d'après Stop sans corps de Jolt, les racines de la Hiérarchie dans le même ordre.
+# d'après Stop sans corps de Jolt, la sélection, un modèle skinné détruit en jeu, quitter et finir une exécution scriptée en jeu.
 add_executable(levain_editor_play editor_play_gpu.cpp)
 target_link_libraries(levain_editor_play PRIVATE levain::editor levain::app levain::assets levain::core levain::physics
     levain::platform levain::scene)
