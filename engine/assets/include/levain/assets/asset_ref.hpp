@@ -2,7 +2,9 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <set>
+#include <string>
 #include <vector>
 
 #include <flecs.h>
@@ -29,6 +31,8 @@ struct AssetUsage
 {
     std::map<AssetId, int> counts;
     std::set<AssetId> unused;
+    /// Vrai pendant le jeu de l'éditeur (`holdAssetsInUse`) : `takeUnusedAssets` ne rend rien.
+    bool held = false;
 };
 
 /// Le module flecs des assets : il pose le singleton `AssetUsage` et compte les références de
@@ -47,8 +51,23 @@ struct AssetsModule
 [[nodiscard]] int referenceCount(const flecs::world& world, AssetId asset);
 
 /// Les assets tombés à zéro depuis l'appel précédent, et qui y sont encore : à décharger. S'appelle
-/// en fin d'image, jamais au milieu d'un parcours (ADR-0019).
+/// en fin d'image, jamais au milieu d'un parcours (ADR-0019). Rend une liste vide tant que les
+/// assets sont retenus (`holdAssetsInUse`) ; ils attendent alors, et sortent à la première image
+/// après `releaseHeldAssets`.
 [[nodiscard]] std::vector<AssetId> takeUnusedAssets(flecs::world& world);
+
+/// Retient les assets pendant le jeu de l'éditeur : un modèle dont la dernière entité meurt en jeu
+/// reste chargé jusqu'au Stop, où l'entité est réveillée. Sans cela, la fin d'image le
+/// déchargerait, et l'entité réveillée serait invisible (ADR-0037, décision 5). Retient tout ce
+/// qui tombe à zéro tant que `releaseHeldAssets` n'a pas été appelé, ce qui est né et mort en
+/// jeu compris : il se décharge alors au Stop. Refusé, avec la raison au journal et en retour, si
+/// les assets sont déjà retenus : deux Play sans Stop entre eux sont un bug de l'appelant.
+[[nodiscard]] std::optional<std::string> holdAssetsInUse(AssetUsage& usage);
+
+/// Rend les assets retenus : ceux qui sont tombés à zéro pendant ce temps sortent de
+/// `takeUnusedAssets` à l'image suivante (sauf ceux qu'une entité utilise de nouveau, que le
+/// comptage a déjà retirés de la liste).
+void releaseHeldAssets(AssetUsage& usage);
 
 /// Les modèles chargés en mémoire, par GUID.
 struct ModelCache

@@ -80,9 +80,32 @@ int referenceCount(const flecs::world& world, AssetId asset)
 std::vector<AssetId> takeUnusedAssets(flecs::world& world)
 {
     AssetUsage& usage = world.get_mut<AssetUsage>();
+    if (usage.held)
+    {
+        return {};
+    }
     std::vector<AssetId> unused{usage.unused.begin(), usage.unused.end()};
     usage.unused.clear();
     return unused;
+}
+
+std::optional<std::string> holdAssetsInUse(AssetUsage& usage)
+{
+    if (usage.held)
+    {
+        std::string reason =
+            "holdAssetsInUse refusé : les assets sont déjà retenus, un Play a commencé sans Stop "
+            "(ADR-0037)";
+        core::log("assets", core::LogLevel::Error, "{}", reason);
+        return reason;
+    }
+    usage.held = true;
+    return std::nullopt;
+}
+
+void releaseHeldAssets(AssetUsage& usage)
+{
+    usage.held = false;
 }
 
 core::Result<const Model*> loadModel(ModelCache& cache, const AssetRegistry& registry,
