@@ -205,7 +205,7 @@ int expect(bool holds, std::string_view what)
     return holds ? 0 : 1;
 }
 
-/// Les images où le jeu joue (le mode « Jouer (sans retour) » à l'avance des pas et du `frame`), 30
+/// Les images où le jeu joue (le mode « Jouer » à l'avance des pas et du `frame`), 30
 /// au total. Alt+P à l'image 4, depuis `ui` : le jeu joue dès la 5. Échap à l'image 17, depuis
 /// `frame` : l'Édition dès la 17. Alt+P à l'image 22 : le jeu dès la 23.
 bool playsAt(int frame)
@@ -371,7 +371,7 @@ bool buttonPublished(const Seen& seen)
 /// le point manquait le bouton d'un pixel à l'échelle 125 % du portable (une marge de 10 px, pas
 /// 8). Le bouton est le premier élément de la barre dans les deux modes, même coin et même
 /// hauteur ; seule sa largeur suit le libellé, que le carré de gauche ne regarde pas : relevé en
-/// Édition, il vise aussi « Revenir à l'édition ».
+/// Édition, il vise aussi « Arrêter ».
 ImVec2 buttonSpot(const Seen& seen)
 {
     const float half = seen.button.height / 2.0f;
@@ -404,7 +404,7 @@ int playButton(const levain::tests::TestBackend& backend)
            expect(run.seen.at(7).steps == 4 && run.seen.at(7).programFrames == 4,
                   "le bouton « Jouer » joue à l'image suivante") +
            expect(run.seen.at(11).steps == 4 && run.seen.at(11).programFrames == 4,
-                  "le bouton « Revenir à l'édition » arrête le jeu");
+                  "le bouton « Arrêter » arrête le jeu");
 }
 
 /// Les points de la Vue, lus par un premier passage sans script : un point de l'image hors de la
@@ -461,7 +461,7 @@ int playBar(const levain::tests::TestBackend& backend)
     }
     constexpr std::string_view AltP =
         "2 key down Left Alt\n2 key down P\n3 key up P\n3 key up Left Alt\n";
-    // (1) Jouer à l'image 2, puis un clic sur le bouton « Revenir à l'édition » (image 7) :
+    // (1) Jouer à l'image 2, puis un clic sur le bouton « Arrêter » (image 7) :
     // l'Édition, et le jeu n'a vu aucun bouton.
     const float buttonX = spots->buttonX;
     const float buttonY = spots->buttonY;
@@ -481,7 +481,7 @@ int playBar(const levain::tests::TestBackend& backend)
                 expect(!anyLeft, "la barre : le clic sur la barre en jeu n'atteint pas le jeu") +
                 expect(onBar.seen.at(13).steps == onBar.seen.at(12).steps &&
                            onBar.seen.at(12).steps == onBar.seen.at(9).steps,
-                       "la barre : le bouton « Revenir à l'édition » arrête le jeu");
+                       "la barre : le bouton « Arrêter » arrête le jeu");
     // (2) La Vue n'a plus le focus (un clic sur la hiérarchie, image 1) ; Alt+P à l'image 5, puis
     // le clic de l'image 6 : le jeu le voit à l'image même, sans attendre que la Vue ait pris le
     // focus.

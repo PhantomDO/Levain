@@ -848,8 +848,8 @@ int playPlayMode(const levain::tests::TestBackend& backend)
     return expect(run.seen[9].capturing && run.seen[9].mode == levain::editor::Mode::Edit,
                   "le clic démarre la saisie, en Édition") +
            expect(playedAtAll, "le bouton de la barre d'outils joue") +
-           expect(run.seen[26].mode == levain::editor::Mode::PlayWithoutReturn &&
-                      !run.seen[26].capturing && !run.seen[26].pending,
+           expect(run.seen[26].mode == levain::editor::Mode::Play && !run.seen[26].capturing &&
+                      !run.seen[26].pending,
                   "en jeu la saisie est abandonnée, rien n'attend") +
            expect(run.seen[26].panelsOpen && run.seen.back().panelsOpen,
                   "les panneaux restent ouverts") +

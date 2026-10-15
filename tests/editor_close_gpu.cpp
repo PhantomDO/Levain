@@ -248,7 +248,7 @@ int nothingBehindModal(const levain::tests::TestBackend& backend)
         playScript(backend, std::string{startPlay} + "3 window close\n" + std::string{poke}, true);
     return expect(control.gameFrames > 0 && control.gameSawClick && control.gameSawKey,
                   "témoin : sans modale, le jeu voit le clic et la touche") +
-           expect(behind.gameFrames > 0 && behind.mode == levain::editor::Mode::PlayWithoutReturn,
+           expect(behind.gameFrames > 0 && behind.mode == levain::editor::Mode::Play,
                   "modale : le jeu joue bien jusque-là") +
            expect(behind.modalOpen && behind.timesOpened == 1, "modale : toujours ouverte") +
            expect(!behind.gameSawClick, "modale : le clic derrière elle n'atteint pas le jeu") +
@@ -263,8 +263,7 @@ int chordSilentUnderModal(const levain::tests::TestBackend& backend)
                                    "6 key up Left Alt\n15 mouse move 1 1\n";
     const Run control = playScript(backend, std::string{chord}, true);
     const Run modal = playScript(backend, "3 window close\n" + std::string{chord}, true);
-    return expect(control.mode == levain::editor::Mode::PlayWithoutReturn,
-                  "témoin : sans modale, Alt+P joue") +
+    return expect(control.mode == levain::editor::Mode::Play, "témoin : sans modale, Alt+P joue") +
            expect(modal.mode == levain::editor::Mode::Edit && modal.modalOpen &&
                       modal.gameFrames == 0,
                   "modale : Alt+P ne joue pas");
@@ -289,7 +288,7 @@ int escapeCancels(const levain::tests::TestBackend& backend)
                       !edit.modalOpen,
                   "Échap ferme la modale, en Édition") +
            expect(inPlay.timesOpened == 1 && !inPlay.modalOpen &&
-                      inPlay.mode == levain::editor::Mode::PlayWithoutReturn,
+                      inPlay.mode == levain::editor::Mode::Play,
                   "Échap ferme la modale en jeu, sans arrêter le jeu") +
            expect(then.mode == levain::editor::Mode::Edit,
                   "témoin : l'Échap suivant, modale fermée, arrête le jeu");

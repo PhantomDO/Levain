@@ -954,18 +954,18 @@ TEST_CASE(
     using levain::app::InputRoute;
     using levain::editor::Mode;
     CHECK(levain::editor::simulationPausedIn(Mode::Edit));
-    CHECK_FALSE(levain::editor::simulationPausedIn(Mode::PlayWithoutReturn));
+    CHECK_FALSE(levain::editor::simulationPausedIn(Mode::Play));
     CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Edit));
-    CHECK(levain::editor::programFrameRunsIn(Mode::PlayWithoutReturn));
+    CHECK(levain::editor::programFrameRunsIn(Mode::Play));
     // Édition : rien au jeu, que la scène ait le focus ou non.
     CHECK(levain::editor::inputRouteFor(Mode::Edit, true) == InputRoute::Editor);
     CHECK(levain::editor::inputRouteFor(Mode::Edit, false) == InputRoute::Editor);
     // Jeu : au jeu si la scène a le focus ; sinon à l'UI, qu'un champ de texte actif ne soit pas
     // une touche de vol.
-    CHECK(levain::editor::inputRouteFor(Mode::PlayWithoutReturn, true) == InputRoute::Game);
-    CHECK(levain::editor::inputRouteFor(Mode::PlayWithoutReturn, false) == InputRoute::Ui);
-    CHECK(levain::editor::otherMode(Mode::Edit) == Mode::PlayWithoutReturn);
-    CHECK(levain::editor::otherMode(Mode::PlayWithoutReturn) == Mode::Edit);
+    CHECK(levain::editor::inputRouteFor(Mode::Play, true) == InputRoute::Game);
+    CHECK(levain::editor::inputRouteFor(Mode::Play, false) == InputRoute::Ui);
+    CHECK(levain::editor::otherMode(Mode::Edit) == Mode::Play);
+    CHECK(levain::editor::otherMode(Mode::Play) == Mode::Edit);
 }
 
 namespace
@@ -977,7 +977,7 @@ constexpr std::uint16_t ScanEscape = 41, ScanF5 = 62; // USB HID, vérifiés con
 
 TEST_CASE("Échap ramène à l'Édition à son appui, pas tant qu'elle est tenue")
 {
-    levain::editor::ModeState state{.current = levain::editor::Mode::PlayWithoutReturn};
+    levain::editor::ModeState state{.current = levain::editor::Mode::Play};
     levain::input::RawInput raw;
     const auto table = levain::editor::defaultShortcuts();
     CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
@@ -993,7 +993,7 @@ TEST_CASE("Échap ramène à l'Édition à son appui, pas tant qu'elle est tenue
 
 TEST_CASE("l'arrêt lit la position que la table donne à « Arrêter », non Échap en dur")
 {
-    levain::editor::ModeState state{.current = levain::editor::Mode::PlayWithoutReturn};
+    levain::editor::ModeState state{.current = levain::editor::Mode::Play};
     levain::input::RawInput raw;
     levain::editor::ShortcutTable table;
     table.bindings.push_back({.action = levain::editor::Action::Stop,
@@ -1013,7 +1013,7 @@ TEST_CASE("Alt+P joue, Échap arrête, seul le bouton va dans les deux sens")
     using levain::editor::modeRequested;
     using levain::editor::ModeRequests;
     constexpr Mode Edit = Mode::Edit;
-    constexpr Mode Play = Mode::PlayWithoutReturn;
+    constexpr Mode Play = Mode::Play;
     // Alt+P : de l'Édition au jeu, jamais l'inverse (sous la route jeu, ImGui ne la reçoit pas :
     // un retour par Alt+P ne marcherait qu'à certaines images).
     CHECK(modeRequested(Edit, {.playShortcut = true}) == Play);
@@ -1038,8 +1038,8 @@ TEST_CASE("le rappel de la barre de mode suit la table, et ne promet pas d'Alt+P
     levain::editor::ShortcutTable table = levain::editor::defaultShortcuts();
     CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty) == "Alt+P : jouer");
     // En jeu, seule Échap ramène : Alt+P n'y fait rien (`modeRequested`).
-    const std::string inPlay = levain::editor::modeHintOf(Mode::PlayWithoutReturn, table, qwerty);
-    CHECK(inPlay == "Échap : revenir à l'édition");
+    const std::string inPlay = levain::editor::modeHintOf(Mode::Play, table, qwerty);
+    CHECK(inPlay == "Échap : arrêter");
     CHECK_FALSE(inPlay.contains("Alt+P"));
     // Un accord changé change le rappel : jouer sur Ctrl+K, arrêter sur la position du F5 (62).
     levain::editor::replaceChord(table, levain::editor::Action::Play, 0,
@@ -1047,8 +1047,7 @@ TEST_CASE("le rappel de la barre de mode suit la table, et ne promet pas d'Alt+P
     levain::editor::replaceChord(table, levain::editor::Action::Stop, 0,
                                  levain::editor::positionChord(ScanF5), qwerty);
     CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty) == "Ctrl+K : jouer");
-    CHECK(levain::editor::modeHintOf(Mode::PlayWithoutReturn, table, qwerty) ==
-          "F5 : revenir à l'édition");
+    CHECK(levain::editor::modeHintOf(Mode::Play, table, qwerty) == "F5 : arrêter");
     // Sans accord, rien n'est promis.
     levain::editor::replaceChord(table, levain::editor::Action::Play, 0, {}, qwerty);
     CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty).empty());

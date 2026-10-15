@@ -319,7 +319,7 @@ TEST_CASE("saisie : « Arrêter » ne garde pas Ctrl, Ctrl+Q est Q et l'indicate
     CHECK(chordsOf(table, Action::Stop)[0] == positionChord(ScanQ)); // pas « Ctrl+pos:20 »
     CHECK(window.message != nullptr);
     // Ce que l'indicateur de la barre de mode dit est ce que la touche fait : Q, pas « Ctrl+Q ».
-    CHECK(modeHintOf(Mode::PlayWithoutReturn, table, Qwerty) == "Q : revenir à l'édition");
+    CHECK(modeHintOf(Mode::Play, table, Qwerty) == "Q : arrêter");
 }
 
 TEST_CASE("les lignes : un modificateur sur une action tenue est refusé, dit et gardé tel quel")

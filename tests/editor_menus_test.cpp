@@ -297,7 +297,7 @@ TEST_CASE("la barre d'outils : le mode, la vitesse bornée, Temps réel, et des 
     // Le bouton de mode propose Jouer depuis l'Édition.
     bench.click(bench.toolbar.mode);
     REQUIRE(bench.modes.size() == 1);
-    CHECK(bench.modes.front() == Mode::PlayWithoutReturn);
+    CHECK(bench.modes.front() == Mode::Play);
 
     // Temps réel : la case rend l'action, comme Ctrl+R.
     bench.click(bench.toolbar.realTime);
@@ -509,7 +509,7 @@ TEST_CASE("la barre de mode en calque rend ses rectangles : la barre au coin dem
     // (`ModeBarOverlay::bar`), un test vise le bouton (`ModeBarOverlay::button`).
     for (const float scale : {1.0f, 1.25f})
     {
-        for (const Mode mode : {Mode::Edit, Mode::PlayWithoutReturn})
+        for (const Mode mode : {Mode::Edit, Mode::Play})
         {
             CAPTURE(scale);
             CAPTURE(modeTokenOf(mode));
