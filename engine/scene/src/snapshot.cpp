@@ -189,6 +189,22 @@ std::vector<PlacedByChildOf> placedByChildOf(const flecs::world& world)
     return placed;
 }
 
+/// `parent` est un module, ou rangé par ChildOf sous un module, à n'importe quelle profondeur
+/// (« rig::cam » créé dans la portée d'un sous-module) : ce qui est dessous appartient au module,
+/// pas à la scène.
+bool insideModule(const flecs::world& world, flecs::entity_t parent)
+{
+    for (flecs::entity_t scope = parent; scope != 0;
+         scope = ecs_get_target(world, scope, EcsChildOf, 0))
+    {
+        if (world.entity(scope).table().has(flecs::Module))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Pourquoi Stop ne saurait pas rendre cet identifiant du type, ou rien.
 std::optional<std::string> refusalFor(const flecs::world& world, flecs::id_t id)
 {
@@ -533,10 +549,10 @@ void destroyBornInPlay(flecs::world& world)
     }
 }
 
-/// Les entités de l'instantané à réveiller, ou l'erreur : un index vivant d'une autre génération
-/// que celle d'avant Play. flecs l'arrête en Debug (src/entity.c:3133-3139) ; en Release,
-/// `ecs_make_alive` écraserait la génération vivante. Rien n'est réveillé avant que tout soit
-/// vérifié.
+/// Avant l'étape 1 : l'erreur si un index de l'instantané est vivant sous une autre génération que
+/// celle d'avant Play. flecs l'arrête en Debug (src/entity.c:3133-3139) ; en Release,
+/// `ecs_make_alive` écraserait la génération vivante. Vérifié avant toute destruction, pour qu'un
+/// refus laisse le monde tel quel.
 core::Result<void> refuseTakenIndexes(const flecs::world& world, const Snapshot& snapshot)
 {
     for (const EntityRecord& record : snapshot.entities)
@@ -578,7 +594,7 @@ core::Result<Snapshot> takeSnapshot(const flecs::world& world)
     for (const PlacedByChildOf& placed : placedByChildOf(world))
     {
         if (world.entity(placed.entity).table().has<Transform>() &&
-            !world.entity(placed.parent).table().has(flecs::Module))
+            !insideModule(world, placed.parent))
         {
             return core::makeError(
                 core::ErrorCode::Unsupported,
@@ -731,11 +747,14 @@ void restoreValues(flecs::world& world, const Snapshot& snapshot)
     }
 }
 
-/// Étape 4, les noms, **tous reposés**, même ceux qui n'ont pas changé : l'index des noms de flecs
-/// range un nom sous son parent *au moment où il est posé*, et changer un `flecs::Parent` ne le
-/// déplace pas. Un parent et son enfant inversés par le jeu, puis remis en place par
-/// `restoreParents`, laissent `lookup("haut::bas")` sans réponse, alors que les noms n'ont pas
-/// bougé (test du critère). Poser le nom après les parents l'inscrit sous le bon parent.
+/// Étape 4, les noms, **tous reposés**, même ceux qui n'ont pas changé. flecs range un nom dans
+/// l'index de son parent et l'y déplace quand le parent change ; mais une entité qui **perd** son
+/// `flecs::Parent` (un enfant devenu racine) sort de l'index sans être rangée à la racine
+/// (src/storage/non_fragmenting_childof.c:345). Un parent et son enfant inversés par le jeu, puis
+/// remis en place par `restoreParents`, laissent donc `lookup("haut::bas")` sans réponse, alors
+/// que les noms n'ont pas bougé (test du critère). Reposer le nom après les parents le range de
+/// nouveau : `ecs_set_name` crée l'entrée qui manque (src/entity_name.c:451-456). Le même passage
+/// répare le nom qu'un frère a pris à un autre avant d'être détruit.
 void restoreNames(flecs::world& world, const Snapshot& snapshot)
 {
     for (const EntityRecord& record : snapshot.entities)

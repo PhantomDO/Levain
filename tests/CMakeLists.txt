@@ -123,7 +123,6 @@ else()
     add_dependencies(levain_tests levain_process_helper)
     target_compile_definitions(levain_tests PRIVATE
         LEVAIN_PROCESS_HELPER="$<TARGET_FILE:levain_process_helper>")
-
 endif()
 
 # La macro qui génère le main de doctest ne doit s'appliquer qu'à une seule unité de

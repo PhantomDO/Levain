@@ -669,6 +669,17 @@ TEST_CASE(
     CHECK(snapshot.error().message.find("ChildOf") != std::string::npos);
 }
 
+TEST_CASE("l'instantané accepte une entité à Transform rangée sous un descendant d'un module")
+{
+    flecs::world world = makeWorld();
+    world.entity("atelier").add(flecs::Module);
+    // « rig » n'est pas un module, mais il est rangé dans la portée d'« atelier » : le contenu d'un
+    // module, à n'importe quelle profondeur, n'est pas la scène.
+    world.entity("atelier::rig::camera").set(Transform{});
+
+    CHECK(takeSnapshot(world).has_value());
+}
+
 TEST_CASE("Stop nomme une entité née en jeu sous une entité de la scène par ChildOf")
 {
     flecs::world world = makeWorld();

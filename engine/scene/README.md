@@ -103,7 +103,8 @@ Play garde la scène, Stop la rend **en place**, avec les mêmes identifiants ([
 
 | Piège | Son nom |
 |---|---|
-| Changer un `flecs::Parent` ne déplace pas l'entrée de l'index des noms : un parent et son enfant inversés puis remis en place perdent leur `lookup` | `restoreNames` (tous reposés après les parents) et le `lookup` de `differencesFrom` |
+| Une entité qui perd son `flecs::Parent` (un enfant devenu racine) sort de l'index des noms sans être rangée à la racine : un parent et son enfant inversés puis remis en place perdent leur `lookup` | `restoreNames` (tous reposés après les parents) et le `lookup` de `differencesFrom` |
+| Un frère prend le nom d'un autre, puis est détruit : il emporte l'entrée du nom, et l'autre ne se trouve plus par `lookup` | les mêmes |
 | `ecs_get_ordered_children` s'arrête sur une assertion pour un parent sans enfant `flecs::Parent` (vérifié sur la 4.1.6) | `orderedChildrenOf` ne l'appelle qu'avec un enfant `Parent` |
 | Le nom et `flecs::Parent` sont tenus par flecs : les recopier dans le type le casserait | `isKeptByFlecs`, `sceneTypeOf` |
 | Une valeur qu'on ne sait pas comparer (ni décrite, ni crochet `cmp`) ne se voit pas dans `differencesFrom`, et Stop la réécrit toujours | `isComparable` |
