@@ -92,14 +92,19 @@ Play garde la scène, Stop la rend **en place**, avec les mêmes identifiants ([
 - **`restoreSnapshot`** rend la scène en place (ADR-0037, décision 3). Refusée en mode différé et si un index est pris
   par une autre génération, le monde intact, dans tous les builds. Puis : 1. détruire les entités nées en jeu ;
   2. revenir à la plage de l'édition, **avant** le réveil ; 3. réveiller les entités détruites avec leur génération
-  (`ecs_make_alive`). flecs ne vérifie qu'en Debug (`ecs_check`) un réveil sur un index vivant et une plage créée
-  après une destruction : Levain les vérifie lui-même.
+  (`ecs_make_alive`) ; 4. rendre les parents (par profondeur croissante, ce qui évite tout cycle), les composants
+  (ceux de trop retirés, `Transient` compris), les valeurs (réécrites si elles ont changé, toujours si on ne sait pas
+  les comparer) et les noms (tous reposés, même inchangés : l'index des noms range un nom sous son parent au moment
+  où il est posé) ; 5. rendre l'ordre des enfants, la liste vérifiée en n log n. flecs ne vérifie qu'en Debug
+  (`ecs_check`) un réveil sur un index vivant, une plage créée après une destruction et la taille de la liste
+  d'enfants : Levain les vérifie lui-même.
 
 | Piège | Son nom |
 |---|---|
+| Changer un `flecs::Parent` ne déplace pas l'entrée de l'index des noms : un parent et son enfant inversés puis remis en place perdent leur `lookup` | `restoreNames` (tous reposés après les parents) et le `lookup` de `differencesFrom` |
 | `ecs_get_ordered_children` s'arrête sur une assertion pour un parent sans enfant `flecs::Parent` (vérifié sur la 4.1.6) | `orderedChildrenOf` ne l'appelle qu'avec un enfant `Parent` |
 | Le nom et `flecs::Parent` sont tenus par flecs : les recopier dans le type le casserait | `isKeptByFlecs`, `sceneTypeOf` |
-| Une valeur qu'on ne sait pas comparer (ni décrite, ni crochet `cmp`) ne se voit pas dans `differencesFrom` | `isComparable` |
+| Une valeur qu'on ne sait pas comparer (ni décrite, ni crochet `cmp`) ne se voit pas dans `differencesFrom`, et Stop la réécrit toujours | `isComparable` |
 
 Un instantané garde le monde pour libérer ses valeurs : il ne lui survit pas.
 

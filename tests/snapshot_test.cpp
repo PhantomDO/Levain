@@ -427,6 +427,138 @@ TEST_CASE("restoreSnapshot refuse un index pris par une autre génération, sans
     CHECK_FALSE(world.is_alive(keptId));
 }
 
+namespace
+{
+
+/// Un composant que personne n'a décrit : ni réflexion ni crochet de comparaison, donc inconnu de
+/// `sameValue`. Stop le réécrit toujours.
+struct Opaque
+{
+    int count = 0;
+};
+
+std::vector<flecs::entity_t> orderedChildren(const flecs::world& world, flecs::entity_t parent)
+{
+    const ecs_entities_t kids = ecs_get_ordered_children(world, parent);
+    return {kids.ids, kids.ids + kids.count};
+}
+
+} // namespace
+
+TEST_CASE(
+    "le critère : après Stop la scène est identique, identifiants et ordre des enfants compris")
+{
+    using levain::scene::Velocity;
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    world.entity("jetable").destruct(); // des identifiants de génération 1
+    world.entity("autre jetable").destruct();
+
+    // La scène d'avant Play.
+    const flecs::entity volume =
+        world.entity("volume").set(Transform{}).set(Mass{.kilograms = 3.0f});
+    const flecs::entity a = child(world, volume, "a").set(Transform{});
+    const flecs::entity b = child(world, volume, "b").set(Transform{});
+    child(world, volume, "c").set(Transform{});
+    world.observer<Mass>("guet").event(flecs::OnSet).each([](Mass&) {}).child_of(volume);
+    const flecs::entity grid = world.entity("grille").set(Transform{});
+    const flecs::entity g1 = child(world, grid, "g1");
+    const flecs::entity g2 = child(world, grid, "g2");
+    const flecs::entity g3 = child(world, grid, "g3");
+    const flecs::entity crate = world.entity("caisse").add<Tag>().set(Mass{.kilograms = 8.0f});
+    const flecs::entity pile = world.entity("pile").set(Mass{}).add<Likes>(volume);
+    const flecs::entity x = child(world, pile, "x");
+    const flecs::entity top = world.entity("haut");
+    const flecs::entity under = child(world, top, "bas");
+    world.entity("opaque").set(Opaque{.count = 7});
+    const Snapshot snapshot = snapshotOf(world);
+    const std::vector<flecs::entity_t> idsBefore = levain::scene::sceneEntities(world);
+    const std::vector<flecs::entity_t> orderBefore = orderedChildren(world, grid);
+
+    // Le jeu : tout ce que la scène peut subir.
+    levain::scene::usePlayIds(world, *ranges);
+    const flecs::entity born = world.entity("née en jeu").set(Transform{});
+    child(world, born, "petite");
+    volume.destruct(); // un parent et ses trois enfants, avec son observateur
+    g1.set_name("g2"); // deux frères s'échangent leurs noms
+    g2.set_name("g1");
+    g3.set_name("g1"); // un troisième prend un nom déjà pris, puis est détruit
+    g3.destruct();
+    x.set_name("y");
+    under.remove<flecs::Parent>(); // le parent et l'enfant s'inversent
+    top.set(flecs::Parent{under});
+    crate.remove<Tag>().add<Likes>(grid).set(Mass{.kilograms = 1.0f}); // étiquette, paire, valeur
+    pile.remove<Mass>().set(Velocity{.linear = {1.0f, 2.0f, 3.0f}});
+    grid.set(Transform{.position = {5.0f, 0.0f, 0.0f}});
+    world.entity("opaque").set(Opaque{.count = 9});
+    const std::vector<flecs::entity_t> reversed{g2.id(), g1.id()}; // et les enfants se réordonnent
+    ecs_set_child_order(world, grid, reversed.data(), 2);
+    REQUIRE_FALSE(differencesFrom(world, snapshot).empty());
+
+    const auto restored = restoreSnapshot(world, *ranges, snapshot);
+
+    INFO((restored ? std::string{} : restored.error().message));
+    REQUIRE(restored.has_value());
+    const std::vector<std::string> remaining = differencesFrom(world, snapshot);
+    REQUIRE(remaining.size() == 1); // l'observateur de volume ne revient pas
+    CHECK(mentions(remaining, "l'enfant interne"));
+    CHECK(levain::scene::sceneEntities(world) ==
+          idsBefore); // mêmes identifiants, générations comprises
+    CHECK(orderedChildren(world, grid) == orderBefore);
+    CHECK(world.lookup("grille::g1").id() == g1.id());
+    CHECK(world.lookup("grille::g3").id() == g3.id());
+    CHECK(world.lookup("volume::b").id() == b.id());
+    CHECK(world.lookup("pile::x").id() == x.id());
+    CHECK(a.parent() == volume);
+    CHECK(under.parent() == top);
+    CHECK_FALSE(top.has<flecs::Parent>());
+    CHECK(crate.has<Tag>());
+    CHECK_FALSE(crate.has<Likes>(grid));
+    CHECK(pile.has<Likes>(volume));
+    CHECK(pile.has<Mass>());
+    CHECK_FALSE(pile.has<Velocity>());
+    CHECK(crate.get<Mass>().kilograms == 8.0f);
+    CHECK(world.lookup("opaque").get<Opaque>().count == 7);
+}
+
+TEST_CASE("Stop retire de la scène un composant Transient posé en jeu")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    world.component<Unique>().add<levain::scene::Transient>();
+    const flecs::entity body = world.entity("corps").set(Transform{});
+    const Snapshot snapshot = snapshotOf(world);
+
+    levain::scene::usePlayIds(world, *ranges);
+    body.set(Unique{std::make_unique<int>(4)}); // un handle de Jolt, par exemple
+    REQUIRE(restoreSnapshot(world, *ranges, snapshot).has_value());
+
+    CHECK_FALSE(body.has<Unique>());
+}
+
+TEST_CASE("restoreSnapshot refuse une liste d'enfants qui n'est pas celle du parent")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    const flecs::entity parent = world.entity("parent");
+    child(world, parent, "a");
+    const flecs::entity stranger = world.entity("étranger");
+    Snapshot snapshot = snapshotOf(world);
+    auto record =
+        std::ranges::find(snapshot.entities, parent.id(), &levain::scene::EntityRecord::id);
+    REQUIRE(record != snapshot.entities.end());
+    record->children.push_back(stranger.id()); // flecs, en Release, copierait au-delà de la liste
+
+    const auto restored = restoreSnapshot(world, *ranges, snapshot);
+
+    REQUIRE_FALSE(restored.has_value());
+    CHECK(restored.error().message.find("parent") != std::string::npos);
+    CHECK(restored.error().message.find("ne sont pas ceux de l'instantané") != std::string::npos);
+}
+
 TEST_CASE("restoreSnapshot en mode différé est refusé, le monde intact")
 {
     flecs::world world = makeWorld();
@@ -497,4 +629,24 @@ TEST_CASE(
     REQUIRE_FALSE(snapshot.has_value());
     CHECK(snapshot.error().message.find("dessous") != std::string::npos);
     CHECK(snapshot.error().message.find("ChildOf") != std::string::npos);
+}
+
+TEST_CASE("Stop rend l'ordre de beaucoup d'enfants renversés")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    const flecs::entity parent = world.entity("père");
+    for (int i = 0; i < 20000; ++i)
+    {
+        world.entity().set(flecs::Parent{parent});
+    }
+    const Snapshot snapshot = snapshotOf(world);
+    const std::vector<flecs::entity_t> before = orderedChildren(world, parent);
+    std::vector<flecs::entity_t> reversed(before.rbegin(), before.rend());
+    ecs_set_child_order(world, parent, reversed.data(), static_cast<std::int32_t>(reversed.size()));
+
+    REQUIRE(restoreSnapshot(world, *ranges, snapshot).has_value());
+
+    CHECK(orderedChildren(world, parent) == before);
 }

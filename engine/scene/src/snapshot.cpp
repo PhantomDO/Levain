@@ -6,6 +6,7 @@
 #include <iterator>
 #include <set>
 #include <span>
+#include <unordered_set>
 #include <utility>
 
 #include "levain/scene/components.hpp"
@@ -81,6 +82,12 @@ std::vector<flecs::entity_t> typeWhere(const flecs::world& world, flecs::entity_
 std::vector<flecs::entity_t> sceneTypeOf(const flecs::world& world, flecs::entity_t entity)
 {
     return typeWhere(world, entity, [&](flecs::id_t id) { return !isTransientId(world, id); });
+}
+
+/// Ce qu'un module marque `Transient` et que l'entité porte : Stop le retire.
+std::vector<flecs::entity_t> transientTypeOf(const flecs::world& world, flecs::entity_t entity)
+{
+    return typeWhere(world, entity, [&](flecs::id_t id) { return isTransientId(world, id); });
 }
 
 /// Le type de la valeur d'un identifiant du type (le composant, ou celui d'une paire à valeur) ; 0
@@ -588,6 +595,164 @@ std::vector<std::string> differencesFrom(const flecs::world& world, const Snapsh
     return compareWorld(world, snapshot).finish();
 }
 
+namespace
+{
+
+/// Les enregistrements des parents d'abord : un cycle est impossible (flecs le refuse en Debug
+/// seulement, src/storage/non_fragmenting_childof.c:217-222), puisque chaque parent est posé
+/// avant ses enfants et que l'instantané n'en contient pas. Par profondeur croissante, puis par
+/// index pour un ordre stable.
+std::vector<const EntityRecord*> parentsBeforeChildren(const Snapshot& snapshot)
+{
+    const auto depthOf = [&](const EntityRecord& record)
+    {
+        std::size_t depth = 0;
+        for (const EntityRecord* up = recordOf(snapshot, record.parent); up != nullptr;
+             up = recordOf(snapshot, up->parent))
+        {
+            ++depth;
+        }
+        return depth;
+    };
+    std::vector<std::pair<std::size_t, const EntityRecord*>> sorted;
+    sorted.reserve(snapshot.entities.size());
+    for (const EntityRecord& record : snapshot.entities)
+    {
+        sorted.emplace_back(depthOf(record), &record);
+    }
+    std::ranges::stable_sort(sorted, {}, &std::pair<std::size_t, const EntityRecord*>::first);
+    std::vector<const EntityRecord*> records;
+    records.reserve(sorted.size());
+    for (const auto& entry : sorted)
+    {
+        records.push_back(entry.second);
+    }
+    return records;
+}
+
+/// Étape 4, les parents. `flecs::Parent` est un composant : le poser réécrit le parent, le retirer
+/// fait une racine.
+void restoreParents(flecs::world& world, const Snapshot& snapshot)
+{
+    for (const EntityRecord* record : parentsBeforeChildren(snapshot))
+    {
+        if (ecs_get_parent(world, record->id) == record->parent)
+        {
+            continue;
+        }
+        if (record->parent == 0)
+        {
+            ecs_remove_id(world, record->id, ecs_id(EcsParent));
+        }
+        else
+        {
+            const EcsParent parent{.value = record->parent};
+            ecs_set_id(world, record->id, ecs_id(EcsParent), sizeof(parent), &parent);
+        }
+    }
+}
+
+/// Étape 4, les types : les composants de trop sont retirés (les observateurs du moteur détruisent
+/// alors les corps Jolt), `Transient` compris, les étiquettes et paires manquantes ajoutées. Un
+/// composant à valeur manquant revient avec sa valeur, à l'étape suivante.
+void restoreTypes(flecs::world& world, const Snapshot& snapshot)
+{
+    for (const EntityRecord& record : snapshot.entities)
+    {
+        std::vector<flecs::entity_t> extra = transientTypeOf(world, record.id);
+        const std::vector<flecs::entity_t> current = sceneTypeOf(world, record.id);
+        std::ranges::set_difference(current, record.type, std::back_inserter(extra));
+        for (const flecs::entity_t id : extra)
+        {
+            ecs_remove_id(world, record.id, id);
+        }
+        std::vector<flecs::entity_t> missing;
+        std::ranges::set_difference(record.type, current, std::back_inserter(missing));
+        for (const flecs::entity_t id : missing)
+        {
+            if (valueTypeOf(world, id) == 0)
+            {
+                ecs_add_id(world, record.id, id);
+            }
+        }
+    }
+}
+
+/// Étape 4, les valeurs, par `setComponentValue` (ADR-0034) : réécrites quand elles ont changé
+/// (`sameValue`), toujours quand on ne sait pas les comparer.
+void restoreValues(flecs::world& world, const Snapshot& snapshot)
+{
+    for (const EntityRecord& record : snapshot.entities)
+    {
+        for (const ComponentValue& value : record.values)
+        {
+            const void* current = ecs_get_id(world, record.id, value.id);
+            const flecs::entity_t type = value.value.type();
+            if (current == nullptr || !isComparable(world, type) ||
+                !sameComponentValue(world, type, value.value.data(), current))
+            {
+                setComponentValue(world, record.id, value.id, value.value.data());
+            }
+        }
+    }
+}
+
+/// Étape 4, les noms, **tous reposés**, même ceux qui n'ont pas changé : l'index des noms de flecs
+/// range un nom sous son parent *au moment où il est posé*, et changer un `flecs::Parent` ne le
+/// déplace pas. Un parent et son enfant inversés par le jeu, puis remis en place par
+/// `restoreParents`, laissent `lookup("haut::bas")` sans réponse, alors que les noms n'ont pas
+/// bougé (test du critère). Poser le nom après les parents l'inscrit sous le bon parent.
+void restoreNames(flecs::world& world, const Snapshot& snapshot)
+{
+    for (const EntityRecord& record : snapshot.entities)
+    {
+        ecs_set_name(world, record.id, record.name ? record.name->c_str() : nullptr);
+    }
+}
+
+/// Les deux listes ont les mêmes éléments : deux copies triées, en n log n (la liste d'enfants d'un
+/// parent compte des dizaines de milliers d'entités).
+bool isPermutationOf(std::vector<flecs::entity_t> first, std::vector<flecs::entity_t> second)
+{
+    std::ranges::sort(first);
+    std::ranges::sort(second);
+    return first == second;
+}
+
+/// Étape 5, l'ordre des enfants. La liste part de ce que flecs tient (les enfants internes y
+/// sont), prend ceux de la scène dans l'ordre de l'instantané, puis les internes. flecs ne compare
+/// la taille de la liste qu'en Debug (src/storage/ordered_children.c:203) et copierait au-delà en
+/// Release : Levain vérifie lui-même que c'est une permutation des enfants du parent.
+core::Result<void> restoreChildOrder(flecs::world& world, const Snapshot& snapshot)
+{
+    for (const EntityRecord& record : snapshot.entities)
+    {
+        if (record.children.empty())
+        {
+            continue;
+        }
+        const std::vector<flecs::entity_t> current = orderedChildrenOf(world, record.id);
+        std::vector<flecs::entity_t> order = record.children;
+        const std::unordered_set<flecs::entity_t> inScene(record.children.begin(),
+                                                          record.children.end());
+        std::ranges::copy_if(current, std::back_inserter(order),
+                             [&](flecs::entity_t child) { return !inScene.contains(child); });
+        if (!isPermutationOf(order, current))
+        {
+            return core::makeError(
+                core::ErrorCode::InvalidData,
+                std::format("Stop : les enfants de {} ne sont pas ceux de l'instantané ({} "
+                            "attendus, {} trouvés)",
+                            pathOf(world, record.id), order.size(), current.size()));
+        }
+        ecs_set_child_order(world, record.id, order.data(),
+                            static_cast<std::int32_t>(order.size()));
+    }
+    return {};
+}
+
+} // namespace
+
 core::Result<RestoreReport> restoreSnapshot(flecs::world& world, const IdRanges& ranges,
                                             const Snapshot& snapshot)
 {
@@ -609,6 +774,14 @@ core::Result<RestoreReport> restoreSnapshot(flecs::world& world, const IdRanges&
     for (const flecs::entity_t entity : deadEntities(world, snapshot))
     {
         ecs_make_alive(world, entity);
+    }
+    restoreParents(world, snapshot);
+    restoreTypes(world, snapshot);
+    restoreValues(world, snapshot);
+    restoreNames(world, snapshot);
+    if (auto ordered = restoreChildOrder(world, snapshot); !ordered)
+    {
+        return std::unexpected(ordered.error());
     }
     return RestoreReport{};
 }

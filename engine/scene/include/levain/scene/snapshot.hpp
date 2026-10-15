@@ -141,7 +141,11 @@ struct RestoreReport
 ///     attend dans la liste de cette plage (src/storage/entity_index.c:275-285) ;
 ///  3. réveiller les entités détruites, avec leur génération. flecs refuse en Debug un index vivant
 ///     d'une autre génération (src/entity.c:3133-3139) ; Levain le vérifie avant l'étape 1, dans
-///     tous les builds, et sort en erreur sans avoir touché au monde.
+///     tous les builds, et sort en erreur sans avoir touché au monde ;
+///  4. rendre les parents (par profondeur croissante), les composants (ceux de trop retirés,
+///     `Transient` compris), les valeurs (réécrites si elles ont changé, toujours si on ne sait pas
+///     les comparer) et les noms ;
+///  5. rendre l'ordre des enfants, la taille de la liste vérifiée.
 [[nodiscard]] core::Result<RestoreReport>
 restoreSnapshot(flecs::world& world, const IdRanges& ranges, const Snapshot& snapshot);
 
