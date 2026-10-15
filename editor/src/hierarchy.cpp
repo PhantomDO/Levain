@@ -7,6 +7,7 @@
 #include <span>
 #include <string>
 
+#include "levain/scene/snapshot.hpp"
 #include "levain/ui/flags.hpp"
 #include "levain/ui/style.hpp"
 #include "levain/ui/tr.hpp"
@@ -31,7 +32,8 @@ std::string labelOf(flecs::entity entity)
 /// requête des racines le montre déjà, et deux lignes pousseraient le même `pushEntityId`.
 bool isShownChild(const flecs::table& table)
 {
-    return table.has<flecs::Parent>() && table.has<scene::Transform>() && !isEngineInternal(table);
+    return table.has<flecs::Parent>() && table.has<scene::Transform>() &&
+           !scene::isEngineInternal(table);
 }
 
 /// Un singleton du moteur plutôt que de la scène : un module, dont flecs garde l'instance sur sa
@@ -163,12 +165,6 @@ Hierarchy createHierarchy(const flecs::world& world)
             .rects = {}};
 }
 
-bool isEngineInternal(const flecs::table& table)
-{
-    return table.has(flecs::Module) || table.has(flecs::System) || table.has(flecs::Observer) ||
-           table.has(flecs::Query) || table.has<flecs::Component>() || table.has(flecs::Prefab);
-}
-
 void listHierarchyRows(const Hierarchy& hierarchy, std::vector<HierarchyRow>& rows)
 {
     rows.clear();
@@ -177,7 +173,7 @@ void listHierarchyRows(const Hierarchy& hierarchy, std::vector<HierarchyRow>& ro
         {
             while (it.next())
             {
-                if (isEngineInternal(it.table()))
+                if (scene::isEngineInternal(it.table()))
                 {
                     continue;
                 }
