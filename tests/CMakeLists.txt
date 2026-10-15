@@ -498,6 +498,16 @@ target_compile_definitions(levain_editor_modes PRIVATE LEVAIN_DATA_DIR="${CMAKE_
 add_test(NAME gpu.editor-modes.vulkan COMMAND levain_editor_modes vulkan)
 set_tests_properties(gpu.editor-modes.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# Jouer et Arrêter dans la vraie boucle (ADR-0037, morceau 4) : le critère (Alt+P, 120 pas, Échap, la scène identique), l'Édition
+# d'après Stop sans corps de Jolt, les racines de la Hiérarchie dans le même ordre.
+add_executable(levain_editor_play editor_play_gpu.cpp)
+target_link_libraries(levain_editor_play PRIVATE levain::editor levain::app levain::assets levain::core levain::physics
+    levain::platform levain::scene)
+target_compile_definitions(levain_editor_play PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data" LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-play.vulkan COMMAND levain_editor_play vulkan)
+set_tests_properties(gpu.editor-play.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # Les raccourcis de l'éditeur (ADR-0036, morceau 10) dans la vraie boucle : une paire AZERTY donne Z à la place du W, Maj+F1
 # laisse les panneaux ouverts, et après un vol à la souris capturée le menu du clic droit s'ouvre.
 add_executable(levain_editor_shortcuts editor_shortcuts_gpu.cpp)
@@ -690,6 +700,7 @@ if(WIN32)
     add_test(NAME gpu.app-script.d3d12-warp COMMAND levain_app_script d3d12-warp)
     add_test(NAME gpu.app-loop.d3d12-warp COMMAND levain_app_loop d3d12-warp)
     add_test(NAME gpu.editor-modes.d3d12-warp COMMAND levain_editor_modes d3d12-warp)
+    add_test(NAME gpu.editor-play.d3d12-warp COMMAND levain_editor_play d3d12-warp)
     add_test(NAME gpu.editor-console.d3d12-warp COMMAND levain_editor_console d3d12-warp)
     add_test(NAME gpu.editor-view.d3d12-warp COMMAND levain_editor_view d3d12-warp)
     set(editorPreferencesWarp)
@@ -715,7 +726,7 @@ if(WIN32)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
         gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp gpu.editor-console.d3d12-warp
         gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp gpu.editor-gestures.d3d12-warp
-        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp ${editorPreferencesWarp} ${editorShortcutSettingsWarp} ${editorGridWarp}
+        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp gpu.editor-play.d3d12-warp ${editorPreferencesWarp} ${editorShortcutSettingsWarp} ${editorGridWarp}
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 
