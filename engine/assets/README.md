@@ -62,6 +62,10 @@ au chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou
    Jolt, il n'a ses assertions qu'en Debug : ce qu'il reçoit a été vérifié au chargement (`whyNotAValidModel`).
 11. **`MeshRef` est décrit pour l'éditeur, en lecture seule** (ADR-0034) : son JSON écrit le GUID, pas le nom de
    l'asset. `AssetUsage`, un singleton de conteneurs, ne l'est pas.
+12. **Pendant le jeu de l'éditeur, les assets en usage sont retenus** (`holdAssetsInUse`, ADR-0037) : tant que
+   `releaseHeldAssets` n'est pas appelé, `takeUnusedAssets` ne rend rien, et la fin d'image du programme ne
+   décharge donc aucun modèle. Un renard détruit en jeu doit se redessiner quand Stop le réveille ; au Stop, ce
+   qui ne sert plus sort à l'image suivante.
 
 ## Points d'entrée
 
@@ -69,7 +73,7 @@ au chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou
 |---|---|
 | [`include/levain/assets/image.hpp`](include/levain/assets/image.hpp) | `Image`, `loadImage`, `decodeImage`, `mipCountFor`, `buildMipChain`, `savePng` |
 | [`include/levain/assets/gltf.hpp`](include/levain/assets/gltf.hpp) | `Model`, `loadGltf`, `instantiateModel` |
-| [`include/levain/assets/asset_ref.hpp`](include/levain/assets/asset_ref.hpp) | `MeshRef`, `AssetsModule` (le comptage), `takeUnusedAssets`, `ModelCache`, `loadModel`, `loadTexture`, `loadTextureData` |
+| [`include/levain/assets/asset_ref.hpp`](include/levain/assets/asset_ref.hpp) | `MeshRef`, `AssetsModule` (le comptage), `takeUnusedAssets`, `holdAssetsInUse`, `releaseHeldAssets`, `ModelCache`, `loadModel`, `loadTexture`, `loadTextureData` |
 | [`include/levain/assets/asset_id.hpp`](include/levain/assets/asset_id.hpp) | `AssetId`, `contentHash`, `readMeta`, `writeMeta` |
 | [`include/levain/assets/registry.hpp`](include/levain/assets/registry.hpp) | `AssetRegistry` (fichier, racine et hash de chaque asset), `scanAssets` (les cinq cas de l'ADR-0019), `pathOf`, `cookedPathOf` ; `watchAssets` et `takeChangedAssets`, le hot-reload (ADR-0021) |
 | [`include/levain/assets/collision.hpp`](include/levain/assets/collision.hpp) | `collisionMeshOf`, `loadCollision`, `CollisionMesh`, `DefaultCollisionError` : la collision du décor tirée du maillage affiché, sans le feuillage, soudée et simplifiée par meshoptimizer (ADR-0028) |
