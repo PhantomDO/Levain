@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -18,6 +19,7 @@
 
 using levain::scene::differencesFrom;
 using levain::scene::isSceneEntity;
+using levain::scene::restoreSnapshot;
 using levain::scene::Snapshot;
 using levain::scene::takeSnapshot;
 using levain::scene::Transform;
@@ -300,6 +302,148 @@ TEST_CASE("differencesFrom plafonne ses lignes et compte les autres")
 
     REQUIRE(lines.size() == levain::scene::MaxReportedDifferences + 1);
     CHECK(lines.back() == "… et 10 autres différences");
+}
+
+TEST_CASE("createIdRanges sépare l'édition, [1, 2^24 - 1], du jeu, au-dessus")
+{
+    flecs::world world;
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+
+    const flecs::entity edited = world.entity();
+    levain::scene::usePlayIds(world, *ranges);
+    const flecs::entity played = world.entity();
+    levain::scene::useEditIds(world, *ranges);
+    const flecs::entity edited2 = world.entity();
+
+    CHECK(static_cast<std::uint32_t>(edited.id()) < levain::scene::PlayFirstIndex);
+    CHECK(static_cast<std::uint32_t>(played.id()) >= levain::scene::PlayFirstIndex);
+    CHECK(static_cast<std::uint32_t>(edited2.id()) < levain::scene::PlayFirstIndex);
+    CHECK(levain::scene::bornInPlay(world, played));
+    CHECK_FALSE(levain::scene::bornInPlay(world, edited));
+}
+
+TEST_CASE("createIdRanges refuse un monde qui a détruit une entité, en Release aussi")
+{
+    flecs::world world;
+    world.entity().destruct();
+
+    const auto ranges = levain::scene::createIdRanges(world);
+
+    REQUIRE_FALSE(ranges.has_value());
+    CHECK(ranges.error().message.find("détruit une entité") != std::string::npos);
+    CHECK(ecs_entity_range_get(world) == nullptr); // le monde n'est pas touché
+}
+
+TEST_CASE("createIdRanges refuse de créer les plages deux fois")
+{
+    flecs::world world;
+    REQUIRE(levain::scene::createIdRanges(world).has_value());
+
+    CHECK_FALSE(levain::scene::createIdRanges(world).has_value());
+}
+
+TEST_CASE("l'index d'une caisse détruite en jeu revient, avec sa génération")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    world.entity("recyclée").destruct(); // la caisse aura la génération 1
+    const flecs::entity crate = world.entity("caisse").set(Transform{});
+    const flecs::entity_t crateId = crate.id();
+    REQUIRE((crateId >> 32U) == 1);
+    const Snapshot snapshot = snapshotOf(world);
+
+    levain::scene::usePlayIds(world, *ranges);
+    crate.destruct();
+    // Ce que le jeu crée ensuite et qui reste : une requête nommée prendrait l'index libre de la
+    // caisse sans plage de jeu ; dans celle du jeu, elle n'y touche pas.
+    const flecs::entity query =
+        world.entity(world.query_builder<Transform>("requête").build().entity());
+    const flecs::entity born = world.entity("née en jeu").set(Transform{});
+    const flecs::entity_t bornId = born.id();
+    REQUIRE(restoreSnapshot(world, *ranges, snapshot).has_value());
+
+    CHECK(world.is_alive(crateId));
+    CHECK(ecs_get_alive(world, static_cast<std::uint32_t>(crateId)) == crateId);
+    CHECK_FALSE(world.is_alive(bornId));
+    CHECK(query.is_alive());
+    CHECK(static_cast<std::uint32_t>(query.id()) != static_cast<std::uint32_t>(crateId));
+    // Revenue dans la plage de l'édition : la liste d'index libres ne la redonne plus à personne.
+    // L'ordre des étapes 2 et 3 : revenir à l'édition avant le réveil. Réveillée dans la plage du
+    // jeu, la caisse resterait dans la liste d'index libres de l'édition, et la prochaine entité de
+    // l'édition prendrait son index.
+    CHECK(ecs_entity_range_get(world) == ranges->edit);
+    const flecs::entity next = world.entity();
+    CHECK(static_cast<std::uint32_t>(next.id()) < levain::scene::PlayFirstIndex);
+    CHECK(static_cast<std::uint32_t>(next.id()) != static_cast<std::uint32_t>(crateId));
+    CHECK(world.is_alive(crateId));
+}
+
+TEST_CASE("l'enfant de la scène d'une entité née en jeu revient avec elle détruite")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    const flecs::entity kid = world.entity("enfant").set(Transform{});
+    const flecs::entity_t kidId = kid.id();
+    const Snapshot snapshot = snapshotOf(world);
+
+    levain::scene::usePlayIds(world, *ranges);
+    const flecs::entity parent = world.entity("parent né en jeu");
+    kid.set(flecs::Parent{parent}); // l'enfant part avec le parent détruit
+    REQUIRE(restoreSnapshot(world, *ranges, snapshot).has_value());
+
+    CHECK_FALSE(parent.is_alive());
+    CHECK(world.is_alive(kidId));
+}
+
+TEST_CASE("restoreSnapshot refuse un index pris par une autre génération, sans rien réveiller")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    const flecs::entity lost = world.entity("perdue");
+    const flecs::entity kept = world.entity("gardée");
+    const flecs::entity_t lostId = lost.id();
+    const flecs::entity_t keptId = kept.id();
+    const Snapshot snapshot = snapshotOf(world);
+    lost.destruct();
+    kept.destruct();
+    // Dans l'édition, hors du jeu : le nouveau prend l'index libéré en dernier, de génération 1.
+    const flecs::entity taker = world.entity();
+    REQUIRE((taker.id() >> 32U) == 1);
+    levain::scene::usePlayIds(world, *ranges);
+    const flecs::entity born = world.entity();
+
+    const auto restored = restoreSnapshot(world, *ranges, snapshot);
+
+    REQUIRE_FALSE(restored.has_value());
+    CHECK(restored.error().message.find("autre génération") != std::string::npos);
+    CHECK(taker.is_alive());
+    CHECK(born.is_alive()); // refusé avant l'étape 1 : le monde est intact
+    CHECK(ecs_entity_range_get(world) == ranges->play);
+    CHECK_FALSE(world.is_alive(lostId)); // aucun réveil, même pour celle dont l'index est libre
+    CHECK_FALSE(world.is_alive(keptId));
+}
+
+TEST_CASE("restoreSnapshot en mode différé est refusé, le monde intact")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    const Snapshot snapshot = snapshotOf(world);
+    levain::scene::usePlayIds(world, *ranges);
+    const flecs::entity born = world.entity("née en jeu");
+
+    world.defer_begin();
+    const auto restored = restoreSnapshot(world, *ranges, snapshot);
+    world.defer_end();
+
+    REQUIRE_FALSE(restored.has_value());
+    CHECK(restored.error().message.find("mode différé") != std::string::npos);
+    CHECK(born.is_alive()); // l'étape 1 n'a pas tourné
+    CHECK(ecs_entity_range_get(world) == ranges->play);
 }
 
 TEST_CASE("l'instantané refuse deux frères du même nom, en nommant l'entité")
