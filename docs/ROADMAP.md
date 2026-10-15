@@ -444,7 +444,7 @@ sans « Remplacer ». *Fini le 14/10/2026* : 2,0 h pour 1,0 estimée, chaque cri
 de M7.7) ; M7.5 suit.
 
 **M7.5 — Play/Stop.** Sauvegarde de la scène, simulation, restauration. Remonté après M7.7 (v0.16) : Stop doit
-restaurer la scène en place, sans relire de fichier (prévu, ADR à venir).
+restaurer la scène en place, sans relire de fichier ([ADR-0037](adr/0037-play-stop-restauration-en-place.md)).
 *Critère* : après Stop, la scène est identique à l'état d'avant Play (test).
 
 **M7.3 — Sérialisation et undo/redo.** Scènes en JSON : les valeurs par le JSON de flecs, l'enveloppe et le
