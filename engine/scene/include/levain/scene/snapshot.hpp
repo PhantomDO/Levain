@@ -145,7 +145,9 @@ struct RestoreReport
 ///  4. rendre les parents (par profondeur croissante), les composants (ceux de trop retirés,
 ///     `Transient` compris), les valeurs (réécrites si elles ont changé, toujours si on ne sait pas
 ///     les comparer) et les noms ;
-///  5. rendre l'ordre des enfants, la taille de la liste vérifiée.
+///  5. rendre l'ordre des enfants, la taille de la liste vérifiée ;
+///  6. vérifier par `differencesFrom` : la moindre différence est une erreur qui les nomme, hors
+///     les enfants internes perdus, que le rapport rend.
 [[nodiscard]] core::Result<RestoreReport>
 restoreSnapshot(flecs::world& world, const IdRanges& ranges, const Snapshot& snapshot);
 

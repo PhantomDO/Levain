@@ -258,8 +258,21 @@ public:
         ++m_total;
     }
 
-    std::vector<std::string> finish() &&
+    /// Un enfant interne détruit en jeu (l'observateur d'un `onEnter`) : une différence, mais que
+    /// Stop ne peut pas réparer, donc rendue à part (`RestoreReport`).
+    void addLostInternal(std::string line) { m_lostInternals.push_back(std::move(line)); }
+
+    [[nodiscard]] const std::vector<std::string>& lostInternals() const { return m_lostInternals; }
+
+    std::vector<std::string> finish(bool withLostInternals) &&
     {
+        if (withLostInternals)
+        {
+            for (std::string& line : m_lostInternals)
+            {
+                add(std::move(line));
+            }
+        }
         if (m_total > m_lines.size())
         {
             m_lines.push_back(std::format("… et {} autres différences", m_total - m_lines.size()));
@@ -269,6 +282,7 @@ public:
 
 private:
     std::vector<std::string> m_lines;
+    std::vector<std::string> m_lostInternals;
     std::size_t m_total = 0;
 };
 
@@ -310,9 +324,10 @@ void compareChildren(const flecs::world& world, const EntityRecord& expected,
     {
         if (ecs_get_alive(world, indexOf(internal)) != internal)
         {
-            out.add(std::format("{} : l'enfant interne {} manque (un observateur détruit en "
-                                "jeu ne revient pas)",
-                                who, pathOf(world, internal)));
+            out.addLostInternal(
+                std::format("{} : l'enfant interne {} manque (un observateur détruit en jeu ne "
+                            "revient pas)",
+                            who, pathOf(world, internal)));
         }
     }
 }
@@ -351,6 +366,16 @@ const EntityRecord* recordOf(const Snapshot& snapshot, flecs::entity_t id)
     return found != snapshot.entities.end() && found->id == id ? &*found : nullptr;
 }
 
+std::string join(const std::vector<std::string>& lines)
+{
+    std::string joined;
+    for (const std::string& line : lines)
+    {
+        joined += "  " + line + "\n";
+    }
+    return joined;
+}
+
 /// Tout ce qui diffère entre le monde et l'instantané.
 Differences compareWorld(const flecs::world& world, const Snapshot& snapshot)
 {
@@ -374,6 +399,15 @@ Differences compareWorld(const flecs::world& world, const Snapshot& snapshot)
         if (recordOf(snapshot, entity) == nullptr)
         {
             out.add(std::format("{} : entité de la scène en trop", pathOf(world, entity)));
+        }
+    }
+    // Née en jeu sous une entité de la scène par `ChildOf` : ni scène, ni détruite par Stop.
+    for (const PlacedByChildOf& placed : placedByChildOf(world))
+    {
+        if (indexOf(placed.entity) >= PlayFirstIndex && isSceneEntity(world, placed.parent))
+        {
+            out.add(std::format("{} : née en jeu sous {} par ChildOf, Stop ne la détruit pas",
+                                pathOf(world, placed.entity), pathOf(world, placed.parent)));
         }
     }
     return out;
@@ -592,7 +626,7 @@ core::Result<Snapshot> takeSnapshot(const flecs::world& world)
 
 std::vector<std::string> differencesFrom(const flecs::world& world, const Snapshot& snapshot)
 {
-    return compareWorld(world, snapshot).finish();
+    return compareWorld(world, snapshot).finish(true);
 }
 
 namespace
@@ -783,7 +817,17 @@ core::Result<RestoreReport> restoreSnapshot(flecs::world& world, const IdRanges&
     {
         return std::unexpected(ordered.error());
     }
-    return RestoreReport{};
+    // L'étape 6 : ce que la restauration vient de faire se vérifie par la fonction même du critère.
+    Differences left = compareWorld(world, snapshot);
+    RestoreReport report{.lostInternalChildren = left.lostInternals()};
+    if (std::vector<std::string> lines = std::move(left).finish(false); !lines.empty())
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               std::format("Stop : la scène n'est pas identique à celle d'avant "
+                                           "Play :\n{}",
+                                           join(lines)));
+    }
+    return report;
 }
 
 } // namespace levain::scene

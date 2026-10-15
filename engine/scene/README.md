@@ -83,8 +83,9 @@ Play garde la scène, Stop la rend **en place**, avec les mêmes identifiants ([
 - **`Transient`**, une étiquette sur un composant comme `Authored`, posée à l'import de `SceneModule` : un module
   marque ce qui n'est pas la scène (les handles de Jolt). Jamais copié, jamais refusé, retiré des entités à Stop.
 - **`differencesFrom`** : une ligne par différence (identifiants et générations, entités en trop ou manquantes, noms,
-  `lookup(chemin) == id`, parents, types, valeurs, ordre des enfants, enfant interne manquant), les vingt premières
-  puis le compte des autres. Vide si la scène est identique : c'est le critère de Stop.
+  `lookup(chemin) == id`, parents, types, valeurs, ordre des enfants, enfant interne manquant, entité née en jeu sous
+  une entité de la scène par `ChildOf`), les vingt premières puis le compte des autres. Vide si la scène est
+  identique : c'est le critère de Stop.
 - **Les plages d'identifiants** (`createIdRanges`, appelée par `createApp` juste après le monde) : l'édition prend
   [1, 2^24 − 1], le jeu au-dessus (`useEditIds`, `usePlayIds`). Chaque plage a sa liste d'index à réutiliser : l'index
   d'une caisse détruite en jeu ne peut pas être repris par un observateur ou une requête créés ensuite, qui restent
@@ -95,8 +96,9 @@ Play garde la scène, Stop la rend **en place**, avec les mêmes identifiants ([
   (`ecs_make_alive`) ; 4. rendre les parents (par profondeur croissante, ce qui évite tout cycle), les composants
   (ceux de trop retirés, `Transient` compris), les valeurs (réécrites si elles ont changé, toujours si on ne sait pas
   les comparer) et les noms (tous reposés, même inchangés : l'index des noms range un nom sous son parent au moment
-  où il est posé) ; 5. rendre l'ordre des enfants, la liste vérifiée en n log n. flecs ne vérifie qu'en Debug
-  (`ecs_check`) un réveil sur un index vivant, une plage créée après une destruction et la taille de la liste
+  où il est posé) ; 5. rendre l'ordre des enfants, la liste vérifiée en n log n ; 6. vérifier par `differencesFrom`.
+  Un volume détruit en jeu revient sans l'observateur rangé dessous : `RestoreReport` le nomme. flecs ne vérifie qu'en
+  Debug (`ecs_check`) un réveil sur un index vivant, une plage créée après une destruction et la taille de la liste
   d'enfants : Levain les vérifie lui-même.
 
 | Piège | Son nom |
