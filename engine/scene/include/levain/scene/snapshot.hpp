@@ -85,7 +85,10 @@ struct Snapshot
     std::vector<EntityRecord> entities;
 };
 
-/// takeSnapshot : copie la scène.
+/// takeSnapshot : copie la scène. Refuse, en nommant l'entité et le composant, ce que Stop ne
+/// saurait rendre : un composant qui ne se copie pas (`ECS_TYPE_HOOK_COPY_ILLEGAL`) et une instance
+/// de prefab `(IsA, *)`, dont les valeurs héritées ne se copient pas entité par entité. Play ne
+/// part pas, et l'Édition reste.
 [[nodiscard]] core::Result<Snapshot> takeSnapshot(const flecs::world& world);
 
 /// Les entités de la scène vivantes, par index croissant.
