@@ -53,11 +53,6 @@ struct Hierarchy
 
 [[nodiscard]] Hierarchy createHierarchy(const flecs::world& world);
 
-/// Une table d'entités de flecs plutôt que de la scène : modules, systèmes, observateurs,
-/// requêtes, composants, prefabs. La hiérarchie les tait, table par table et non entité par
-/// entité ; un composant qui porte sa propre valeur va dans « Singletons ».
-[[nodiscard]] bool isEngineInternal(const flecs::table& table);
-
 /// Vide `rows`, puis y range chaque racine et, sous un nœud ouvert, ses enfants placés, dans
 /// l'ordre où flecs les tient : une ligne par racine à chaque image, sans widget. Sa mémoire
 /// ressert d'une image à l'autre.

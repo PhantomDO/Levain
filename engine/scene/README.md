@@ -61,6 +61,22 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/camera_control.hpp`](include/levain/scene/camera_control.hpp) | La caméra libre : `FpsController`, `FpsInput`, `applyFpsInput`, et les pièges nommés `normalizeOrZero`, `clampPitch` (des bornes inversées sont remises dans l'ordre), `horizontalBasisFrom` |
 | [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` ; `advanceWorld` (avec l'arrêt) et `composeWorldTransforms` |
 | [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf`, `componentOfKey`, puis `setComponentValue` et `sameValue` |
+| [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient` |
+
+## L'instantané de la scène
+
+Play garde la scène, Stop la rend **en place**, avec les mêmes identifiants ([ADR-0037](../../docs/adr/0037-play-stop-restauration-en-place.md)).
+`snapshot.hpp`, sans éditeur ni GPU :
+
+- **Une entité de la scène** (`isSceneEntity`) est ce que la Hiérarchie pourrait montrer : vivante, ni flecs lui-même,
+  ni module, système, observateur, requête, composant ou prefab (`isEngineInternal`), ni rangée sous un module.
+  La scène n'emploie que `flecs::Parent` (ADR-0015) : une entité sous `ChildOf` n'en est pas une. On lit la **table**
+  (`(ChildOf, *)`), car un enfant de `flecs::Parent` répond oui à `entity.has(ChildOf, *)`.
+- **`Transient`**, une étiquette sur un composant comme `Authored`, posée à l'import de `SceneModule` : un module
+  marque ce qui n'est pas la scène (les handles de Jolt). Jamais copié, jamais refusé, retiré des entités à Stop.
+
+Ailleurs : Unity ne relit que « le contenu modifié de la scène » au retour de Play quand il ne la recharge pas
+(**documenté**) ; Unreal joue dans une copie du monde (**supposé**) ; Godot dans un autre processus (**documenté**).
 
 ## Trois notions de flecs
 

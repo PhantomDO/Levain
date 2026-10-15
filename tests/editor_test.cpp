@@ -152,7 +152,7 @@ TEST_CASE("la hiérarchie tait les entités de flecs, et un singleton va dans «
     // lui-même : deux composants qui portent leur valeur, sans être des singletons de la scène.
     const flecs::entity scene = world.import<levain::scene::SceneModule>();
     world.entity("placée").set(Transform{});
-    // Un singleton est rangé sur l'entité de son composant : sans `isEngineInternal`, le
+    // Un singleton est rangé sur l'entité de son composant : sans `scene::isEngineInternal`, le
     // composant Transform passerait pour une racine de la scène, comme un système placé.
     world.set(Transform{});
     world.system("système").run([](flecs::iter&) {}).set(Transform{});

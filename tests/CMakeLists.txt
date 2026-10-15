@@ -27,6 +27,7 @@ set(cpuTests
     reflection_test.cpp
     registry_test.cpp
     scene_test.cpp
+    snapshot_test.cpp
     version_test.cpp
     walk_test.cpp)
 set(nativeTests
@@ -122,6 +123,7 @@ else()
     add_dependencies(levain_tests levain_process_helper)
     target_compile_definitions(levain_tests PRIVATE
         LEVAIN_PROCESS_HELPER="$<TARGET_FILE:levain_process_helper>")
+
 endif()
 
 # La macro qui génère le main de doctest ne doit s'appliquer qu'à une seule unité de

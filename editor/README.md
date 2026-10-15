@@ -519,7 +519,8 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
 - **`selectedIfAlive`** : la sélection garde l'identifiant complet de l'entité, génération comprise, et ne le
   relit qu'à travers `is_alive`. Une entité détruite ne laisse pas de poignée morte, et flecs, qui recycle son
   index avec une autre génération, ne fait pas passer la nouvelle entité pour la sélection.
-- **`isEngineInternal`** : modules, systèmes, observateurs, requêtes, composants et prefabs sont des entités
+- **`scene::isEngineInternal`** (descendu dans `scene/snapshot.hpp` en M7.5 : l'instantané de Play en a
+  besoin sans éditeur) : modules, systèmes, observateurs, requêtes, composants et prefabs sont des entités
   comme les autres. Un singleton est rangé sur l'entité de son composant : `world.set(Transform{})` ferait passer
   le composant `Transform` pour une racine de la scène. La hiérarchie les tait, une table à la fois ; les
   singletons ont leur nœud, sans les modules (flecs garde leur instance sur leur entité) ni les composants de
