@@ -503,6 +503,7 @@ TEST_CASE(
     const std::vector<std::string> remaining = differencesFrom(world, snapshot);
     REQUIRE(remaining.size() == 1); // l'observateur de volume ne revient pas
     CHECK(mentions(remaining, "l'enfant interne"));
+    CHECK(restored->lostInternalChildren.size() == 1);
     CHECK(levain::scene::sceneEntities(world) ==
           idsBefore); // mêmes identifiants, générations comprises
     CHECK(orderedChildren(world, grid) == orderBefore);
@@ -538,6 +539,25 @@ TEST_CASE("Stop retire de la scène un composant Transient posé en jeu")
     CHECK_FALSE(body.has<Unique>());
 }
 
+TEST_CASE("Stop rend un volume sans son observateur détruit, et le rapport le nomme")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    const flecs::entity volume = world.entity("zone").set(Transform{});
+    world.observer<Mass>("alarme").event(flecs::OnSet).each([](Mass&) {}).child_of(volume);
+    const Snapshot snapshot = snapshotOf(world);
+
+    levain::scene::usePlayIds(world, *ranges);
+    volume.destruct();
+    const auto restored = restoreSnapshot(world, *ranges, snapshot);
+
+    REQUIRE(restored.has_value());
+    REQUIRE(restored->lostInternalChildren.size() == 1);
+    CHECK(restored->lostInternalChildren[0].find("zone") != std::string::npos);
+    CHECK(volume.is_alive());
+}
+
 TEST_CASE("restoreSnapshot refuse une liste d'enfants qui n'est pas celle du parent")
 {
     flecs::world world = makeWorld();
@@ -557,6 +577,24 @@ TEST_CASE("restoreSnapshot refuse une liste d'enfants qui n'est pas celle du par
     REQUIRE_FALSE(restored.has_value());
     CHECK(restored.error().message.find("parent") != std::string::npos);
     CHECK(restored.error().message.find("ne sont pas ceux de l'instantané") != std::string::npos);
+}
+
+TEST_CASE(
+    "Stop vérifie son résultat : une entité créée hors de la plage du jeu reste et est nommée")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    const Snapshot snapshot = snapshotOf(world);
+
+    // Le jeu oublie `usePlayIds` : l'entité prend un index de l'édition, que Stop ne sait pas née
+    // en jeu (le test d'index) ; la vérification finale la nomme au lieu de la laisser passer.
+    world.entity("oubliée en jeu");
+    const auto restored = restoreSnapshot(world, *ranges, snapshot);
+
+    REQUIRE_FALSE(restored.has_value());
+    CHECK(restored.error().message.find("oubliée en jeu : entité de la scène en trop") !=
+          std::string::npos);
 }
 
 TEST_CASE("restoreSnapshot en mode différé est refusé, le monde intact")
@@ -629,6 +667,34 @@ TEST_CASE(
     REQUIRE_FALSE(snapshot.has_value());
     CHECK(snapshot.error().message.find("dessous") != std::string::npos);
     CHECK(snapshot.error().message.find("ChildOf") != std::string::npos);
+}
+
+TEST_CASE("l'instantané accepte une entité à Transform rangée sous un descendant d'un module")
+{
+    flecs::world world = makeWorld();
+    world.entity("atelier").add(flecs::Module);
+    // « rig » n'est pas un module, mais il est rangé dans la portée d'« atelier » : le contenu d'un
+    // module, à n'importe quelle profondeur, n'est pas la scène.
+    world.entity("atelier::rig::camera").set(Transform{});
+
+    CHECK(takeSnapshot(world).has_value());
+}
+
+TEST_CASE("Stop nomme une entité née en jeu sous une entité de la scène par ChildOf")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    const flecs::entity owner = world.entity("maître").set(Transform{});
+    const Snapshot snapshot = snapshotOf(world);
+
+    levain::scene::usePlayIds(world, *ranges);
+    world.entity("jouet").child_of(owner).set(Transform{}); // née en jeu, que Stop ne détruit pas
+    const auto restored = restoreSnapshot(world, *ranges, snapshot);
+
+    REQUIRE_FALSE(restored.has_value());
+    CHECK(restored.error().message.find("jouet") != std::string::npos);
+    CHECK(restored.error().message.find("par ChildOf") != std::string::npos);
 }
 
 TEST_CASE("Stop rend l'ordre de beaucoup d'enfants renversés")

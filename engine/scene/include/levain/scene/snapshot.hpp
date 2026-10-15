@@ -88,10 +88,12 @@ struct Snapshot
     std::vector<EntityRecord> entities;
 };
 
-/// takeSnapshot : copie la scène. Refuse, en nommant l'entité et le composant, ce que Stop ne
-/// saurait rendre : un composant qui ne se copie pas (`ECS_TYPE_HOOK_COPY_ILLEGAL`) et une instance
-/// de prefab `(IsA, *)`, dont les valeurs héritées ne se copient pas entité par entité. Play ne
-/// part pas, et l'Édition reste.
+/// takeSnapshot : copie la scène. Refuse, en nommant l'entité et la cause, ce que Stop ne saurait
+/// rendre : un composant qui ne se copie pas ou ne se construit pas par défaut
+/// (`ECS_TYPE_HOOK_COPY_ILLEGAL`, `ECS_TYPE_HOOK_CTOR_ILLEGAL`) ; une instance de prefab
+/// `(IsA, *)`, dont les valeurs héritées ne se copient pas entité par entité ; deux frères du
+/// même nom ; une entité à `Transform` rangée par ChildOf hors d'un module. Play ne part pas, et
+/// l'Édition reste.
 [[nodiscard]] core::Result<Snapshot> takeSnapshot(const flecs::world& world);
 
 /// Le premier index de la plage du jeu : ce qui naît en jeu a un identifiant d'au moins 2^24.
@@ -145,7 +147,9 @@ struct RestoreReport
 ///  4. rendre les parents (par profondeur croissante), les composants (ceux de trop retirés,
 ///     `Transient` compris), les valeurs (réécrites si elles ont changé, toujours si on ne sait pas
 ///     les comparer) et les noms ;
-///  5. rendre l'ordre des enfants, la taille de la liste vérifiée.
+///  5. rendre l'ordre des enfants, la taille de la liste vérifiée ;
+///  6. vérifier par `differencesFrom` : la moindre différence est une erreur qui les nomme, hors
+///     les enfants internes perdus, que le rapport rend.
 [[nodiscard]] core::Result<RestoreReport>
 restoreSnapshot(flecs::world& world, const IdRanges& ranges, const Snapshot& snapshot);
 
