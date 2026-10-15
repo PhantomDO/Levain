@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -15,6 +16,7 @@
 // L'instantané de la scène (ADR-0037, morceau 1) : ce qu'il garde, ce qu'il refuse, et chaque sorte
 // de différence que `differencesFrom` doit trouver. Sans éditeur ni GPU.
 
+using levain::scene::differencesFrom;
 using levain::scene::isSceneEntity;
 using levain::scene::Snapshot;
 using levain::scene::takeSnapshot;
@@ -60,6 +62,12 @@ Snapshot snapshotOf(const flecs::world& world)
     auto snapshot = takeSnapshot(world);
     REQUIRE(snapshot.has_value());
     return std::move(*snapshot);
+}
+
+bool mentions(const std::vector<std::string>& lines, std::string_view fragment)
+{
+    return std::ranges::any_of(lines, [&](const std::string& line)
+                               { return line.find(fragment) != std::string::npos; });
 }
 
 } // namespace
@@ -189,6 +197,109 @@ TEST_CASE("l'instantané refuse une instance de prefab")
     REQUIRE_FALSE(snapshot.has_value());
     CHECK(snapshot.error().message.find("instance") != std::string::npos);
     CHECK(snapshot.error().message.find("prefab") != std::string::npos);
+}
+
+TEST_CASE("differencesFrom est vide pour un monde que rien n'a touché")
+{
+    flecs::world world = makeWorld();
+    const flecs::entity root = world.entity("racine").set(Transform{});
+    child(world, root, "a");
+
+    CHECK(differencesFrom(world, snapshotOf(world)).empty());
+}
+
+TEST_CASE("differencesFrom trouve chaque sorte de différence plantée")
+{
+    flecs::world world = makeWorld();
+    const flecs::entity root = world.entity("racine").set(Mass{.kilograms = 1.0f});
+    const flecs::entity a = child(world, root, "a");
+    const flecs::entity b = child(world, root, "b");
+    const flecs::entity other = world.entity("autre");
+    const flecs::entity watcher =
+        world.observer<Mass>().event(flecs::OnSet).each([](Mass&) {}).child_of(root);
+    const Snapshot snapshot = snapshotOf(world);
+
+    SUBCASE("une entité détruite")
+    {
+        const flecs::entity_t id = other.id();
+        other.destruct();
+        CHECK(mentions(differencesFrom(world, snapshot), "n'existe plus"));
+        // Son index repris par une autre : la génération diffère.
+        const flecs::entity taker = world.entity();
+        CHECK(taker.id() != id);
+        CHECK(mentions(differencesFrom(world, snapshot), "autre génération"));
+    }
+    SUBCASE("une entité en trop")
+    {
+        world.entity("née en jeu");
+        CHECK(
+            mentions(differencesFrom(world, snapshot), "née en jeu : entité de la scène en trop"));
+    }
+    SUBCASE("un nom changé")
+    {
+        a.set_name("renommée");
+        CHECK(mentions(differencesFrom(world, snapshot), "nom « renommée » au lieu de « a »"));
+    }
+    SUBCASE("un nom que lookup ne retrouve plus")
+    {
+        // Un frère prend le nom d'un autre puis est détruit : le premier garde son nom, mais
+        // l'index des noms de flecs a perdu son entrée (probe 3 de la relecture de l'ADR-0037).
+        const flecs::entity extra = child(world, root, "x");
+        const Snapshot withExtra = snapshotOf(world);
+        extra.set_name("b");
+        extra.destruct();
+        const std::vector<std::string> lines = differencesFrom(world, withExtra);
+        CHECK(mentions(lines, "lookup du chemin"));
+        CHECK(b.name() == "b"); // le nom n'a pas bougé : seul lookup voit la différence
+    }
+    SUBCASE("un parent changé")
+    {
+        a.set(flecs::Parent{b});
+        CHECK(mentions(differencesFrom(world, snapshot), "parent racine::b au lieu de racine"));
+    }
+    SUBCASE("un composant en trop, un manquant, une étiquette et une paire")
+    {
+        a.add<Tag>();
+        b.add<Likes>(a);
+        root.remove<Mass>();
+        const std::vector<std::string> lines = differencesFrom(world, snapshot);
+        CHECK(mentions(lines, "a : composant en trop"));
+        CHECK(mentions(lines, "b : composant en trop"));
+        CHECK(mentions(lines, "racine : composant manquant"));
+    }
+    SUBCASE("une valeur changée")
+    {
+        root.set(Mass{.kilograms = 2.0f});
+        CHECK(mentions(differencesFrom(world, snapshot), "la valeur de"));
+    }
+    SUBCASE("l'ordre des enfants")
+    {
+        // flecs veut tous les enfants, l'observateur interne compris (ecs_set_child_order).
+        const std::vector<flecs::entity_t> swapped{b.id(), a.id(), watcher.id()};
+        ecs_set_child_order(world, root, swapped.data(), 3);
+        CHECK(mentions(differencesFrom(world, snapshot), "les enfants ou leur ordre diffèrent"));
+    }
+    SUBCASE("un enfant interne détruit")
+    {
+        watcher.destruct();
+        CHECK(mentions(differencesFrom(world, snapshot), "l'enfant interne"));
+    }
+}
+
+TEST_CASE("differencesFrom plafonne ses lignes et compte les autres")
+{
+    flecs::world world = makeWorld();
+    for (int i = 0; i < 30; ++i)
+    {
+        world.entity().set(Mass{});
+    }
+    const Snapshot snapshot = snapshotOf(world);
+    world.each([](flecs::entity, Mass& mass) { mass.kilograms = 9.0f; });
+
+    const std::vector<std::string> lines = differencesFrom(world, snapshot);
+
+    REQUIRE(lines.size() == levain::scene::MaxReportedDifferences + 1);
+    CHECK(lines.back() == "… et 10 autres différences");
 }
 
 TEST_CASE("l'instantané refuse deux frères du même nom, en nommant l'entité")

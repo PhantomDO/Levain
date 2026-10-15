@@ -61,7 +61,7 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/camera_control.hpp`](include/levain/scene/camera_control.hpp) | La caméra libre : `FpsController`, `FpsInput`, `applyFpsInput`, et les pièges nommés `normalizeOrZero`, `clampPitch` (des bornes inversées sont remises dans l'ordre), `horizontalBasisFrom` |
 | [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` ; `advanceWorld` (avec l'arrêt) et `composeWorldTransforms` |
 | [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf`, `componentOfKey`, puis `setComponentValue` et `sameValue` |
-| [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient`, `takeSnapshot` |
+| [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient`, `takeSnapshot`, `differencesFrom` |
 
 ## L'instantané de la scène
 
@@ -82,11 +82,15 @@ Play garde la scène, Stop la rend **en place**, avec les mêmes identifiants ([
   copié par `memcpy`, sans risque puisque son destructeur est trivial ; ce qui pend, ce sont les handles, d'où `Transient`.
 - **`Transient`**, une étiquette sur un composant comme `Authored`, posée à l'import de `SceneModule` : un module
   marque ce qui n'est pas la scène (les handles de Jolt). Jamais copié, jamais refusé, retiré des entités à Stop.
+- **`differencesFrom`** : une ligne par différence (identifiants et générations, entités en trop ou manquantes, noms,
+  `lookup(chemin) == id`, parents, types, valeurs, ordre des enfants, enfant interne manquant), les vingt premières
+  puis le compte des autres. Vide si la scène est identique : c'est le critère de Stop.
 
 | Piège | Son nom |
 |---|---|
 | `ecs_get_ordered_children` s'arrête sur une assertion pour un parent sans enfant `flecs::Parent` (vérifié sur la 4.1.6) | `orderedChildrenOf` ne l'appelle qu'avec un enfant `Parent` |
 | Le nom et `flecs::Parent` sont tenus par flecs : les recopier dans le type le casserait | `isKeptByFlecs`, `sceneTypeOf` |
+| Une valeur qu'on ne sait pas comparer (ni décrite, ni crochet `cmp`) ne se voit pas dans `differencesFrom` | `isComparable` |
 
 Un instantané garde le monde pour libérer ses valeurs : il ne lui survit pas.
 
