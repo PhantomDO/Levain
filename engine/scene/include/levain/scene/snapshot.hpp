@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
@@ -75,7 +76,8 @@ struct EntityRecord
     std::vector<flecs::entity_t> type;
     std::vector<ComponentValue> values;    ///< Celles des composants du type qui ont une valeur.
     std::vector<flecs::entity_t> children; ///< Les enfants de la scène, dans l'ordre de flecs.
-    /// Les enfants internes (l'observateur d'un `onEnter`), qui restent après les autres.
+    /// Les enfants internes (l'observateur d'un `onEnter`), qui restent après les autres. Un
+    /// interne détruit en jeu ne revient pas : `differencesFrom` le nomme.
     std::vector<flecs::entity_t> internalChildren;
 };
 
@@ -93,5 +95,16 @@ struct Snapshot
 
 /// Les entités de la scène vivantes, par index croissant.
 [[nodiscard]] std::vector<flecs::entity_t> sceneEntities(const flecs::world& world);
+
+/// differencesFrom : ce qui diffère entre le monde et l'instantané, une ligne par différence, vide
+/// si la scène est identique. Les premières seulement (`MaxReportedDifferences`), puis le compte
+/// des autres : la console les imprime telles quelles. Compare les identifiants et leur
+/// génération, les entités en trop et manquantes, les noms (et `lookup(chemin) == id`), les
+/// parents, les types, les valeurs, l'ordre des enfants et les enfants internes. Une valeur dont
+/// le type n'est ni décrit ni comparable par un crochet `cmp` ne se compare pas.
+[[nodiscard]] std::vector<std::string> differencesFrom(const flecs::world& world,
+                                                       const Snapshot& snapshot);
+
+inline constexpr std::size_t MaxReportedDifferences = 20;
 
 } // namespace levain::scene

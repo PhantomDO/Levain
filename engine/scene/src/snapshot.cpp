@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
+#include <iterator>
 #include <set>
 #include <span>
 #include <utility>
 
 #include "levain/scene/components.hpp"
+#include "levain/scene/reflection.hpp"
 
 namespace levain::scene
 {
@@ -202,6 +204,174 @@ std::optional<std::string> refusalFor(const flecs::world& world, flecs::id_t id)
     return std::nullopt;
 }
 
+/// Un type que `sameValue` sait comparer : décrit pour la réflexion (ADR-0034), ou une feuille.
+bool isDescribed(const flecs::world& world, flecs::entity_t type)
+{
+    return ecs_has(world, type, EcsStruct) || ecs_has(world, type, EcsArray) ||
+           ecs_has(world, type, EcsPrimitive) || ecs_has(world, type, EcsEnum) ||
+           ecs_has(world, type, EcsBitmask) || type == world.id<flecs::entity>();
+}
+
+const ecs_type_info_t* comparingHook(const flecs::world& world, flecs::entity_t type)
+{
+    const ecs_type_info_t* info = ecs_get_type_info(world, type);
+    const bool usable = info != nullptr && info->hooks.cmp != nullptr &&
+                        (info->hooks.flags & ECS_TYPE_HOOK_CMP_ILLEGAL) == 0;
+    return usable ? info : nullptr;
+}
+
+/// Une valeur se compare si son type est décrit (`sameValue`) ou porte un crochet `cmp` ; sinon
+/// elle ne se compare pas, et la restauration la réécrit toujours.
+bool isComparable(const flecs::world& world, flecs::entity_t type)
+{
+    return isDescribed(world, type) || comparingHook(world, type) != nullptr;
+}
+
+bool sameComponentValue(const flecs::world& world, flecs::entity_t type, const void* first,
+                        const void* second)
+{
+    if (isDescribed(world, type))
+    {
+        return sameValue(world, type, first, second);
+    }
+    const ecs_type_info_t* info = comparingHook(world, type);
+    return info->hooks.cmp(first, second, info) == 0;
+}
+
+/// Les différences, plafonnées : une scène entière fausse n'écrit pas 10 000 lignes.
+class Differences
+{
+public:
+    void add(std::string line)
+    {
+        if (m_lines.size() < MaxReportedDifferences)
+        {
+            m_lines.push_back(std::move(line));
+        }
+        ++m_total;
+    }
+
+    std::vector<std::string> finish() &&
+    {
+        if (m_total > m_lines.size())
+        {
+            m_lines.push_back(std::format("… et {} autres différences", m_total - m_lines.size()));
+        }
+        return std::move(m_lines);
+    }
+
+private:
+    std::vector<std::string> m_lines;
+    std::size_t m_total = 0;
+};
+
+template <class Ids>
+void reportIdsOnlyIn(const flecs::world& world, const Ids& left, const Ids& right,
+                     const std::string& who, const char* what, Differences& out)
+{
+    std::vector<flecs::entity_t> only;
+    std::ranges::set_difference(left, right, std::back_inserter(only));
+    for (const flecs::entity_t id : only)
+    {
+        out.add(std::format("{} : {} {}", who, what, idLabel(world, id)));
+    }
+}
+
+void compareValues(const flecs::world& world, const EntityRecord& expected, const std::string& who,
+                   Differences& out)
+{
+    for (const ComponentValue& value : expected.values)
+    {
+        const void* current = ecs_get_id(world, expected.id, value.id);
+        if (current != nullptr && isComparable(world, value.value.type()) &&
+            !sameComponentValue(world, value.value.type(), value.value.data(), current))
+        {
+            out.add(std::format("{} : la valeur de {} a changé", who, idLabel(world, value.id)));
+        }
+    }
+}
+
+void compareChildren(const flecs::world& world, const EntityRecord& expected,
+                     const EntityRecord& current, const std::string& who, Differences& out)
+{
+    if (expected.children != current.children)
+    {
+        out.add(std::format("{} : les enfants ou leur ordre diffèrent ({} attendus, {} trouvés)",
+                            who, expected.children.size(), current.children.size()));
+    }
+    for (const flecs::entity_t internal : expected.internalChildren)
+    {
+        if (ecs_get_alive(world, indexOf(internal)) != internal)
+        {
+            out.add(std::format("{} : l'enfant interne {} manque (un observateur détruit en "
+                                "jeu ne revient pas)",
+                                who, pathOf(world, internal)));
+        }
+    }
+}
+
+void compareEntity(const flecs::world& world, const EntityRecord& expected, Differences& out)
+{
+    const std::string who = pathOf(world, expected.id);
+    const EntityRecord current = readRecord(world, expected.id);
+    if (current.name != expected.name)
+    {
+        out.add(std::format("{} : nom « {} » au lieu de « {} »", who, current.name.value_or("-"),
+                            expected.name.value_or("-")));
+    }
+    // L'index des noms de flecs peut perdre une entrée sans que le nom change (probe 3 de la
+    // relecture de l'ADR-0037) : seul `lookup` le voit.
+    if (current.name && world.lookup(who.c_str()).id() != expected.id)
+    {
+        out.add(std::format("{} : lookup du chemin ne rend pas l'entité", who));
+    }
+    if (current.parent != expected.parent)
+    {
+        out.add(std::format("{} : parent {} au lieu de {}", who,
+                            current.parent != 0 ? pathOf(world, current.parent) : "-",
+                            expected.parent != 0 ? pathOf(world, expected.parent) : "-"));
+    }
+    reportIdsOnlyIn(world, expected.type, current.type, who, "composant manquant", out);
+    reportIdsOnlyIn(world, current.type, expected.type, who, "composant en trop", out);
+    compareValues(world, expected, who, out);
+    compareChildren(world, expected, current, who, out);
+}
+
+const EntityRecord* recordOf(const Snapshot& snapshot, flecs::entity_t id)
+{
+    const auto found = std::ranges::lower_bound(
+        snapshot.entities, indexOf(id), {}, [](const EntityRecord& r) { return indexOf(r.id); });
+    return found != snapshot.entities.end() && found->id == id ? &*found : nullptr;
+}
+
+/// Tout ce qui diffère entre le monde et l'instantané.
+Differences compareWorld(const flecs::world& world, const Snapshot& snapshot)
+{
+    Differences out;
+    for (const EntityRecord& expected : snapshot.entities)
+    {
+        const flecs::entity_t alive = ecs_get_alive(world, indexOf(expected.id));
+        if (alive == expected.id)
+        {
+            compareEntity(world, expected, out);
+        }
+        else
+        {
+            out.add(std::format("#{} : {}", indexOf(expected.id),
+                                alive == 0 ? "l'entité n'existe plus"
+                                           : "l'index est repris par une autre génération"));
+        }
+    }
+    for (const flecs::entity_t entity : sceneEntities(world))
+    {
+        if (recordOf(snapshot, entity) == nullptr)
+        {
+            out.add(std::format("{} : entité de la scène en trop", pathOf(world, entity)));
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 bool isEngineInternal(const flecs::table& table)
@@ -317,6 +487,11 @@ core::Result<Snapshot> takeSnapshot(const flecs::world& world)
         snapshot.entities.push_back(std::move(record));
     }
     return snapshot;
+}
+
+std::vector<std::string> differencesFrom(const flecs::world& world, const Snapshot& snapshot)
+{
+    return compareWorld(world, snapshot).finish();
 }
 
 } // namespace levain::scene
