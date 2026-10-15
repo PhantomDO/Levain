@@ -562,6 +562,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .skinningState = createSkinningState(*gpu.nvrhi),
             .sampler = render::createSampler(*gpu.nvrhi, sampler),
             .world = flecs::world{},
+            .idRanges = {},
             .fixedStep = {},
             .simulationPaused = false,
             .realTime = true,
@@ -605,6 +606,16 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
                           .timer = render::createGpuTimer(*gpu.nvrhi),
                           .panelsOpen = settings.showUiPanels},
             .hooks = {}});
+    // Avant la moindre entité détruite, et avant que le programme n'en crée : voir
+    // `createIdRanges`.
+    if (auto ranges = scene::createIdRanges(app->world); ranges)
+    {
+        app->idRanges = *ranges;
+    }
+    else
+    {
+        return std::unexpected(ranges.error());
+    }
     prepareAppWorld(app->world);
 #ifdef LEVAIN_ENABLE_EXPLORER
     enableExplorerOnLoopback(app->world);

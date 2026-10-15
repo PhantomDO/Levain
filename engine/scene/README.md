@@ -61,7 +61,7 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/camera_control.hpp`](include/levain/scene/camera_control.hpp) | La caméra libre : `FpsController`, `FpsInput`, `applyFpsInput`, et les pièges nommés `normalizeOrZero`, `clampPitch` (des bornes inversées sont remises dans l'ordre), `horizontalBasisFrom` |
 | [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` ; `advanceWorld` (avec l'arrêt) et `composeWorldTransforms` |
 | [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf`, `componentOfKey`, puis `setComponentValue` et `sameValue` |
-| [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient`, `takeSnapshot`, `differencesFrom` |
+| [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient`, `takeSnapshot`, `differencesFrom`, `createIdRanges`, `useEditIds`/`usePlayIds`, `bornInPlay`, `restoreSnapshot` et son `RestoreReport` |
 
 ## L'instantané de la scène
 
@@ -85,6 +85,15 @@ Play garde la scène, Stop la rend **en place**, avec les mêmes identifiants ([
 - **`differencesFrom`** : une ligne par différence (identifiants et générations, entités en trop ou manquantes, noms,
   `lookup(chemin) == id`, parents, types, valeurs, ordre des enfants, enfant interne manquant), les vingt premières
   puis le compte des autres. Vide si la scène est identique : c'est le critère de Stop.
+- **Les plages d'identifiants** (`createIdRanges`, appelée par `createApp` juste après le monde) : l'édition prend
+  [1, 2^24 − 1], le jeu au-dessus (`useEditIds`, `usePlayIds`). Chaque plage a sa liste d'index à réutiliser : l'index
+  d'une caisse détruite en jeu ne peut pas être repris par un observateur ou une requête créés ensuite, qui restent
+  après Stop. *Né en jeu* (`bornInPlay`) : une entité de la scène d'index au moins 2^24.
+- **`restoreSnapshot`** rend la scène en place (ADR-0037, décision 3). Refusée en mode différé et si un index est pris
+  par une autre génération, le monde intact, dans tous les builds. Puis : 1. détruire les entités nées en jeu ;
+  2. revenir à la plage de l'édition, **avant** le réveil ; 3. réveiller les entités détruites avec leur génération
+  (`ecs_make_alive`). flecs ne vérifie qu'en Debug (`ecs_check`) un réveil sur un index vivant et une plage créée
+  après une destruction : Levain les vérifie lui-même.
 
 | Piège | Son nom |
 |---|---|

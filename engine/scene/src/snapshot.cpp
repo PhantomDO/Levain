@@ -437,6 +437,100 @@ std::vector<flecs::entity_t> sceneEntities(const flecs::world& world)
     return scene;
 }
 
+core::Result<IdRanges> createIdRanges(flecs::world& world)
+{
+    const ecs_entities_t entities = ecs_get_entities(world);
+    if (entities.count != entities.alive_count)
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               "plages d'identifiants : le monde a déjà détruit une entité, flecs "
+                               "refuserait la plage (en Debug seulement) ; créer les plages juste "
+                               "après le monde");
+    }
+    if (ecs_entity_range_get(world) != nullptr || ecs_get_max_id(world) >= PlayFirstIndex)
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               "plages d'identifiants : une plage existe déjà, ou un index dépasse "
+                               "celle de l'édition");
+    }
+    // La première plage créée à partir de 2^24 fait créer à flecs celle de l'édition, [1, 2^24 -
+    // 1], et l'active (src/world.c:1535-1540) : `ecs_entity_range_get` la rend.
+    const ecs_entity_range_t* play = ecs_entity_range_new(world, PlayFirstIndex, 0);
+    return IdRanges{.edit = ecs_entity_range_get(world), .play = play};
+}
+
+void useEditIds(flecs::world& world, const IdRanges& ranges)
+{
+    ecs_entity_range_set(world, ranges.edit);
+}
+
+void usePlayIds(flecs::world& world, const IdRanges& ranges)
+{
+    ecs_entity_range_set(world, ranges.play);
+}
+
+bool bornInPlay(const flecs::world& world, flecs::entity_t entity)
+{
+    return indexOf(entity) >= PlayFirstIndex && isSceneEntity(world, entity);
+}
+
+namespace
+{
+
+/// Étape 1 : détruire les entités nées en jeu. La liste d'abord, puis les destructions : un parent
+/// détruit emporte ses enfants, qui n'ont alors plus à l'être.
+void destroyBornInPlay(flecs::world& world)
+{
+    std::vector<flecs::entity_t> born = sceneEntities(world);
+    std::erase_if(born, [&](flecs::entity_t entity) { return !bornInPlay(world, entity); });
+    for (const flecs::entity_t entity : born)
+    {
+        if (ecs_is_alive(world, entity))
+        {
+            ecs_delete(world, entity);
+        }
+    }
+}
+
+/// Les entités de l'instantané à réveiller, ou l'erreur : un index vivant d'une autre génération
+/// que celle d'avant Play. flecs l'arrête en Debug (src/entity.c:3133-3139) ; en Release,
+/// `ecs_make_alive` écraserait la génération vivante. Rien n'est réveillé avant que tout soit
+/// vérifié.
+core::Result<void> refuseTakenIndexes(const flecs::world& world, const Snapshot& snapshot)
+{
+    for (const EntityRecord& record : snapshot.entities)
+    {
+        const flecs::entity_t alive = ecs_get_alive(world, indexOf(record.id));
+        if (alive != 0 && alive != record.id)
+        {
+            return core::makeError(
+                core::ErrorCode::InvalidData,
+                std::format("Stop : l'index {} de {} est pris par une autre génération ({}), "
+                            "le monde n'est pas touché",
+                            indexOf(record.id), record.name.value_or("une entité sans nom"),
+                            alive >> 32U));
+        }
+    }
+    return {};
+}
+
+/// Les entités de l'instantané qui ne sont plus vivantes, après l'étape 1 : celles que le jeu a
+/// détruites, et les enfants des entités nées en jeu qui viennent de partir avec elles.
+std::vector<flecs::entity_t> deadEntities(const flecs::world& world, const Snapshot& snapshot)
+{
+    std::vector<flecs::entity_t> dead;
+    for (const EntityRecord& record : snapshot.entities)
+    {
+        if (ecs_get_alive(world, indexOf(record.id)) == 0)
+        {
+            dead.push_back(record.id);
+        }
+    }
+    return dead;
+}
+
+} // namespace
+
 core::Result<Snapshot> takeSnapshot(const flecs::world& world)
 {
     world.component<Transient>(); // avant la liste des entités : l'enregistrer en crée une
@@ -492,6 +586,31 @@ core::Result<Snapshot> takeSnapshot(const flecs::world& world)
 std::vector<std::string> differencesFrom(const flecs::world& world, const Snapshot& snapshot)
 {
     return compareWorld(world, snapshot).finish();
+}
+
+core::Result<RestoreReport> restoreSnapshot(flecs::world& world, const IdRanges& ranges,
+                                            const Snapshot& snapshot)
+{
+    // Stop veut des écritures immédiates (réveil, ordre des enfants) : en mode différé, flecs les
+    // mettrait en file et la restauration lirait un monde pas encore écrit. Un refus, dans tous
+    // les builds, le monde intact.
+    if (ecs_is_deferred(world))
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               "Stop : restauration appelée en mode différé, le monde n'est pas "
+                               "touché");
+    }
+    if (auto taken = refuseTakenIndexes(world, snapshot); !taken)
+    {
+        return std::unexpected(taken.error());
+    }
+    destroyBornInPlay(world);
+    useEditIds(world, ranges);
+    for (const flecs::entity_t entity : deadEntities(world, snapshot))
+    {
+        ecs_make_alive(world, entity);
+    }
+    return RestoreReport{};
 }
 
 } // namespace levain::scene

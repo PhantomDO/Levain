@@ -43,6 +43,7 @@
 #include "levain/render/tonemap.hpp"
 #include "levain/scene/components.hpp"
 #include "levain/scene/fixed_step.hpp"
+#include "levain/scene/snapshot.hpp"
 
 namespace levain::app
 {
@@ -260,6 +261,9 @@ struct App
     nvrhi::SamplerHandle sampler; ///< Celui des modèles, au filtrage des réglages.
 
     flecs::world world;
+    /// Les deux plages d'identifiants du monde (ADR-0037, décision 2), créées par `createApp` juste
+    /// après lui : l'édition d'un côté, le jeu de l'autre (`scene::usePlayIds`).
+    scene::IdRanges idRanges;
     scene::FixedStep fixedStep; ///< L'horloge de la simulation, 60 Hz (ADR-0016).
     /// **La simulation à l'arrêt** (ADR-0036, décision 1), que pose l'éditeur en mode Édition,
     /// lue avant `advanceWorld` : aucun pas, `RenderAlpha` à 1 (l'image montre le `Transform`

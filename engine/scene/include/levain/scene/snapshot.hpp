@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -93,8 +94,56 @@ struct Snapshot
 /// part pas, et l'Édition reste.
 [[nodiscard]] core::Result<Snapshot> takeSnapshot(const flecs::world& world);
 
+/// Le premier index de la plage du jeu : ce qui naît en jeu a un identifiant d'au moins 2^24.
+inline constexpr std::uint32_t PlayFirstIndex = 1U << 24U;
+
+/// Les deux plages d'identifiants du monde (ADR-0037, décision 2), rendues par flecs et qu'il
+/// garde : le monde les possède, et `IdRanges` ne lui survit pas. Chaque plage a sa liste d'index à
+/// réutiliser : l'index d'une caisse détruite en jeu ne peut pas être repris par un observateur ou
+/// une requête créés ensuite, qui restent après Stop. La caisse peut donc toujours revenir.
+struct IdRanges
+{
+    const ecs_entity_range_t* edit = nullptr; ///< [1, 2^24 - 1], créée par flecs lui-même.
+    const ecs_entity_range_t* play = nullptr; ///< [2^24, ...[, celle du jeu.
+};
+
+/// createIdRanges : à appeler juste après le monde, avant la moindre destruction. flecs refuse une
+/// plage créée après une destruction, mais en Debug seulement (`ecs_check`, src/world.c:1518-1520,
+/// retiré sous `FLECS_NDEBUG`) : en Release il corromprait le monde sans rien dire. Levain vérifie
+/// donc lui-même (règle n°7) : aucune entité détruite, aucun index déjà au-delà de la plage de
+/// l'édition, aucune plage déjà créée. Sinon une erreur, et le monde n'est pas touché.
+[[nodiscard]] core::Result<IdRanges> createIdRanges(flecs::world& world);
+
+/// Les identifiants que le monde donne aux nouvelles entités : ceux de l'édition ou ceux du jeu.
+void useEditIds(flecs::world& world, const IdRanges& ranges);
+void usePlayIds(flecs::world& world, const IdRanges& ranges);
+
+/// Né en jeu : une entité de la scène d'index au moins 2^24. Le reste de ce que le jeu crée reste
+/// (observateurs, systèmes, requêtes, composants).
+[[nodiscard]] bool bornInPlay(const flecs::world& world, flecs::entity_t entity);
+
 /// Les entités de la scène vivantes, par index croissant.
 [[nodiscard]] std::vector<flecs::entity_t> sceneEntities(const flecs::world& world);
+
+/// Ce que la restauration n'a pas pu rendre sans erreur : l'observateur d'un `onEnter` ou d'un
+/// `onExit` détruit en jeu part avec son volume (il est rangé dessous par `ChildOf`), et son code
+/// ne se réveille pas. Le volume revient sans ses rappels : la console le dit.
+struct RestoreReport
+{
+    std::vector<std::string> lostInternalChildren; ///< Une ligne par enfant interne perdu.
+};
+
+/// restoreSnapshot : rend la scène en place, avec les identifiants d'avant Play. Appelée **hors du
+/// mode différé** (un refus sinon, le monde intact), après que la physique a fini le jeu. Les
+/// étapes de l'ADR-0037, décision 3 :
+///  1. détruire les entités nées en jeu (leurs enfants de la scène partent avec elles) ;
+///  2. revenir à la plage de l'édition, **avant** le réveil : un index de la scène détruit en jeu
+///     attend dans la liste de cette plage (src/storage/entity_index.c:275-285) ;
+///  3. réveiller les entités détruites, avec leur génération. flecs refuse en Debug un index vivant
+///     d'une autre génération (src/entity.c:3133-3139) ; Levain le vérifie avant l'étape 1, dans
+///     tous les builds, et sort en erreur sans avoir touché au monde.
+[[nodiscard]] core::Result<RestoreReport>
+restoreSnapshot(flecs::world& world, const IdRanges& ranges, const Snapshot& snapshot);
 
 /// differencesFrom : ce qui diffère entre le monde et l'instantané, une ligne par différence, vide
 /// si la scène est identique. Les premières seulement (`MaxReportedDifferences`), puis le compte
