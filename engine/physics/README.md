@@ -48,7 +48,15 @@ plugin `character`.
    premier `PhysicsWorld`, une seule fois, et n'est jamais désinstallé. Au démarrage, `VerifyJoltVersionID`
    vérifie que Jolt est compilé avec les options du moteur, et arrête le programme sinon.
 8. **Déterministe au bit près** pour un même binaire, quel que soit le nombre de threads (test). Le natif et le
-   navigateur, deux binaires, ne donnent pas les mêmes résultats.
+   navigateur, deux binaires, ne donnent pas les mêmes résultats. **Et pour la même suite d'appels** : les corps
+   et les personnages se construisent, et les personnages avancent, dans l'ordre des **index** (`inIdOrder`, les
+   32 bits bas de l'identifiant, jamais l'identifiant entier : la génération passerait en tête), non dans celui
+   des tables de flecs, qu'une étiquette posée puis retirée change (ADR-0037). Tests : deux mondes dont l'ordre des
+   tables diffère, mêmes `Transform` au bit près, pour les corps, pour l'ordre où les personnages avancent et
+   pour celui où ils sont construits (leur corps intérieur reçoit un `BodyID`, que Jolt utilise pour trier ses
+   contacts). Coût : `order_by` range les lignes de la table, et un système trié ne se parallélise pas (flecs) ;
+   mesuré sans effet sur 10 649 corps. `PushKinematicBodies` reste dans l'ordre des tables : il ne pose que la
+   vitesse de chaque cinématique, sans dépendance entre eux.
 
 9. **Les grandes formes sont partagées et immuables** (`MeshShape`, `HeightFieldShape`, ADR-0027) : un
    `std::shared_ptr<const …>` vers la donnée, dont le module construit la forme Jolt une seule fois et la garde
@@ -184,7 +192,7 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | [`include/levain/physics/outlines.hpp`](include/levain/physics/outlines.hpp) | `Segment`, `CircleSegments`, `appendOutline` — les arêtes de chaque forme, pour les lignes de debug de `render` ; sans Jolt |
 | [`include/levain/physics/character.hpp`](include/levain/physics/character.hpp) | `CharacterController`, `whyNotThisCharacter`, `GroundState`, `CharacterGround`, `isWalking`, `CharacterVelocity`, `CharacterState`, `createCharacter`, `moveCharacter`, `teleportCharacter`, `turnCharacter`, `refreshCharacterGround`, `characterVelocity`, `characterGround` : le personnage, un `CharacterVirtual` de Jolt (ADR-0028), sans flecs |
 | [`include/levain/physics/body_rules.hpp`](include/levain/physics/body_rules.hpp) | `whyNotABody`, `whyNotThisLayer`, `poseOf` |
-| [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs ; `CharacterDirty` |
+| [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs ; `CharacterDirty` ; `inIdOrder`, `indexOfEntity` : l'ordre des index (ADR-0037) |
 | [`src/physics_world.cpp`](src/physics_world.cpp) | Jolt : les couches, le job system, les corps, le pas |
 | [`src/physics_state.hpp`](src/physics_state.hpp) | L'état de Jolt partagé par les fichiers du module ; interne, aucun en-tête de Jolt n'en sort |
 | [`src/character.cpp`](src/character.cpp) | Le personnage : sa capsule posée sur ses pieds, son corps intérieur, son `ExtendedUpdate` |

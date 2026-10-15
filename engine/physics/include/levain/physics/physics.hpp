@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <vector>
 
@@ -80,6 +81,21 @@ flecs::observer onEnter(flecs::world& world, flecs::entity volume,
 ///     levain::physics::onExit(world, lake, [](flecs::entity body) { body.remove<Swimming>(); });
 flecs::observer onExit(flecs::world& world, flecs::entity volume,
                        std::function<void(flecs::entity body)> react);
+
+/// Le comparateur de flecs (`order_by`) qui range les entités dans l'ordre de leur **index**, les
+/// 32 bits bas de l'identifiant. Jamais l'identifiant entier : la génération est dans les bits
+/// hauts, et une entité réveillée (`ecs_make_alive`) passerait avant toutes les autres.
+///
+/// Les corps et les personnages se construisent, et les personnages avancent, dans cet ordre, non
+/// dans celui des tables de flecs : l'ordre des tables dépend de l'histoire de chaque entité (une
+/// étiquette posée puis retirée la renvoie en fin de table), celui des index non. Jolt n'est
+/// déterministe que pour une même suite d'appels (ADR-0026, ADR-0037, décision 4) :
+/// https://jrouwe.github.io/JoltPhysics/#deterministic-simulation
+[[nodiscard]] int inIdOrder(flecs::entity_t first, const void* firstValue, flecs::entity_t second,
+                            const void* secondValue);
+
+/// L'index d'une entité : les 32 bits bas de son identifiant, sans la génération.
+[[nodiscard]] std::uint32_t indexOfEntity(flecs::entity_t id);
 
 /// Les corps qui sont dans `volume` maintenant, à la fin du dernier pas.
 ///

@@ -22,6 +22,7 @@ set(cpuTests
     i18n_test.cpp
     image_test.cpp
     log_test.cpp
+    physics_replay_test.cpp
     physics_test.cpp
     reflection_test.cpp
     registry_test.cpp

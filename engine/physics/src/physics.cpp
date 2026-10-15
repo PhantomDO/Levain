@@ -199,6 +199,18 @@ void describePhysicsComponents(flecs::world& world)
 
 } // namespace
 
+std::uint32_t indexOfEntity(flecs::entity_t id)
+{
+    return static_cast<std::uint32_t>(id);
+}
+
+int inIdOrder(flecs::entity_t first, const void*, flecs::entity_t second, const void*)
+{
+    const std::uint32_t a = indexOfEntity(first);
+    const std::uint32_t b = indexOfEntity(second);
+    return (a > b) - (a < b);
+}
+
 flecs::observer onEnter(flecs::world& world, flecs::entity volume,
                         std::function<void(flecs::entity body)> react)
 {
@@ -359,8 +371,15 @@ PhysicsModule::PhysicsModule(flecs::world& world)
     world.system("SyncBeforePhysics").kind<scene::Physics>().immediate().run([](flecs::iter&) {});
     // `write<BodyHandle>` : les BodyHandle posés ici sont fusionnés avant le système suivant, qui
     // pousse donc dès ce pas un cinématique qui vient de naître.
+    // Les trois systèmes qui construisent ou font avancer (BuildBodies, BuildCharacters,
+    // MoveCharacters) parcourent leurs entités dans l'ordre des index (`inIdOrder`), non dans celui
+    // des tables : Jolt ne rejoue le même résultat que pour la même suite d'appels (ADR-0037).
+    // PushKinematicBodies reste dans l'ordre des tables : il ne fait que poser la vitesse de chaque
+    // cinématique, sans qu'un corps ne dépende d'un autre. Un système trié ne se parallélise pas
+    // (flecs), ce que ces trois-là ne faisaient pas.
     world.system<const Collider, const scene::Transform, const RigidBody*>("BuildBodies")
         .with<BodyDirty>()
+        .order_by(0, inIdOrder)
         .write<BodyHandle>()
         .kind<scene::Physics>()
         .each(
@@ -381,6 +400,7 @@ PhysicsModule::PhysicsModule(flecs::world& world)
             });
     world.system<const CharacterController, const scene::Transform>("BuildCharacters")
         .with<CharacterDirty>()
+        .order_by(0, inIdOrder)
         // Comme BuildBodies : les CharacterHandle, CharacterVelocity et CharacterState posés ici
         // sont fusionnés avant MoveCharacters, qui fait bouger dès ce pas un personnage qui vient
         // de naître.
@@ -397,6 +417,7 @@ PhysicsModule::PhysicsModule(flecs::world& world)
     // reçoivent leur impulsion dans ce pas (ADR-0028).
     world
         .system<scene::Transform, const CharacterVelocity*, const CharacterHandle>("MoveCharacters")
+        .order_by(0, inIdOrder)
         .kind<scene::Physics>()
         .each(
             [](flecs::iter& it, std::size_t, scene::Transform& transform,
