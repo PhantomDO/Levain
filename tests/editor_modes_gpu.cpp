@@ -251,11 +251,15 @@ int playModes(const levain::tests::TestBackend& backend)
         expect(run.seen.size() == ScriptFrames, "une image relevée par image du script") +
         expect(run.editorStyled, "l'éditeur a réglé le style d'ImGui (applyEditorStyle)");
     int played = 0;
+    // Les pas de la session en cours : Stop rend le « mover » à l'origine (ADR-0037), le Play
+    // suivant le fait repartir de zéro.
+    int sessionSteps = 0;
     for (std::size_t i = 0; i < run.seen.size(); ++i)
     {
         const int frame = static_cast<int>(i);
         const Seen& seen = run.seen.at(i);
         played += playsAt(frame) ? 1 : 0;
+        sessionSteps = playsAt(frame) ? sessionSteps + 1 : 0;
         const std::string at = std::format("image {} : ", frame);
         // Panneaux fermés aussi, en Édition comme en jeu : le bandeau et le rappel de la touche.
         failures += expect(seen.barDrawn == (frame >= 1), at + "la barre de mode se dessine");
@@ -264,8 +268,8 @@ int playModes(const levain::tests::TestBackend& backend)
         failures += expect(seen.programFrames == played,
                            at + "le frame du programme tourne en jeu seulement");
         failures += expect(seen.steps == played, at + "un pas par image de jeu, aucun en Édition");
-        failures += expect(std::abs(seen.moverX - static_cast<float>(played) / 60.0f) < 1e-4f,
-                           at + "la simulation n'avance qu'en jeu");
+        failures += expect(std::abs(seen.moverX - static_cast<float>(sessionSteps) / 60.0f) < 1e-4f,
+                           at + "la simulation n'avance qu'en jeu, et Stop rend la scène");
         if (!playsAt(frame))
         {
             failures += expect(seen.forward == 0.0f && !seen.anyHeld,

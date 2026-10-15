@@ -15,6 +15,7 @@
 
 #include "levain/app/models.hpp"
 #include "levain/assets/asset_ref.hpp"
+#include "levain/core/log_ring.hpp"
 #include "levain/editor/play.hpp"
 #include "levain/physics/components.hpp"
 #include "levain/physics/physics.hpp"
@@ -168,6 +169,134 @@ TEST_CASE("après Stop, l'Édition n'a ni handle ni corps de Jolt, et le Play su
     }
 }
 
+TEST_CASE("jouer deux fois de suite : les mêmes identifiants, et la physique rejoue au bit près")
+{
+    Bench bench;
+    const std::vector<flecs::entity> crates = stack(bench.world, 12);
+    const std::int32_t entitiesBefore = bench.world.count<Transform>();
+
+    auto first = levain::editor::startPlay(bench.target());
+    REQUIRE(first.has_value());
+    bench.play(90);
+    const std::vector<Transform> firstRun = transformsOf(crates);
+    REQUIRE(levain::editor::stopPlay(bench.target(), *first).differences == 0);
+
+    auto second = levain::editor::startPlay(bench.target());
+    REQUIRE(second.has_value());
+    bench.play(90);
+    const std::vector<Transform> secondRun = transformsOf(crates);
+    REQUIRE(levain::editor::stopPlay(bench.target(), *second).differences == 0);
+
+    CHECK(bench.world.count<Transform>() == entitiesBefore); // aucune croissance
+    for (std::size_t i = 0; i < crates.size(); ++i)
+    {
+        CAPTURE(i);
+        CHECK(bench.world.is_alive(crates[i].id())); // le même identifiant, génération comprise
+        CHECK(sameBits(firstRun[i], secondRun[i]));
+    }
+}
+
+TEST_CASE("Stop rend aussi l'accumulateur du pas fixe")
+{
+    Bench bench;
+    stack(bench.world, 1);
+    bench.fixedStep.accumulator = 0.4f * Step;
+
+    auto session = levain::editor::startPlay(bench.target());
+    REQUIRE(session.has_value());
+    bench.fixedStep.accumulator = 0.9f * Step; // le jeu l'a fait avancer
+    bench.play(3);
+    REQUIRE_FALSE(levain::editor::stopPlay(bench.target(), *session).refused);
+
+    CHECK(bench.fixedStep.accumulator == 0.4f * Step);
+}
+
+TEST_CASE("une entité née en jeu part à Stop, une détruite en jeu revient avec son identifiant")
+{
+    Bench bench;
+    const std::vector<flecs::entity> crates = stack(bench.world, 3);
+    const flecs::entity_t doomed = crates[1].id();
+
+    auto session = levain::editor::startPlay(bench.target());
+    REQUIRE(session.has_value());
+    const flecs::entity born = bench.world.entity("née").set(Transform{});
+    CHECK(levain::scene::bornInPlay(bench.world, born));
+    crates[1].destruct();
+    bench.play(5);
+    const levain::editor::StopReport report = levain::editor::stopPlay(bench.target(), *session);
+
+    CHECK(report.differences == 0);
+    CHECK_FALSE(bench.world.is_alive(born.id()));
+    CHECK(bench.world.is_alive(doomed));
+    CHECK(bench.world.lookup("née") == flecs::entity{});
+}
+
+TEST_CASE("un Play refusé laisse le monde, la physique et les plages comme ils étaient")
+{
+    Bench bench;
+    stack(bench.world, 2);
+    // Des assets déjà retenus : deux Play sans Stop entre eux. `holdAssetsInUse` refuse.
+    REQUIRE_FALSE(levain::assets::holdAssetsInUse(bench.world.get_mut<levain::assets::AssetUsage>())
+                      .has_value());
+    const void* const jolt = bench.world.get<levain::physics::PhysicsWorld>().state.get();
+
+    const auto refused = levain::editor::startPlay(bench.target());
+
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("retenus") != std::string::npos);
+    // Le monde Jolt est le même, et les nouvelles entités prennent encore la plage de l'édition.
+    CHECK(bench.world.get<levain::physics::PhysicsWorld>().state.get() == jolt);
+    CHECK_FALSE(levain::scene::bornInPlay(bench.world, bench.world.entity()));
+    levain::assets::releaseHeldAssets(bench.world.get_mut<levain::assets::AssetUsage>());
+}
+
+TEST_CASE("Stop en mode différé est refusé : on reste en jeu, rien n'a changé")
+{
+    Bench bench;
+    const std::vector<flecs::entity> crates = stack(bench.world, 2);
+    auto session = levain::editor::startPlay(bench.target());
+    REQUIRE(session.has_value());
+    bench.play(10);
+    const Transform moved = crates[1].get<Transform>();
+
+    bench.world.defer_begin();
+    const levain::editor::StopReport refused = levain::editor::stopPlay(bench.target(), *session);
+    bench.world.defer_end();
+
+    CHECK(refused.refused);
+    CHECK_FALSE(refused.refusal.empty());
+    CHECK(sameBits(crates[1].get<Transform>(), moved));
+    // Hors du mode différé, le même Stop passe.
+    CHECK_FALSE(levain::editor::stopPlay(bench.target(), *session).refused);
+}
+
+TEST_CASE("sans module de physique, Jouer et Arrêter ne créent pas de monde Jolt")
+{
+    Bench bench(false);
+    bench.world.entity("a").set(Transform{});
+
+    auto session = levain::editor::startPlay(bench.target());
+    REQUIRE(session.has_value());
+    bench.play(3);
+    const levain::editor::StopReport report = levain::editor::stopPlay(bench.target(), *session);
+
+    CHECK(report.differences == 0);
+    CHECK_FALSE(bench.world.has<levain::physics::PhysicsWorld>());
+}
+
+TEST_CASE("la ligne de la CI est sous son nom stable, des mots sans langue puis la phrase")
+{
+    levain::editor::StopReport report;
+    report.steps = 120;
+    report.differences = 0;
+    report.milliseconds = 3.25;
+
+    const std::string line = levain::editor::stopLineOf(report);
+
+    CHECK(line.starts_with("editor.stop steps=120 differences=0 ms="));
+    CHECK(line.find(" -- ") != std::string::npos);
+}
+
 TEST_CASE("l'instantané ne copie pas les handles de Jolt : ils sont Transient")
 {
     Bench bench;
@@ -186,4 +315,86 @@ TEST_CASE("l'instantané ne copie pas les handles de Jolt : ils sont Transient")
             CHECK(id != bench.world.id<levain::physics::BodyHandle>());
         }
     }
+}
+
+TEST_CASE("Stop en mode différé est refusé aussi sans module de physique, la session reste")
+{
+    Bench bench(false);
+    const flecs::entity a = bench.world.entity("a").set(Transform{});
+    auto session = levain::editor::startPlay(bench.target());
+    REQUIRE(session.has_value());
+    const flecs::entity born = bench.world.entity("née").set(Transform{});
+
+    bench.world.defer_begin();
+    const levain::editor::StopReport refused = levain::editor::stopPlay(bench.target(), *session);
+    bench.world.defer_end();
+
+    CHECK(refused.refused);
+    CHECK_FALSE(refused.refusal.empty());
+    CHECK(bench.world.is_alive(born.id())); // rien n'a été détruit
+    // La session sert encore : le même Stop, hors du mode différé, rend la scène.
+    const levain::editor::StopReport stopped = levain::editor::stopPlay(bench.target(), *session);
+    CHECK_FALSE(stopped.refused);
+    CHECK(stopped.differences == 0);
+    CHECK(bench.world.is_alive(a.id()));
+    CHECK_FALSE(bench.world.is_alive(born.id()));
+}
+
+TEST_CASE(
+    "un monde Jolt refusé à Play rend les assets : l'Édition est intacte, le Play suivant part")
+{
+    Bench bench;
+    stack(bench.world, 2);
+    // Un handle resté posé en Édition (un bug de l'appelant) : `freshPhysicsWorld` refuse, après
+    // que les assets ont été retenus.
+    const flecs::entity stale = bench.world.entity("resté").set(levain::physics::BodyHandle{});
+
+    const auto refused = levain::editor::startPlay(bench.target());
+
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("BodyHandle") != std::string::npos);
+    CHECK_FALSE(levain::scene::bornInPlay(bench.world, bench.world.entity())); // plage de l'édition
+    // Les assets sont rendus : après la correction, Play n'est pas refusé « déjà retenus ».
+    stale.destruct();
+    auto again = levain::editor::startPlay(bench.target());
+    CHECK(again.has_value());
+    if (again)
+    {
+        auto session = std::move(*again);
+        CHECK(levain::editor::stopPlay(bench.target(), session).differences == 0);
+    }
+}
+
+TEST_CASE(
+    "la phrase de la ligne de la CI accorde « différence » comme le français : 0 et 1 au singulier")
+{
+    levain::editor::StopReport report;
+    const auto phraseWith = [&report](std::size_t differences)
+    {
+        report.differences = differences;
+        return levain::editor::stopLineOf(report);
+    };
+
+    CHECK(phraseWith(0).find("0 différence,") != std::string::npos);
+    CHECK(phraseWith(1).find("1 différence,") != std::string::npos);
+    CHECK(phraseWith(2).find("2 différences,") != std::string::npos);
+    // Les mots stables, eux, ne changent pas.
+    CHECK(phraseWith(2).starts_with("editor.stop steps=0 differences=2 ms="));
+}
+
+TEST_CASE("logStop dit toujours pourquoi la restauration a échoué, même sans différence comptée")
+{
+    const levain::core::LogCapture capture = levain::core::captureLog(16);
+    levain::editor::StopReport report;
+    report.restoreError = "garde de test : la liste des enfants n'a pas la bonne taille";
+
+    levain::editor::logStop(report);
+
+    bool said = false;
+    for (const auto& entry : levain::core::snapshotOf(*capture.ring).entries)
+    {
+        said = said || (entry.level == levain::core::LogLevel::Error &&
+                        entry.text.find("garde de test") != std::string::npos);
+    }
+    CHECK(said);
 }
