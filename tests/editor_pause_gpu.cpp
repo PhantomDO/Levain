@@ -1,11 +1,14 @@
-// Pause, Image suivante et la teinte du jeu dans la vraie boucle (ADR-0037, décision 6,
+// Pause, Image suivante, Maj+F1 et la teinte du jeu dans la vraie boucle (ADR-0037, décision 6,
 // morceau 5), un script d'input rejoué hors écran (le banc d'essai de l'App) :
 //   - pause : la touche Pause arrête les pas, l'accumulateur ne bouge pas, le `frame` du programme
 //     se tait, le jeu ne reçoit rien (une touche tenue en pause ne le rejoint pas à la reprise) ;
 //     Pause reprend ; Échap, de la pause, arrête et rend la scène (la ligne `editor.stop`) ;
 //   - Image suivante : exactement un pas, puis la pause reprend ; refusée en marche ;
-//   - la barre d'outils : Pause, Image suivante, Reprendre et Arrêter, cliqués à la souris
-//     scriptée ;
+//   - la barre d'outils : Pause, Image suivante, Reprendre et Arrêter, cliqués à la souris scriptée
+//   ;
+//   - Maj+F1 : la souris est rendue (plus capturée), le jeu ne reçoit plus rien ; un clic dans la
+//     scène la lui rend, et ce clic ne l'atteint pas ; un clic hors de la scène ne la rend pas ;
+//   - QWERTY et AZERTY : une touche de position se lit à la position, une lettre à la lettre ;
 //   - la teinte : la barre d'outils et le bord de la Vue prennent la couleur du jeu, une autre en
 //     pause, aucune en Édition (lues dans les listes de dessin d'ImGui, image par image).
 // Il faut un device, comme `levain_app_script`.
@@ -55,7 +58,7 @@ using levain::editor::Action;
 using levain::editor::Editor;
 using levain::editor::Mode;
 
-constexpr std::uint16_t ScanN = 17; // USB HID, vérifié contre SDL
+constexpr std::uint16_t ScanN = 17, ScanW = 26; // USB HID, vérifiés contre SDL
 
 /// Ce que le banc relève à la fin de chaque image (`afterUi`), la route comprise.
 struct Frame
@@ -280,6 +283,13 @@ std::string altP(int frame)
 {
     return std::format("{0} key down Left Alt\n{0} key down P\n{1} key up P\n{1} key up Left Alt\n",
                        frame, frame + 1);
+}
+
+std::string shiftF1(int frame)
+{
+    return std::format(
+        "{0} key down Left Shift\n{0} key down F1\n{1} key up F1\n{1} key up Left Shift\n", frame,
+        frame + 1);
 }
 
 /// Le nombre dans « steps=120 » d'une ligne `editor.stop`, ou -1.
@@ -527,6 +537,107 @@ int stepsDoNotReplayInput(const levain::tests::TestBackend& backend)
     return failures;
 }
 
+/// QWERTY et AZERTY : Pause lue à la position que la table lui donne (ici celle du W), « Image
+/// suivante » à la lettre (ici un N, le même sur les deux). La touche à la position du W porte un
+/// W sur un QWERTY, un Z sur un AZERTY (`key down W as z`) : elle met en pause dans les deux ; la
+/// touche à la position du Z, qui tape un W sur un AZERTY (`Z as w`), ne le fait pas.
+int layouts(const levain::tests::TestBackend& backend)
+{
+    int failures = 0;
+
+    struct Layout
+    {
+        const char* name;
+        const char* atW;
+        const char* atZ;
+    };
+
+    for (const Layout& layout : {Layout{"QWERTY", "W", "Z"}, Layout{"AZERTY", "W as z", "Z as w"}})
+    {
+        Options options;
+        options.atFrameEnd = [](App&, Editor& editor, int frame)
+        {
+            if (frame == 0)
+            {
+                levain::editor::replaceChord(editor.shortcuts, Action::Pause, 0,
+                                             levain::editor::positionChord(ScanW),
+                                             levain::platform::qwertyKeyAtPosition);
+                bindNextFrame(editor, levain::editor::letterChord('n'));
+            }
+        };
+        // La position du Z d'abord (elle ne met pas en pause), celle du W (Pause), puis la lettre
+        // N.
+        const std::string script =
+            sorted(altP(2) + tap(6, layout.atZ) + tap(10, layout.atW) + tap(14, "N"));
+        const Run run = play(backend, script, 20, options);
+        const std::string at = std::format("{} : ", layout.name);
+        if (expect(run.exitCode == 0 && run.frames.size() == 20, at + "code 0") != 0)
+        {
+            ++failures;
+            continue;
+        }
+        failures += expect(!run.frames.at(8).paused && stepsIn(run, 8) == 1,
+                           at + "la touche à la position du Z ne met pas en pause");
+        failures +=
+            expect(run.frames.at(10).paused && stepsIn(run, 10) == 0,
+                   at + "la touche à la position du W met en pause, quelle que soit sa lettre");
+        failures += expect(stepsIn(run, 14) == 1 && run.frames.at(14).steppedFrames == 1,
+                           at + "Image suivante, à la lettre N, joue un pas");
+    }
+    return failures;
+}
+
+/// Maj+F1, panneaux fermés (la scène est la fenêtre) : le jeu reprend la souris à chaque image
+/// (`grabMouse`) et tient W. Maj+F1 à l'image 8 : la souris n'est plus capturée, le jeu ne reçoit
+/// plus rien, W tenue comprise. Un clic dans la scène (12) la lui rend, et ne l'atteint pas ; le
+/// suivant (18) l'atteint.
+int freeMouse(const levain::tests::TestBackend& backend)
+{
+    Options options;
+    options.grabMouse = true;
+    const std::string script =
+        sorted("0 mouse move 100 90\n" + altP(2) + "6 key down W\n24 key up W\n" + shiftF1(8) +
+               "12 button down left\n13 button up left\n18 button down left\n19 button up left\n");
+    constexpr int Frames = 26; // le script va jusqu'à l'image 24 : `--steps` doit le couvrir
+    const Run run = play(backend, script, Frames, options);
+    if (expect(run.exitCode == 0 && run.frames.size() == Frames, "Maj+F1 : code 0") != 0)
+    {
+        return 1;
+    }
+    int failures = 0;
+    // Avant : le jeu joue, tient W, a la souris.
+    failures += expect(run.frames.at(7).forward == 1.0f && run.frames.at(7).captured &&
+                           run.frames.at(7).route == levain::app::InputRoute::Game,
+                       "Maj+F1, avant : le jeu tient W et a capturé la souris");
+    // De 8 à 12 : rendue. Le clic de l'image 12 est le premier dans la scène : il la rend.
+    for (std::size_t frame = 8; frame < 12; ++frame)
+    {
+        const Frame& seen = run.frames.at(frame);
+        const std::string at = std::format("Maj+F1, image {} : ", frame);
+        failures += expect(seen.mouseFreed, at + "la souris est rendue");
+        failures +=
+            expect(!seen.captured, at + "la souris n'est pas capturée, le jeu a beau la vouloir");
+        failures += expect(seen.forward == 0.0f && !seen.anyHeld,
+                           at + "le jeu ne reçoit plus rien, W tenue comprise");
+        failures += expect(seen.route == levain::app::InputRoute::Editor,
+                           at + "la route est celle de l'éditeur");
+        failures +=
+            expect(stepsIn(run, frame) == 1, at + "le jeu tourne toujours (ce n'est pas la pause)");
+    }
+    // Le clic (12) : le jeu ne le voit pas, ni son relâchement (13) ; la souris est rendue à la 13.
+    failures += expect(!run.frames.at(12).leftSeen && !run.frames.at(12).mouseFreed,
+                       "Maj+F1, le clic : la souris est rendue, le jeu ne voit pas le bouton");
+    failures += expect(!run.frames.at(13).leftSeen,
+                       "Maj+F1, le relâchement du clic ne devient pas un clic pour le jeu");
+    failures += expect(run.frames.at(13).route == levain::app::InputRoute::Game &&
+                           run.frames.at(13).captured,
+                       "Maj+F1, après le clic : la route est jeu, la souris reprise par le jeu");
+    // Le clic suivant atteint le jeu.
+    failures += expect(run.frames.at(18).leftSeen && !run.frames.at(20).leftSeen,
+                       "Maj+F1, le clic d'après atteint le jeu");
+    return failures;
+}
+
 /// Un pas demandé par la barre d'outils (dans `ui`, relâché à l'image 10) et Échap à l'image
 /// d'après, avant que le pas ne soit joué : Stop l'emporte. Sans cela l'Édition jouerait le pas
 /// après que la scène a été rendue, et ce que le jeu a déplacé le serait de nouveau.
@@ -600,6 +711,48 @@ int toolbarButtons(const levain::tests::TestBackend& backend)
     failures += expect(std::ranges::none_of(run.frames, [](const Frame& f) { return f.leftSeen; }),
                        "la barre : aucun clic de ses boutons n'atteint le jeu");
     return failures + stopAfterStepRequest(backend, stepPaused, options);
+}
+
+/// Maj+F1, panneaux ouverts : un clic hors de la Vue (la barre d'outils) ne rend pas la souris, un
+/// clic dans la Vue la rend, et ce clic n'atteint pas le jeu.
+int freeMouseOutsideView(const levain::tests::TestBackend& backend)
+{
+    Options options;
+    options.panels = true;
+    const Run probe = play(backend, sorted(altP(2) + "0 mouse move 1 1\n"), 8, options);
+    if (expect(probe.frames.size() == 8 && probe.frames.back().view.width > 0.0f &&
+                   probe.frames.back().toolbar.mode.x > 0.0f,
+               "Maj+F1 hors de la Vue : le passage qui relève la Vue l'a vue") != 0)
+    {
+        return 1;
+    }
+    const levain::app::ScreenRect view = probe.frames.back().view;
+    // Le coin bas droit de l'image : la barre de mode, qui couvre le haut gauche d'une Vue de
+    // 376 pixels, n'y est pas (un clic sur elle ne rend rien, c'est celui du bouton).
+    const ImVec2 inView{view.x + view.width - 4.0f, view.y + view.height - 3.0f};
+    // La marge gauche de la barre d'outils : de la barre, pas de la Vue, et pas un bouton.
+    const ImVec2 onToolbar{3.0f, probe.frames.back().toolbar.mode.y};
+    const std::string script =
+        sorted(altP(2) + shiftF1(5) + click(8, onToolbar) + click(12, inView) + click(16, inView));
+    const Run run = play(backend, script, 20, options);
+    if (expect(run.exitCode == 0 && run.frames.size() == 20, "Maj+F1 hors de la Vue : code 0") != 0)
+    {
+        return 1;
+    }
+    int failures = 0;
+    failures += expect(run.frames.at(6).mouseFreed &&
+                           run.frames.at(6).route == levain::app::InputRoute::Editor,
+                       "Maj+F1 (panneaux) : la souris est rendue");
+    failures += expect(run.frames.at(11).mouseFreed,
+                       "Maj+F1 (panneaux) : un clic sur la barre d'outils ne la rend pas");
+    failures += expect(!run.frames.at(13).mouseFreed &&
+                           run.frames.at(14).route == levain::app::InputRoute::Game,
+                       "Maj+F1 (panneaux) : un clic dans la Vue la rend, la route redevient jeu");
+    failures += expect(!run.frames.at(13).leftSeen && !run.frames.at(14).leftSeen,
+                       "Maj+F1 (panneaux) : le clic qui la rend n'atteint pas le jeu");
+    failures +=
+        expect(run.frames.at(17).leftSeen, "Maj+F1 (panneaux) : le clic d'après atteint le jeu");
+    return failures;
 }
 
 // -- La teinte ------------------------------------------------------------------------------------
@@ -705,7 +858,8 @@ int main(int argc, char** argv)
         }
         const int failures = pauseAndResume(*backend) + escapeFromPause(*backend) +
                              stepOnce(*backend) + stepsDoNotReplayInput(*backend) +
-                             toolbarButtons(*backend) + tint(*backend);
+                             layouts(*backend) + freeMouse(*backend) + toolbarButtons(*backend) +
+                             freeMouseOutsideView(*backend) + tint(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

@@ -111,7 +111,8 @@ struct View
 /// une fois par image, panneaux ouverts : elle appelle `requestScene` (une fois), montre la
 /// texture sur tout son contenu, pose `App::sceneRect` et dessine la barre de mode en calque.
 /// Rend le mode que le bouton de la barre a demandé. En jeu, le pourtour de l'image prend la teinte
-/// du jeu, ou celle de la pause (`playTintOf`), et le bandeau de sa barre dit la pause.
+/// du jeu, ou celle de la pause (`playTintOf`), et le bandeau de sa barre dit la pause ou la souris
+/// rendue.
 [[nodiscard]] std::optional<Mode> drawView(View& view, app::App& app, const ModeState& mode);
 
 } // namespace levain::editor

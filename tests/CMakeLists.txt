@@ -511,9 +511,9 @@ target_compile_definitions(levain_editor_play PRIVATE LEVAIN_DATA_DIR="${CMAKE_S
 add_test(NAME gpu.editor-play.vulkan COMMAND levain_editor_play vulkan)
 set_tests_properties(gpu.editor-play.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
-# Pause, Image suivante et la teinte du jeu (ADR-0037, décision 6, morceau 5) dans la vraie boucle : les pas, l'accumulateur
-# et le `frame` du programme à l'arrêt, le jeu qui ne reçoit rien, un pas exactement, la barre d'outils cliquée,
-# la barre d'outils et le bord de la Vue lus dans l'image.
+# Pause, Image suivante, Maj+F1 et la teinte du jeu (ADR-0037, décision 6, morceau 5) dans la vraie boucle : les pas, l'accumulateur
+# et le `frame` du programme à l'arrêt, le jeu qui ne reçoit rien, un pas exactement, la barre d'outils cliquée, la souris rendue
+# et reprise par un clic dans la scène, QWERTY et AZERTY, la barre d'outils et le bord de la Vue lus dans l'image.
 add_executable(levain_editor_pause editor_pause_gpu.cpp)
 target_link_libraries(levain_editor_pause PRIVATE levain::editor levain::app levain::assets levain::core levain::input
     levain::platform levain::scene)
@@ -537,7 +537,11 @@ target_link_libraries(levain_editor_gestures PRIVATE levain::editor levain::app 
 target_compile_definitions(levain_editor_gestures PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
     LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
 add_test(NAME gpu.editor-gestures.vulkan COMMAND levain_editor_gestures vulkan)
-set_tests_properties(gpu.editor-gestures.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+# TIMEOUT 300 : sous ASan le test prend 81 à 95 s seul (trois passages), soit 70 à 80 % du délai de 120 s de ctest, et il l'a
+# dépassé sur un passage chargé (revue du morceau 5). Un délai plus long plutôt qu'un test coupé en scénarios : le temps est dans
+# les images qu'ASan ralentit, non dans le démarrage, donc couper cacherait le coût derrière plusieurs entrées sans le réduire.
+# Le test reste entier (règle n°4).
+set_tests_properties(gpu.editor-gestures.vulkan PROPERTIES ENVIRONMENT "${testVideo}" TIMEOUT 300)
 
 # Les menus, les barres et le temps réel de l'éditeur (ADR-0036, morceau 12) dans la vraie boucle : « Temps réel » fige le
 # temps de la scène, Ctrl+S atteint son action, la barre d'outils règle la vitesse de la caméra, l'Aide liste les raccourcis.

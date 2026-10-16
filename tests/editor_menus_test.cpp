@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -582,15 +583,48 @@ TEST_CASE("le bandeau de la barre de mode se dessine sur un gris de la palette, 
                                [&](const ImDrawVert& vertex) { return sameRgb(vertex.col, dim); }));
 }
 
-TEST_CASE("le bandeau de la barre de mode dit la pause")
+TEST_CASE("le bandeau de la barre de mode dit la pause et la souris rendue, la pause d'abord")
 {
-    // Le texte choisi : rien en Édition, la pause en pause, sinon ce que Jouer fait à la scène.
-    CHECK(std::string_view{modeBannerOf(Mode::Edit, false)}.empty());
-    CHECK(std::string_view{modeBannerOf(Mode::Edit, true)}.empty());
-    const std::string_view playing = modeBannerOf(Mode::Play, false);
-    const std::string_view paused = modeBannerOf(Mode::Play, true);
+    // Le texte choisi : rien en Édition, la pause avant la souris rendue (elle arrête le jeu, la
+    // souris rendue reste dite à la reprise), sinon ce que Jouer fait à la scène.
+    CHECK(std::string_view{modeBannerOf(Mode::Edit, false, false)}.empty());
+    CHECK(std::string_view{modeBannerOf(Mode::Edit, true, true)}.empty());
+    const std::string_view playing = modeBannerOf(Mode::Play, false, false);
+    const std::string_view freed = modeBannerOf(Mode::Play, false, true);
+    const std::string_view paused = modeBannerOf(Mode::Play, true, false);
     CHECK(playing.starts_with("Jouer"));
+    CHECK(freed.starts_with("Souris rendue"));
     CHECK(paused.starts_with("Pause"));
+    CHECK(modeBannerOf(Mode::Play, true, true) == paused);
+
+    // Et le bandeau dessiné le dit : la barre s'ajuste à son texte (`AutoResizeX`), donc l'écart de
+    // largeur entre deux états est celui de leurs textes.
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    float textWidth = 0.0f;
+    const auto barWidthIn = [&textWidth](const ModeState& state)
+    {
+        ModeBarOverlay overlay;
+        for (int frame = 0; frame < 3; ++frame) // un enfant à la taille de son contenu : 2 images
+        {
+            levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 900, .height = 480}, 1.0 / 60.0);
+            ImGui::NewFrame();
+            ImGui::SetNextWindowPos({0.0f, 0.0f});
+            ImGui::SetNextWindowSize({880.0f, 300.0f});
+            ImGui::Begin("Vue");
+            overlay = drawModeBarOverlay(state, {10.0f, 10.0f}, "");
+            textWidth = ImGui::CalcTextSize(levain::ui::tr(modeBannerOf(state.current, state.paused,
+                                                                        state.mouseFreed)))
+                            .x;
+            ImGui::End();
+            ImGui::Render();
+        }
+        return std::pair{overlay.bar.width, textWidth};
+    };
+    const auto [playingBar, playingText] = barWidthIn(modeIn(Mode::Play));
+    const auto [freedBar, freedText] = barWidthIn(modeIn(Mode::Play, false, true));
+    CHECK(freedText != playingText); // le test n'est pas vide
+    CHECK(freedBar - playingBar == doctest::Approx(freedText - playingText).epsilon(0.01));
 }
 
 TEST_CASE("la barre de mode en calque rend ses rectangles : la barre au coin demandé, son bouton "

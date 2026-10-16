@@ -244,10 +244,9 @@ M couverts par un test ».
     la barre de mode passent en « Jouer » (voir l'invariant sur Play et Stop, plus bas). **Alt+P ne fait que jouer** (la table de la décision 13 : « Jouer »),
     **Échap ne fait qu'arrêter**, et seul le bouton va dans les deux sens : `modeRequested` en décide, testée. Sous la
     route *jeu*, ImGui n'a pas Alt+P ; une Alt+P qui basculerait ne ramènerait qu'aux images où un panneau a le focus.
-    Échap est lue sur l'input brut par la position que la table donne à « Arrêter » (`stopPressed`) : elle vaut partout où le jeu reçoit le clavier,
-    donc sous la route *jeu* mais aussi sous la route *UI* quand une fenêtre a le focus sans qu'un champ soit actif ;
-    la décision 13 la réserve au contexte *jeu*, ce que la table des raccourcis (morceau 10) rendra. **Chaque
-    changement de mode remet `mouseCaptureWanted` à faux** (`enterMode`) : le `frame` du programme, qui le repose,
+    Échap est lue dans les événements bruts de l'image par la position que la table donne à « Arrêter »
+    (`gameKeysPressed`, voir l'invariant 16 ter) : elle vaut quelle que soit la route, hors d'un champ de texte actif et
+    d'une modale. **Chaque changement de mode remet à faux la pause, la souris rendue et `mouseCaptureWanted`** (`enterMode`) : le `frame` du programme, qui le repose,
     ne tourne plus en Édition, et un clic droit tenu qui capturait la souris la gardait ; le jeu repart aussi d'un
     `InputState` neuf, sans appuis en attente pour le premier pas. La route de l'image suivante se pose à la fin de
     `ui` : *éditeur* en Édition, en jeu *jeu* si la scène a le focus (`sceneFocusedIn`), sinon *UI*.
@@ -282,6 +281,32 @@ M couverts par un test ».
     programme (le sandbox y dit ses corps, tels que le jeu les laisse), puis Stop. Une capture (`--capture`) est prise après
     ce point : elle montre la scène rendue. La sélection survit à Stop, sauf celle d'une entité née en jeu. La Hiérarchie range ses racines par index (`order_by(0, …)`, retriées par flecs quand les tables de
     la requête changent seulement), pour qu'une entité réveillée reprenne sa place.
+16 ter. **Pause, Image suivante, Maj+F1 et la teinte** (M7.5, morceau 5, ADR-0037, décision 6 ; `mode.hpp`). **La pause est un drapeau de
+    `ModeState`, non un mode** : elle vaudra aussi en Simuler. En pause la simulation s'arrête (`simulationRunsIn`, l'accumulateur
+    de `fixedStep` n'est pas touché), le `frame` du programme se tait (`programFrameRunsIn`, **sauf pour un pas** : voir plus bas), **le jeu ne reçoit rien** (la route
+    est celle de l'Édition, `inputRouteOf` : ce qu'il tenait est relâché, une touche tenue pendant la pause ne le rejoint pas à
+    la reprise) et la caméra reste celle du jeu ; Hiérarchie et Inspecteur montrent le monde tel qu'il est. **Image suivante**
+    (`PlayControl::StepFrame`, la barre d'outils seule : Ctrl+Alt+P d'Unity est AltGr+P en AZERTY ; l'action est dans la table
+    **sans accord**, la fenêtre « Raccourcis » peut lui en donner un) pose `App::singleStep` : exactement un pas, le même que
+    `--steps` compte, les squelettes avancent d'une image, puis la pause reprend. **Le `frame` du programme tourne pour ce pas**,
+    sous la route de la pause (un input vide) : les systèmes du pas lisent ce qu'il pose (`FpsInput`, `WalkInput` du sandbox), et
+    sans lui ils rejoueraient l'input d'avant la pause (W tenue, Pause, W relâchée : deux pas avançaient encore la caméra). Il ne
+    laisse pas non plus la souris au jeu (`keepMouseFromGame`). **Refusée en marche** (`playControlRefusal`,
+    comptée et dite à la console), et **Stop l'emporte** sur un pas demandé et pas encore joué (`enterMode`). **Maj+F1** rend la
+    souris : plus capturée alors que le `frame` du jeu la redemande à chaque image (`keepMouseFromGame`), le jeu ne reçoit plus rien
+    (même route que la pause), jusqu'au prochain clic dans la scène (`giveMouseBackOnClick`, lu dans `frame` : une fois le bouton
+    enfoncé, ImGui prend la fenêtre de la Vue pour la déplacer et son image n'est plus « survolée » à l'image même du clic) ;
+    **ce clic n'atteint pas le jeu** (la route de l'image qui s'ouvre était celle de l'Édition), un clic hors de la scène ne la
+    rend pas. **Les touches du contexte *jeu*** (Échap, Pause, Maj+F1, l'accord qu'on donnerait à Image suivante) sont lues dans les
+    événements bruts de l'image (`gameKeysPressed`), pas sur l'input du jeu, qui est vide en pause : un appui est un front
+    (`keyPressesOf`, une répétition n'en est pas un, un appui relâché dans la même image compte), Échap ignore les modificateurs,
+    les autres les veulent exacts ; rien en Édition, dans un champ de texte actif, sous la modale « Quitter ? ». **La teinte** : la
+    barre d'outils (son fond) et le bord de la Vue prennent la couleur du jeu, une autre en pause, aucune en Édition
+    (`playTintOf`, `ui::PlayTint`, `ui::PausedTint`, `ui::tintedBarBackground`) ; le bandeau de la barre de mode garde son texte
+    (ce que Jouer fait à la scène, « Pause », ou « Souris rendue : cliquer dans la Vue pour la rendre au jeu » après Maj+F1,
+    `modeBannerOf`) et une icône teintée. **Le bord est dessiné sur la scène** : les teintes sont de luminance moyenne, pour se
+    lire sur un ciel clair comme sur un sol sombre (3 de contraste contre l'un, l'autre et le gris des panneaux). La barre d'outils montre Jouer et Simuler en Édition ; Arrêter,
+    Pause (Reprendre) et Image suivante en jeu, le bouton de mode toujours en tête.
 17. **Une valeur tapée dans l'inspecteur se voit dans l'image même** : `commitEdit` qui écrit lève
     `Inspector::wrote` (remis à faux à chaque `drawInspector`), et `withEditor` pose alors
     `App::recomposeAfterUi` (ADR-0036, décision 2). Le scénario de bout en bout attend le texte scripté (morceau 12).
@@ -477,8 +502,10 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   `isTransientlyBusy`, `retryWhileBusy`, `preferencesFileFor` (`preferences.hpp`, sans ImGui) ; `startPreferences`, `savePreferencesNow`, `preferencesOf`, `applyPreferences`,
   `dockNodesOfSavedLayout`, `resetLayout` (`layout.hpp`) : le fichier des préférences et son branchement sur ImGui.
 - `QuitState`, `askToQuit`, `shouldOpenQuitModal`, `drawQuitModal` (`quit.hpp`) : la modale de fermeture.
-- `Mode`, `ModeState`, `ModeRequests`, `modeRequested`, `enterMode`, `stopPressed`, `inputRouteFor`,
-  `simulationPausedIn`, `programFrameRunsIn`, `otherMode`, `modeNameOf`, `modeHintOf`, `modeTokenOf`, `drawModeBar`,
+- `Mode`, `ModeState`, `ModeRequests`, `modeRequested`, `enterMode`, `gameKeysPressed`, `GameKeys`, `mousePressedIn`,
+  `PlayControl`, `playControlOf`, `playControlRefusal`, `applyPlayControl`, `keepMouseFromGame`, `inputRouteFor`, `inputRouteOf`,
+  `simulationRunsIn`, `programFrameRunsIn`, `playTintOf`, `modeBannerOf`, `pauseButtonLabel`, `stepButtonLabel`, `otherMode`,
+  `modeNameOf`, `modeHintOf`, `modeTokenOf`, `drawModeBar`,
   `drawModeBarOverlay` et son `ModeBarOverlay` (le mode demandé, le survol, les rectangles de la barre et de son bouton,
   que la Vue garde : `View::modeBarRect`, `View::modeBarButton`),
   `playShortcutPressed`, `sceneHasFocus` (`mode.hpp`) : les modes, en fonctions libres. À la fin, `withEditor` écrit aussi `editor.mode mode=edit steps=0 -- mode : Édition ; pas : 0`,
@@ -499,7 +526,8 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   `acceptPending`, `drawShortcutWindow`, `shortcutCaptureActive` (`shortcut_window.hpp`, `editor.hpp`) : changer la table.
 - `drawMenuBar(inputs, windowLayout, layout, help)`, `drawHelp`, `helpRowsOf`, `helpRowMatches`, `equivalentsOf`
   (`menus.hpp`) ; `drawToolbar`, `drawStatusBar`, `statusOf` (`bars.hpp`) ; `availabilityOf`, `runAction`,
-  `shortcutsPressed`, `keyPressesOf`, `toolActionOf`, `viewKeyActionOf`, `viewActiveIn`, `switchRealTime`, `ActionCounters`
+  `shortcutsPressed`, `keyPressesOf`, `heldKeysAfter`, `runPlayControl`, `toolActionOf`, `viewKeyActionOf`, `viewActiveIn`,
+  `switchRealTime`, `ActionCounters`
   (`actions.hpp`) : les menus, les barres, la
   fenêtre Aide et ce que les raccourcis atteignent, en fonctions libres.
 - `gridLinesFor`, `gridSpacingFor`, `drawGrid`, `GridState` (`grid.hpp`) ; `drawShowMenu`, `applyShowAction`, `helpersVisibleIn`,
@@ -649,6 +677,6 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
 | **Unreal**, la grille et la vue de jeu | Le menu *Show* du viewport, la touche G | G passe le viewport en *Game View*, qui cache ce que le jeu ne montre pas (la grille, les icônes : **documenté**, GESTES.md [E1]) ; la grille se règle dans ses préférences (**supposé**). Levain suit : « Vue de jeu » cache la grille et le contour de la sélection, et Jouer les cache aussi (le viewport de PIE n'en a pas, **supposé**). |
 | **Unity**, la grille | La grille de la Scene View et les *Gizmos* | Un bouton *Gizmos* montre ou cache les aides, la grille se règle dans la barre de la Scene View (**supposé**, non relu pour ce morceau) ; l'écart par puissances de 10 suivant le zoom est aussi le comportement que je lui connais (**supposé**). |
 | **Godot**, la grille | View > Grid et View > Gizmos | Le menu *View* du viewport 3D active la grille et les gizmos (**supposé**, non relu pour ce morceau). |
-| **Unreal**, les modes | Édition, puis *Play* (PIE) | Échap arrête le jeu, Alt+S simule (**documenté**, ADR-0036 [2]), Alt+P joue (**supposé**) ; PIE joue une copie du niveau (**supposé**), là où Jouer garde la scène en mémoire et la rend en place à Stop, avec les mêmes identifiants (ADR-0037). |
-| **Unity**, les modes | Le mode Play | Un mode Édition où rien ne tourne, Play à part, et les changements faits en jeu perdus à l'arrêt (**documenté**, GESTES.md [U20]) ; ici aussi, sans recharger la scène : Play garde un instantané, Stop le rend en place (ADR-0037). |
+| **Unreal**, les modes | Édition, puis *Play* (PIE) | Échap arrête le jeu, Alt+S simule, Pause et *Frame Skip* (la barre d'outils), Maj+F1 rend la souris (**documenté**, ADR-0036 [2], GESTES.md [E5]), Alt+P joue et la touche Pause met en pause (**supposé**) ; PIE joue une copie du niveau (**supposé**), là où Jouer garde la scène en mémoire et la rend en place à Stop, avec les mêmes identifiants (ADR-0037). |
+| **Unity**, les modes | Le mode Play | Un mode Édition où rien ne tourne, Play à part, et les changements faits en jeu perdus à l'arrêt (**documenté**, GESTES.md [U20]) ; Pause (Ctrl+Maj+P) et Step (Ctrl+Alt+P) en jeu (**documenté**, [U6]) : Image suivante n'a pas de touche ici, Ctrl+Alt+P étant AltGr+P en AZERTY ; ici aussi, sans recharger la scène : Play garde un instantané, Stop le rend en place (ADR-0037). |
 | **Godot**, les modes | Jouer la scène | Le jeu tourne dans une fenêtre à part, l'éditeur ne change pas de mode (**supposé**) : l'écart est assumé. |
