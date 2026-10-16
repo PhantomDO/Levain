@@ -300,12 +300,16 @@ TEST_CASE("la barre d'outils : le mode, la vitesse bornée, Temps réel, et des 
 {
     BarBench bench;
     bench.settle();
-    // Les outils et Simuler sont grisés : le clic ne rend rien.
+    // Les outils sont grisés : le clic ne rend rien. Simuler répond : l'action, comme Alt+S (le
+    // bouton de mode, lui, propose un mode ; Simuler passe par `runAction`).
     bench.click(bench.toolbar.tool);
-    bench.click(bench.toolbar.simulate);
     CHECK(bench.actions.empty());
     CHECK(bench.modes.empty());
     CHECK(bench.speeds.empty());
+    bench.click(bench.toolbar.simulate);
+    CHECK(bench.actions == std::vector<Action>{Action::Simulate});
+    CHECK(bench.modes.empty());
+    bench.actions.clear();
 
     // Le bouton de mode propose Jouer depuis l'Édition.
     bench.click(bench.toolbar.mode);
@@ -330,7 +334,7 @@ TEST_CASE("la barre d'outils en jeu : Pause, Reprendre et Image suivante, le mod
 {
     BarBench bench;
     bench.settle();
-    // Édition : ni Pause ni Image suivante, Jouer et Simuler (grisé) comme avant.
+    // Édition : ni Pause ni Image suivante, Jouer et Simuler comme avant.
     CHECK(bench.toolbar.pause.x == 0.0f);
     CHECK(bench.toolbar.step.x == 0.0f);
 
@@ -478,14 +482,14 @@ TEST_CASE("un bouton grisé de la barre d'outils : texte éteint plein, ni conto
     const std::vector<ImDrawVert> vertices = drawnVertices();
     const ImU32 dim = packed(style.Colors[ImGuiCol_TextDisabled]);
 
-    // Le bouton « Simuler » : son texte est `TextDisabled` à 100 %, tel que le test des contrastes
-    // le mesure (`BeginDisabled` y ajouterait `DisabledAlpha`, soit 2,6 de contraste à 0,6), et il
-    // n'a pas de contour : il redessinerait la forme qu'on a retirée.
-    const ButtonDrawing simulate =
-        drawingOf(vertices, bench.toolbar.simulate, levain::ui::tr("Simuler"), dim);
-    REQUIRE(simulate.textVertices > 0);
-    CHECK(simulate.translucentTextVertices == 0);
-    CHECK(simulate.borderVertices == 0);
+    // Le premier outil, grisé jusqu'à M7.4 : son texte est `TextDisabled` à 100 %, tel que le test
+    // des contrastes le mesure (`BeginDisabled` y ajouterait `DisabledAlpha`, soit 2,6 de contraste
+    // à 0,6), et il n'a pas de contour : il redessinerait la forme qu'on a retirée.
+    const ButtonDrawing tool =
+        drawingOf(vertices, bench.toolbar.tool, levain::ui::tr("Déplacer"), dim);
+    REQUIRE(tool.textVertices > 0);
+    CHECK(tool.translucentTextVertices == 0);
+    CHECK(tool.borderVertices == 0);
 
     // Le contrôle du contrôle : le bouton qui répond, lui, a son contour, et le même relevé le
     // voit.

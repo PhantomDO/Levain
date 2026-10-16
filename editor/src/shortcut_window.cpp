@@ -392,22 +392,13 @@ bool drawShortcutWindow(ShortcutWindow& window, ShortcutTable& table,
                 const Binding* binding = bindingOf(table, row.action);
                 ShortcutRowSeen seen{
                     .action = row.action, .chordAt = {}, .resetAt = {}, .chords = row.chords};
-                // Une action que rien ne lit encore est grisée avec son « Arrive en M7.5 », comme
-                // dans les menus : un accord qu'on y poserait ne ferait rien.
-                const Availability rebinding = rebindableFrom(row.action);
                 ImGui::PushID(static_cast<int>(row.action));
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
                 // Le texte à la hauteur du texte des boutons de la ligne, pas au-dessus d'eux.
                 ImGui::AlignTextToFramePadding();
-                ImGui::BeginDisabled(!rebinding.available);
                 ImGui::TextUnformatted(row.name.c_str());
-                ImGui::EndDisabled();
                 seen.nameAt = centerOfLastItem();
-                if (!rebinding.available)
-                {
-                    saySoon(rebinding.milestone, SoonSide::Right);
-                }
                 for (std::size_t slot = 0; slot < 2; ++slot)
                 {
                     ImGui::TableNextColumn();
@@ -415,18 +406,15 @@ bool drawShortcutWindow(ShortcutWindow& window, ShortcutTable& table,
                     const std::string text =
                         capturingHere ? std::string{ui::tr("Appuyez sur une touche...")}
                                       : chordCellText(binding->chords.at(slot), keyAtPosition);
-                    // Hors de l'Édition les touches n'arrivent pas à la saisie : pas de cases à
-                    // cliquer.
-                    ImGui::BeginDisabled(!editing || !rebinding.available);
+                    // La saisie n'est que de l'Édition : Échap l'annule, et en Simuler (où les
+                    // touches arrivent) elle arrêterait aussi la simulation, `gameKeysPressed` ne
+                    // se taisant que sous un champ de texte ou la modale. Pas de cases à cliquer.
+                    ImGui::BeginDisabled(!editing);
                     if (cellButton(text, slot == 0 ? "##c0" : "##c1", fit.chordWidth))
                     {
                         beginCapture(window, {row.action, slot});
                     }
                     ImGui::EndDisabled();
-                    if (!rebinding.available)
-                    {
-                        saySoon(rebinding.milestone, SoonSide::Right);
-                    }
                     seen.chordAt.at(slot) = centerOfLastItem();
                 }
                 ImGui::TableNextColumn();

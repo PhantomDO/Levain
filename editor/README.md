@@ -85,12 +85,12 @@ pour les trois : l'aspect est connu de l'interface, non relu dans une documentat
 ADR-0036, décisions 12 et 13). **La barre de menus** : Fichier, Édition, Entité, Fenêtre (celui du morceau 8, au
 milieu de la barre) et Aide ; chaque entrée montre le raccourci de la table, selon la disposition du clavier. **Une
 action grisée tant que son milestone n'est pas là** (`availabilityOf` : Enregistrer, Annuler, Rétablir en M7.3, les
-outils en M7.4, Simuler en M7.5, Entité > Créer… en M7.3) : le menu la montre
+outils en M7.4, Entité > Créer… en M7.3) : le menu la montre
 éteinte, dit au survol « Arrive en M7.3 », et le clic ne fait rien. **Le choix pour Ctrl+S** : l'entrée est grisée
 *et* le raccourci reste routé vers l'action, qui, grisée, le dit à la console (« Enregistrer : arrive en M7.3 » ; la
 barre d'état le montre) et compte le refus (`ActionCounters::declined`). Un Ctrl+S qui ne répondrait rien laisserait
 croire qu'une scène est enregistrée (règle n°7) ; c'est aussi ce qui permet au test « Ctrl+S atteint son action » de
-l'observer. **La barre d'outils** (sous les menus) : le bouton de mode, Simuler (grisé), les trois outils (grisés), la
+l'observer. **La barre d'outils** (sous les menus) : le bouton de mode, Simuler, les trois outils (grisés), la
 vitesse de la caméra de l'éditeur (`Editor::camera.flySpeed`, un curseur logarithmique borné par `clampFlySpeed`) et
 la case **« Temps réel »**, la même action que Ctrl+R (`App::realTime` : décochée, le temps de la scène que lisent l'eau,
 l'herbe, les matériaux et les squelettes ne court plus, et repart d'où il s'était arrêté). **Le temps réel ne se règle qu'en Édition** : jouer le force à vrai et garde le choix de l'Édition, revenir le rend (`switchRealTime`) ; en jeu la case est grisée et Ctrl+R le dit à la console. Livré ici (morceau 12) ; le morceau 17 garde le menu Afficher. **La barre d'état** (au
@@ -465,7 +465,8 @@ M couverts par un test ».
     (`shortcutWindowFit` : largeurs et hauteur en multiples de `ImGui::GetFontSize()`, toutes les lignes visibles à 125 %), s'ouvre
     sur l'espace libre (`WorkPos`, sous la barre d'outils), nomme dans sa phrase de conflit l'action qui voudrait l'accord,
     dit sur sa ligne de message ce que fait Échap pendant la saisie, abandonne la saisie quand « Tout réinitialiser » est
-    cliqué, et grise « Simuler » et « Rendre la souris » (`rebindableFrom`, « Arrive en M7.5 ») : rien ne les lit encore.
+    cliqué. Toute action a son lecteur depuis M7.5 (Pause, Image suivante, Rendre la souris au morceau 5, Simuler au 6) : plus
+    aucune case n'est grisée.
     L'Aide écrit « (aucun) » d'une action sans accord, comme la fenêtre. Limites : les accords de
     position d'une action ne sont posés que par la touche physique (pas de saisie « par lettre » d'une action de position),
     et la fenêtre n'a pas de profils comme le Shortcuts Manager d'Unity. Tests : `tests/editor_shortcut_edit_test.cpp` (la

@@ -349,6 +349,12 @@ std::string altP(int frame)
                        frame, frame + 1);
 }
 
+std::string altS(int frame)
+{
+    return std::format("{0} key down Left Alt\n{0} key down S\n{1} key up S\n{1} key up Left Alt\n",
+                       frame, frame + 1);
+}
+
 std::string escape(int frame)
 {
     return std::format("{} key down Escape\n{} key up Escape\n", frame, frame + 1);
@@ -581,18 +587,21 @@ int scriptedRunEndsPlaying(const levain::tests::TestBackend& backend)
 }
 
 /// Un composant qui ne se copie pas : Play est refusé, l'Édition reste et la console dit pourquoi.
-int refusedPlay(const levain::tests::TestBackend& backend)
+/// `start` entre en jeu (Alt+P ou Alt+S) et `refusal` est le début du message : la console nomme
+/// le mode demandé, « Jouer refusé » ou « Simuler refusé ».
+int refusedPlay(const levain::tests::TestBackend& backend, const std::string& start,
+                const std::string& refusal)
 {
     const TempDir dir;
     Scenario scenario;
     scenario.withUnique = true;
-    scenario.script = altP(2);
+    scenario.script = start;
     scenario.frames = 10;
     const Run run = play(backend, scenario, dir);
     bool named = false;
     for (const std::string& error : run.errors)
     {
-        named = named || (error.find("Jouer refusé") != std::string::npos &&
+        named = named || (error.find(refusal) != std::string::npos &&
                           error.find("unique") != std::string::npos);
     }
     bool stayedInEdit = !run.frames.empty();
@@ -601,9 +610,9 @@ int refusedPlay(const levain::tests::TestBackend& backend)
         stayedInEdit =
             stayedInEdit && frame.mode == Mode::Edit && !frame.playing && frame.bodies == 0;
     }
-    return expect(stayedInEdit, "Play refusé : l'éditeur reste en Édition, sans état de jeu") +
-           expect(named, "Play refusé : la console nomme l'entité") +
-           expect(run.stopLines.empty(), "Play refusé : aucun Stop à faire");
+    return expect(stayedInEdit, refusal + " : l'éditeur reste en Édition, sans état de jeu") +
+           expect(named, refusal + " : la console nomme le mode demandé et l'entité") +
+           expect(run.stopLines.empty(), refusal + " : aucun Stop à faire");
 }
 
 } // namespace
@@ -622,7 +631,8 @@ int main(int argc, char** argv)
         }
         const int failures = criterion(*backend) + selection(*backend) + skinnedModel(*backend) +
                              quitWhilePlaying(*backend) + scriptedRunEndsPlaying(*backend) +
-                             refusedPlay(*backend);
+                             refusedPlay(*backend, altP(2), "Jouer refusé") +
+                             refusedPlay(*backend, altS(2), "Simuler refusé");
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

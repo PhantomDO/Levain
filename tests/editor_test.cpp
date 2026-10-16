@@ -1302,6 +1302,13 @@ TEST_CASE("Alt+P joue, Échap arrête, seul le bouton va dans les deux sens")
     CHECK(modeRequested(Play, {.toolbar = Edit}) == Edit);
     CHECK_FALSE(modeRequested(Play, {.toolbar = Play}).has_value());
     CHECK_FALSE(modeRequested(Edit, ModeRequests{}).has_value());
+    // Alt+S, comme Alt+P, ne part que de l'Édition ; Échap en revient.
+    CHECK(modeRequested(Edit, {.simulate = true}) == Mode::Simulate);
+    CHECK_FALSE(modeRequested(Play, {.simulate = true}).has_value());
+    CHECK_FALSE(modeRequested(Mode::Simulate, {.simulate = true}).has_value());
+    CHECK_FALSE(modeRequested(Mode::Simulate, {.playShortcut = true}).has_value());
+    CHECK(modeRequested(Mode::Simulate, {.stop = true}) == Edit);
+    CHECK(modeRequested(Mode::Simulate, {.toolbar = Edit}) == Edit);
     // Échap l'emporte sur le reste : sortir du jeu ne se dispute pas.
     CHECK(modeRequested(Play, {.playShortcut = true, .stop = true}) == Edit);
     CHECK(modeRequested(Play, {.toolbar = Play, .stop = true}) == Edit);
