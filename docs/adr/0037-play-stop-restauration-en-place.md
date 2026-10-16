@@ -158,7 +158,8 @@ le vérifie lui-même**, dans tous les builds (règle n°7).
      scène d'édition, jamais celle du jeu. Les préférences, elles, s'enregistrent en jeu comme ailleurs.
    - « Jouer (sans retour) » disparaît.
 7. **La ligne de la CI**, sous son nom stable (ADR-0036, décision 14), à chaque Stop :
-   `editor.stop steps=120 differences=0 ms=… -- Stop : …`. Une session scriptée sur la vue physics joue 120 pas, les
+   `editor.stop steps=120 differences=0 ms=… from=play -- Stop : …` (`from=simulate` depuis Simuler : sans lui, un Alt+S qui
+   jouerait rendrait la même ligne). Une session scriptée sur la vue physics joue 120 pas, les
    caisses tombent, puis Stop : la CI exige des pas et zéro différence. Les millisecondes ne vont au journal que
    mesurées sur la machine de référence (règle n°6).
 8. **Simuler** : le Simulate d'Unreal (documenté [1]). La physique et le gameplay tournent sous la caméra et les

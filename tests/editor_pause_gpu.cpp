@@ -416,8 +416,9 @@ int pauseAndResume(const levain::tests::TestBackend& backend)
     failures += expect(run.frames.at(45).mode == Mode::Edit && !run.frames.at(45).paused,
                        "Échap arrête le jeu, la pause tombe");
     failures += expect(run.stopLines.size() == 1 && noDifferences(run.stopLines.front()) &&
-                           stepsOf(run.stopLines.front()) > 0,
-                       "Échap : la ligne editor.stop, des pas, zéro différence");
+                           stepsOf(run.stopLines.front()) > 0 &&
+                           run.stopLines.front().contains(" from=play -- "),
+                       "Échap : la ligne editor.stop, des pas, zéro différence, from=play");
     return failures;
 }
 

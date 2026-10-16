@@ -314,7 +314,7 @@ runEditor() {
 # La session Play/Stop de l'éditeur (M7.5, ADR-0037, décision 7). Un lancement à part de `editor`, qui est lancé sans
 # script et vérifie justement qu'il ne joue aucun pas (`editor.mode … steps=0`). Le script (Alt+P, 120 pas, Échap) joue
 # la vue physics, dont les caisses tombent, puis Stop rend la scène ; la CI lit la ligne
-# `editor.stop steps=S differences=D ms=T -- …`, sous son nom stable (ADR-0036, décision 14). `--steps 130` : le script
+# `editor.stop steps=S differences=D ms=T from=M -- …`, sous son nom stable (ADR-0036, décision 14). `--steps 130` : le script
 # finit à l'image 124, le jeu compte donc 120 pas quelle que soit la vitesse du runner.
 # **La CI ne le lance que sous Windows** : sous Linux, le test ctest `editor.play-stop` (tests/CMakeLists.txt) rejoue le
 # même script dans l'étape des tests de chaque configuration et exige la même ligne, `steps=120` compris ; il ne tourne
@@ -337,7 +337,7 @@ runEditorPlay() {
     [ "$status" -eq 0 ] \
         || { echo "::error::la session Play/Stop de l'éditeur est sortie avec le code $status"; exit 1; }
     # Le début de la ligne seulement (les mots sans langue), sans l'heure ni la phrase traduite.
-    stopPattern="editor\.stop steps=[0-9]+ differences=[0-9]+ ms=[0-9.]+"
+    stopPattern="editor\.stop steps=[0-9]+ differences=[0-9]+ ms=[0-9.]+ from=[a-z]+"
     stops=$(grep -Ec "$stopPattern" editor-play.log || true)
     [ "$stops" -eq 1 ] \
         || { echo "::error::la session Play/Stop devait écrire une ligne editor.stop, elle en a écrit $stops"; exit 1; }
@@ -349,6 +349,9 @@ runEditorPlay() {
                 "(Échap à l'image 123 n'a pas arrêté le jeu à temps ?) : $stop"; exit 1; }
     [ "$differences" -eq 0 ] \
         || { echo "::error::Stop n'a pas rendu la scène, $differences différence(s) : $stop"; exit 1; }
+    # Le mode que Stop quitte : Alt+P joue (`from=play`), et rien d'autre ne l'a remplacé.
+    [ "${stop##* from=}" = "play" ] \
+        || { echo "::error::Stop devait sortir de Jouer (from=play) : $stop"; exit 1; }
     # Seules les lignes de l'éditeur : le chargeur Vulkan ou une couche installée sur la machine écrivent les leurs.
     editorErrors=$(grep -F "] [error] [editor] " editor-play.log || true)
     [ -z "$editorErrors" ] \

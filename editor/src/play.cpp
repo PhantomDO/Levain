@@ -147,8 +147,8 @@ std::string stopLineOf(const StopReport& report)
     // Le pluriel français : « 0 différence » et « 1 différence », « 2 différences » (« 0 pas »,
     // « 1 pas » : pas ne change pas).
     const char* const noun = report.differences <= 1 ? "différence" : "différences";
-    return std::format("editor.stop steps={} differences={} ms={:.1f} -- {}", report.steps,
-                       report.differences, report.milliseconds,
+    return std::format("editor.stop steps={} differences={} ms={:.1f} from={} -- {}", report.steps,
+                       report.differences, report.milliseconds, report.from,
                        ui::trf("Stop : {} pas, {} {}, {:.1f} ms", report.steps, report.differences,
                                ui::tr(noun), report.milliseconds));
 }

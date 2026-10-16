@@ -66,6 +66,10 @@ struct StopReport
     bool refused = false;
     std::string refusal;
     int steps = 0; ///< Les pas joués pendant cette session.
+    /// Le mode que Stop quitte, en mot sans langue (`modeTokenOf` : « play », « simulate »), posé
+    /// par l'appelant, qui le sait : la ligne de la CI le dit (`from=`), sans quoi un Alt+S qui
+    /// jouerait à la place de simuler rendrait la même ligne. Vide tant qu'il n'est pas posé.
+    std::string from;
     /// Le nombre de vraies différences que `scene::compareWithSnapshot` a trouvées : 0 si la scène
     /// est identique, sans plafond, enfants internes perdus exclus (ils sont dans
     /// `lostInternalChildren`). C'est la valeur de `differences=` dans la ligne de la CI.
@@ -91,7 +95,7 @@ struct StopReport
 [[nodiscard]] StopReport stopPlay(const PlayTarget& target, PlaySession& session);
 
 /// La ligne de la CI, sous son nom stable (ADR-0036, décision 14) : `editor.stop steps=120
-/// differences=0 ms=3.2 -- Stop : …`. Des mots sans langue, puis la phrase.
+/// differences=0 ms=3.2 from=simulate -- Stop : …`. Des mots sans langue, puis la phrase.
 [[nodiscard]] std::string stopLineOf(const StopReport& report);
 
 /// Écrit dans la console ce que Stop a trouvé : un avertissement par enfant interne perdu, une

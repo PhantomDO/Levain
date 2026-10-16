@@ -274,7 +274,7 @@ M couverts par un test ».
     `changeMode`, hors du mode différé** (`frame` et la fin de `ui`), et sont **clés sur la session** (`Editor::play`) : quitter
     l'Édition en ouvre une, y revenir la ferme, quel que soit le mode de jeu (Simuler prend le même instantané). `stopPlay` refuse le mode
     différé dès sa première ligne, avec ou sans physique : la session reste, le mode aussi. `differences` de la ligne
-    `editor.stop steps=N differences=D ms=T -- …` est le compte des vraies différences que rend `scene::compareWithSnapshot`,
+    `editor.stop steps=N differences=D ms=T from=M -- …` (M, le mode quitté : `play` ou `simulate`) est le compte des vraies différences que rend `scene::compareWithSnapshot`,
     recalculé et non lu dans le résultat de la restauration : une restauration sautée se voit dans la ligne que lit la CI ; les
     enfants internes perdus sont comptés à part (un avertissement chacun). **Quitter en jeu** (le bouton Quitter de la
     modale) passe par Stop. **Finir une exécution scriptée en jeu** aussi : `withEditor` lance d'abord le `finish` du
@@ -516,9 +516,10 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   (`App::stepsPlayed`, tous les pas de la boucle).
 - `startPlay`, `stopPlay`, `PlayTarget`, `PlaySession`, `StopReport`, `stopLineOf`, `logStop` (`play.hpp`) : Jouer et Arrêter
   en fonctions libres, testées sans fenêtre (`tests/editor_play_test.cpp`). `withEditor` écrit à chaque Stop
-  `editor.stop steps=120 differences=0 ms=… -- Stop : …`, sous ce nom stable (ADR-0036, décision 14) : la CI lit cette
-  ligne, exactement 120 pas et zéro différence (le test ctest `editor.play-stop` sous Linux, le lancement
-  `tools/ci-programs.sh editor-play` sous Windows, où ce test ne tourne pas), et `tools/play-stop-cost.sh` en tire le
+  `editor.stop steps=120 differences=0 ms=… from=play -- Stop : …`, sous ce nom stable (ADR-0036, décision 14) : la CI lit
+  cette ligne, exactement 120 pas, zéro différence et `from=play` (le test ctest `editor.play-stop` sous Linux, le lancement
+  `tools/ci-programs.sh editor-play` sous Windows, où ce test ne tourne pas ; `editor.simulate-stop` exige `from=simulate`,
+  `StopReport::from`), et `tools/play-stop-cost.sh` en tire le
   coût de Stop sur les 10 000 cubes de la démo.
 - `Action`, `Context`, `Chord`, `Binding`, `ShortcutTable`, `defaultShortcuts`, `bindingOf`, `nameOf`, `actionFor`,
   `chordMatches`, `positionHeld`, `displayNameOf`, `tokenOf`, `chordFromToken`, `imguiChordOf`, `letterChordPressed`
