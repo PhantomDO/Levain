@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <format>
 #include <iterator>
+#include <string>
 #include <utility>
 
 #include "character_sync.hpp"
@@ -15,6 +17,7 @@
 #include "levain/scene/components.hpp"
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
+#include "levain/scene/snapshot.hpp"
 
 namespace levain::physics
 {
@@ -161,11 +164,42 @@ namespace
 
 /// L'observateur devient un enfant du volume, et part avec lui. Sans ça, flecs refuse de supprimer
 /// une entité qu'un observateur désigne dans une paire (« still in use by queries ») : une
-/// assertion en Debug, et en Release, un observateur qui viserait une entité morte.
+/// assertion en Debug, et en Release, un observateur qui viserait une entité morte. Il porte aussi
+/// `TriggerCallback`, pour que `endPlay` le retrouve.
 flecs::observer ownedBy(flecs::observer observer, flecs::entity volume)
 {
     observer.child_of(volume);
+    observer.add<TriggerCallback>();
     return observer;
+}
+
+/// Les rappels des déclencheurs qui écoutent en ce moment. Un observateur déjà désactivé n'y est
+/// pas : `setEnabled` ne le réveillera donc pas.
+std::vector<flecs::entity> listeningCallbacks(const flecs::world& world)
+{
+    std::vector<flecs::entity> callbacks;
+    world.query_builder().with<TriggerCallback>().build().each([&callbacks](flecs::entity callback)
+                                                               { callbacks.push_back(callback); });
+    return callbacks;
+}
+
+/// Désactive ou réactive des observateurs : flecs ne leur envoie plus d'événement tant qu'ils le
+/// sont (manuel des observateurs, « Disabling observers » : src/observer.c, `ecs_enable`).
+void setEnabled(const std::vector<flecs::entity>& observers, bool enabled)
+{
+    for (const flecs::entity observer : observers)
+    {
+        // `enable(bool)` n'existe pas : un `bool` serait lu comme un identifiant de flecs.
+        enabled ? observer.enable() : observer.disable();
+    }
+}
+
+/// Oublie ce que le dernier pas avait vu dans les volumes. `changed` n'est qu'un tampon.
+void forgetOverlaps(OverlapState& state)
+{
+    state.current.clear();
+    state.next.clear();
+    state.changed.clear();
 }
 
 /// Les composants de la physique (ADR-0034), ici et non dans leurs en-têtes, qui ne voient pas
@@ -198,6 +232,59 @@ void describePhysicsComponents(flecs::world& world)
 }
 
 } // namespace
+
+std::uint32_t indexOfEntity(flecs::entity_t id)
+{
+    return scene::entityIndexOf(id);
+}
+
+int inIdOrder(flecs::entity_t first, const void* firstValue, flecs::entity_t second,
+              const void* secondValue)
+{
+    return scene::byEntityIndex(first, firstValue, second, secondValue);
+}
+
+std::optional<std::string> freshPhysicsWorld(flecs::world& world)
+{
+    const std::int32_t bodies = world.count<BodyHandle>();
+    const std::int32_t characters = world.count<CharacterHandle>();
+    if (bodies > 0 || characters > 0)
+    {
+        std::string reason = std::format(
+            "freshPhysicsWorld refusé : {} entités portent encore un BodyHandle et {} un "
+            "CharacterHandle, qui désigneraient des corps du monde détruit. Les retirer d'abord "
+            "(scene::Transient, ADR-0037).",
+            bodies, characters);
+        core::log("physics", core::LogLevel::Error, "{}", reason);
+        return reason;
+    }
+    const PhysicsSettings* settings = world.try_get<PhysicsSettings>();
+    world.set<PhysicsWorld>(
+        createPhysicsWorld(settings != nullptr ? *settings : PhysicsSettings{}));
+    world.set<MovedBodyBuffer>({});
+    world.set<OverlapState>({});
+    return std::nullopt;
+}
+
+std::optional<std::string> endPlay(flecs::world& world)
+{
+    if (world.is_deferred())
+    {
+        // Pas une assertion : elle disparaît en Release, où les retraits partiraient alors
+        // observateurs allumés.
+        std::string reason =
+            "endPlay refusé : le monde est en mode différé, les retraits et la désactivation des "
+            "rappels partiraient ensemble. L'appeler hors de tout parcours (ADR-0037).";
+        core::log("physics", core::LogLevel::Error, "{}", reason);
+        return reason;
+    }
+    const std::vector<flecs::entity> callbacks = listeningCallbacks(world);
+    setEnabled(callbacks, false);
+    ecs_remove_all(world.c_ptr(), ecs_pair(world.id<InsideOf>(), EcsWildcard));
+    forgetOverlaps(world.get_mut<OverlapState>());
+    setEnabled(callbacks, true);
+    return std::nullopt;
+}
 
 flecs::observer onEnter(flecs::world& world, flecs::entity volume,
                         std::function<void(flecs::entity body)> react)
@@ -238,6 +325,14 @@ PhysicsModule::PhysicsModule(flecs::world& world)
         createPhysicsWorld(settings != nullptr ? *settings : PhysicsSettings{}));
     world.set<MovedBodyBuffer>({});
     world.set<OverlapState>({});
+    // Enregistrée ici et non à la première pose : `endPlay` la cherche, et le monde peut n'avoir
+    // aucun déclencheur.
+    world.component<TriggerCallback>();
+    // Les handles désignent des corps du monde Jolt : un instantané de la scène ne les copie pas
+    // (ils désigneraient des corps détruits), et Stop les retire avant `freshPhysicsWorld`
+    // (ADR-0037, décision 1).
+    world.component<BodyHandle>().add<scene::Transient>();
+    world.component<CharacterHandle>().add<scene::Transient>();
 
     // Ce que la physique déplace est interpolé par le rendu, comme ce qui a une Velocity
     // (ADR-0016) : le trait With lui attache l'état du pas précédent.
@@ -359,8 +454,15 @@ PhysicsModule::PhysicsModule(flecs::world& world)
     world.system("SyncBeforePhysics").kind<scene::Physics>().immediate().run([](flecs::iter&) {});
     // `write<BodyHandle>` : les BodyHandle posés ici sont fusionnés avant le système suivant, qui
     // pousse donc dès ce pas un cinématique qui vient de naître.
+    // Les trois systèmes qui construisent ou font avancer (BuildBodies, BuildCharacters,
+    // MoveCharacters) parcourent leurs entités dans l'ordre des index (`inIdOrder`), non dans celui
+    // des tables : Jolt ne rejoue le même résultat que pour la même suite d'appels (ADR-0037).
+    // PushKinematicBodies reste dans l'ordre des tables : il ne fait que poser la vitesse de chaque
+    // cinématique, sans qu'un corps ne dépende d'un autre. Un système trié ne se parallélise pas
+    // (flecs), ce que ces trois-là ne faisaient pas.
     world.system<const Collider, const scene::Transform, const RigidBody*>("BuildBodies")
         .with<BodyDirty>()
+        .order_by(0, inIdOrder)
         .write<BodyHandle>()
         .kind<scene::Physics>()
         .each(
@@ -381,6 +483,7 @@ PhysicsModule::PhysicsModule(flecs::world& world)
             });
     world.system<const CharacterController, const scene::Transform>("BuildCharacters")
         .with<CharacterDirty>()
+        .order_by(0, inIdOrder)
         // Comme BuildBodies : les CharacterHandle, CharacterVelocity et CharacterState posés ici
         // sont fusionnés avant MoveCharacters, qui fait bouger dès ce pas un personnage qui vient
         // de naître.
@@ -397,6 +500,7 @@ PhysicsModule::PhysicsModule(flecs::world& world)
     // reçoivent leur impulsion dans ce pas (ADR-0028).
     world
         .system<scene::Transform, const CharacterVelocity*, const CharacterHandle>("MoveCharacters")
+        .order_by(0, inIdOrder)
         .kind<scene::Physics>()
         .each(
             [](flecs::iter& it, std::size_t, scene::Transform& transform,

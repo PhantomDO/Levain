@@ -1,10 +1,12 @@
 #include "levain/editor/mode.hpp"
 
+#include <algorithm>
 #include <tuple>
 
 #include <imgui.h>
 
 #include "levain/app/player_input.hpp"
+#include "levain/editor/actions.hpp"
 #include "levain/ui/flags.hpp"
 #include "levain/ui/icons.hpp"
 #include "levain/ui/style.hpp"
@@ -28,53 +30,160 @@ int modeBarFlags()
             ImGuiWindowFlags_NoInputs));
 }
 
+/// L'action dont le rappel de touche parle : jouer depuis l'Édition, arrêter depuis un mode de jeu.
+Action actionLeaving(Mode mode)
+{
+    switch (mode)
+    {
+    case Mode::Edit:
+        return Action::Play;
+    case Mode::Play:
+    case Mode::Simulate:
+        return Action::Stop;
+    }
+    return Action::Stop;
+}
+
 } // namespace
 
 std::string modeHintOf(Mode mode, const ShortcutTable& table,
                        const platform::KeyAtPosition& keyAtPosition)
 {
-    const Action action = mode == Mode::Edit ? Action::Play : Action::Stop;
+    const Action action = actionLeaving(mode);
     const Binding* binding = bindingOf(table, action);
     if (binding == nullptr || !isBound(binding->chords.front()))
     {
         return {};
     }
     const std::string key = displayNameOf(binding->chords.front(), keyAtPosition);
-    return mode == Mode::Edit ? ui::trf("{} : jouer", key)
-                              : ui::trf("{} : revenir à l'édition", key);
+    switch (mode)
+    {
+    case Mode::Edit:
+        return ui::trf("{} : jouer", key);
+    case Mode::Play:
+    case Mode::Simulate:
+        return ui::trf("{} : arrêter", key);
+    }
+    return {};
 }
 
-bool stopPressed(ModeState& state, const input::RawInput& raw, const ShortcutTable& table)
+GameKeys gameKeysPressed(ModeState& state, const platform::Events& events,
+                         const ShortcutTable& table, bool blocked)
 {
+    const std::vector<KeyPress> presses = keyPressesOf(events, state.keys);
+    state.keys = heldKeysAfter(events, state.keys);
+    GameKeys keys;
+    if (state.current == Mode::Edit || blocked)
+    {
+        return keys;
+    }
     const Binding* stop = bindingOf(table, Action::Stop);
-    const bool held = stop != nullptr && positionHeld(*stop, raw.keys);
-    const bool rose = held && !state.stopHeld;
-    state.stopHeld = held;
-    return rose;
+    for (const KeyPress& press : presses)
+    {
+        if (stop != nullptr && positionIs(*stop, press.scancode))
+        {
+            // Échap ignore les modificateurs : Maj tenu pendant le jeu n'y change rien.
+            keys.stop = true;
+            continue;
+        }
+        const auto action = actionFor(table, press, {.game = true});
+        if (action && playControlOf(*action))
+        {
+            keys.actions.push_back(*action);
+        }
+    }
+    return keys;
 }
 
-void enterMode(app::App& app, ModeState& state, Mode mode)
+bool mousePressedIn(const platform::Events& events)
 {
-    state.current = mode;
-    state.stopHeld = false;
-    app.simulationPaused = simulationPausedIn(mode);
+    return std::ranges::any_of(
+        events.ui, [](const platform::UiEvent& event)
+        { return event.type == platform::UiEventType::MouseButton && event.down; });
+}
+
+namespace
+{
+
+/// Le jeu repart de zéro : un `InputState` neuf, ses appuis en attente oubliés, et le singleton
+/// relu (il vaut pour l'image en cours, où `frame` a peut-être déjà tourné). La route de l'image
+/// qui commence est celle de l'état ; la définitive est posée à la fin de `ui`.
+void releaseGameInput(app::App& app, const ModeState& state)
+{
     app.mouseCaptureWanted = false;
     app.mouseCaptureOverPanels = false;
-    // Le jeu repart de zéro : un `InputState` neuf, ses appuis en attente oubliés, et le
-    // singleton relu (il vaut pour l'image en cours, où `frame` a peut-être déjà tourné).
     app.input = input::makeInputState(app.bindings);
     auto& playerInput = app.world.get_mut<app::PlayerInput>();
     app::forgetPresses(playerInput);
     app::takeFrameInput(playerInput, app.input);
-    // La route définitive est posée à la fin de `ui` : celle-ci couvre l'image qui commence.
-    app.inputRoute = inputRouteFor(mode, false);
+    app.inputRoute = inputRouteOf(state, false);
+}
+
+} // namespace
+
+void enterMode(app::App& app, ModeState& state, Mode mode)
+{
+    state.current = mode;
+    state.paused = false;
+    state.mouseFreed = false;
+    app.simulationPaused = !simulationRunsIn(mode, state.paused);
+    // Un pas demandé par la barre d'outils (dans `ui`) et pas encore joué : Stop l'emporte, sinon
+    // l'Édition jouerait ce pas après que la scène a été rendue.
+    app.singleStep = false;
+    releaseGameInput(app, state);
+}
+
+void applyPlayControl(PlayControl control, app::App& app, ModeState& state)
+{
+    switch (control)
+    {
+    case PlayControl::TogglePause:
+        state.paused = !state.paused;
+        app.simulationPaused = !simulationRunsIn(state.current, state.paused);
+        releaseGameInput(app, state);
+        break;
+    case PlayControl::StepFrame:
+        app.singleStep = true;
+        break;
+    case PlayControl::FreeMouse:
+        state.mouseFreed = true;
+        releaseGameInput(app, state);
+        break;
+    }
+}
+
+void keepMouseFromGame(app::App& app, const ModeState& state, bool editorWantsMouse)
+{
+    if (state.mouseFreed || state.paused || editorOwnsViewIn(state.current))
+    {
+        app.mouseCaptureWanted = editorWantsMouse;
+        app.mouseCaptureOverPanels = editorWantsMouse;
+    }
 }
 
 std::string modeButtonLabel(Mode target)
 {
-    return target == Mode::Edit
-               ? ui::icon::withIcon(ui::icon::Stop, ui::labelOf("Revenir à l'édition"))
-               : ui::icon::withIcon(ui::icon::Play, ui::labelOf("Jouer (sans retour)"));
+    switch (target)
+    {
+    case Mode::Edit:
+        return ui::icon::withIcon(ui::icon::Stop, ui::labelOf("Arrêter"));
+    case Mode::Play:
+        return ui::icon::withIcon(ui::icon::Play, ui::labelOf("Jouer"));
+    case Mode::Simulate:
+        return ui::labelOf("Simuler");
+    }
+    return {};
+}
+
+std::string pauseButtonLabel(bool paused)
+{
+    return paused ? ui::icon::withIcon(ui::icon::Play, ui::labelOf("Reprendre"))
+                  : ui::icon::withIcon(ui::icon::Pause, ui::labelOf("Pause"));
+}
+
+std::string stepButtonLabel()
+{
+    return ui::icon::withIcon(ui::icon::Step, ui::labelOf("Image suivante"));
 }
 
 namespace
@@ -90,11 +199,12 @@ app::ScreenRect lastItemRect()
 }
 
 /// Le contenu de la barre, dans la fenêtre ou le calque courant : le bouton qui montre où l'on va
-/// (seul il va dans les deux sens, `modeRequested`), le bandeau de « Jouer (sans retour) » et le
+/// (seul il va dans les deux sens, `modeRequested`), le bandeau du jeu, dans sa teinte, et le
 /// rappel de la touche. Rend le mode demandé et le rectangle du bouton, s'il y en a un (le reste
 /// est à l'appelant, qui tient l'enfant).
-ModeBarOverlay drawModeBarContents(Mode current, bool interactive, const std::string& hint)
+ModeBarOverlay drawModeBarContents(const ModeState& mode, bool interactive, const std::string& hint)
 {
+    const Mode current = mode.current;
     ModeBarOverlay bar;
     if (interactive)
     {
@@ -105,14 +215,14 @@ ModeBarOverlay drawModeBarContents(Mode current, bool interactive, const std::st
         }
         bar.button = lastItemRect();
     }
-    if (current == Mode::PlayWithoutReturn)
+    if (const auto tint = playTintOf(current, mode.paused))
     {
-        ImGui::TextColored(
-            {1.0f, 0.75f, 0.2f, 1.0f}, "%s",
-            ui::icon::withIcon(
-                ui::icon::Play,
-                ui::tr("Jouer (sans retour) : la scène n'est pas restaurée à l'arrêt"))
-                .c_str());
+        // L'icône dans la teinte, le texte en `Text` : une icône est un graphisme (3 de contraste
+        // suffisent, sur une scène blanche comme sur une sombre), un texte en couleur de teinte
+        // n'atteindrait pas 4,5 (`tests/ui_style_test.cpp`).
+        ImGui::TextColored(*tint, "%s", mode.paused ? ui::icon::Pause : ui::icon::Play);
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::TextUnformatted(ui::tr(modeBannerOf(current, mode.paused, mode.mouseFreed)));
     }
     if (!hint.empty())
     {
@@ -125,17 +235,17 @@ ModeBarOverlay drawModeBarContents(Mode current, bool interactive, const std::st
 
 } // namespace
 
-void drawModeBar(Mode current, const app::ScreenRect& scene, const std::string& hint)
+void drawModeBar(const ModeState& mode, const app::ScreenRect& scene, const std::string& hint)
 {
     ImGui::SetNextWindowPos({scene.x + 8.0f, scene.y + 8.0f});
     if (ImGui::Begin(ui::labelOf("Mode").c_str(), nullptr, modeBarFlags()))
     {
-        std::ignore = drawModeBarContents(current, false, hint);
+        std::ignore = drawModeBarContents(mode, false, hint);
     }
     ImGui::End();
 }
 
-ModeBarOverlay drawModeBarOverlay(Mode current, ImVec2 corner, const std::string& hint)
+ModeBarOverlay drawModeBarOverlay(const ModeState& mode, ImVec2 corner, const std::string& hint)
 {
     ModeBarOverlay bar;
     // Un enfant de la fenêtre de la Vue, non une fenêtre flottante : une fenêtre flottante passe
@@ -150,7 +260,7 @@ ModeBarOverlay drawModeBarOverlay(Mode current, ImVec2 corner, const std::string
                           ui::withFlags(childFlags, ImGuiChildFlags_Borders),
                           ImGuiWindowFlags_NoScrollbar))
     {
-        bar = drawModeBarContents(current, true, hint);
+        bar = drawModeBarContents(mode, true, hint);
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();

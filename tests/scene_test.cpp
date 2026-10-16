@@ -281,6 +281,38 @@ TEST_CASE("à l'arrêt, une image ne joue aucun pas, montre l'état simulé et g
           doctest::Approx(positionBefore + 6.0f * step.stepSeconds));
 }
 
+TEST_CASE("à l'arrêt, un pas demandé joue exactement un pas, le même que ceux de la marche")
+{
+    flecs::world world;
+    world.import<levain::scene::SceneModule>();
+    const flecs::entity moving =
+        world.entity().set(Transform{}).set(Velocity{.linear = {6.0f, 0.0f, 0.0f}});
+    FixedStep step;
+    levain::scene::advanceWorld(world, step, 0.4f * step.stepSeconds); // un reste de 0,4 pas
+    const FixedStep before = step;
+    const float positionBefore = moving.get<Transform>().position.x;
+
+    // Un pas, quelle que soit la durée de l'image : ni 0 (le temps d'une image courte), ni 4 (celui
+    // d'une image longue, que le plafond laisse passer en marche).
+    for (const float frameSeconds : {0.001f, 1.0f / 60.0f, 1.0f})
+    {
+        CHECK(levain::scene::advanceWorld(world, step, frameSeconds, true, true) == 1);
+    }
+    // Le pas joué est celui d'une image qui joue : trois fois 1/60 s de vitesse.
+    CHECK(moving.get<Transform>().position.x ==
+          doctest::Approx(positionBefore + 3.0f * 6.0f * step.stepSeconds));
+    CHECK(step.accumulator == before.accumulator); // le temps des images n'y entre pas
+    CHECK(world.get<levain::scene::RenderAlpha>().value == 1.0f);
+    // La demande n'est pas gardée : l'image suivante, sans elle, ne joue rien.
+    CHECK(levain::scene::advanceWorld(world, step, 1.0f / 60.0f, true) == 0);
+    // **En marche elle ne vaut rien** : le temps de l'image décide seul, jamais un pas de plus.
+    FixedStep running;
+    CHECK(levain::scene::advanceWorld(world, running, 0.4f * running.stepSeconds, false, true) ==
+          0);
+    CHECK(levain::scene::advanceWorld(world, running, 0.7f * running.stepSeconds, false, true) ==
+          1);
+}
+
 TEST_CASE("à l'arrêt, la passe de rendu tourne encore")
 {
     flecs::world world;

@@ -562,6 +562,7 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
             .skinningState = createSkinningState(*gpu.nvrhi),
             .sampler = render::createSampler(*gpu.nvrhi, sampler),
             .world = flecs::world{},
+            .idRanges = {},
             .fixedStep = {},
             .simulationPaused = false,
             .realTime = true,
@@ -605,6 +606,16 @@ core::Result<std::unique_ptr<App>> createApp(platform::Window& window, gpu::GpuD
                           .timer = render::createGpuTimer(*gpu.nvrhi),
                           .panelsOpen = settings.showUiPanels},
             .hooks = {}});
+    // Avant la moindre entité détruite, et avant que le programme n'en crée : voir
+    // `createIdRanges`.
+    if (auto ranges = scene::createIdRanges(app->world); ranges)
+    {
+        app->idRanges = *ranges;
+    }
+    else
+    {
+        return std::unexpected(ranges.error());
+    }
     prepareAppWorld(app->world);
 #ifdef LEVAIN_ENABLE_EXPLORER
     enableExplorerOnLoopback(app->world);
@@ -1024,7 +1035,11 @@ bool runFrame(Loop& loop)
 
     const Clock::time_point frameStart = Clock::now();
     double displayWait = 0.0;
-    bool simulationPaused = false; // lu une fois, par le bloc « monde », pour toute l'image
+    // Lus une fois, par le bloc « monde », pour toute l'image. Les squelettes s'arrêtent avec la
+    // simulation, sauf à l'image d'« Image suivante » (`App::singleStep`) : ils avancent d'une
+    // image.
+    bool simulationPaused = false;
+    bool skeletonsPaused = false;
     bool overrideBeforeUi = false; // la caméra imposée avant que `ui` ne la touche
     {
         LEVAIN_PROFILE_SCOPE_NAMED("événements");
@@ -1055,7 +1070,9 @@ bool runFrame(Loop& loop)
         const InputRoute route = app.inputRoute;
         const std::optional<platform::Events> uiEvents =
             uiEventsOf(route, events, app.mouseCaptured);
-        beginUiFrame(app, uiEvents ? *uiEvents : events, loop.lastFrameSeconds);
+        beginUiFrame(app, uiEvents ? *uiEvents : events,
+                     uiFrameSecondsFor(settings.inputScript.has_value(), loop.lastFrameSeconds,
+                                       app.fixedStep.stepSeconds));
         const ImGuiIO& io = ImGui::GetIO();
         const std::vector<platform::InputEvent> gameEvents = gameInputOf(
             events.input, app.input.raw,
@@ -1094,10 +1111,13 @@ bool runFrame(Loop& loop)
         // celle de l'image précédente : celle-ci n'est pas encore finie.
         LEVAIN_PROFILE_SCOPE_NAMED("monde");
         simulationPaused = app.simulationPaused;
+        // Une demande par image : `exchange` la remet à faux, un pas demandé en marche se perd.
+        const bool singleStep = std::exchange(app.singleStep, false);
+        skeletonsPaused = simulationPaused && !singleStep;
         app.stepsPlayed += scene::advanceWorld(
             app.world, app.fixedStep,
             settings.steps ? app.fixedStep.stepSeconds : static_cast<float>(loop.lastFrameSeconds),
-            simulationPaused);
+            simulationPaused, singleStep);
         auto camera = renderCameraOr(app.cameraOverride, app.cameras);
         if (!camera)
         {
@@ -1131,7 +1151,7 @@ bool runFrame(Loop& loop)
     {
         LEVAIN_PROFILE_SCOPE_NAMED("rendu");
         if (const auto gpuMs =
-                renderFrame(app, *loop.commandList, advanceClocks(loop, simulationPaused), nullptr,
+                renderFrame(app, *loop.commandList, advanceClocks(loop, skeletonsPaused), nullptr,
                             &displayWait))
         {
             frameGpuMs = static_cast<float>(*gpuMs);

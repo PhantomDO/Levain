@@ -22,10 +22,12 @@ set(cpuTests
     i18n_test.cpp
     image_test.cpp
     log_test.cpp
+    physics_replay_test.cpp
     physics_test.cpp
     reflection_test.cpp
     registry_test.cpp
     scene_test.cpp
+    snapshot_test.cpp
     version_test.cpp
     walk_test.cpp)
 set(nativeTests
@@ -43,6 +45,7 @@ set(nativeTests
     editor_gestures_test.cpp
     editor_grid_test.cpp
     editor_menus_test.cpp
+    editor_play_test.cpp
     editor_preferences_test.cpp
     editor_shortcut_edit_test.cpp
     editor_shortcuts_test.cpp
@@ -384,7 +387,9 @@ if(NOT EMSCRIPTEN)
     # le refus d'un rapport de sanitizer ou d'une erreur d'exécution (règle n°4). Sous Linux seulement, comme les
     # autres lancements de fenêtre de l'exécutable éditeur.
     if(NOT WIN32)
-        set(pickFailure "Sanitizer|runtime error")
+        # « la commande est sortie avec le code » est le message de run_expect_exit_zero.cmake : sans lui, un éditeur qui plante
+        # après la ligne attendue resterait vert (ctest ignore le code de sortie avec PASS_REGULAR_EXPRESSION).
+        set(pickFailure "Sanitizer|runtime error|la commande est sortie avec le code")
         add_test(NAME editor.vue-pick-inside
             COMMAND ${CMAKE_COMMAND}
                     "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;40;--input-script;${CMAKE_CURRENT_SOURCE_DIR}/data/editor/vue_pick_inside.txt"
@@ -401,6 +406,36 @@ if(NOT EMSCRIPTEN)
             ENVIRONMENT "${testVideo}"
             PASS_REGULAR_EXPRESSION "editor.mode mode=play steps=[1-9]"
             FAIL_REGULAR_EXPRESSION "[[]sandbox[]] sélection :|${pickFailure}")
+    endif()
+
+    # Le critère de M7.5 dans l'exécutable éditeur (ADR-0037, décision 7) : la vue physics joue 120 pas (Alt+P, Échap), les
+    # caisses tombent, puis Stop rend la scène. Ce test lit la ligne `editor.stop`, sous son nom stable : des pas (un Play de
+    # zéro pas ne prouverait rien, règle n°7), zéro différence et le mode quitté (`from=play`, que `editor.simulate-stop`
+    # distingue de `from=simulate`). Les 120 sont ceux du script (play_stop.txt) : le motif les
+    # écrit en toutes lettres (`steps=120`), il refuse donc « steps=0 ». Un Stop sans restauration donne `differences=` non
+    # nul : le test est rouge. Ce test ne tourne pas sous Windows : la CI y rejoue le même script par
+    # `tools/ci-programs.sh editor-play`, qui exige lui aussi exactement 120 pas (un seuil de un laisserait vert un Échap
+    # cassé, dont la fin scriptée passe par Stop et donne environ 127 pas).
+    if(NOT WIN32)
+        add_test(NAME editor.play-stop
+            COMMAND ${CMAKE_COMMAND}
+                    "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;130;--input-script;${CMAKE_CURRENT_SOURCE_DIR}/data/editor/play_stop.txt"
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
+        set_tests_properties(editor.play-stop PROPERTIES
+            ENVIRONMENT "${testVideo}"
+            PASS_REGULAR_EXPRESSION "editor.stop steps=120 differences=0 ms=[0-9.]+ from=play "
+            FAIL_REGULAR_EXPRESSION "${pickFailure}")
+        # Le même critère depuis Simuler (Alt+S, simulate_stop.txt) : 120 pas, zéro différence, **et `from=simulate`** : Alt+S qui
+        # jouerait à la place rendrait sinon la même ligne que Alt+P. Un Alt+S qui ne simule pas donne `steps=0`, que le motif
+        # refuse. Le sandbox y tourne sous l'input vide de l'éditeur, comme le banc `gpu.editor-simulate`.
+        add_test(NAME editor.simulate-stop
+            COMMAND ${CMAKE_COMMAND}
+                    "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;130;--input-script;${CMAKE_CURRENT_SOURCE_DIR}/data/editor/simulate_stop.txt"
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
+        set_tests_properties(editor.simulate-stop PROPERTIES
+            ENVIRONMENT "${testVideo}"
+            PASS_REGULAR_EXPRESSION "editor.stop steps=120 differences=0 ms=[0-9.]+ from=simulate "
+            FAIL_REGULAR_EXPRESSION "${pickFailure}")
     endif()
 
     # L'exécutable éditeur refuse `--gpu webgpu` avant d'ouvrir fenêtre ni device (ADR-0036, décision 7) : le message de
@@ -478,6 +513,33 @@ target_compile_definitions(levain_editor_modes PRIVATE LEVAIN_DATA_DIR="${CMAKE_
 add_test(NAME gpu.editor-modes.vulkan COMMAND levain_editor_modes vulkan)
 set_tests_properties(gpu.editor-modes.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# Jouer et Arrêter dans la vraie boucle (ADR-0037, morceau 4) : le critère (Alt+P, 120 pas, Échap, la scène identique), l'Édition
+# d'après Stop sans corps de Jolt, la sélection, un modèle skinné détruit en jeu, quitter et finir une exécution scriptée en jeu.
+add_executable(levain_editor_play editor_play_gpu.cpp)
+target_link_libraries(levain_editor_play PRIVATE levain::editor levain::app levain::assets levain::core levain::physics
+    levain::platform levain::scene)
+target_compile_definitions(levain_editor_play PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data" LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-play.vulkan COMMAND levain_editor_play vulkan)
+set_tests_properties(gpu.editor-play.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# Pause, Image suivante, Maj+F1 et la teinte du jeu (ADR-0037, décision 6, morceau 5) dans la vraie boucle : les pas, l'accumulateur
+# et le `frame` du programme à l'arrêt, le jeu qui ne reçoit rien, un pas exactement, la barre d'outils cliquée, la souris rendue
+# et reprise par un clic dans la scène, QWERTY et AZERTY, la barre d'outils et le bord de la Vue lus dans l'image.
+add_executable(levain_editor_pause editor_pause_gpu.cpp)
+target_link_libraries(levain_editor_pause PRIVATE levain::editor levain::app levain::assets levain::core levain::input
+    levain::platform levain::scene)
+target_compile_definitions(levain_editor_pause PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-pause.vulkan COMMAND levain_editor_pause vulkan)
+set_tests_properties(gpu.editor-pause.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
+# Simuler (ADR-0037, décision 8, morceau 6), le même exécutable, son second scénario : Alt+S, la caméra et les gestes de l'éditeur,
+# le jeu qui ne reçoit rien, Pause et Image suivante, Maj+F1 refusée, Échap ; le bouton de la barre d'outils, la sélection ; Alt+S
+# en QWERTY et en AZERTY.
+add_test(NAME gpu.editor-simulate.vulkan COMMAND levain_editor_pause vulkan simulate)
+set_tests_properties(gpu.editor-simulate.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # Les raccourcis de l'éditeur (ADR-0036, morceau 10) dans la vraie boucle : une paire AZERTY donne Z à la place du W, Maj+F1
 # laisse les panneaux ouverts, et après un vol à la souris capturée le menu du clic droit s'ouvre.
 add_executable(levain_editor_shortcuts editor_shortcuts_gpu.cpp)
@@ -493,7 +555,11 @@ target_link_libraries(levain_editor_gestures PRIVATE levain::editor levain::app 
 target_compile_definitions(levain_editor_gestures PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
     LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
 add_test(NAME gpu.editor-gestures.vulkan COMMAND levain_editor_gestures vulkan)
-set_tests_properties(gpu.editor-gestures.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+# TIMEOUT 300 : sous ASan le test prend 81 à 95 s seul (trois passages), soit 70 à 80 % du délai de 120 s de ctest, et il l'a
+# dépassé sur un passage chargé (revue du morceau 5). Un délai plus long plutôt qu'un test coupé en scénarios : le temps est dans
+# les images qu'ASan ralentit, non dans le démarrage, donc couper cacherait le coût derrière plusieurs entrées sans le réduire.
+# Le test reste entier (règle n°4).
+set_tests_properties(gpu.editor-gestures.vulkan PROPERTIES ENVIRONMENT "${testVideo}" TIMEOUT 300)
 
 # Les menus, les barres et le temps réel de l'éditeur (ADR-0036, morceau 12) dans la vraie boucle : « Temps réel » fige le
 # temps de la scène, Ctrl+S atteint son action, la barre d'outils règle la vitesse de la caméra, l'Aide liste les raccourcis.
@@ -670,6 +736,9 @@ if(WIN32)
     add_test(NAME gpu.app-script.d3d12-warp COMMAND levain_app_script d3d12-warp)
     add_test(NAME gpu.app-loop.d3d12-warp COMMAND levain_app_loop d3d12-warp)
     add_test(NAME gpu.editor-modes.d3d12-warp COMMAND levain_editor_modes d3d12-warp)
+    add_test(NAME gpu.editor-play.d3d12-warp COMMAND levain_editor_play d3d12-warp)
+    add_test(NAME gpu.editor-pause.d3d12-warp COMMAND levain_editor_pause d3d12-warp)
+    add_test(NAME gpu.editor-simulate.d3d12-warp COMMAND levain_editor_pause d3d12-warp simulate)
     add_test(NAME gpu.editor-console.d3d12-warp COMMAND levain_editor_console d3d12-warp)
     add_test(NAME gpu.editor-view.d3d12-warp COMMAND levain_editor_view d3d12-warp)
     set(editorPreferencesWarp)
@@ -695,7 +764,7 @@ if(WIN32)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
         gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp gpu.editor-console.d3d12-warp
         gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp gpu.editor-gestures.d3d12-warp
-        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp ${editorPreferencesWarp} ${editorShortcutSettingsWarp} ${editorGridWarp}
+        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp gpu.editor-play.d3d12-warp gpu.editor-pause.d3d12-warp gpu.editor-simulate.d3d12-warp ${editorPreferencesWarp} ${editorShortcutSettingsWarp} ${editorGridWarp}
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 

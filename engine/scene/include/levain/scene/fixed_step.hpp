@@ -44,12 +44,28 @@ inline StepPlan planSteps(FixedStep& step, float frameSeconds)
     return {.steps = 0, .alpha = 1.0f};
 }
 
-/// Le plan de l'image : celui de l'accumulateur, ou `pausedPlan` quand la simulation est arrêtée.
-/// À l'arrêt, **l'accumulateur ne reçoit pas `frameSeconds`** : il le rangerait pour rien, et le
-/// retour au jeu jouerait d'un coup les pas que l'arrêt a empêchés.
-inline StepPlan planFrame(FixedStep& step, float frameSeconds, bool simulationPaused)
+/// Le plan d'une image qui joue **un seul pas** alors que la simulation est arrêtée (« Image
+/// suivante » de l'éditeur, ADR-0037, décision 6) : un pas, et un `alpha` de 1 pour que l'image
+/// montre le `Transform` que ce pas vient d'écrire, non un mélange avec le précédent.
+[[nodiscard]] constexpr StepPlan singleStepPlan()
 {
-    return simulationPaused ? pausedPlan() : planSteps(step, frameSeconds);
+    return {.steps = 1, .alpha = 1.0f};
+}
+
+/// Le plan de l'image : celui de l'accumulateur, `pausedPlan` quand la simulation est arrêtée, ou
+/// `singleStepPlan` quand elle l'est et qu'un pas est demandé (`singleStep`). À l'arrêt,
+/// **l'accumulateur ne reçoit pas `frameSeconds`**, pas même pour le pas demandé : il le rangerait
+/// pour rien, le retour au jeu jouerait d'un coup les pas que l'arrêt a empêchés, et « Image
+/// suivante » ne serait plus un pas exactement. **Une demande de pas ne vaut qu'à l'arrêt** : en
+/// marche, le temps de l'image décide seul, jamais un pas de plus.
+inline StepPlan planFrame(FixedStep& step, float frameSeconds, bool simulationPaused,
+                          bool singleStep = false)
+{
+    if (!simulationPaused)
+    {
+        return planSteps(step, frameSeconds);
+    }
+    return singleStep ? singleStepPlan() : pausedPlan();
 }
 
 } // namespace levain::scene

@@ -48,7 +48,15 @@ plugin `character`.
    premier `PhysicsWorld`, une seule fois, et n'est jamais désinstallé. Au démarrage, `VerifyJoltVersionID`
    vérifie que Jolt est compilé avec les options du moteur, et arrête le programme sinon.
 8. **Déterministe au bit près** pour un même binaire, quel que soit le nombre de threads (test). Le natif et le
-   navigateur, deux binaires, ne donnent pas les mêmes résultats.
+   navigateur, deux binaires, ne donnent pas les mêmes résultats. **Et pour la même suite d'appels** : les corps
+   et les personnages se construisent, et les personnages avancent, dans l'ordre des **index** (`inIdOrder`, les
+   32 bits bas de l'identifiant, jamais l'identifiant entier : la génération passerait en tête), non dans celui
+   des tables de flecs, qu'une étiquette posée puis retirée change (ADR-0037). Tests : deux mondes dont l'ordre des
+   tables diffère, mêmes `Transform` au bit près, pour les corps, pour l'ordre où les personnages avancent et
+   pour celui où ils sont construits (leur corps intérieur reçoit un `BodyID`, que Jolt utilise pour trier ses
+   contacts). Coût : `order_by` range les lignes de la table, et un système trié ne se parallélise pas (flecs) ;
+   mesuré sans effet sur 10 649 corps. `PushKinematicBodies` reste dans l'ordre des tables : il ne pose que la
+   vitesse de chaque cinématique, sans dépendance entre eux.
 
 9. **Les grandes formes sont partagées et immuables** (`MeshShape`, `HeightFieldShape`, ADR-0027) : un
    `std::shared_ptr<const …>` vers la donnée, dont le module construit la forme Jolt une seule fois et la garde
@@ -94,6 +102,15 @@ plugin `character`.
     des bornes suivent les refus de `whyNotThisShape` et `whyNotThisCharacter` ; les plafonds et le [0, 1] du
     frottement et du rebond sont le domaine de l'éditeur, que rien ne refuse au-delà. Pas `Collider` (un
     `std::variant`, sans réflexion), ni les handles, les étiquettes et les singletons.
+14. **Le jeu de l'éditeur commence et finit proprement** (ADR-0037) : `freshPhysicsWorld` remplace le monde
+    Jolt par un neuf au Play (identifiants de corps de zéro, `OverlapState` vide) et **refuse** si une entité
+    porte encore un `BodyHandle` ou un `CharacterHandle` (tous deux `scene::Transient` : l'instantané de la scène ne les copie pas et Stop les retire) ; `endPlay` retire les paires `(InsideOf, *)` au Stop
+    **sans qu'aucun `onExit` du gameplay ne parte** (les observateurs d'`onEnter` et d'`onExit`, étiquetés
+    `TriggerCallback`, sont désactivés le temps du retrait). Un observateur que le gameplay poserait lui-même sur
+    `InsideOf` n'est pas tu. Les deux sont `[[nodiscard]]`, et `endPlay` **refuse dans le mode différé**, dans
+    tous les builds. Le retrait des handles suffit à reconstruire les corps dans le monde neuf : un
+    `without<BodyHandle>` devient un `OnRemove`, `RecheckRefusedBody` et `RecheckRefusedCharacter` remettent
+    `BodyDirty` et `CharacterDirty` (testé), et le premier pas du jeu bâtit tout.
 
 ## Les volumes déclencheurs, par l'exemple
 
@@ -184,7 +201,7 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | [`include/levain/physics/outlines.hpp`](include/levain/physics/outlines.hpp) | `Segment`, `CircleSegments`, `appendOutline` — les arêtes de chaque forme, pour les lignes de debug de `render` ; sans Jolt |
 | [`include/levain/physics/character.hpp`](include/levain/physics/character.hpp) | `CharacterController`, `whyNotThisCharacter`, `GroundState`, `CharacterGround`, `isWalking`, `CharacterVelocity`, `CharacterState`, `createCharacter`, `moveCharacter`, `teleportCharacter`, `turnCharacter`, `refreshCharacterGround`, `characterVelocity`, `characterGround` : le personnage, un `CharacterVirtual` de Jolt (ADR-0028), sans flecs |
 | [`include/levain/physics/body_rules.hpp`](include/levain/physics/body_rules.hpp) | `whyNotABody`, `whyNotThisLayer`, `poseOf` |
-| [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs ; `CharacterDirty` |
+| [`include/levain/physics/physics.hpp`](include/levain/physics/physics.hpp) | `PhysicsModule` — `world.import<levain::physics::PhysicsModule>()` ; `InsideOf`, `onEnter`, `onExit`, `occupantsOf` : les volumes déclencheurs ; `CharacterDirty` ; `inIdOrder`, `freshPhysicsWorld`, `endPlay` : le jeu de l'éditeur (ADR-0037) |
 | [`src/physics_world.cpp`](src/physics_world.cpp) | Jolt : les couches, le job system, les corps, le pas |
 | [`src/physics_state.hpp`](src/physics_state.hpp) | L'état de Jolt partagé par les fichiers du module ; interne, aucun en-tête de Jolt n'en sort |
 | [`src/character.cpp`](src/character.cpp) | Le personnage : sa capsule posée sur ses pieds, son corps intérieur, son `ExtendedUpdate` |
@@ -199,3 +216,4 @@ les deux finissent avec la plus haute caisse à 6,39 m.
 | **Unity** | `Collider`, `Rigidbody`, PhysX | Le même découpage qu'ici : un collider sans `Rigidbody` est statique, et la simulation suit `FixedUpdate` (**documenté**, ADR-0026). 32 couches nommées par le projet, là où Levain en fixe cinq. |
 | **Godot** | `RigidBody3D`, `StaticBody3D`, `CollisionShape3D`, Jolt | Jolt par défaut depuis la 4.6 ; la forme est un nœud enfant du corps, et la documentation interdit l'échelle sur une forme (**documenté**, ADR-0026). |
 | **Personnage** | `UCharacterMovementComponent` (Unreal), `CharacterController` (Unity), `CharacterBody3D` (Godot) | Unreal porte la gravité et le saut dans le moteur ; Unity et Godot, comme Levain, laissent la vitesse au jeu (**documenté**, ADR-0028). |
+| **Jouer dans l'éditeur** | Play In Editor (Unreal), le mode Play (Unity), « Jouer la scène » (Godot) | Levain remplace le monde Jolt par un neuf à chaque Play (`freshPhysicsWorld`) et le rend sans corps à Stop. Unreal joue dans une copie du monde de l'éditeur, donc avec sa propre scène physique (**supposé**, ADR-0037) ; Godot dans un autre processus (**documenté**, ADR-0037 [4]). Unity ne recrée pas les objets quand il ne recharge pas la scène (**documenté**, ADR-0037 [2]) ; ce qu'il fait de sa physique à l'arrêt, **non vérifié**. |

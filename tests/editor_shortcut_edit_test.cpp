@@ -319,7 +319,7 @@ TEST_CASE("saisie : « Arrêter » ne garde pas Ctrl, Ctrl+Q est Q et l'indicate
     CHECK(chordsOf(table, Action::Stop)[0] == positionChord(ScanQ)); // pas « Ctrl+pos:20 »
     CHECK(window.message != nullptr);
     // Ce que l'indicateur de la barre de mode dit est ce que la touche fait : Q, pas « Ctrl+Q ».
-    CHECK(modeHintOf(Mode::PlayWithoutReturn, table, Qwerty) == "Q : revenir à l'édition");
+    CHECK(modeHintOf(Mode::Play, table, Qwerty) == "Q : arrêter");
 }
 
 TEST_CASE("les lignes : un modificateur sur une action tenue est refusé, dit et gardé tel quel")
@@ -676,21 +676,6 @@ TEST_CASE("l'Aide dit « (aucun) » d'une action sans accord, comme la fenêtre 
     const auto undone = std::ranges::find(rows, Action::Undo, &HelpRow::action);
     REQUIRE(undone != rows.end());
     CHECK(undone->chords == "Ctrl+Z");
-}
-
-TEST_CASE("une action que rien ne lit encore ne se change pas : Simuler et Rendre la souris")
-{
-    CHECK_FALSE(rebindableFrom(Action::Simulate).available);
-    CHECK(std::string_view{rebindableFrom(Action::Simulate).milestone} == "M7.5");
-    CHECK_FALSE(rebindableFrom(Action::GiveMouseBack).available);
-    CHECK(std::string_view{rebindableFrom(Action::GiveMouseBack).milestone} == "M7.5");
-    // Les autres se changent, y compris celles que leur milestone grise dans les menus : leur
-    // raccourci atteint déjà `runAction`, qui le dit à la console.
-    for (const Action action : {Action::MoveForward, Action::Save, Action::Undo, Action::ToolMove,
-                                Action::Play, Action::Stop})
-    {
-        CHECK(rebindableFrom(action).available);
-    }
 }
 
 TEST_CASE("la fenêtre des raccourcis se cale sur la police, pas sur des pixels")

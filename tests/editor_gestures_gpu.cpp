@@ -167,7 +167,7 @@ Seen seenOf(const App& app, const levain::editor::Editor& editor, flecs::entity_
               .image = editor.view.image,
               .selected = editor.selected,
               .activeId = ImGui::GetCurrentContext()->ActiveId,
-              .playing = editor.mode.current == levain::editor::Mode::PlayWithoutReturn,
+              .playing = editor.mode.current == levain::editor::Mode::Play,
               .overridePresent = app.cameraOverride.has_value(),
               .rows = editor.hierarchy.rects,
               .targetInView = target != 0 && editor.view.image.height > 0.0f &&

@@ -29,6 +29,7 @@
 #include "levain/editor/inspector.hpp"
 #include "levain/editor/menus.hpp"
 #include "levain/editor/mode.hpp"
+#include "levain/editor/play.hpp"
 #include "levain/editor/preferences.hpp"
 #include "levain/editor/quit.hpp"
 #include "levain/editor/scene_bounds.hpp"
@@ -53,6 +54,10 @@ struct EditorOptions
     /// d'essai de l'App (ADR-0036, morceau 2) y lit ce que les fenêtres ont dessiné, que la boucle
     /// ne montre pas de l'extérieur. Vide hors des tests.
     std::function<void(const Editor&)> afterUi;
+    /// **Pour les tests seulement** : appelé juste après `afterUi`, avec l'éditeur modifiable. Un
+    /// test y pose la sélection (`Editor::selected`) sans passer par un clic dans la Hiérarchie, le
+    /// seul endroit où l'éditeur la pose. Vide hors des tests.
+    std::function<void(Editor&)> afterUiMutable;
     /// **Pour les tests seulement** : le dossier des préférences, à la place de celui de
     /// l'utilisateur (`platform::prefPath`). Une exécution scriptée ne les lit ni ne les écrit,
     /// dossier injecté ou non (`isScriptedRun`) : un test qui veut les éprouver pose aussi
@@ -104,6 +109,9 @@ struct Editor
     Inspector inspector;
     /// Le mode (ADR-0036) : l'éditeur s'ouvre en Édition.
     ModeState mode;
+    /// **Ce que Play garde pour que Stop le rende** (ADR-0037) : l'instantané de la scène, et ce
+    /// qui vit hors du monde. Plein exactement en jeu, vide en Édition.
+    std::optional<PlaySession> play;
     /// Le journal du processus depuis `withEditor` (et non depuis la première image : la fenêtre et
     /// le device y ont écrit), partagé avec la fonction de démarrage qui le garde en vie.
     std::shared_ptr<core::LogCapture> log;
@@ -201,8 +209,9 @@ struct Editor
 /// les fenêtres du programme (`FrameHooks::ui`), panneaux ouverts seulement, et son bilan avant
 /// celui du programme (`FrameHooks::finish`). **Le `frame` du programme est enveloppé aussi** : en
 /// Édition, qui est le mode du départ, il n'est jamais appelé, la simulation est à l'arrêt et le
-/// jeu ne reçoit rien (`App::inputRoute`). Alt+P ou la barre de mode passent en « Jouer (sans
-/// retour) », qu'Échap quitte (`mode.hpp`).
+/// jeu ne reçoit rien (`App::inputRoute`). Alt+P ou la barre de mode passent en « Jouer », qu'Échap
+/// arrête en rendant la scène (`play.hpp`) ; quitter ou finir une exécution scriptée en jeu passe
+/// par Stop d'abord.
 [[nodiscard]] app::StartFunction withEditor(app::StartFunction start, EditorOptions options);
 
 } // namespace levain::editor

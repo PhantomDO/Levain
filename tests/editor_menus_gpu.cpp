@@ -586,7 +586,7 @@ int playRealTimeInPlay(const levain::tests::TestBackend& backend)
     const auto at = [&run](int frame)
     { return run.sceneSeconds.at(static_cast<std::size_t>(frame)); };
     return expect(!run.realTime.at(6), "temps réel en jeu : décoché en Édition") +
-           expect(run.seen.at(12).mode == levain::editor::Mode::PlayWithoutReturn,
+           expect(run.seen.at(12).mode == levain::editor::Mode::Play,
                   "temps réel en jeu : Alt+P a joué") +
            expect(run.realTime.at(12) && run.realTime.at(16),
                   "en jeu, le temps réel est forcé, et Ctrl+R ne le bascule pas") +

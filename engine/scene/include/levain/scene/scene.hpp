@@ -69,12 +69,14 @@ struct SceneModule
 /// de rendu (interpolation et matrices monde). Renvoie le nombre de pas exécutés.
 ///
 /// `simulationPaused` (ADR-0036, décision 1) : aucun pas, `RenderAlpha` à 1, l'accumulateur
-/// intact ; la passe de rendu, elle, tourne encore.
+/// intact ; la passe de rendu, elle, tourne encore. `singleStep` (ADR-0037, décision 6) : à
+/// l'arrêt, exactement un pas, le même que ceux d'une image qui joue (`planFrame`), puis l'arrêt
+/// reprend ; en marche, il ne change rien.
 ///
 /// La glu entre l'horloge de l'application et les deux pipelines de flecs ; le calcul, lui, est
 /// dans `planFrame` (`fixed_step.hpp`), qui se teste sans monde.
 int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds,
-                 bool simulationPaused = false);
+                 bool simulationPaused = false, bool singleStep = false);
 
 /// Recompose les matrices monde, **le système `ComputeWorldTransforms` seul** (ADR-0036, décision
 /// 2) : ni pas, ni autre système de la passe de rendu. L'éditeur l'appelle après avoir écrit un

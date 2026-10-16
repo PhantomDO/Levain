@@ -7,6 +7,7 @@
 #include <span>
 #include <string>
 
+#include "levain/scene/snapshot.hpp"
 #include "levain/ui/flags.hpp"
 #include "levain/ui/style.hpp"
 #include "levain/ui/tr.hpp"
@@ -31,7 +32,8 @@ std::string labelOf(flecs::entity entity)
 /// requête des racines le montre déjà, et deux lignes pousseraient le même `pushEntityId`.
 bool isShownChild(const flecs::table& table)
 {
-    return table.has<flecs::Parent>() && table.has<scene::Transform>() && !isEngineInternal(table);
+    return table.has<flecs::Parent>() && table.has<scene::Transform>() &&
+           !scene::isEngineInternal(table);
 }
 
 /// Un singleton du moteur plutôt que de la scène : un module, dont flecs garde l'instance sur sa
@@ -156,17 +158,18 @@ Hierarchy createHierarchy(const flecs::world& world)
     // `flecs::Parent` est un composant de la table, comme les autres : `without` écarte les
     // enfants table par table (https://www.flecs.dev/flecs/md_docs_2HierarchiesManual.html,
     // section « Parent storage details »).
-    return {.roots = world.query_builder<const scene::Transform>().without<flecs::Parent>().build(),
+    //
+    // **Triée par index sans composant** (`order_by(0, …)`) : flecs ne retrie que si les tables de
+    // la requête ont changé (une entité y entre ou en sort), non à chaque `Transform` écrit, ce que
+    // le jeu fait à chaque pas (https://www.flecs.dev/flecs/md_docs_2Queries.html, « Sorting »).
+    return {.roots = world.query_builder<const scene::Transform>()
+                         .without<flecs::Parent>()
+                         .order_by(0, scene::byEntityIndex)
+                         .build(),
             .open = {},
             .rows = {},
             .frameRequested = false,
             .rects = {}};
-}
-
-bool isEngineInternal(const flecs::table& table)
-{
-    return table.has(flecs::Module) || table.has(flecs::System) || table.has(flecs::Observer) ||
-           table.has(flecs::Query) || table.has<flecs::Component>() || table.has(flecs::Prefab);
 }
 
 void listHierarchyRows(const Hierarchy& hierarchy, std::vector<HierarchyRow>& rows)
@@ -177,7 +180,7 @@ void listHierarchyRows(const Hierarchy& hierarchy, std::vector<HierarchyRow>& ro
         {
             while (it.next())
             {
-                if (isEngineInternal(it.table()))
+                if (scene::isEngineInternal(it.table()))
                 {
                     continue;
                 }

@@ -133,9 +133,12 @@ retryWhileBusy(BusyFileRetry retry, const std::function<std::error_code()>& atte
 /// bout**, sans taille mesurée par son chemin avant : un remplacement entre les deux donnerait le
 /// début du nouveau fichier, qui se lit comme un fichier valide s'il atteint `[disposition]` (une
 /// disposition coupée). Une ouverture refusée un instant est réessayée selon `retry`
-/// (`BusyFileRetry`) ; tout autre refus est dit aussitôt.
+/// (`BusyFileRetry`) ; tout autre refus est dit aussitôt. `sleep` est l'attente entre deux essais ;
+/// vide, c'est celle du système. Un test qui veut prouver « aussitôt » y passe un compteur et lit
+/// zéro attente, au lieu de chronométrer : un bord de temps cède sous la charge d'un build.
 [[nodiscard]] core::Result<std::optional<Preferences>>
-loadPreferences(const std::filesystem::path& file, BusyFileRetry retry = PreferencesFileRetry);
+loadPreferences(const std::filesystem::path& file, BusyFileRetry retry = PreferencesFileRetry,
+                const std::function<void(std::chrono::milliseconds)>& sleep = {});
 
 /// **Le fichier voisin d'un écrivain** : `<fichier>.<writer>.tmp`. Deux éditeurs lancés ensemble
 /// ne partagent pas un seul `.tmp` (l'un tronquait celui de l'autre, et le renommage posait un

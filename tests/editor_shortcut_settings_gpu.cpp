@@ -560,17 +560,16 @@ int playCapture(const levain::tests::TestBackend& backend)
     const ImVec2 undo = cellOf(rows, Action::Undo);
     Session real;
     real.directory = directory.path;
-    real.frames = 60;
+    real.frames = 46;
     real.openAt = 2;
-    // Fin du scénario : un clic sur « Simuler » puis sur « Rendre la souris », que rien ne lit
-    // encore : leurs cases sont grisées, aucune saisie ne démarre.
+    // Aucune case n'est grisée : toute action a son lecteur depuis le morceau 6 de M7.5. (Le clic
+    // sur la case de « Simuler » que ce scénario faisait avant ne touchait rien : la ligne est
+    // sous le pli de la table, qui défile, et la case y était dessinée hors de la fenêtre.)
     real.script = clickScript(4, undo) + ctrlKey(10, "S") + clickScript(16, undo) +
                   "22 key down Left Alt\n23 key down P\n24 key up P\n25 key up Left Alt\n" +
-                  clickScript(28, undo) + tapKey(34, "F1") + tapKey(40, "Escape") +
-                  clickScript(46, cellOf(rows, Action::Simulate)) +
-                  clickScript(52, cellOf(rows, Action::GiveMouseBack));
+                  clickScript(28, undo) + tapKey(34, "F1") + tapKey(40, "Escape");
     const Run run = play(backend, real);
-    if (run.exitCode != 0 || run.seen.size() != 60)
+    if (run.exitCode != 0 || run.seen.size() != 46)
     {
         return expect(false, "la saisie : code 0 et une image par image");
     }
@@ -601,9 +600,6 @@ int playCapture(const levain::tests::TestBackend& backend)
            expect(panelsAlwaysOpen, "F1 pendant la saisie ne ferme pas les panneaux") +
            expect(!run.seen[44].capturing && run.seen[44].table == defaults,
                   "Échap annule la saisie sans rien changer") +
-           expect(std::ranges::none_of(std::span{run.seen}.subspan(46),
-                                       [](const Seen& seen) { return seen.capturing; }),
-                  "« Simuler » et « Rendre la souris » ne démarrent aucune saisie (grisées)") +
            expect(run.seen.back().table == defaults, "aucun accord n'a changé");
 }
 
@@ -848,8 +844,8 @@ int playPlayMode(const levain::tests::TestBackend& backend)
     return expect(run.seen[9].capturing && run.seen[9].mode == levain::editor::Mode::Edit,
                   "le clic démarre la saisie, en Édition") +
            expect(playedAtAll, "le bouton de la barre d'outils joue") +
-           expect(run.seen[26].mode == levain::editor::Mode::PlayWithoutReturn &&
-                      !run.seen[26].capturing && !run.seen[26].pending,
+           expect(run.seen[26].mode == levain::editor::Mode::Play && !run.seen[26].capturing &&
+                      !run.seen[26].pending,
                   "en jeu la saisie est abandonnée, rien n'attend") +
            expect(run.seen[26].panelsOpen && run.seen.back().panelsOpen,
                   "les panneaux restent ouverts") +

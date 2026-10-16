@@ -3,6 +3,121 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un contre-test sur une cible laisse les autres exécutables liés à la faute (2026-10-16)
+
+- **Symptôme** : après un contre-test rouge puis vert (le fichier remis, `touch`), `gpu.editor-play.vulkan` restait rouge dans
+  la suite d'ensemble, alors qu'il passait seul avant le contre-test.
+- **Cause** : le contre-test avait reconstruit une seule cible (`--target levain_editor_play`, puis `levain_tests`) ; la
+  restauration n'en a reconstruit qu'une. Les autres exécutables qui lient la bibliothèque de l'éditeur gardaient l'objet fauté.
+- **Parade** : après la dernière restauration, un `cmake --build --preset …` sans `--target`, puis la suite d'ensemble. Ici le
+  rouge venait de l'exécutable resté fauté ; après le build complet, la même suite est verte.
+
+## Un test qui prouve « aussitôt » avec une horloge cède sous la charge d'un build (2026-10-15, corrigé le 2026-10-16)
+
+`préférences : un fichier qui ne se lit pas est dit illisible aussitôt, sans attendre` (`tests/editor_preferences_test.cpp`).
+
+- **Symptôme** : `CHECK(elapsed < 100 ms)` rouge une fois, **1,3 s** mesurée, pendant que d'autres builds tournaient sur le
+  portable (load average 15). Relancé seul, vert.
+- **Cause** : la lecture d'un dossier à la place du fichier ne dure rien, mais sur une machine saturée l'ordonnanceur peut
+  lui prendre une seconde : le bord de 100 ms mesurait la machine, non le code.
+- **Parade** : compter ce qui prouve le « aussitôt » au lieu de le chronométrer. `loadPreferences` prend l'attente entre
+  deux essais en paramètre (vide : celle du système) ; le test lui passe un compteur et exige **zéro attente**.
+  `retryWhileBusy` pareil (`calls == 1` et `sleeps == 0`). Contre-tests : `loadPreferences` qui réessaie toute erreur, puis
+  `retryWhileBusy` qui réessaie toute erreur, deux fois rouges (de centaines de milliers à des dizaines de millions
+  d'essais comptés dans le délai de 3 s, l'attente injectée ne dormant pas).
+- **Reste exposé** : `retryWhileBusy : un refus passager est réessayé jusqu'au délai, mesuré au temps…` garde un bord haut
+  de 500 ms (`CHECK(elapsed < 500 ms)`, `calls >= 2`), parce que son objet est le temps : jamais vu rouge. S'il l'est,
+  lui donner une horloge en paramètre plutôt qu'élargir le bord.
+
+## flecs 4.1.6 : `ecs_get_ordered_children` s'arrête sur une assertion pour un parent sans enfant `flecs::Parent` (2026-10-15)
+
+M7.5, morceau 2b (`engine/scene/src/snapshot.cpp`, `orderedChildrenOf`).
+
+- **Symptôme** : l'appel abat le processus (assertion de flecs, src/entity.c:2520) pour un parent dont aucun enfant ne porte
+  `flecs::Parent`, par exemple un volume déclencheur dont les seuls enfants sont ses observateurs `onEnter` et `onExit`,
+  rangés par `ChildOf`. Vérifié sur la 4.1.6.
+- **Cause** : la liste ordonnée des enfants n'existe que pour un parent de `flecs::Parent` ; flecs ne rend pas une liste
+  vide, il vérifie qu'elle existe.
+- **Parade** : `orderedChildrenOf` parcourt `ecs_children` et ne l'appelle que si un enfant porte `flecs::Parent` ; sinon la
+  liste vient de l'itérateur. `engine/scene/README.md` (« L'instantané de la scène »).
+
+## flecs 4.1.6 : une struct à copie supprimée et déplacement par défaut compte pour trivialement copiable (2026-10-15)
+
+M7.5, morceau 1b (`tests/snapshot_test.cpp`, `Unique`).
+
+- **Symptôme** : un composant dont la copie est supprimée (`T(const T&) = delete`) mais dont le déplacement est
+  `= default` n'est pas rangé en `ECS_TYPE_HOOK_COPY_ILLEGAL` : l'instantané ne le refuse pas, et `ecs_value_copy` le copie
+  par `memcpy`. Un test « Play refuse un composant qui ne se copie pas » écrit avec un tel type ne refuse rien.
+- **Cause** : pour flecs, ce type est trivialement copiable (constaté ; la copie supprimée ne compte pas, le déplacement
+  trivial suffit). Sans risque pour l'instantané tant que le destructeur est trivial ; ce qui pend, ce sont les handles
+  (`scene::Transient`).
+- **Parade** : un type de test pour ce refus porte un membre qui n'est pas trivialement copiable, un `std::unique_ptr` par
+  exemple (`Unique` de `snapshot_test.cpp` et de `editor_play_gpu.cpp`). Ne pas compter sur `= delete` seul pour qu'un
+  composant soit refusé à Play ; ce qui ne doit pas être copié parce qu'il pend (un handle) se marque `Transient`.
+
+## Simuler : un singleton du programme que Stop ne rend pas, et deux pièges de test (2026-10-16)
+
+M7.5, morceau 6 (`tests/editor_pause_gpu.cpp simulate`, `gpu.editor-simulate.*`).
+
+- **Symptôme** : W tenue en Jouer, Échap, Alt+S, et la caméra du jeu avance toute seule en Simuler. **Cause** : `Stop` rend les
+  entités et leurs composants (la caméra revient à sa place), mais `FpsInput` est un singleton du monde que le `frame` du
+  programme pose, et que ni Stop ni `enterMode` ne remettent (`WalkInput`, composant du joueur, est rendu par Stop) ; en
+  Édition `frame` ne tourne pas, il garde la dernière image jouée, et les pas de Simuler le lisent. **Parade** : le `frame` du programme tourne à chaque image de Simuler, sous la
+  route de l'éditeur (un input vide) : `programFrameRunsIn(Simulate, …)`. L'ADR-0037 disait « jamais » : amendé. Le test lit la
+  caméra du jeu avant Stop (elle avançait), après (elle est revenue, ce n'est pas une précondition à lire avant), puis en
+  Simuler (elle ne bouge pas).
+- **Symptôme** : `App::frameSeconds` vaut toujours le pas fixe dans un test, mesuré ou non. **Cause** : sous `--steps` (tout
+  test du banc) la boucle pose le pas fixe, donc « le programme voit la durée du pas » est vrai même sans le code qui la pose.
+  **Parade** : empoisonner la durée avant le crochet de l'éditeur (`Options::measuredSeconds` enveloppe `hooks->frame`), puis lire
+  ce que le programme voit : le temps empoisonné en marche, `FixedStep::stepSeconds` sur un pas.
+- **Symptôme** : un scénario « les cases de Simuler et de Rendre la souris sont grisées : aucune saisie ne démarre » passait,
+  et passait encore une fois les cases dégrisées. **Cause** : la table de la fenêtre « Raccourcis » défile (`ScrollY`) et ces
+  deux lignes sont sous le pli : `centerOfLastItem` rend des coordonnées hors de la fenêtre, le clic ne touche rien, et le
+  « rien » vérifié était vrai de toute façon. **Parade** : un test d'absence a son contrôle positif (le même clic sur une ligne
+  visible démarre la saisie) ; ici la case grisée n'existe plus (`rebindableFrom` supprimée), le clic est retiré.
+
+## Pause, Maj+F1 et la teinte : quatre pièges de ImGui et de la boucle (2026-10-16)
+
+M7.5, morceau 5 (`tests/editor_pause_gpu.cpp`, `gpu.editor-pause.*`).
+
+- **Symptôme** : un clic scripté dans la Vue ne rendait pas la souris après Maj+F1, alors que le curseur était sur l'image.
+  Relevé : `View::hovered` vrai à l'image du mouvement de la souris, **faux à celle de l'appui**. **Cause** : à l'appui,
+  ImGui prend la fenêtre de la Vue (déplaçable, ancrée) pour la déplacer (`ActiveId` posé à `NewFrame`) et
+  `IsItemHovered` de son image rend faux. **Parade** : le clic est lu dans `frame`, avec le survol de l'image *d'avant*
+  (`giveMouseBackOnClick`), pas dans `ui`. Un test qui clique doit donc déplacer la souris une image avant d'appuyer.
+  Il doit aussi viser un point que la barre de mode (un enfant de la Vue, grande dans une Vue de 376 px) ne couvre pas :
+  son coin bas droit.
+- **Symptôme** : la capture de la boucle (`--capture`) ne peut pas montrer le jeu. **Cause** : elle est prise après
+  `FrameHooks::finish`, où l'éditeur a déjà fait Stop (ADR-0037) ; elle montre l'Édition rendue. **Parade** : la teinte de la
+  barre d'outils et du bord de la Vue se lit dans les listes de dessin d'ImGui (`ImGuiWindow::DrawList->VtxBuffer`, à la fin
+  de `ui`, avant `ImGui::Render`), image par image ; le test des contrastes (`ui_style_test`) garde ce que la couleur donne.
+- **Symptôme** : `Échap ferme la modale en jeu, sans arrêter le jeu` rouge (`gpu.editor-close.vulkan`) après que les touches
+  du jeu ont été lues dans les événements bruts. **Cause** : l'input du jeu est vide sous la modale (route *UI*), les
+  événements bruts, eux, y sont. **Parade** : `gameKeysPressed` ne lit rien quand `blocked` (champ de texte actif, modale ouverte
+  ou croix reçue : `cameraGesturesAllowed`).
+- **Symptôme** : `-Wmissing-designated-field-initializers` sur `ModeState{.current = Mode::Play}` dès qu'on lui ajoute un champ
+  (le défaut ne suffit pas, le projet compile en `-Werror`). **Parade** : un petit constructeur de test qui nomme chaque
+  champ (`modeIn` dans `tests/editor_test.cpp`).
+- **Symptôme** : `bugprone-unchecked-optional-access` sur `playTintOf(...)->x` après un `REQUIRE(has_value())`, et sur
+  `.value()` aussi. **Parade** : `value_or(ImVec4{})` après un `CHECK(has_value())`.
+
+## ImGui compte le double-clic en secondes de la machine : sous charge un script le perdait (2026-10-16)
+
+`gpu.editor-gestures.vulkan` rouge sous ASan chargé (« le double-clic dans la hiérarchie cadre l'entité »), vert à vide.
+
+- **Cause** : ImGui juge un double-clic (`io.MouseDoubleClickTime`, 0,30 s), la répétition d'une touche et les délais de survol
+  sur son horloge, qu'il avance de `io.DeltaTime` ; la boucle lui passait le temps *mesuré* de l'image, et deux clics scriptés
+  sur des images voisines tombaient à plus de 0,30 s l'un de l'autre quand la machine ralentissait.
+- **Parade** : sous un script d'input, `uiFrameSecondsFor` donne à ImGui le pas fixe (1/60 s, celui que `--steps` donne au monde) ;
+  interactif, le temps mesuré. `levain_app_script` joue des images de 350 ms (`sleep_for`) et exige quand même le double-clic
+  et un `DeltaTime` de 1/60 s à chaque image : rouge sans la fonction (appel retiré, ou fonction qui rend le mesuré). Les
+  55 entrées `gpu.*` et `editor.*` restent vertes. Reste mesuré, sous un script, `App::frameSeconds` hors `--steps` et le temps
+  de `updateInput` (la vitesse de la souris) : ils ne se jugent pas sur l'horloge d'ImGui.
+- **Conséquences à savoir** (revue du morceau 5) : sous un script, un double-clic s'écrit à moins de 18 images d'écart (0,30 s à
+  1/60 s), la répétition d'une touche tenue commence après 17 images (0,275 s), un délai de survol se compte de même ;
+  `io.Framerate` vaut 60 en permanence, le panneau « Image » lit donc la moyenne de l'historique mesuré (`averageFrameMs`,
+  `UiLayer::imageLine`, lue par `levain_app_script`).
+
 ## Vulkan, Windows : la fenêtre réduite recrée la swapchain à 0 × 0 (2026-10-14)
 
 M7.7, `tools/wsl/resize-sandbox.sh … --gpu vulkan` : après « pilote : réduite », `vkCreateSwapchainKHR(): pCreateInfo->imageExtent

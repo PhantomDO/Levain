@@ -436,8 +436,9 @@ std::error_code retryWhileBusy(BusyFileRetry retry, const std::function<std::err
     return error;
 }
 
-core::Result<std::optional<Preferences>> loadPreferences(const std::filesystem::path& file,
-                                                         BusyFileRetry retry)
+core::Result<std::optional<Preferences>>
+loadPreferences(const std::filesystem::path& file, BusyFileRetry retry,
+                const std::function<void(std::chrono::milliseconds)>& sleep)
 {
     // `exists` avec un code d'erreur rend faux pour « introuvable » **et** pour « interdit » : seul
     // le premier est une première session, le second ne se tait pas (règle n°7).
@@ -455,6 +456,7 @@ core::Result<std::optional<Preferences>> loadPreferences(const std::filesystem::
         return std::optional<Preferences>{};
     }
     std::expected<std::string, std::error_code> text;
+    const std::function<void(std::chrono::milliseconds)> wait = sleep ? sleep : sleepFor;
     const std::error_code refused = retryWhileBusy(
         retry,
         [&]()
@@ -462,7 +464,7 @@ core::Result<std::optional<Preferences>> loadPreferences(const std::filesystem::
             text = wholeTextOf(file);
             return text ? std::error_code{} : text.error();
         },
-        isTransientlyBusy, sleepFor);
+        isTransientlyBusy, wait);
     if (refused)
     {
         return std::unexpected(core::Error{

@@ -638,7 +638,7 @@ int playQuitWhilePlaying(const levain::tests::TestBackend& backend)
     const auto saved = savedIn(directory.path);
     return expect(edit.mode == levain::editor::Mode::Edit && !edit.realTime,
                   "en Édition, la case « Temps réel » est décochée") +
-           expect(end.mode == levain::editor::Mode::PlayWithoutReturn,
+           expect(end.mode == levain::editor::Mode::Play,
                   "Alt+P joue, et la fenêtre se ferme en jeu") +
            expect(end.realTime, "en jeu, le temps réel est forcé") +
            expectSaveRenamed(run, "quitter en jeu") +

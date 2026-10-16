@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 #include "levain/input/state.hpp"
@@ -45,6 +46,15 @@ struct FrameHistory
     std::array<float, HistoryLength> gpuMs{};
     std::size_t next = 0;
 };
+
+/// La durée moyenne d'une image, en millisecondes, **sur les images mesurées** de l'historique :
+/// les cases qu'aucune image n'a encore remplies (restées à zéro) n'en sont pas. Zéro sans aucune
+/// image. C'est ce que le panneau « Image » montre, et non `io.Framerate` d'ImGui, qui moyenne le
+/// temps que la boucle *lui donne* : sous un script d'input, le pas fixe (`uiFrameSecondsFor`),
+/// donc toujours 60 images/s, quelle que soit la machine. **Elle moyenne `HistoryLength` images**
+/// (240, soit 4 s à 60 Hz), là où `io.Framerate` en moyenne 60 (environ 1 s à 60 Hz) : un à-coup
+/// s'y dilue quatre fois plus, et y reste quatre fois plus longtemps.
+[[nodiscard]] float averageFrameMs(const FrameHistory& history);
 
 /// Les nœuds de la disposition des panneaux (`drawEnginePanels`), où l'éditeur ancre ses fenêtres
 /// (ADR-0034, ADR-0036 décision 10) : à gauche la hiérarchie, au centre la Vue, à droite
@@ -109,6 +119,9 @@ struct UiLayer
     /// ImGui a fini une image (`ImGui::Render`), que le rendu doit dessiner.
     bool frameReady = false;
     UiCost cost{};
+    /// La ligne « images/s, ms » du panneau « Image » telle qu'il l'a écrite à la dernière image
+    /// où il était ouvert (vide sinon) : de quoi la lire sans passer par le dessin.
+    std::string imageLine{};
     /// Le temps CPU de l'UI dans l'image en cours, tranche par tranche.
     double frameCpuMs = 0.0;
     ui::UiDrawStats lastDraw{};
@@ -243,6 +256,19 @@ uiEventsOf(InputRoute route, const platform::Events& events, bool mouseCaptured)
 [[nodiscard]] constexpr bool mouseShouldBeCaptured(bool wanted, bool panelsOpen, bool overPanels)
 {
     return wanted && (!panelsOpen || overPanels);
+}
+
+/// **Le temps d'image qu'ImGui reçoit.** Interactif, celui qu'on a mesuré. **Sous un script
+/// d'input, le pas fixe de la simulation** (1/60 s, celui que `--steps` donne déjà au monde) :
+/// ImGui juge un double-clic (0,30 s), la répétition d'une touche et les délais de survol en
+/// secondes de *son* horloge, qu'il avance de ce temps ; sous charge (ASan, un runner chargé), deux
+/// clics scriptés sur des images voisines tombaient à plus de 0,30 s l'un de l'autre et ne
+/// faisaient plus un double-clic (`gpu.editor-gestures.vulkan`). Le script compte en images,
+/// l'interface aussi.
+[[nodiscard]] constexpr double uiFrameSecondsFor(bool scripted, double measuredSeconds,
+                                                 double fixedStepSeconds)
+{
+    return scripted ? fixedStepSeconds : measuredSeconds;
 }
 
 /// Ajoute une image à l'historique des courbes. Une image sans mesure GPU (pas encore relue, ou

@@ -32,6 +32,74 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-16 — M7.5 — Clôture : Jouer et Arrêter, la scène rendue à l'identique
+
+- **Temps Donnovan : 0,25 h à ce jour** (le sondage du 15/10 ; estimé 0,75 h). Sa lecture de la synthèse d'une page
+  s'y ajoutera (sondage du 15/10, « Une page, puis l'éditeur »). **Pas de ratio avant son temps total** : celui de M7.7
+  est passé de 2,0 à 4,5 une fois sa lecture comptée (note dans son entrée).
+- Sessions Claude Code : 1 (estimé 1) : un seul `Claude-Session` dans les commits du milestone
+  (`git log 594f418..c3e5e3e --format=%b | grep Claude-Session | sort | uniq -c`).
+- Définition de « terminé » (SPECS §9) :
+  - l'éditeur du bac à sable sur la RTX 4070, build Debug de l'arbre final, Direct3D 12 hors écran puis Vulkan en vraie
+    fenêtre (`levain_sandbox_editor.exe --gpu d3d12|vulkan --view physics --steps 130 --input-script
+    tests/data/editor/play_stop.txt`, puis `simulate_stop.txt`) : les quatre sortent en 0 avec `editor.stop steps=120
+    differences=0 … from=play` ou `from=simulate`. En Debug une erreur de validation arrête le programme
+    (`engine/gpu/README.md`) : aucune. Les relectures des morceaux 4, 5 et 6 l'avaient fait avant leurs corrections ;
+  - le critère est un test, plusieurs en fait (ci-dessous), aucun n'est chiffré ; README de `scene`, `physics`, `app`,
+    `assets` et `editor` (`git diff --stat 594f418 HEAD -- '*README.md'`) ; pas d'étude (E7 vient avec M7.6) ;
+  - CI : celle de la PR vers `main` est la porte (règle n°1) et **reste à passer** : aucune n'a tourné sur `m7.5/play`, pas
+    même à la main après le morceau 7, qui change `ci.yml` ; le board, le tag `m7.5` et la release suivent la fusion.
+- Fait, les 15 et 16/10, en mode autonome (ADR-0037) : **Jouer garde la scène, Arrêter la rend, avec les mêmes
+  identifiants et générations**, en 8 morceaux et 30 PR dans `m7.5/play`, de #517 à #546 :
+  - 0 — l'ADR (#517) ;
+  - 1 — l'instantané et `differencesFrom` (#521-#524) ;
+  - 2 — `restoreSnapshot` et les plages d'identifiants (#525-#527) ;
+  - 3 — la physique rejouable et les assets retenus (#518-#520) ;
+  - 4 — Jouer et Arrêter dans l'éditeur (#528-#533) ;
+  - 5 — Pause, Image suivante, Maj+F1, la teinte (#535-#542) ;
+  - 6 — Simuler, Alt+S (#543-#546) ;
+  - 7 — la session de la CI et le script de coût (#534).
+- Mesures :
+  - **le critère**, test par test (ADR-0037, « Les contrôles »). Les tests GPU tournent sous lavapipe et WARP
+    (`d3d12-warp`) ; `editor.*-stop` sous Linux, la CI Windows lance `editor-play` :
+
+    | Promesse | Prouvé par |
+    |---|---|
+    | Après Stop, la scène est identique | `levain_tests` « le critère : après Stop la scène est identique, identifiants et ordre des enfants compris » ; dans l'éditeur `gpu.editor-play.*` `criterion` (Alt+P, 120 pas, Échap, une caisse et une racine détruites en jeu), `editor.play-stop`, `ci-programs.sh editor-play` |
+    | Rejouer donne la même chose | « jouer deux fois de suite : les mêmes identifiants, et la physique rejoue au bit près », « deux mondes dont l'ordre des tables diffère rejouent la même pile, au bit près » |
+    | Un index détruit revient | « l'index d'une caisse détruite en jeu revient, avec sa génération » |
+    | Les gardes, en Release aussi ; le mode différé | « restoreSnapshot refuse un index pris par une autre génération… », « createIdRanges refuse un monde qui a détruit une entité… », « restoreSnapshot en mode différé est refusé, le monde intact », « Stop en mode différé est refusé… » |
+    | Aucun rappel du jeu à Stop ; un déclencheur détruit | « endPlay vide InsideOf sans qu'aucun onExit ne parte… », « Stop rend un volume sans son observateur détruit, et le rapport le nomme » |
+    | Ce que Stop ne saurait rendre est refusé | « l'instantané refuse un composant qui ne se copie pas / sans constructeur par défaut / une instance de prefab / deux frères du même nom », `refusedPlay` |
+    | Les assets tiennent, la pose revient | « pendant le jeu, un modèle dont la dernière entité meurt reste chargé jusqu'au Stop », `gpu.editor-play.*` `skinnedModel` |
+    | L'éditeur en jeu | `gpu.editor-pause.*` : `pauseAndResume`, `stepOnce`, `escapeFromPause`, `freeMouse`, `freeMouseOutsideView` ; `quitWhilePlaying` |
+    | Simuler | `gpu.editor-simulate.*` : `simulateEndToEnd`, `simulateDoesNotReplayInput` ; `editor.simulate-stop` (`from=simulate`) |
+
+  - **les gestes** : « M7.5 : 5 gestes sur 5 couverts par un test, 0 reportés » ; la phase, 28 sur 61 (`editor/GESTES.md`,
+    « Compter ») ; **les tests** : 789 à linux-debug (`ctest -N`), 238 au web, 45 `d3d12-warp` à windows-debug, 664 cas
+    unitaires sous Windows hors écran, contre 708 et 198 à la clôture de M7.7 ;
+  - **le coût de Stop** : aucun chiffre ici, les temps vus pendant les morceaux (lavapipe, le portable chargé) sont des
+    ordres de grandeur. À mesurer sur la machine de référence, sur les 10 000 cubes de la démo : `tools/play-stop-cost.sh`
+    (règle n°6).
+- Décisions de Donnovan : le sondage du 15/10, tous « Recommandé » : « Accepter » l'ADR-0037, Simuler dans M7.5, relecture
+  « Une page, puis l'éditeur ». Les amendements de l'ADR (A1 à A9, 16/10) rendent son texte au code. **Deux cases de la
+  décision 6 ont changé, la plus visible : le `frame` du programme tourne en Simuler**, sous l'input vide (6a, #543) :
+  `FpsInput`, un singleton que Stop ne rend pas, gardait la dernière image de Jouer et la caméra du jeu avançait seule.
+- Écarts et problèmes :
+  - **les morceaux 4, 5 et 6 ont dépassé leur estimation de 5, 8 et 4 fois**, le plan de 3 : 8 801 lignes fusionnées pour
+    2 780, dont 57 % de tests (ADR-0037, « Les morceaux ») ; chaque PR tient en 433 lignes ou moins ;
+  - les relectures ont arrêté deux défauts : Image suivante rejouait l'input d'avant la pause (morceau 5), et la CI restait
+    verte avec un Échap cassé sous Windows (morceau 7) ;
+  - un défaut de M7.7, le double-clic scripté jugé à l'horloge d'ImGui, a fait échouer `gpu.editor-gestures.vulkan` sous ASan
+    chargé ; corrigé en 5a (#535). Un test des préférences, de M7.7, chronométrait une lecture à 100 ms et a cédé sous
+    charge : il compte maintenant les attentes (`build/GOTCHA.md`, quatre pièges) ;
+  - `editor.play-stop` et `editor.simulate-stop` ne tournent que sous Linux (`NOT WIN32`) ; Windows a `editor-play` à la CI
+    et `gpu.editor-simulate.d3d12-warp`.
+  - le morceau 7 change `ci.yml` sans passage de la CI à la main (règle n°1) : la PR vers `main` en sera le premier.
+- Prochaine étape : la PR de `m7.5/play` vers `main`, sa CI pour porte, fusion en merge commit, puis le tag `m7.5`, le
+  milestone et le board ; Donnovan lit la synthèse, essaie l'éditeur (Alt+P, Alt+S, Échap) et donne son temps total.
+  Ensuite M7.3 (l'annulation, puis les scènes), avec, d'abord, le sondage « Scène ».
+
 ## 2026-10-14 — M7.7 — Clôture : l'atelier, un éditeur qui n'est plus le jeu
 
 - **Temps Donnovan : 2,0 h** (estimé 1,0 h), **ratio 2,0** (`awk 'BEGIN { printf "%.2f\n", 2 / 1 }'`) : sa réponse au
@@ -42,6 +110,13 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   M7.2, M7.7), 1,12 à titre provisoire (`awk 'BEGIN { printf "%.2f\n", (1 + 0.75 + 2) / (1.1 + 1.25 + 1) }'`) : son
   ratio, et un recalibrage s'il le faut, se jugent à sa clôture, après M7.8 (cloture/SKILL.md), avec le point que M1.4
   y a renvoyé. Le « Cumul » prendra la phase 7 à ce moment-là.
+  **Note du 2026-10-16, la lecture après coup** (le texte ci-dessus est celui du 14/10, laissé tel quel) : Donnovan a dit
+  le 15/10 : « La dernière fois, j'ai dû mettre au moins 2, voire 3 heures à tout relire pour bien comprendre, etc. La
+  7.7. » Retenu : 2,5 h de plus, soit **4,5 h** pour 1,0 h estimée, **ratio 4,5**
+  (`awk 'BEGIN { printf "%.2f\n", 4.5 / 1 }'`). La phase 7 en est à 6,25 h pour 3,35 (M7.1, M7.2, M7.7), 1,87 à titre
+  provisoire (`awk 'BEGIN { printf "%.2f\n", (1 + 0.75 + 4.5) / (1.1 + 1.25 + 1) }'`), non plus 3,75 h et 1,12. Au board,
+  « Passé (h) » de #389 à #393 a monté de 0,5 chacun : 1,0, 0,9, 0,8, 1,0 et 0,8, soit 4,5 h
+  (`gh project item-list 1 --owner @me --format json --limit 400`).
 - Sessions Claude Code : 1 (estimé 2) : la session à distance reprise le 10/10, la même jusqu'à cette clôture (un seul
   `Claude-Session` dans les commits du milestone), ses agents dans plusieurs worktrees à la fois.
 - Définition de « terminé » (SPECS §9) :

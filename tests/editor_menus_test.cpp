@@ -9,7 +9,9 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -49,6 +51,16 @@ std::uint32_t azertyAt(std::uint16_t scancode)
     default:
         return levain::platform::qwertyKeyAtPosition(scancode);
     }
+}
+
+/// L'état des modes, chaque champ nommé (les initialiseurs désignés les veulent tous).
+ModeState modeIn(Mode mode, bool paused = false, bool mouseFreed = false)
+{
+    ModeState state;
+    state.current = mode;
+    state.paused = paused;
+    state.mouseFreed = mouseFreed;
+    return state;
 }
 
 const HelpRow* rowOf(const std::vector<HelpRow>& rows, Action action)
@@ -150,6 +162,7 @@ struct BarBench
     std::vector<float> speeds;
     // Ce que les barres reçoivent.
     Mode mode = Mode::Edit;
+    bool paused = false;
     float flySpeed = DefaultFlySpeed;
     bool realTime = true;
     std::function<std::uint32_t(std::uint16_t)> layout = levain::platform::qwertyKeyAtPosition;
@@ -163,7 +176,7 @@ struct BarBench
         const MenuRequests requests = drawMenuBar(inputs, windowLayout, bar, help);
         actions.insert(actions.end(), requests.actions.begin(), requests.actions.end());
         quit = quit || requests.quit;
-        const ToolbarResult tools = drawToolbar(mode, flySpeed, realTime, toolbar);
+        const ToolbarResult tools = drawToolbar(mode, paused, flySpeed, realTime, toolbar);
         actions.insert(actions.end(), tools.actions.begin(), tools.actions.end());
         if (tools.mode)
         {
@@ -287,17 +300,21 @@ TEST_CASE("la barre d'outils : le mode, la vitesse bornée, Temps réel, et des 
 {
     BarBench bench;
     bench.settle();
-    // Les outils et Simuler sont grisés : le clic ne rend rien.
+    // Les outils sont grisés : le clic ne rend rien. Simuler répond : l'action, comme Alt+S (le
+    // bouton de mode, lui, propose un mode ; Simuler passe par `runAction`).
     bench.click(bench.toolbar.tool);
-    bench.click(bench.toolbar.simulate);
     CHECK(bench.actions.empty());
     CHECK(bench.modes.empty());
     CHECK(bench.speeds.empty());
+    bench.click(bench.toolbar.simulate);
+    CHECK(bench.actions == std::vector<Action>{Action::Simulate});
+    CHECK(bench.modes.empty());
+    bench.actions.clear();
 
     // Le bouton de mode propose Jouer depuis l'Édition.
     bench.click(bench.toolbar.mode);
     REQUIRE(bench.modes.size() == 1);
-    CHECK(bench.modes.front() == Mode::PlayWithoutReturn);
+    CHECK(bench.modes.front() == Mode::Play);
 
     // Temps réel : la case rend l'action, comme Ctrl+R.
     bench.click(bench.toolbar.realTime);
@@ -311,6 +328,53 @@ TEST_CASE("la barre d'outils : le mode, la vitesse bornée, Temps réel, et des 
     CHECK(bench.speeds.back() > DefaultFlySpeed);
     CHECK(bench.speeds.back() <= MaxFlySpeed);
     CHECK(bench.flySpeed == bench.speeds.back());
+}
+
+TEST_CASE("la barre d'outils en jeu : Pause, Reprendre et Image suivante, le mode à sa place")
+{
+    BarBench bench;
+    bench.settle();
+    // Édition : ni Pause ni Image suivante, Jouer et Simuler comme avant.
+    CHECK(bench.toolbar.pause.x == 0.0f);
+    CHECK(bench.toolbar.step.x == 0.0f);
+
+    // Jeu : le bouton de mode (Arrêter) reste en tête, Pause vient après lui, puis Image suivante.
+    bench.mode = Mode::Play;
+    bench.settle();
+    CHECK(bench.toolbar.pause.x > bench.toolbar.mode.x);
+    CHECK(bench.toolbar.step.x > bench.toolbar.pause.x);
+    bench.click(bench.toolbar.mode);
+    REQUIRE(bench.modes.size() == 1);
+    CHECK(bench.modes.back() == Mode::Edit); // Arrêter propose l'Édition
+
+    // Le jeu tourne : Pause rend l'action Pause, Image suivante est éteinte et ne rend rien.
+    bench.click(bench.toolbar.step);
+    CHECK(bench.actions.empty());
+    bench.click(bench.toolbar.pause);
+    CHECK(bench.actions == std::vector<Action>{Action::Pause});
+
+    // En pause : le même bouton dit Reprendre et rend la même action, Image suivante répond.
+    bench.actions.clear();
+    bench.paused = true;
+    bench.settle();
+    bench.click(bench.toolbar.step);
+    CHECK(bench.actions == std::vector<Action>{Action::NextFrame});
+    bench.click(bench.toolbar.pause);
+    CHECK(bench.actions == std::vector<Action>{Action::NextFrame, Action::Pause});
+
+    // Simuler a les mêmes boutons que Jouer, et le bouton de mode y propose l'Édition.
+    bench.actions.clear();
+    bench.modes.clear();
+    bench.paused = false;
+    bench.mode = Mode::Simulate;
+    bench.settle();
+    CHECK(bench.toolbar.step.x > bench.toolbar.pause.x);
+    CHECK(bench.toolbar.pause.x > bench.toolbar.mode.x);
+    bench.click(bench.toolbar.mode);
+    REQUIRE(bench.modes.size() == 1);
+    CHECK(bench.modes.back() == Mode::Edit);
+    bench.click(bench.toolbar.pause);
+    CHECK(bench.actions == std::vector<Action>{Action::Pause});
 }
 
 namespace
@@ -372,6 +436,42 @@ ButtonDrawing drawingOf(const std::vector<ImDrawVert>& vertices, const ImVec2& c
 
 } // namespace
 
+TEST_CASE("la barre d'outils prend la teinte du jeu quand il tourne, une autre en pause, aucune "
+          "en Édition")
+{
+    BarBench bench;
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    const ImU32 playing = packed(levain::ui::tintedBarBackground(levain::ui::PlayTint));
+    const ImU32 paused = packed(levain::ui::tintedBarBackground(levain::ui::PausedTint));
+    const auto drawn = [&](ImU32 color)
+    {
+        return std::ranges::any_of(drawnVertices(), [color](const ImDrawVert& vertex)
+                                   { return sameRgb(vertex.col, color); });
+    };
+    const auto settleAndRender = [&bench]
+    {
+        bench.settle();
+        bench.frame(true);
+    };
+    settleAndRender();
+    CHECK_FALSE(drawn(playing));
+    CHECK_FALSE(drawn(paused));
+    bench.mode = Mode::Play;
+    settleAndRender();
+    CHECK(drawn(playing));
+    CHECK_FALSE(drawn(paused));
+    bench.paused = true;
+    settleAndRender();
+    CHECK(drawn(paused));
+    CHECK_FALSE(drawn(playing));
+    // Retour à l'Édition : la teinte part avec le jeu.
+    bench.mode = Mode::Edit;
+    bench.paused = false;
+    settleAndRender();
+    CHECK_FALSE(drawn(playing));
+    CHECK_FALSE(drawn(paused));
+}
+
 TEST_CASE("un bouton grisé de la barre d'outils : texte éteint plein, ni contour ni alpha de plus")
 {
     BarBench bench;
@@ -382,14 +482,14 @@ TEST_CASE("un bouton grisé de la barre d'outils : texte éteint plein, ni conto
     const std::vector<ImDrawVert> vertices = drawnVertices();
     const ImU32 dim = packed(style.Colors[ImGuiCol_TextDisabled]);
 
-    // Le bouton « Simuler » : son texte est `TextDisabled` à 100 %, tel que le test des contrastes
-    // le mesure (`BeginDisabled` y ajouterait `DisabledAlpha`, soit 2,6 de contraste à 0,6), et il
-    // n'a pas de contour : il redessinerait la forme qu'on a retirée.
-    const ButtonDrawing simulate =
-        drawingOf(vertices, bench.toolbar.simulate, levain::ui::tr("Simuler"), dim);
-    REQUIRE(simulate.textVertices > 0);
-    CHECK(simulate.translucentTextVertices == 0);
-    CHECK(simulate.borderVertices == 0);
+    // Le premier outil, grisé jusqu'à M7.4 : son texte est `TextDisabled` à 100 %, tel que le test
+    // des contrastes le mesure (`BeginDisabled` y ajouterait `DisabledAlpha`, soit 2,6 de contraste
+    // à 0,6), et il n'a pas de contour : il redessinerait la forme qu'on a retirée.
+    const ButtonDrawing tool =
+        drawingOf(vertices, bench.toolbar.tool, levain::ui::tr("Déplacer"), dim);
+    REQUIRE(tool.textVertices > 0);
+    CHECK(tool.translucentTextVertices == 0);
+    CHECK(tool.borderVertices == 0);
 
     // Le contrôle du contrôle : le bouton qui répond, lui, a son contour, et le même relevé le
     // voit.
@@ -479,7 +579,7 @@ TEST_CASE("le bandeau de la barre de mode se dessine sur un gris de la palette, 
         ImGui::SetNextWindowPos({0.0f, 0.0f});
         ImGui::SetNextWindowSize({400.0f, 300.0f});
         ImGui::Begin("Vue");
-        std::ignore = drawModeBarOverlay(Mode::Edit, {10.0f, 10.0f}, "Alt+P");
+        std::ignore = drawModeBarOverlay(modeIn(Mode::Edit), {10.0f, 10.0f}, "Alt+P");
         ImGui::End();
         ImGui::Render();
     }
@@ -501,6 +601,54 @@ TEST_CASE("le bandeau de la barre de mode se dessine sur un gris de la palette, 
                                [&](const ImDrawVert& vertex) { return sameRgb(vertex.col, dim); }));
 }
 
+TEST_CASE("le bandeau de la barre de mode dit la pause et la souris rendue, la pause d'abord")
+{
+    // Le texte choisi : rien en Édition, la pause avant la souris rendue (elle arrête le jeu, la
+    // souris rendue reste dite à la reprise), sinon ce que Jouer fait à la scène.
+    CHECK(std::string_view{modeBannerOf(Mode::Edit, false, false)}.empty());
+    CHECK(std::string_view{modeBannerOf(Mode::Edit, true, true)}.empty());
+    const std::string_view playing = modeBannerOf(Mode::Play, false, false);
+    const std::string_view freed = modeBannerOf(Mode::Play, false, true);
+    const std::string_view paused = modeBannerOf(Mode::Play, true, false);
+    CHECK(playing.starts_with("Jouer"));
+    CHECK(freed.starts_with("Souris rendue"));
+    CHECK(paused.starts_with("Pause"));
+    CHECK(modeBannerOf(Mode::Play, true, true) == paused);
+    // Simuler dit son nom, la même pause, et ne parle jamais de la souris (elle est à l'éditeur).
+    CHECK(std::string_view{modeBannerOf(Mode::Simulate, false, false)}.starts_with("Simuler"));
+    CHECK(modeBannerOf(Mode::Simulate, false, true) == modeBannerOf(Mode::Simulate, false, false));
+    CHECK(modeBannerOf(Mode::Simulate, true, false) == paused);
+
+    // Et le bandeau dessiné le dit : la barre s'ajuste à son texte (`AutoResizeX`), donc l'écart de
+    // largeur entre deux états est celui de leurs textes.
+    const levain::ui::UiContext context = levain::ui::createUiContext(1.0f);
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    float textWidth = 0.0f;
+    const auto barWidthIn = [&textWidth](const ModeState& state)
+    {
+        ModeBarOverlay overlay;
+        for (int frame = 0; frame < 3; ++frame) // un enfant à la taille de son contenu : 2 images
+        {
+            levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 900, .height = 480}, 1.0 / 60.0);
+            ImGui::NewFrame();
+            ImGui::SetNextWindowPos({0.0f, 0.0f});
+            ImGui::SetNextWindowSize({880.0f, 300.0f});
+            ImGui::Begin("Vue");
+            overlay = drawModeBarOverlay(state, {10.0f, 10.0f}, "");
+            textWidth = ImGui::CalcTextSize(levain::ui::tr(modeBannerOf(state.current, state.paused,
+                                                                        state.mouseFreed)))
+                            .x;
+            ImGui::End();
+            ImGui::Render();
+        }
+        return std::pair{overlay.bar.width, textWidth};
+    };
+    const auto [playingBar, playingText] = barWidthIn(modeIn(Mode::Play));
+    const auto [freedBar, freedText] = barWidthIn(modeIn(Mode::Play, false, true));
+    CHECK(freedText != playingText); // le test n'est pas vide
+    CHECK(freedBar - playingBar == doctest::Approx(freedText - playingText).epsilon(0.01));
+}
+
 TEST_CASE("la barre de mode en calque rend ses rectangles : la barre au coin demandé, son bouton "
           "dedans, à l'échelle 1 comme à 125 %")
 {
@@ -509,7 +657,7 @@ TEST_CASE("la barre de mode en calque rend ses rectangles : la barre au coin dem
     // (`ModeBarOverlay::bar`), un test vise le bouton (`ModeBarOverlay::button`).
     for (const float scale : {1.0f, 1.25f})
     {
-        for (const Mode mode : {Mode::Edit, Mode::PlayWithoutReturn})
+        for (const Mode mode : {Mode::Edit, Mode::Play, Mode::Simulate})
         {
             CAPTURE(scale);
             CAPTURE(modeTokenOf(mode));
@@ -526,7 +674,7 @@ TEST_CASE("la barre de mode en calque rend ses rectangles : la barre au coin dem
                 ImGui::SetNextWindowPos({0.0f, 0.0f});
                 ImGui::SetNextWindowSize({880.0f, 300.0f});
                 ImGui::Begin("Vue");
-                overlay = drawModeBarOverlay(mode, {10.0f, 10.0f}, "Alt+P");
+                overlay = drawModeBarOverlay(modeIn(mode), {10.0f, 10.0f}, "Alt+P");
                 frameHeight = ImGui::GetFrameHeight();
                 ImGui::End();
                 ImGui::Render();
