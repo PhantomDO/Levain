@@ -1,10 +1,12 @@
 #pragma once
 
-// Les modes de l'éditeur (ADR-0036, décision 3) : **Édition**, où rien ne tourne et où le jeu ne
-// reçoit rien, et « Jouer (sans retour) », le jeu d'aujourd'hui sous un bandeau, jusqu'à Play et
-// Stop (M7.5). La logique est en fonctions libres dont les dépendances sont des paramètres
-// (ADR-0011) ; `withEditor` n'en a que la glu. Équivalents : le mode Édition d'Unity (hors Play) et
-// d'Unreal (hors PIE) ; Godot, lui, ne joue que dans une fenêtre à part.
+// Les modes de l'éditeur (ADR-0036, décision 3, ADR-0037) : **Édition**, où rien ne tourne et où le
+// jeu ne reçoit rien, et **Jouer**, où le jeu tourne dans la Vue ; Stop n'y rend pas encore la
+// scène (M7.5, morceau 4). Simuler et la pause (morceaux 5 et 6) viendront s'y ajouter : un
+// mode de plus, et un drapeau, sans toucher aux fonctions ci-dessous. La logique est en fonctions
+// libres dont les dépendances sont des paramètres (ADR-0011) ; `withEditor` n'en a que la glu.
+// Équivalents : le mode Édition d'Unity (hors Play) et d'Unreal (hors PIE) ; Godot, lui, ne joue
+// que dans une fenêtre à part.
 
 #include <cstdint>
 #include <optional>
@@ -22,7 +24,7 @@ namespace levain::editor
 enum class Mode : std::uint8_t
 {
     Edit, ///< « Édition » : aucun pas, `frame` du programme jamais appelé, route *éditeur*.
-    PlayWithoutReturn, ///< « Jouer (sans retour) » : le jeu tourne, rien n'est restauré à l'arrêt.
+    Play, ///< « Jouer » : le jeu tourne, rien n'est encore restauré à l'arrêt.
 };
 
 /// Où en sont les modes : celui d'aujourd'hui, et la touche d'arrêt vue à l'image d'avant (pour
@@ -36,7 +38,14 @@ struct ModeState
 /// La simulation est arrêtée en Édition (`App::simulationPaused`).
 [[nodiscard]] constexpr bool simulationPausedIn(Mode mode)
 {
-    return mode == Mode::Edit;
+    switch (mode)
+    {
+    case Mode::Edit:
+        return true;
+    case Mode::Play:
+        return false;
+    }
+    return true; // inatteignable : un nouveau mode doit être traité ci-dessus (pas de `default`)
 }
 
 /// Le `frame` du programme (ce que le joueur demande : `steerDemo` pour le sandbox) ne tourne qu'en
@@ -44,7 +53,14 @@ struct ModeState
 /// édite.
 [[nodiscard]] constexpr bool programFrameRunsIn(Mode mode)
 {
-    return mode != Mode::Edit;
+    switch (mode)
+    {
+    case Mode::Edit:
+        return false;
+    case Mode::Play:
+        return true;
+    }
+    return false;
 }
 
 /// La route de l'input pour l'image suivante (`App::inputRoute`). Édition : *éditeur*. Jeu : *jeu*
@@ -52,16 +68,26 @@ struct ModeState
 /// ne doit pas faire marcher le renard).
 [[nodiscard]] constexpr app::InputRoute inputRouteFor(Mode mode, bool sceneFocused)
 {
-    if (mode == Mode::Edit)
+    switch (mode)
     {
+    case Mode::Edit:
         return app::InputRoute::Editor;
+    case Mode::Play:
+        return sceneFocused ? app::InputRoute::Game : app::InputRoute::Ui;
     }
-    return sceneFocused ? app::InputRoute::Game : app::InputRoute::Ui;
+    return app::InputRoute::Editor;
 }
 
 [[nodiscard]] constexpr Mode otherMode(Mode mode)
 {
-    return mode == Mode::Edit ? Mode::PlayWithoutReturn : Mode::Edit;
+    switch (mode)
+    {
+    case Mode::Edit:
+        return Mode::Play;
+    case Mode::Play:
+        return Mode::Edit;
+    }
+    return Mode::Edit;
 }
 
 /// Le libellé du bouton qui mène au mode `target` : une icône (lecture, ou arrêt pour revenir à
@@ -86,13 +112,15 @@ struct ModeRequests
 [[nodiscard]] constexpr std::optional<Mode> modeRequested(Mode current,
                                                           const ModeRequests& requests)
 {
-    if (requests.stop && current == Mode::PlayWithoutReturn)
+    // Arrêter vaut de tout mode qui n'est pas l'Édition, jouer de l'Édition seule : un mode de plus
+    // (Simuler) s'arrête par Échap sans toucher à cette fonction.
+    if (requests.stop && current != Mode::Edit)
     {
         return Mode::Edit;
     }
     if (requests.playShortcut && current == Mode::Edit)
     {
-        return Mode::PlayWithoutReturn;
+        return Mode::Play;
     }
     if (requests.toolbar && *requests.toolbar != current)
     {
@@ -104,12 +132,19 @@ struct ModeRequests
 /// Le nom du mode, clé du catalogue (`ui::tr`).
 [[nodiscard]] constexpr const char* modeNameOf(Mode mode)
 {
-    return mode == Mode::Edit ? "Édition" : "Jouer (sans retour)";
+    switch (mode)
+    {
+    case Mode::Edit:
+        return "Édition";
+    case Mode::Play:
+        return "Jouer";
+    }
+    return "";
 }
 
 /// Le rappel de la touche du mode, traduit : celle qui sort du mode où l'on est, **telle que la
 /// table l'a maintenant** (un accord changé par la fenêtre « Raccourcis » change le rappel :
-/// `Alt+P : jouer`, `Échap : revenir à l'édition` par défaut). Alt+P ne ramène pas de Jouer
+/// `Alt+P : jouer`, `Échap : arrêter` par défaut). Alt+P ne ramène pas de Jouer
 /// (`modeRequested`) : la dire ici serait fausse sous la route *jeu*. Vide si l'action n'a plus
 /// d'accord, on ne promet pas une touche qui n'existe pas.
 [[nodiscard]] std::string modeHintOf(Mode mode, const ShortcutTable& table,
@@ -118,7 +153,14 @@ struct ModeRequests
 /// Le mot du mode dans la ligne que lit la CI (`editor.mode`) : le même dans toutes les langues.
 [[nodiscard]] constexpr const char* modeTokenOf(Mode mode)
 {
-    return mode == Mode::Edit ? "edit" : "play";
+    switch (mode)
+    {
+    case Mode::Edit:
+        return "edit";
+    case Mode::Play:
+        return "play";
+    }
+    return "";
 }
 
 /// Échap vient d'être appuyée : le front, lu sur l'input brut du jeu, à la position que la table
@@ -139,7 +181,7 @@ void enterMode(app::App& app, ModeState& state, Mode mode);
 
 /// La barre de mode, accrochée au coin haut gauche de la scène (`scene`, `App::sceneRect`) : dans
 /// le trou du centre, jamais sur les onglets des colonnes. **Dessinée toujours** : le bandeau de
-/// « Jouer (sans retour) » et le rappel de la touche valent aussi panneaux fermés, où le bouton
+/// le bandeau de « Jouer » et le rappel de la touche valent aussi panneaux fermés, où le bouton
 /// manque : la fenêtre est un bandeau que rien ne vise ni ne focalise, et la route *jeu* reste.
 /// Panneaux ouverts, la barre est celle de la Vue (`drawModeBarOverlay`). `hint` : le rappel de
 /// la touche (`modeHintOf`).

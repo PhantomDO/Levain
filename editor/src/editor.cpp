@@ -233,7 +233,7 @@ void changeMode(app::App& app, Editor& editor, Mode mode)
     abandonCapture(editor.shortcutWindow);
     enterMode(app, editor.mode, mode);
     switchRealTime(from, mode, app.realTime, editor.realTimeEdit);
-    editor.view.focusRequested = mode == Mode::PlayWithoutReturn;
+    editor.view.focusRequested = mode == Mode::Play;
     // Le jeu voit par sa caméra ; l'édition, par la sienne.
     if (mode == Mode::Edit)
     {

@@ -28,20 +28,39 @@ int modeBarFlags()
             ImGuiWindowFlags_NoInputs));
 }
 
+/// L'action dont le rappel de touche parle : jouer depuis l'Édition, arrêter depuis un mode de jeu.
+Action actionLeaving(Mode mode)
+{
+    switch (mode)
+    {
+    case Mode::Edit:
+        return Action::Play;
+    case Mode::Play:
+        return Action::Stop;
+    }
+    return Action::Stop;
+}
+
 } // namespace
 
 std::string modeHintOf(Mode mode, const ShortcutTable& table,
                        const platform::KeyAtPosition& keyAtPosition)
 {
-    const Action action = mode == Mode::Edit ? Action::Play : Action::Stop;
+    const Action action = actionLeaving(mode);
     const Binding* binding = bindingOf(table, action);
     if (binding == nullptr || !isBound(binding->chords.front()))
     {
         return {};
     }
     const std::string key = displayNameOf(binding->chords.front(), keyAtPosition);
-    return mode == Mode::Edit ? ui::trf("{} : jouer", key)
-                              : ui::trf("{} : revenir à l'édition", key);
+    switch (mode)
+    {
+    case Mode::Edit:
+        return ui::trf("{} : jouer", key);
+    case Mode::Play:
+        return ui::trf("{} : arrêter", key);
+    }
+    return {};
 }
 
 bool stopPressed(ModeState& state, const input::RawInput& raw, const ShortcutTable& table)
@@ -72,9 +91,14 @@ void enterMode(app::App& app, ModeState& state, Mode mode)
 
 std::string modeButtonLabel(Mode target)
 {
-    return target == Mode::Edit
-               ? ui::icon::withIcon(ui::icon::Stop, ui::labelOf("Revenir à l'édition"))
-               : ui::icon::withIcon(ui::icon::Play, ui::labelOf("Jouer (sans retour)"));
+    switch (target)
+    {
+    case Mode::Edit:
+        return ui::icon::withIcon(ui::icon::Stop, ui::labelOf("Arrêter"));
+    case Mode::Play:
+        return ui::icon::withIcon(ui::icon::Play, ui::labelOf("Jouer"));
+    }
+    return {};
 }
 
 namespace
@@ -90,7 +114,7 @@ app::ScreenRect lastItemRect()
 }
 
 /// Le contenu de la barre, dans la fenêtre ou le calque courant : le bouton qui montre où l'on va
-/// (seul il va dans les deux sens, `modeRequested`), le bandeau de « Jouer (sans retour) » et le
+/// (seul il va dans les deux sens, `modeRequested`), le bandeau de « Jouer » et le
 /// rappel de la touche. Rend le mode demandé et le rectangle du bouton, s'il y en a un (le reste
 /// est à l'appelant, qui tient l'enfant).
 ModeBarOverlay drawModeBarContents(Mode current, bool interactive, const std::string& hint)
@@ -105,14 +129,17 @@ ModeBarOverlay drawModeBarContents(Mode current, bool interactive, const std::st
         }
         bar.button = lastItemRect();
     }
-    if (current == Mode::PlayWithoutReturn)
+    switch (current)
     {
+    case Mode::Edit:
+        break;
+    case Mode::Play:
         ImGui::TextColored(
             {1.0f, 0.75f, 0.2f, 1.0f}, "%s",
-            ui::icon::withIcon(
-                ui::icon::Play,
-                ui::tr("Jouer (sans retour) : la scène n'est pas restaurée à l'arrêt"))
+            ui::icon::withIcon(ui::icon::Play,
+                               ui::tr("Jouer : la scène n'est pas restaurée à l'arrêt"))
                 .c_str());
+        break;
     }
     if (!hint.empty())
     {

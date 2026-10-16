@@ -2,7 +2,7 @@
 
 // La barre d'outils et la barre d'état de l'éditeur (ADR-0036, décision 12), deux bandes qui
 // retirent leur hauteur à l'espace d'ancrage, sous la barre de menus et au bas de la fenêtre.
-// **La barre d'outils** : le mode (Jouer, ou revenir à l'édition), les outils (grisés jusqu'à M7.4)
+// **La barre d'outils** : le mode (Jouer, ou arrêter), les outils (grisés jusqu'à M7.4)
 // et Simuler (grisé jusqu'à M7.5), la vitesse de la caméra de l'éditeur et « Temps réel ».
 // **La barre d'état** : le dernier message du journal et les compteurs d'avertissements et
 // d'erreurs, ceux de la console (`core::LogRing`). La logique est en fonctions libres dont toutes

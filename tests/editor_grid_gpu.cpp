@@ -391,10 +391,10 @@ int playPlay(const levain::tests::TestBackend& backend)
     failures += expect(at(5).mode == levain::editor::Mode::Edit && at(5).helpers,
                        "en Édition les aides se voient") +
                 expectDrawn(run, 5, "en Édition");
-    failures += expect(at(12).mode == levain::editor::Mode::PlayWithoutReturn && !at(12).helpers,
+    failures += expect(at(12).mode == levain::editor::Mode::Play && !at(12).helpers,
                        "en jeu : les aides tombent") +
                 expectHidden(run, 12, "en jeu");
-    failures += expect(at(18).mode == levain::editor::Mode::PlayWithoutReturn && !at(18).gameView &&
+    failures += expect(at(18).mode == levain::editor::Mode::Play && !at(18).gameView &&
                            at(18).gameViewPerformed == 0,
                        "G en jeu va au jeu, pas à la vue de jeu") +
                 expectHidden(run, 18, "G en jeu");

@@ -102,9 +102,9 @@ TEST_CASE("les actions qui sont là : le temps réel bascule, jouer et arrêter 
     CHECK_FALSE(runAction(Action::RealTime, counters, realTime, Mode::Edit).has_value());
     CHECK(realTime);
     CHECK(counters.performed.at(indexOf(Action::RealTime)) == 2);
-    CHECK(runAction(Action::Play, counters, realTime, Mode::Edit) == Mode::PlayWithoutReturn);
-    CHECK_FALSE(runAction(Action::Play, counters, realTime, Mode::PlayWithoutReturn).has_value());
-    CHECK(runAction(Action::Stop, counters, realTime, Mode::PlayWithoutReturn) == Mode::Edit);
+    CHECK(runAction(Action::Play, counters, realTime, Mode::Edit) == Mode::Play);
+    CHECK_FALSE(runAction(Action::Play, counters, realTime, Mode::Play).has_value());
+    CHECK(runAction(Action::Stop, counters, realTime, Mode::Play) == Mode::Edit);
     CHECK(levain::core::snapshotOf(*capture.ring).entries.empty()); // rien de grisé, rien de dit
 }
 
@@ -300,19 +300,18 @@ TEST_CASE("le temps réel ne se règle qu'en Édition : jouer le force, revenir 
     ActionCounters counters;
     bool realTime = false; // décoché en Édition
     bool editChoice = true;
-    switchRealTime(Mode::Edit, Mode::PlayWithoutReturn, realTime, editChoice);
+    switchRealTime(Mode::Edit, Mode::Play, realTime, editChoice);
     CHECK(realTime); // on joue : le monde bouge
     CHECK_FALSE(editChoice);
     // Ctrl+R ou la case en jeu : rien ne bascule, la console le dit.
-    CHECK_FALSE(
-        runAction(Action::RealTime, counters, realTime, Mode::PlayWithoutReturn).has_value());
+    CHECK_FALSE(runAction(Action::RealTime, counters, realTime, Mode::Play).has_value());
     CHECK(realTime);
     CHECK(counters.declined.at(indexOf(Action::RealTime)) == 1);
     CHECK(counters.performed.at(indexOf(Action::RealTime)) == 0);
     const auto snapshot = levain::core::snapshotOf(*capture.ring);
     REQUIRE(snapshot.entries.size() == 1);
     CHECK(snapshot.entries.front().text == "Temps réel : seulement en Édition");
-    switchRealTime(Mode::PlayWithoutReturn, Mode::Edit, realTime, editChoice);
+    switchRealTime(Mode::Play, Mode::Edit, realTime, editChoice);
     CHECK_FALSE(realTime); // le choix de l'Édition est revenu
     // Un choix coché reste coché au retour, et rester du même côté ne touche à rien.
     realTime = true;
