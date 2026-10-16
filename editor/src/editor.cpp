@@ -551,7 +551,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 frame(app);
             }
         };
-        hooks->ui = [ui = std::move(hooks->ui), editor, afterUi = options.afterUi](app::App& app)
+        hooks->ui = [ui = std::move(hooks->ui), editor, afterUi = options.afterUi,
+                     afterUiMutable = options.afterUiMutable](app::App& app)
         {
             if (ui)
             {
@@ -660,6 +661,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             if (afterUi)
             {
                 afterUi(*editor);
+            }
+            if (afterUiMutable)
+            {
+                afterUiMutable(*editor);
             }
         };
         // La croix : on demande d'abord (la modale s'ouvre dans `ui`). **Remplace** le

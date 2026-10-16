@@ -3,30 +3,40 @@
 //   - le critère : Alt+P, 120 pas, Échap, et la scène est identique (la ligne `editor.stop`), deux
 //     fois de suite, les corps retombant au bit près de la même façon ;
 //   - l'Édition après Stop est celle d'avant le premier Play : aucun corps de Jolt, aucun handle,
-//     rien que le rayon d'un clic puisse toucher, les racines de la Hiérarchie dans le même ordre.
+//     rien que le rayon d'un clic puisse toucher, les racines de la Hiérarchie dans le même ordre ;
+//   - la sélection survit à Stop, sauf celle d'une entité née en jeu ;
+//   - un modèle skinné détruit en jeu revient, dessiné, avec les mêmes matrices d'os ;
+//   - quitter en jeu, et finir une exécution scriptée en jeu, passent par Stop ;
+//   - un Play refusé (un composant qui ne se copie pas) laisse l'Édition et le dit à la console.
 // Il faut un device, comme `levain_app_script`.
 //   levain_editor_play [vulkan|d3d12|d3d12-warp]
 
 #include <bit>
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <format>
 #include <functional>
+#include <memory>
+#include <optional>
 #include <print>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <flecs.h>
+#include <glm/glm.hpp>
 
 #include "gpu_test_backend.hpp"
 
 #include "levain/app/app.hpp"
+#include "levain/app/load_model.hpp"
 #include "levain/assets/asset_id.hpp"
 #include "levain/core/log_ring.hpp"
 #include "levain/editor/editor.hpp"
@@ -45,6 +55,12 @@ using levain::editor::Editor;
 using levain::editor::Mode;
 using levain::scene::Transform;
 
+/// Un composant qui ne se copie pas : Play le refuse (`takeSnapshot`).
+struct Unique
+{
+    std::unique_ptr<int> owned;
+};
+
 constexpr int CrateCount = 6;
 
 /// Ce que l'éditeur et le monde sont, à la fin de chaque image.
@@ -54,9 +70,13 @@ struct Frame
     bool playing = false; ///< `Editor::play` est plein
     int sessionSteps = 0; ///< les pas joués depuis le début de cette session
     std::vector<Transform> crates;
-    std::uint32_t bodies = 0;           ///< les corps du monde Jolt
-    std::int32_t handles = 0;           ///< les entités qui portent un `BodyHandle`
-    bool rayHit = false;                ///< un rayon tiré d'en haut sur la pile touche un corps
+    std::uint32_t bodies = 0;     ///< les corps du monde Jolt
+    std::int32_t handles = 0;     ///< les entités qui portent un `BodyHandle`
+    bool rayHit = false;          ///< un rayon tiré d'en haut sur la pile touche un corps
+    std::vector<glm::mat4> bones; ///< les matrices d'os du modèle skinné, s'il y en a un
+    std::uint64_t modelDrawn = 0; ///< les modèles dessinés par la caméra
+    std::size_t modelsLoaded = 0;
+    flecs::entity_t selected = 0;
     std::vector<flecs::entity_t> roots; ///< les lignes de la Hiérarchie
     std::int32_t transforms = 0;
     std::size_t deadCrates = 0; ///< les caisses détruites en jeu et pas (encore) revenues
@@ -67,15 +87,25 @@ struct Run
     int exitCode = 0;
     std::vector<Frame> frames;
     std::vector<std::string> stopLines; ///< les `editor.stop` du journal
+    std::vector<std::string> errors;    ///< les erreurs du journal
     std::vector<flecs::entity_t> crateIds;
+    levain::app::ScreenRect quitButton; ///< le bouton « Quitter » de la modale, s'il est ouverte
 };
 
 struct Scenario
 {
     std::string script;
     int frames = 0;
+    bool interactive = false;
+    bool withModel = false;
+    bool withUnique = false;
+    /// Appelé à la fin de chaque image, avec l'éditeur modifiable (`EditorOptions::afterUiMutable`)
+    /// : un test pose la sélection sans passer par un clic dans la Hiérarchie.
+    std::function<void(App&, Editor&, int frame)> atFrameEnd;
     /// Appelé par le `frame` du programme, en jeu seulement.
     std::function<void(App&, int programFrame)> inProgramFrame;
+    /// Appelé par le `finish` du programme (celui du sandbox dit ce que le jeu a laissé).
+    std::function<void(App&)> inProgramFinish;
 };
 
 /// Un dossier à soi, effacé à la fin : le scan des assets y écrit ses `.meta`.
@@ -89,6 +119,8 @@ struct TempDir
               ("levain-editor-play-" + levain::assets::toString(levain::assets::generateAssetId()))}
     {
         std::filesystem::create_directories(path);
+        std::filesystem::copy_file(std::filesystem::path{LEVAIN_TEST_DATA_DIR} / "two-joints.gltf",
+                                   path / "two-joints.gltf");
     }
 
     ~TempDir()
@@ -179,6 +211,16 @@ Frame frameOf(App& app, const Editor& editor, const Run& run)
                                                       .direction = {0.0f, -1.0f, 0.0f},
                                                       .maxDistance = 100.0f})
                        .has_value();
+    for (const auto& [id, model] : app.models)
+    {
+        if (model.animation)
+        {
+            frame.bones = model.skinMatrices;
+        }
+    }
+    frame.modelDrawn = app.modelsCamera.drawn;
+    frame.modelsLoaded = app.models.size();
+    frame.selected = editor.selected;
     for (const levain::editor::HierarchyRow& row : editor.hierarchy.rows)
     {
         frame.roots.push_back(row.entity);
@@ -187,9 +229,9 @@ Frame frameOf(App& app, const Editor& editor, const Run& run)
     return frame;
 }
 
-levain::app::StartFunction programOf(Run& run, const Scenario& scenario)
+levain::app::StartFunction programOf(Run& run, const Scenario& scenario, const TempDir& dir)
 {
-    return [&run, &scenario](App& app) -> levain::core::Result<levain::app::FrameHooks>
+    return [&run, &scenario, &dir](App& app) -> levain::core::Result<levain::app::FrameHooks>
     {
         app.world.import<levain::physics::PhysicsModule>();
         app.world.entity("camera")
@@ -198,14 +240,41 @@ levain::app::StartFunction programOf(Run& run, const Scenario& scenario)
         // Épinglée : une vraie fenêtre lirait la disposition de la machine (AZERTY chez Donnovan).
         app.keyAtPosition = levain::platform::qwertyKeyAtPosition;
         dropCrates(app, run);
+        if (scenario.withUnique)
+        {
+            app.world.entity("unique").set(Unique{std::make_unique<int>(1)});
+        }
+        if (scenario.withModel)
+        {
+            const auto loaded = levain::app::loadModel(app, {.path = dir.path / "two-joints.gltf",
+                                                             .placement = {},
+                                                             .name = "modele",
+                                                             .clip = "tourne",
+                                                             .locomotion = std::nullopt});
+            if (!loaded)
+            {
+                return std::unexpected(loaded.error());
+            }
+        }
         levain::app::FrameHooks hooks;
         hooks.frame = [&scenario, programFrame = 0](App& frameApp) mutable
         {
+            // Du temps entre deux images : les squelettes suivent l'horloge de la scène, et une
+            // pose qui ne revient pas ne se voit que si le jeu l'a fait avancer.
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
             if (scenario.inProgramFrame)
             {
                 scenario.inProgramFrame(frameApp, programFrame);
             }
             ++programFrame;
+        };
+        hooks.finish = [&scenario](App& finishApp)
+        {
+            if (scenario.inProgramFinish)
+            {
+                scenario.inProgramFinish(finishApp);
+            }
+            return true;
         };
         return hooks;
     };
@@ -222,6 +291,7 @@ Run play(const levain::tests::TestBackend& backend, const Scenario& scenario, co
     settings.inputScript = std::move(*parsed);
     settings.steps = scenario.frames;
     settings.showUiPanels = true;
+    settings.testInteractive = scenario.interactive;
     settings.width = 640;
     settings.height = 360;
     settings.assetRoots = {LEVAIN_DATA_DIR, dir.path};
@@ -241,8 +311,16 @@ Run play(const levain::tests::TestBackend& backend, const Scenario& scenario, co
             return;
         }
         run.frames.push_back(frameOf(*appSeen, editor, run));
+        run.quitButton = editor.quit.quitButton;
     };
-    auto start = programOf(run, scenario);
+    options.afterUiMutable = [&](Editor& editor)
+    {
+        if (appSeen != nullptr && scenario.atFrameEnd)
+        {
+            scenario.atFrameEnd(*appSeen, editor, static_cast<int>(run.frames.size()) - 1);
+        }
+    };
+    auto start = programOf(run, scenario, dir);
     run.exitCode = levain::app::runApp(
         settings, levain::editor::withEditor(
                       [&](App& app) -> levain::core::Result<levain::app::FrameHooks>
@@ -256,6 +334,10 @@ Run play(const levain::tests::TestBackend& backend, const Scenario& scenario, co
         if (entry.text.starts_with("editor.stop"))
         {
             run.stopLines.push_back(entry.text);
+        }
+        if (levain::core::severityOf(entry.level) == levain::core::LogSeverity::Error)
+        {
+            run.errors.push_back(entry.text);
         }
     }
     return run;
@@ -375,6 +457,155 @@ int criterion(const levain::tests::TestBackend& backend)
     return failures;
 }
 
+/// La sélection survit à Stop, sauf celle d'une entité née en jeu.
+int selection(const levain::tests::TestBackend& backend)
+{
+    const TempDir dir;
+    Scenario scenario;
+    scenario.script = altP(3) + escape(10) + altP(14) + escape(22);
+    scenario.frames = 26;
+    flecs::entity_t born = 0;
+    scenario.atFrameEnd = [&born](App& app, Editor& editor, int frame)
+    {
+        if (frame == 1)
+        {
+            editor.selected = app.world.lookup("caisse_0").id(); // avant le premier Play
+        }
+        if (frame == 17) // en jeu, deuxième session
+        {
+            born = app.world.entity("née").set(Transform{}).id();
+            editor.selected = born;
+        }
+    };
+    const Run run = play(backend, scenario, dir);
+    int failures = expect(run.frames.size() == 26, "la sélection : une image relevée par image");
+    if (run.frames.size() != 26)
+    {
+        return failures + 1;
+    }
+    failures += expect(run.frames.at(12).selected == run.crateIds.at(0),
+                       "une entité de la scène reste sélectionnée à travers Stop");
+    failures += expect(run.frames.at(18).selected == born && born != 0,
+                       "en jeu, la sélection est celle de l'entité née en jeu");
+    failures += expect(run.frames.at(24).selected == 0,
+                       "l'entité née en jeu est partie à Stop, sa sélection avec elle");
+    return failures;
+}
+
+/// Un modèle skinné détruit en jeu revient à Stop, dessiné, avec ses matrices d'os d'avant Play.
+int skinnedModel(const levain::tests::TestBackend& backend)
+{
+    const TempDir dir;
+    Scenario scenario;
+    scenario.withModel = true;
+    scenario.script = altP(4) + escape(14);
+    scenario.frames = 20;
+    scenario.inProgramFrame = [](App& app, int programFrame)
+    {
+        if (programFrame == 3) // en jeu
+        {
+            app.world.lookup("modele").destruct();
+        }
+    };
+    const Run run = play(backend, scenario, dir);
+    int failures = expect(run.frames.size() == 20, "le modèle : une image relevée par image");
+    if (run.frames.size() != 20)
+    {
+        return failures + 1;
+    }
+    // `App::modelsCamera.drawn` compte tous les dessins depuis le début : ce qu'une image dessine
+    // est la différence avec celle d'avant.
+    const auto drawnIn = [&run](std::size_t frame)
+    { return run.frames.at(frame).modelDrawn - run.frames.at(frame - 1).modelDrawn; };
+    const Frame& before = run.frames.at(3);
+    const Frame& inPlay = run.frames.at(11);
+    const Frame& after = run.frames.at(17);
+    failures += expect(drawnIn(3) > 0 && !before.bones.empty(),
+                       "avant Play, le modèle est dessiné et son squelette posé");
+    failures += expect(inPlay.playing && drawnIn(11) == 0 && inPlay.modelsLoaded == 1,
+                       "en jeu, le modèle détruit n'est plus dessiné, mais reste chargé (retenu)");
+    failures += expect(!after.playing && drawnIn(17) == drawnIn(3),
+                       "après Stop, le modèle est dessiné de nouveau");
+    failures += expect(after.bones == before.bones,
+                       "après Stop, les matrices d'os sont celles d'avant Play");
+    return failures;
+}
+
+/// Quitter en jeu passe par Stop : la modale « Quitter l'éditeur ? », puis le bouton Quitter.
+int quitWhilePlaying(const levain::tests::TestBackend& backend)
+{
+    const TempDir dir;
+    // Un premier passage, en Édition, lit où la modale met son bouton.
+    Scenario probe;
+    probe.script = "3 window close\n15 mouse move 1 1\n";
+    probe.frames = 16;
+    probe.interactive = true;
+    const Run lookup = play(backend, probe, dir);
+    int failures = expect(lookup.quitButton.width > 0.0f, "la modale dessine son bouton Quitter");
+    Scenario scenario;
+    scenario.interactive = true;
+    scenario.frames = 16;
+    scenario.script =
+        altP(2) + std::format("6 window close\n9 mouse move {} {}\n9 button down left\n"
+                              "10 button up left\n15 mouse move 1 1\n",
+                              lookup.quitButton.x + lookup.quitButton.width / 2.0f,
+                              lookup.quitButton.y + lookup.quitButton.height / 2.0f);
+    const Run run = play(backend, scenario, dir);
+    failures += expect(run.stopLines.size() == 1 && stepsOf(run.stopLines.front()) > 0 &&
+                           noDifferences(run.stopLines.front()),
+                       "quitter en jeu passe par Stop : la ligne editor.stop, des pas, zéro écart");
+    return failures;
+}
+
+/// Une exécution scriptée qui finit en jeu passe par Stop, elle aussi.
+int scriptedRunEndsPlaying(const levain::tests::TestBackend& backend)
+{
+    const TempDir dir;
+    Scenario scenario;
+    scenario.script = altP(2);
+    scenario.frames = 12;
+    // Le programme dit son état de jeu AVANT que Stop ne le rende (le sandbox y dit ses corps).
+    std::uint32_t bodiesAtProgramFinish = 0;
+    scenario.inProgramFinish = [&bodiesAtProgramFinish](App& app)
+    {
+        bodiesAtProgramFinish =
+            levain::physics::bodyCount(app.world.get<levain::physics::PhysicsWorld>());
+    };
+    const Run run = play(backend, scenario, dir);
+    return expect(run.exitCode == 0, "la fin scriptée en jeu : code 0") +
+           expect(bodiesAtProgramFinish > 0,
+                  "le finish du programme passe avant Stop : il voit encore les corps du jeu") +
+           expect(run.stopLines.size() == 1 && stepsOf(run.stopLines.front()) > 0 &&
+                      noDifferences(run.stopLines.front()),
+                  "la fin scriptée en jeu passe par Stop : la ligne editor.stop");
+}
+
+/// Un composant qui ne se copie pas : Play est refusé, l'Édition reste et la console dit pourquoi.
+int refusedPlay(const levain::tests::TestBackend& backend)
+{
+    const TempDir dir;
+    Scenario scenario;
+    scenario.withUnique = true;
+    scenario.script = altP(2);
+    scenario.frames = 10;
+    const Run run = play(backend, scenario, dir);
+    bool named = false;
+    for (const std::string& error : run.errors)
+    {
+        named = named || (error.find("Jouer refusé") != std::string::npos &&
+                          error.find("unique") != std::string::npos);
+    }
+    bool stayedInEdit = !run.frames.empty();
+    for (const Frame& frame : run.frames)
+    {
+        stayedInEdit =
+            stayedInEdit && frame.mode == Mode::Edit && !frame.playing && frame.bodies == 0;
+    }
+    return expect(stayedInEdit, "Play refusé : l'éditeur reste en Édition, sans état de jeu") +
+           expect(named, "Play refusé : la console nomme l'entité") +
+           expect(run.stopLines.empty(), "Play refusé : aucun Stop à faire");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -389,7 +620,9 @@ int main(int argc, char** argv)
             std::println(stderr, "usage : levain_editor_play [vulkan|d3d12|d3d12-warp]");
             return 2;
         }
-        const int failures = criterion(*backend);
+        const int failures = criterion(*backend) + selection(*backend) + skinnedModel(*backend) +
+                             quitWhilePlaying(*backend) + scriptedRunEndsPlaying(*backend) +
+                             refusedPlay(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)
