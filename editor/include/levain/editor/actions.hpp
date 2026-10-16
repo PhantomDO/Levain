@@ -125,6 +125,13 @@ void switchRealTime(Mode from, Mode to, bool& appRealTime, bool& editChoice);
 [[nodiscard]] std::optional<Action>
 viewKeyActionOf(const ShortcutTable& table, const KeyPress& press, const ActiveContexts& active);
 
+/// Les touches tenues une fois les événements de l'image rangés, depuis `held` (celles du début de
+/// l'image) : le complément de `keyPressesOf`, qui ne rend que les fronts. Un appui et un
+/// relâchement dans la même image ne laissent rien ; **la fenêtre qui perd le focus oublie tout** :
+/// les relâchements ne viendront pas.
+[[nodiscard]] std::bitset<platform::KeyCodeCount>
+heldKeysAfter(const platform::Events& events, std::bitset<platform::KeyCodeCount> held);
+
 /// **Les touches appuyées à cette image**, lues dans ses événements bruts (`App::rawFrameEvents`,
 /// avant la route et la capture), dans leur ordre : la position (le scancode), la lettre que la
 /// disposition y met (le keycode de l'événement) et les modificateurs tenus avec elle. Sous la

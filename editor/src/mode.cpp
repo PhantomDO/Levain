@@ -5,6 +5,7 @@
 #include <imgui.h>
 
 #include "levain/app/player_input.hpp"
+#include "levain/editor/actions.hpp"
 #include "levain/ui/flags.hpp"
 #include "levain/ui/icons.hpp"
 #include "levain/ui/style.hpp"
@@ -63,19 +64,37 @@ std::string modeHintOf(Mode mode, const ShortcutTable& table,
     return {};
 }
 
-bool stopPressed(ModeState& state, const input::RawInput& raw, const ShortcutTable& table)
+GameKeys gameKeysPressed(ModeState& state, const platform::Events& events,
+                         const ShortcutTable& table, bool blocked)
 {
+    const std::vector<KeyPress> presses = keyPressesOf(events, state.keys);
+    state.keys = heldKeysAfter(events, state.keys);
+    GameKeys keys;
+    if (state.current == Mode::Edit || blocked)
+    {
+        return keys;
+    }
     const Binding* stop = bindingOf(table, Action::Stop);
-    const bool held = stop != nullptr && positionHeld(*stop, raw.keys);
-    const bool rose = held && !state.stopHeld;
-    state.stopHeld = held;
-    return rose;
+    for (const KeyPress& press : presses)
+    {
+        if (stop != nullptr && positionIs(*stop, press.scancode))
+        {
+            // Échap ignore les modificateurs : Maj tenu pendant le jeu n'y change rien.
+            keys.stop = true;
+            continue;
+        }
+        const auto action = actionFor(table, press, {.game = true});
+        if (action && playControlOf(*action))
+        {
+            keys.actions.push_back(*action);
+        }
+    }
+    return keys;
 }
 
 void enterMode(app::App& app, ModeState& state, Mode mode)
 {
     state.current = mode;
-    state.stopHeld = false;
     app.simulationPaused = simulationPausedIn(mode);
     app.mouseCaptureWanted = false;
     app.mouseCaptureOverPanels = false;

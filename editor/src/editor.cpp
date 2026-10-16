@@ -296,6 +296,21 @@ void changeMode(app::App& app, Editor& editor, Mode mode)
     }
 }
 
+/// Les touches du contexte *jeu* de cette image (`gameKeysPressed`), dans `frame` : Échap arrête.
+/// Pause, Image suivante et Rendre la souris sont lues aussi, mais rien ne les fait encore.
+void reachGameKeys(app::App& app, Editor& editor)
+{
+    // Sous la modale « Quitter ? », ou croix reçue (`frame` précède `ui`, qui l'ouvre) : Échap la
+    // ferme, et le jeu dessous n'arrête pas.
+    const bool blocked = ImGui::GetIO().WantTextInput || !cameraGesturesAllowed(editor.quit);
+    const GameKeys keys =
+        gameKeysPressed(editor.mode, app.rawFrameEvents, editor.shortcuts, blocked);
+    if (const auto requested = modeRequested(editor.mode.current, {.stop = keys.stop}))
+    {
+        changeMode(app, editor, *requested);
+    }
+}
+
 /// La barre de menus, la barre d'outils et la barre d'état, et la fenêtre Aide : ce qu'elles
 /// atteignent (`MenuRequests`, la barre d'outils) revient, et le mode que le bouton propose va à
 /// `requested` si la Vue n'en a pas déjà demandé un.
@@ -539,12 +554,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 editor->savePreferencesNext = true;
             }
             // Échap ramène à l'Édition ; le `frame` du programme ne tourne qu'en jeu.
-            if (const auto requested = modeRequested(
-                    editor->mode.current,
-                    {.stop = stopPressed(editor->mode, app.input.raw, editor->shortcuts)}))
-            {
-                changeMode(app, *editor, *requested);
-            }
+            reachGameKeys(app, *editor);
             frameGestures(app, *editor);
             if (programFrameRunsIn(editor->mode.current) && frame)
             {

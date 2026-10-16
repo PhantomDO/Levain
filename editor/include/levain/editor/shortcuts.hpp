@@ -47,6 +47,9 @@ enum class Action : std::uint8_t
     Play,
     Simulate,
     Stop,
+    Pause,     ///< Pause / Reprendre, en jeu (la touche Pause, ADR-0037, décision 6).
+    NextFrame, ///< « Image suivante » : un pas à l'arrêt. **Sans accord par défaut** (voir
+               ///< `defaultShortcuts`).
     GiveMouseBack,
     Count, ///< Pas une action : la taille de la table.
 };
@@ -104,7 +107,9 @@ struct ShortcutTable
 [[nodiscard]] const char* nameOf(Action action);
 
 /// Les défauts de la décision 13 : les raccourcis d'Unreal [E1, E2] là où ils existent, ceux de
-/// Godot pour Ctrl+Maj+Z, les nôtres pour le reste (la colonne « Source » de l'ADR).
+/// Godot pour Ctrl+Maj+Z, les nôtres pour le reste (la colonne « Source » de l'ADR). **« Image
+/// suivante » n'a aucun accord** : Unreal n'en documente pas, et Ctrl+Alt+P d'Unity est AltGr+P
+/// sous Windows en AZERTY ; la fenêtre « Raccourcis » peut lui en donner un.
 [[nodiscard]] ShortcutTable defaultShortcuts();
 
 [[nodiscard]] const Binding* bindingOf(const ShortcutTable& table, Action action);
@@ -216,6 +221,10 @@ struct ActiveContexts
         return false;
     }
 }
+
+/// Une touche de position de l'action vient d'être appuyée (`scancode`), **modificateurs ignorés**
+/// : le front de ce que `positionHeld` lit à l'état tenu, pour « Arrêter » (`isHeldAction`).
+[[nodiscard]] bool positionIs(const Binding& binding, std::uint16_t scancode);
 
 /// Une touche de position de l'action est tenue, **modificateurs ignorés** : Maj tenu accélère le
 /// vol sans le couper (`isHeldAction` : les actions qui se lisent ainsi). Les accords de lettre ne
