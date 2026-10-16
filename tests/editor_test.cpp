@@ -145,6 +145,39 @@ TEST_CASE("la hiérarchie liste les racines, et les enfants des seuls nœuds ouv
     CHECK_FALSE(levain::editor::hasShownChildren(world, world.lookup("a::b")));
 }
 
+namespace
+{
+struct Detour
+{
+};
+} // namespace
+
+TEST_CASE(
+    "la hiérarchie range ses racines par index, non par tables, et une réveillée reprend sa place")
+{
+    flecs::world world;
+    const flecs::entity first = world.entity("première").set(Transform{});
+    const flecs::entity second = world.entity("seconde").set(Transform{});
+    world.entity("troisième").set(Transform{});
+    const levain::editor::Hierarchy hierarchy = levain::editor::createHierarchy(world);
+    REQUIRE(rowsOf(world, hierarchy) ==
+            std::vector<std::string>{"première", "seconde", "troisième"});
+
+    // Un détour par une autre table renvoie « seconde » en fin de sa table d'origine : l'ordre des
+    // tables n'est plus celui de la création, celui des index l'est toujours.
+    second.add<Detour>();
+    second.remove<Detour>();
+    CHECK(rowsOf(world, hierarchy) == std::vector<std::string>{"première", "seconde", "troisième"});
+
+    // Détruite puis réveillée avec sa génération (ce que fait Stop) : son identifiant entier est
+    // plus grand que tous les autres, son index non.
+    const flecs::entity_t id = first.id();
+    first.destruct();
+    ecs_make_alive(world, id);
+    world.entity(id).set_name("première").set(Transform{});
+    CHECK(rowsOf(world, hierarchy) == std::vector<std::string>{"première", "seconde", "troisième"});
+}
+
 TEST_CASE("la hiérarchie tait les entités de flecs, et un singleton va dans « Singletons »")
 {
     flecs::world world;

@@ -124,6 +124,25 @@ void usePlayIds(flecs::world& world, const IdRanges& ranges);
 /// (observateurs, systèmes, requêtes, composants).
 [[nodiscard]] bool bornInPlay(const flecs::world& world, flecs::entity_t entity);
 
+/// L'index d'une entité : les 32 bits bas de son identifiant, sans la génération.
+[[nodiscard]] constexpr std::uint32_t entityIndexOf(flecs::entity_t id)
+{
+    return static_cast<std::uint32_t>(id);
+}
+
+/// Le comparateur de flecs (`order_by`) qui range les entités par **index**, jamais par identifiant
+/// entier : la génération est dans les bits hauts, et une entité réveillée par Stop
+/// (`ecs_make_alive`) passerait avant toutes les autres. Un seul pour la physique (l'ordre de
+/// construction des corps) et la Hiérarchie (l'ordre des racines) : ce que Stop rend, c'est
+/// l'index.
+[[nodiscard]] constexpr int byEntityIndex(flecs::entity_t first, const void*,
+                                          flecs::entity_t second, const void*)
+{
+    const std::uint32_t a = entityIndexOf(first);
+    const std::uint32_t b = entityIndexOf(second);
+    return (a > b) - (a < b);
+}
+
 /// Les entités de la scène vivantes, par index croissant.
 [[nodiscard]] std::vector<flecs::entity_t> sceneEntities(const flecs::world& world);
 
@@ -163,5 +182,20 @@ restoreSnapshot(flecs::world& world, const IdRanges& ranges, const Snapshot& sna
                                                        const Snapshot& snapshot);
 
 inline constexpr std::size_t MaxReportedDifferences = 20;
+
+/// Le résultat de la comparaison, les vraies différences d'un côté et les enfants internes perdus
+/// de l'autre (que Stop ne peut pas réparer, et qui ont leur avertissement) : un compte ne se
+/// déduit pas d'une soustraction de lignes plafonnées.
+struct Comparison
+{
+    /// Le nombre de vraies différences, **sans plafond** : la CI lit ce compte (`editor.stop`).
+    std::size_t differenceCount = 0;
+    /// Les premières seulement (`MaxReportedDifferences`), puis la ligne qui compte les autres.
+    std::vector<std::string> differences;
+    std::vector<std::string> lostInternalChildren;
+};
+
+/// compareWithSnapshot : ce que fait `differencesFrom`, mais en deux listes et un compte.
+[[nodiscard]] Comparison compareWithSnapshot(const flecs::world& world, const Snapshot& snapshot);
 
 } // namespace levain::scene

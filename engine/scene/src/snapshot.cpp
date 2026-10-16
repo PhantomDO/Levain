@@ -280,6 +280,20 @@ public:
 
     [[nodiscard]] const std::vector<std::string>& lostInternals() const { return m_lostInternals; }
 
+    /// Le compte des vraies différences, tous plafonds levés : les enfants internes perdus n'y sont
+    /// pas.
+    [[nodiscard]] std::size_t total() const { return m_total; }
+
+    /// Les premières lignes des vraies différences, plafonnées, avec leur ligne de suite.
+    [[nodiscard]] std::vector<std::string> realLines() &&
+    {
+        if (m_total > m_lines.size())
+        {
+            m_lines.push_back(std::format("… et {} autres différences", m_total - m_lines.size()));
+        }
+        return std::move(m_lines);
+    }
+
     std::vector<std::string> finish(bool withLostInternals) &&
     {
         if (withLostInternals)
@@ -638,6 +652,16 @@ core::Result<Snapshot> takeSnapshot(const flecs::world& world)
         snapshot.entities.push_back(std::move(record));
     }
     return snapshot;
+}
+
+Comparison compareWithSnapshot(const flecs::world& world, const Snapshot& snapshot)
+{
+    Differences found = compareWorld(world, snapshot);
+    Comparison comparison{.differenceCount = found.total(),
+                          .differences = {},
+                          .lostInternalChildren = found.lostInternals()};
+    comparison.differences = std::move(found).realLines();
+    return comparison;
 }
 
 std::vector<std::string> differencesFrom(const flecs::world& world, const Snapshot& snapshot)

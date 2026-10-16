@@ -104,7 +104,7 @@ plugin `character`.
     `std::variant`, sans réflexion), ni les handles, les étiquettes et les singletons.
 14. **Le jeu de l'éditeur commence et finit proprement** (ADR-0037) : `freshPhysicsWorld` remplace le monde
     Jolt par un neuf au Play (identifiants de corps de zéro, `OverlapState` vide) et **refuse** si une entité
-    porte encore un `BodyHandle` ou un `CharacterHandle` ; `endPlay` retire les paires `(InsideOf, *)` au Stop
+    porte encore un `BodyHandle` ou un `CharacterHandle` (tous deux `scene::Transient` : l'instantané de la scène ne les copie pas et Stop les retire) ; `endPlay` retire les paires `(InsideOf, *)` au Stop
     **sans qu'aucun `onExit` du gameplay ne parte** (les observateurs d'`onEnter` et d'`onExit`, étiquetés
     `TriggerCallback`, sont désactivés le temps du retrait). Un observateur que le gameplay poserait lui-même sur
     `InsideOf` n'est pas tu. Les deux sont `[[nodiscard]]`, et `endPlay` **refuse dans le mode différé**, dans

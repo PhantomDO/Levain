@@ -158,7 +158,14 @@ Hierarchy createHierarchy(const flecs::world& world)
     // `flecs::Parent` est un composant de la table, comme les autres : `without` écarte les
     // enfants table par table (https://www.flecs.dev/flecs/md_docs_2HierarchiesManual.html,
     // section « Parent storage details »).
-    return {.roots = world.query_builder<const scene::Transform>().without<flecs::Parent>().build(),
+    //
+    // **Triée par index sans composant** (`order_by(0, …)`) : flecs ne retrie que si les tables de
+    // la requête ont changé (une entité y entre ou en sort), non à chaque `Transform` écrit, ce que
+    // le jeu fait à chaque pas (https://www.flecs.dev/flecs/md_docs_2Queries.html, « Sorting »).
+    return {.roots = world.query_builder<const scene::Transform>()
+                         .without<flecs::Parent>()
+                         .order_by(0, scene::byEntityIndex)
+                         .build(),
             .open = {},
             .rows = {},
             .frameRequested = false,
