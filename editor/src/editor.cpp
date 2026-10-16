@@ -268,6 +268,17 @@ bool carryOutPlayTransition(app::App& app, Editor& editor, Mode to)
     return !editor.play || to != Mode::Edit || stopEditorPlay(app, editor);
 }
 
+/// Atteint un contrôle de jeu (Pause, Image suivante, Rendre la souris) : compté, dit à la console
+/// s'il est refusé, fait sinon. Le clic d'un bouton et la touche passent par là.
+void reachPlayControl(app::App& app, Editor& editor, Action action)
+{
+    if (const auto control =
+            runPlayControl(action, editor.actions, editor.mode.current, editor.mode.paused))
+    {
+        applyPlayControl(*control, app, editor.mode);
+    }
+}
+
 /// Passe de mode. Jouer met la Vue en avant : le jeu reçoit le clavier sans qu'il faille cliquer
 /// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`). **Jouer prend
 /// l'instantané et Arrêter rend la scène avant** `enterMode`, hors du mode différé : `frame` et la
@@ -296,8 +307,9 @@ void changeMode(app::App& app, Editor& editor, Mode mode)
     }
 }
 
-/// Les touches du contexte *jeu* de cette image (`gameKeysPressed`), dans `frame` : Échap arrête.
-/// Pause, Image suivante et Rendre la souris sont lues aussi, mais rien ne les fait encore.
+/// Les touches du contexte *jeu* de cette image (`gameKeysPressed`), dans `frame` : Échap arrête
+/// d'abord (sortir du jeu ne se dispute pas), puis Pause, Image suivante et Rendre la souris, qui
+/// valent à la même image : `frame` précède le monde, un pas demandé ici est joué ici.
 void reachGameKeys(app::App& app, Editor& editor)
 {
     // Sous la modale « Quitter ? », ou croix reçue (`frame` précède `ui`, qui l'ouvre) : Échap la
@@ -308,6 +320,28 @@ void reachGameKeys(app::App& app, Editor& editor)
     if (const auto requested = modeRequested(editor.mode.current, {.stop = keys.stop}))
     {
         changeMode(app, editor, *requested);
+    }
+    for (const Action action : keys.actions)
+    {
+        if (editor.mode.current != Mode::Edit) // Échap vient de nous y ramener, Pause ne vaut plus
+        {
+            reachPlayControl(app, editor, action);
+        }
+    }
+}
+
+/// **Le clic qui rend la souris au jeu** (Maj+F1) : un bouton enfoncé cette image, la souris sur la
+/// scène telle qu'ImGui l'a dite à l'image d'avant (`sceneHoveredIn`). Ce clic n'atteint pas le jeu
+/// : la route de l'image qui s'ouvre était *éditeur*, et les événements sont déjà filtrés ; celle
+/// de la suivante est *jeu*. **Lu dans `frame`, non dans `ui`** : une fois le bouton enfoncé, ImGui
+/// prend la fenêtre de la Vue pour la déplacer, et son image n'est plus « survolée » à l'image
+/// même du clic.
+void giveMouseBackOnClick(app::App& app, Editor& editor)
+{
+    if (editor.mode.mouseFreed && mousePressedIn(app.rawFrameEvents) && sceneHoveredIn(app, editor))
+    {
+        editor.mode.mouseFreed = false;
+        editor.view.focusRequested = true; // la Vue a le focus tout de suite (`viewHasFocus`)
     }
 }
 
@@ -553,12 +587,18 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 resetLayout(app, *editor);
                 editor->savePreferencesNext = true;
             }
-            // Échap ramène à l'Édition ; le `frame` du programme ne tourne qu'en jeu.
+            // Échap ramène à l'Édition, Pause, Image suivante et Maj+F1 sont lues ici aussi ; le
+            // `frame` du programme ne tourne qu'en jeu, et pas en pause.
             reachGameKeys(app, *editor);
+            giveMouseBackOnClick(app, *editor);
             frameGestures(app, *editor);
-            if (programFrameRunsIn(editor->mode.current) && frame)
+            // `app.singleStep` : Image suivante (touche, posée plus haut ; barre d'outils, posée
+            // par `ui` à l'image d'avant) joue un pas, dont `frame` pose l'input : vide, en pause.
+            if (programFrameRunsIn(editor->mode.current, editor->mode.paused, app.singleStep) &&
+                frame)
             {
                 frame(app);
+                keepMouseFromGame(app, editor->mode); // le jeu a pu reposer la capture
             }
         };
         hooks->ui = [ui = std::move(hooks->ui), editor, afterUi = options.afterUi,
@@ -660,9 +700,9 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             // La route de l'image suivante : le focus ne se sait que maintenant (ADR-0036, 4).
             app.inputRoute = inputRouteWhileQuit(
                 editor->quit,
-                inputRouteFor(editor->mode.current,
-                              sceneFocusedIn(app.ui.panelsOpen, viewHasFocus(editor->view),
-                                             !sceneHasFocus(), editor->view.barHovered)));
+                inputRouteOf(editor->mode,
+                             sceneFocusedIn(app.ui.panelsOpen, viewHasFocus(editor->view),
+                                            !sceneHasFocus(), editor->view.barHovered)));
             app.ui.panelsKeyBlocked = shortcutCaptureActive(*editor); // F1 est refusée, pas obéie
             if (std::exchange(editor->savePreferencesNext, false))
             {

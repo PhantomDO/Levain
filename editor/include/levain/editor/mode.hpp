@@ -2,11 +2,12 @@
 
 // Les modes de l'éditeur (ADR-0036, décision 3, ADR-0037) : **Édition**, où rien ne tourne et où le
 // jeu ne reçoit rien, et **Jouer**, où le jeu tourne dans la Vue et où Stop rend la scène telle
-// qu'elle était (`play.hpp`). Simuler et la pause (morceaux 5 et 6) viendront s'y ajouter : un
-// mode de plus, et un drapeau, sans toucher aux fonctions ci-dessous. La logique est en fonctions
-// libres dont les dépendances sont des paramètres (ADR-0011) ; `withEditor` n'en a que la glu.
-// Équivalents : le mode Édition d'Unity (hors Play) et d'Unreal (hors PIE) ; Godot, lui, ne joue
-// que dans une fenêtre à part.
+// qu'elle était (`play.hpp`). **La pause** (ADR-0037, décision 6) n'est pas un mode mais un drapeau
+// de `ModeState`, qui vaut en Jouer et vaudra en Simuler (morceau 6) : un mode de plus s'ajoute aux
+// `switch` ci-dessous, sans toucher à la pause. La logique est en fonctions libres dont les
+// dépendances sont des paramètres (ADR-0011) ; `withEditor` n'en a que la glu. Équivalents : le
+// mode Édition d'Unity (hors Play) et d'Unreal (hors PIE), Pause et Maj+F1 d'Unreal, le bouton
+// Pause d'Unity ; Godot, lui, ne joue que dans une fenêtre à part.
 
 #include <bitset>
 #include <cstdint>
@@ -30,40 +31,53 @@ enum class Mode : std::uint8_t
     Play, ///< « Jouer » : le jeu tourne ; Stop rend la scène (`stopPlay`).
 };
 
-/// Où en sont les modes : celui d'aujourd'hui, et les touches tenues telles que l'éditeur les voit.
+/// Où en sont les modes : celui d'aujourd'hui, la pause et la souris rendue (qui n'ont de sens
+/// qu'en jeu, `enterMode` les remet à faux), et les touches tenues telles que l'éditeur les voit.
 struct ModeState
 {
     Mode current = Mode::Edit;
+    /// **La pause** : la simulation arrêtée, le `frame` du programme muet, rien au jeu. L'éditeur
+    /// regarde le monde tel qu'il est, caméra du jeu comprise.
+    bool paused = false;
+    /// **Maj+F1** : la souris est rendue à l'éditeur, le jeu ne reçoit plus rien jusqu'au prochain
+    /// clic dans la scène (`keepMouseFromGame`).
+    bool mouseFreed = false;
     /// Les touches tenues, lues dans les événements bruts de l'image (`App::rawFrameEvents`) :
-    /// **quelle que soit la route**, car le jeu ne reçoit pas toujours le clavier, et
+    /// **quelle que soit la route**, car le jeu en pause ou la souris rendue ne reçoivent rien, et
     /// Échap, Pause et Maj+F1 doivent encore se lire (`gameKeysPressed`).
     std::bitset<platform::KeyCodeCount> keys;
 };
 
-/// La simulation est arrêtée en Édition (`App::simulationPaused`).
-[[nodiscard]] constexpr bool simulationPausedIn(Mode mode)
+/// La simulation tourne : jamais en Édition, en jeu tant qu'elle n'est pas en pause
+/// (`App::simulationPaused` est l'inverse).
+[[nodiscard]] constexpr bool simulationRunsIn(Mode mode, bool paused)
 {
     switch (mode)
     {
     case Mode::Edit:
-        return true;
-    case Mode::Play:
         return false;
+    case Mode::Play:
+        return !paused;
     }
-    return true; // inatteignable : un nouveau mode doit être traité ci-dessus (pas de `default`)
+    return false; // inatteignable : un nouveau mode doit être traité ci-dessus (pas de `default`)
 }
 
-/// Le `frame` du programme (ce que le joueur demande : `steerDemo` pour le sandbox) ne tourne qu'en
-/// jeu. En Édition il ne tourne **jamais**, sans quoi ZQSD déplacerait la caméra pendant qu'on
-/// édite.
-[[nodiscard]] constexpr bool programFrameRunsIn(Mode mode)
+/// Le `frame` du programme (ce que le joueur demande : `steerDemo` pour le sandbox) ne tourne
+/// qu'en jeu, et pas en pause. En Édition il ne tourne **jamais**, sans quoi ZQSD déplacerait la
+/// caméra pendant qu'on édite. **Sauf pour un pas en pause** (`stepping` : `App::singleStep` est
+/// posé) : les systèmes du pas lisent ce que `frame` a posé (`FpsInput`, `WalkInput` du sandbox),
+/// et sans lui ils rejouent l'input d'avant la pause (W tenue, Pause, W relâchée : deux pas
+/// avancent encore la caméra). Il tourne alors sous la route de la pause, celle de l'Édition : il y
+/// lit un input vide, et le pas joue un jeu qui ne reçoit rien. Unity (Step) et Unreal (avance
+/// d'une image) font tourner le jeu d'une image.
+[[nodiscard]] constexpr bool programFrameRunsIn(Mode mode, bool paused, bool stepping)
 {
     switch (mode)
     {
     case Mode::Edit:
         return false;
     case Mode::Play:
-        return true;
+        return !paused || stepping;
     }
     return false;
 }
@@ -81,6 +95,16 @@ struct ModeState
         return sceneFocused ? app::InputRoute::Game : app::InputRoute::Ui;
     }
     return app::InputRoute::Editor;
+}
+
+/// La route, pause et souris rendue comprises : **dans les deux cas le jeu ne reçoit rien**, la
+/// route est celle de l'Édition (ce qu'il tenait est relâché, ImGui a la souris et le clavier). Le
+/// piège nommé : sans cela, la pause ne ferait que se taire, et une touche tenue pendant elle
+/// partirait au premier pas de la reprise.
+[[nodiscard]] constexpr app::InputRoute inputRouteOf(const ModeState& state, bool sceneFocused)
+{
+    return state.paused || state.mouseFreed ? app::InputRoute::Editor
+                                            : inputRouteFor(state.current, sceneFocused);
 }
 
 [[nodiscard]] constexpr Mode otherMode(Mode mode)
@@ -178,8 +202,8 @@ struct GameKeys
 /// Les touches du contexte *jeu* qui viennent d'être appuyées (la décision 13 : Échap, la touche
 /// Pause, Maj+F1, et l'accord qu'on aurait donné à « Image suivante »), **lues dans les
 /// événements bruts de l'image** et à la place que la table leur donne : un accord changé dans la
-/// fenêtre « Raccourcis » vaut aussi. **Pas sur l'input du jeu** : la route peut le lui retirer
-/// (sous la route *UI* ou *éditeur*), et Échap doit pourtant arrêter. Un
+/// fenêtre « Raccourcis » vaut aussi. **Pas sur l'input du jeu** : en pause, ou la souris rendue,
+/// le jeu ne reçoit rien (`inputRouteOf`), et Échap doit pourtant arrêter, Pause reprendre. Un
 /// appui est le front (`keyPressesOf` : une répétition n'en est pas un) ; Échap ignore les
 /// modificateurs (`isHeldAction`), les autres les veulent exacts. Rien en Édition, ni quand
 /// `blocked` : un champ de texte actif (Échap y annule la frappe) ou une modale ouverte (Échap la
@@ -187,6 +211,11 @@ struct GameKeys
 /// pour que le front soit juste à la première image où les touches valent.
 [[nodiscard]] GameKeys gameKeysPressed(ModeState& state, const platform::Events& events,
                                        const ShortcutTable& table, bool blocked);
+
+/// Un bouton de la souris vient d'être enfoncé, d'après les événements bruts de l'image : ce qui
+/// rend la souris au jeu après Maj+F1 (s'il tombe sur la scène). Un relâchement, un mouvement ou la
+/// molette n'en sont pas.
+[[nodiscard]] bool mousePressedIn(const platform::Events& events);
 
 /// Ce que Pause, Image suivante et Rendre la souris font au jeu.
 enum class PlayControl : std::uint8_t
@@ -233,8 +262,43 @@ enum class PlayControl : std::uint8_t
     return std::nullopt;
 }
 
-/// Passe dans ce mode. **Remet `mouseCaptureWanted` à faux** à chaque changement : en Édition le
-/// `frame` du programme, qui le repose, ne tourne plus, et la souris qu'un clic droit tenu avait
+/// Pourquoi un contrôle ne peut pas partir maintenant.
+enum class PlayRefusal : std::uint8_t
+{
+    None,       ///< Il peut partir.
+    NotPlaying, ///< « seulement en jeu » : aucun contrôle n'a de sens en Édition.
+    NotPaused,  ///< « seulement en pause » : Image suivante.
+};
+
+/// Ce qui empêche le contrôle. **« Image suivante » veut la pause** : en marche elle serait un pas
+/// de plus que le temps ne mérite, et `planFrame` l'ignorerait de toute façon.
+[[nodiscard]] constexpr PlayRefusal playControlRefusal(PlayControl control, Mode mode, bool paused)
+{
+    switch (mode)
+    {
+    case Mode::Edit:
+        return PlayRefusal::NotPlaying;
+    case Mode::Play:
+        return control == PlayControl::StepFrame && !paused ? PlayRefusal::NotPaused
+                                                            : PlayRefusal::None;
+    }
+    return PlayRefusal::NotPlaying;
+}
+
+/// Fait ce que le contrôle dit, supposé permis (`playControlRefusal`). Pause et Reprendre rendent
+/// le jeu à l'immobile comme un changement de mode (`enterMode`) : ce qu'il tenait est relâché, les
+/// appuis qu'aucun pas n'a vus sont oubliés. Une ligne de glu dans `withEditor`.
+void applyPlayControl(PlayControl control, app::App& app, ModeState& state);
+
+/// **La souris reste à l'éditeur quand le jeu ne reçoit rien** (Maj+F1, ou la pause) : le jeu
+/// repose `mouseCaptureWanted` à chaque image dans son `frame`, qui tourne encore avec la souris
+/// rendue, et pour un pas en pause (`programFrameRunsIn`), et il capturerait la souris de nouveau.
+/// À appeler juste après lui.
+void keepMouseFromGame(app::App& app, const ModeState& state);
+
+/// Passe dans ce mode. **Remet à faux la pause, la souris rendue et `mouseCaptureWanted`** à chaque
+/// changement : une session de jeu ne garde rien de la précédente, et en Édition le `frame` du
+/// programme, qui repose la capture, ne tourne plus : la souris qu'un clic droit tenu avait
 /// capturée resterait prise. Rend aussi le jeu à l'immobile : ce qu'il tenait est relâché et les
 /// appuis qu'aucun pas n'a vus sont oubliés, sans quoi ils partiraient tous au premier pas de Play.
 void enterMode(app::App& app, ModeState& state, Mode mode);

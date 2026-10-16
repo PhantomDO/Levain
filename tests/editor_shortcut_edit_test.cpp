@@ -678,16 +678,16 @@ TEST_CASE("l'Aide dit « (aucun) » d'une action sans accord, comme la fenêtre 
     CHECK(undone->chords == "Ctrl+Z");
 }
 
-TEST_CASE("une action que rien ne lit encore ne se change pas : Simuler et Rendre la souris")
+TEST_CASE("une action que rien ne lit encore ne se change pas : Simuler seule")
 {
     CHECK_FALSE(rebindableFrom(Action::Simulate).available);
     CHECK(std::string_view{rebindableFrom(Action::Simulate).milestone} == "M7.5");
-    CHECK_FALSE(rebindableFrom(Action::GiveMouseBack).available);
-    CHECK(std::string_view{rebindableFrom(Action::GiveMouseBack).milestone} == "M7.5");
     // Les autres se changent, y compris celles que leur milestone grise dans les menus : leur
-    // raccourci atteint déjà `runAction`, qui le dit à la console.
-    for (const Action action : {Action::MoveForward, Action::Save, Action::Undo, Action::ToolMove,
-                                Action::Play, Action::Stop})
+    // raccourci atteint déjà `runAction`, qui le dit à la console. Pause, Image suivante et Rendre
+    // la souris ont leur lecteur depuis le morceau 5 (`gameKeysPressed`).
+    for (const Action action :
+         {Action::MoveForward, Action::Save, Action::Undo, Action::ToolMove, Action::Play,
+          Action::Stop, Action::Pause, Action::NextFrame, Action::GiveMouseBack})
     {
         CHECK(rebindableFrom(action).available);
     }

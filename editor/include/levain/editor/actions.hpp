@@ -58,16 +58,15 @@ struct Availability
 
 /// **Une action que rien ne lit encore** : sa touche ne se change pas, la fenêtre « Raccourcis » la
 /// grise avec son « Arrive en M7.5 », comme les menus grisent leurs entrées (`availabilityOf`).
-/// « Simuler » (Alt+S) arrive avec Play et Stop en M7.5 ; « Rendre la souris » (Maj+F1 en jeu) n'a
-/// pas de lecteur avant : un accord qu'on y poserait ne ferait rien, sans que rien ne le dise.
+/// Seule « Simuler » (Alt+S) l'est encore, jusqu'au morceau 6 de M7.5 : un accord qu'on y poserait
+/// ne ferait rien, sans que rien ne le dise. « Rendre la souris » (Maj+F1) a son lecteur depuis le
+/// morceau 5 (`gameKeysPressed`), comme Pause et Image suivante.
 [[nodiscard]] constexpr Availability rebindableFrom(Action action)
 {
     switch (action)
     {
     case Action::Simulate:
         return availabilityOf(action);
-    case Action::GiveMouseBack:
-        return {.available = false, .milestone = "M7.5"};
     default:
         return {};
     }
@@ -131,6 +130,13 @@ viewKeyActionOf(const ShortcutTable& table, const KeyPress& press, const ActiveC
 /// les relâchements ne viendront pas.
 [[nodiscard]] std::bitset<platform::KeyCodeCount>
 heldKeysAfter(const platform::Events& events, std::bitset<platform::KeyCodeCount> held);
+
+/// Atteint Pause, Image suivante ou Rendre la souris (`playControlOf`) : le contrôle à faire
+/// (`applyPlayControl`), ou rien. **Refusé** (`playControlRefusal`), `declined` monte et la console
+/// dit « {action} : seulement en pause » ; **permis**, `performed` monte. Rien non plus, sans
+/// compter, pour une action qui n'est pas un contrôle de jeu.
+[[nodiscard]] std::optional<PlayControl> runPlayControl(Action action, ActionCounters& counters,
+                                                        Mode current, bool paused);
 
 /// **Les touches appuyées à cette image**, lues dans ses événements bruts (`App::rawFrameEvents`,
 /// avant la route et la capture), dans leur ordre : la position (le scancode), la lettre que la

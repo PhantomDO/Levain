@@ -399,6 +399,60 @@ TEST_CASE("heldKeysAfter range les événements de l'image : un appui et un rel�
     CHECK(heldKeysAfter({}, held) == held);
 }
 
+TEST_CASE("Pause, Image suivante et Rendre la souris : le contrôle que chaque action est")
+{
+    CHECK(playControlOf(Action::Pause) == PlayControl::TogglePause);
+    CHECK(playControlOf(Action::NextFrame) == PlayControl::StepFrame);
+    CHECK(playControlOf(Action::GiveMouseBack) == PlayControl::FreeMouse);
+    for (const Action other : {Action::Play, Action::Stop, Action::RealTime, Action::Simulate})
+    {
+        CHECK_FALSE(playControlOf(other).has_value());
+    }
+    // Hors du jeu, aucun ne vaut ; en jeu, Image suivante veut la pause et les autres non.
+    for (const PlayControl control :
+         {PlayControl::TogglePause, PlayControl::StepFrame, PlayControl::FreeMouse})
+    {
+        CHECK(playControlRefusal(control, Mode::Edit, false) == PlayRefusal::NotPlaying);
+        CHECK(playControlRefusal(control, Mode::Edit, true) == PlayRefusal::NotPlaying);
+    }
+    CHECK(playControlRefusal(PlayControl::StepFrame, Mode::Play, false) == PlayRefusal::NotPaused);
+    CHECK(playControlRefusal(PlayControl::StepFrame, Mode::Play, true) == PlayRefusal::None);
+    CHECK(playControlRefusal(PlayControl::TogglePause, Mode::Play, false) == PlayRefusal::None);
+    CHECK(playControlRefusal(PlayControl::TogglePause, Mode::Play, true) == PlayRefusal::None);
+    CHECK(playControlRefusal(PlayControl::FreeMouse, Mode::Play, false) == PlayRefusal::None);
+}
+
+TEST_CASE(
+    "atteindre un contrôle de jeu le compte s'il est fait, le dit à la console s'il est refusé")
+{
+    levain::core::LogCapture capture = levain::core::captureLog(16);
+    ActionCounters counters;
+    CHECK(runPlayControl(Action::Pause, counters, Mode::Play, false) == PlayControl::TogglePause);
+    CHECK(runPlayControl(Action::Pause, counters, Mode::Play, true) == PlayControl::TogglePause);
+    CHECK(runPlayControl(Action::NextFrame, counters, Mode::Play, true) == PlayControl::StepFrame);
+    CHECK(runPlayControl(Action::GiveMouseBack, counters, Mode::Play, false) ==
+          PlayControl::FreeMouse);
+    CHECK(counters.performed.at(indexOf(Action::Pause)) == 2);
+    CHECK(counters.performed.at(indexOf(Action::NextFrame)) == 1);
+    CHECK(levain::core::snapshotOf(*capture.ring).entries.empty()); // rien de refusé, rien de dit
+
+    // Image suivante en marche : refusée, comptée, dite.
+    CHECK_FALSE(runPlayControl(Action::NextFrame, counters, Mode::Play, false).has_value());
+    CHECK(counters.declined.at(indexOf(Action::NextFrame)) == 1);
+    CHECK(counters.performed.at(indexOf(Action::NextFrame)) == 1);
+    // Pause en Édition : refusée aussi.
+    CHECK_FALSE(runPlayControl(Action::Pause, counters, Mode::Edit, false).has_value());
+    CHECK(counters.declined.at(indexOf(Action::Pause)) == 1);
+    const levain::core::LogSnapshot snapshot = levain::core::snapshotOf(*capture.ring);
+    REQUIRE(snapshot.entries.size() == 2);
+    CHECK(snapshot.entries.at(0).text == "Image suivante : seulement en pause");
+    CHECK(snapshot.entries.at(1).text == "Pause : seulement en jeu");
+    // Une action qui n'est pas un contrôle de jeu n'est ni comptée ni dite.
+    CHECK_FALSE(runPlayControl(Action::Play, counters, Mode::Edit, false).has_value());
+    CHECK(counters.performed.at(indexOf(Action::Play)) == 0);
+    CHECK(counters.declined.at(indexOf(Action::Play)) == 0);
+}
+
 TEST_CASE("keyPressesOf rend la position, la lettre de la disposition et les modificateurs, et une "
           "répétition n'est pas un appui")
 {

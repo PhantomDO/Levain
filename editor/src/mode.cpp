@@ -1,5 +1,6 @@
 #include "levain/editor/mode.hpp"
 
+#include <algorithm>
 #include <tuple>
 
 #include <imgui.h>
@@ -92,20 +93,70 @@ GameKeys gameKeysPressed(ModeState& state, const platform::Events& events,
     return keys;
 }
 
-void enterMode(app::App& app, ModeState& state, Mode mode)
+bool mousePressedIn(const platform::Events& events)
 {
-    state.current = mode;
-    app.simulationPaused = simulationPausedIn(mode);
+    return std::ranges::any_of(
+        events.ui, [](const platform::UiEvent& event)
+        { return event.type == platform::UiEventType::MouseButton && event.down; });
+}
+
+namespace
+{
+
+/// Le jeu repart de zéro : un `InputState` neuf, ses appuis en attente oubliés, et le singleton
+/// relu (il vaut pour l'image en cours, où `frame` a peut-être déjà tourné). La route de l'image
+/// qui commence est celle de l'état ; la définitive est posée à la fin de `ui`.
+void releaseGameInput(app::App& app, const ModeState& state)
+{
     app.mouseCaptureWanted = false;
     app.mouseCaptureOverPanels = false;
-    // Le jeu repart de zéro : un `InputState` neuf, ses appuis en attente oubliés, et le
-    // singleton relu (il vaut pour l'image en cours, où `frame` a peut-être déjà tourné).
     app.input = input::makeInputState(app.bindings);
     auto& playerInput = app.world.get_mut<app::PlayerInput>();
     app::forgetPresses(playerInput);
     app::takeFrameInput(playerInput, app.input);
-    // La route définitive est posée à la fin de `ui` : celle-ci couvre l'image qui commence.
-    app.inputRoute = inputRouteFor(mode, false);
+    app.inputRoute = inputRouteOf(state, false);
+}
+
+} // namespace
+
+void enterMode(app::App& app, ModeState& state, Mode mode)
+{
+    state.current = mode;
+    state.paused = false;
+    state.mouseFreed = false;
+    app.simulationPaused = !simulationRunsIn(mode, state.paused);
+    // Un pas demandé par la barre d'outils (dans `ui`) et pas encore joué : Stop l'emporte, sinon
+    // l'Édition jouerait ce pas après que la scène a été rendue.
+    app.singleStep = false;
+    releaseGameInput(app, state);
+}
+
+void applyPlayControl(PlayControl control, app::App& app, ModeState& state)
+{
+    switch (control)
+    {
+    case PlayControl::TogglePause:
+        state.paused = !state.paused;
+        app.simulationPaused = !simulationRunsIn(state.current, state.paused);
+        releaseGameInput(app, state);
+        break;
+    case PlayControl::StepFrame:
+        app.singleStep = true;
+        break;
+    case PlayControl::FreeMouse:
+        state.mouseFreed = true;
+        releaseGameInput(app, state);
+        break;
+    }
+}
+
+void keepMouseFromGame(app::App& app, const ModeState& state)
+{
+    if (state.mouseFreed || state.paused)
+    {
+        app.mouseCaptureWanted = false;
+        app.mouseCaptureOverPanels = false;
+    }
 }
 
 std::string modeButtonLabel(Mode target)
