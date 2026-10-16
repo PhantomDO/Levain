@@ -1004,40 +1004,153 @@ TEST_CASE(
 namespace
 {
 
-constexpr std::uint16_t ScanEscape = 41, ScanF5 = 62; // USB HID, vérifiés contre SDL par `platform`
+/// L'état des modes, chaque champ nommé : le dernier (`keys`) est un défaut, et les initialiseurs
+/// désignés les veulent tous.
+levain::editor::ModeState modeIn(levain::editor::Mode mode)
+{
+    levain::editor::ModeState state;
+    state.current = mode;
+    return state;
+}
 
 } // namespace
 
-TEST_CASE("Échap ramène à l'Édition à son appui, pas tant qu'elle est tenue")
+namespace
 {
-    levain::editor::ModeState state{.current = levain::editor::Mode::Play};
-    levain::input::RawInput raw;
-    const auto table = levain::editor::defaultShortcuts();
-    CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
-    raw.keys.set(ScanEscape);
-    CHECK(levain::editor::stopPressed(state, raw, table));
-    CHECK_FALSE(
-        levain::editor::stopPressed(state, raw, table)); // toujours tenue : le front est passé
-    raw.keys.reset(ScanEscape);
-    CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
-    raw.keys.set(ScanEscape);
-    CHECK(levain::editor::stopPressed(state, raw, table)); // un nouvel appui
+
+constexpr std::uint16_t ScanEscape = 41, ScanF5 = 62, ScanF1 = 58, ScanPause = 72, ScanW = 26,
+                        ScanQ = 20, ScanZ = 29;
+
+/// Une touche pressée ou relâchée telle que la fenêtre la rend (`UiEventType::Key`).
+levain::platform::UiEvent keyEvent(std::uint16_t scancode, bool down,
+                                   levain::platform::KeyModifiers modifiers = {})
+{
+    return {.type = levain::platform::UiEventType::Key,
+            .keycode = scancode | (1U << 30U),
+            .scancode = scancode,
+            .down = down,
+            .modifiers = modifiers};
 }
 
-TEST_CASE("l'arrêt lit la position que la table donne à « Arrêter », non Échap en dur")
+levain::platform::Events eventsOf(std::vector<levain::platform::UiEvent> keys)
 {
-    levain::editor::ModeState state{.current = levain::editor::Mode::Play};
-    levain::input::RawInput raw;
+    levain::platform::Events events;
+    events.ui = std::move(keys);
+    return events;
+}
+
+} // namespace
+
+TEST_CASE("Échap arrête à son appui, pas tant qu'elle est tenue, Maj tenu ou non")
+{
+    levain::editor::ModeState state = modeIn(levain::editor::Mode::Play);
+    const auto table = levain::editor::defaultShortcuts();
+    using levain::editor::gameKeysPressed;
+    CHECK_FALSE(gameKeysPressed(state, eventsOf({}), table, false).stop);
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanEscape, true)}), table, false).stop);
+    // Tenue, elle se répète (SDL) : le front est passé, Échap n'arrête pas de nouveau.
+    CHECK_FALSE(gameKeysPressed(state, eventsOf({keyEvent(ScanEscape, true)}), table, false).stop);
+    CHECK_FALSE(gameKeysPressed(state, eventsOf({}), table, false).stop);
+    CHECK_FALSE(gameKeysPressed(state, eventsOf({keyEvent(ScanEscape, false)}), table, false).stop);
+    // Un nouvel appui, un modificateur tenu : Échap ne lit aucun modificateur (`isHeldAction`).
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanEscape, true, {.shift = true})}), table,
+                          false)
+              .stop);
+    // Appuyée et relâchée dans la même image : le front y est (l'ancien état « tenu » le perdait).
+    CHECK(gameKeysPressed(state,
+                          eventsOf({keyEvent(ScanF5, true), keyEvent(ScanEscape, false),
+                                    keyEvent(ScanEscape, true), keyEvent(ScanEscape, false)}),
+                          table, false)
+              .stop);
+}
+
+TEST_CASE("les touches du jeu se lisent à la place que la table leur donne, non en dur")
+{
+    using levain::editor::Action;
+    using levain::editor::gameKeysPressed;
+    levain::editor::ModeState state = modeIn(levain::editor::Mode::Play);
     levain::editor::ShortcutTable table;
-    table.bindings.push_back({.action = levain::editor::Action::Stop,
-                              .context = levain::editor::Context::Game,
-                              .chords = {levain::editor::positionChord(20), {}}});
-    raw.keys.set(ScanEscape);
-    CHECK_FALSE(levain::editor::stopPressed(state, raw, table)); // Échap n'est plus l'arrêt
-    raw.keys.set(20);
-    CHECK(levain::editor::stopPressed(state, raw, table));
-    // Sans aucune action « Arrêter », jamais.
-    CHECK_FALSE(levain::editor::stopPressed(state, raw, levain::editor::ShortcutTable{}));
+    table.bindings = {{.action = Action::Stop,
+                       .context = levain::editor::Context::Game,
+                       .chords = {levain::editor::positionChord(ScanQ), {}}},
+                      {.action = Action::Pause,
+                       .context = levain::editor::Context::Game,
+                       .chords = {levain::editor::positionChord(ScanW), {}}},
+                      {.action = Action::NextFrame,
+                       .context = levain::editor::Context::Game,
+                       .chords = {levain::editor::letterChord('n'), {}}}};
+    // Échap n'est plus l'arrêt, la touche à la position de Q l'est.
+    CHECK_FALSE(gameKeysPressed(state, eventsOf({keyEvent(ScanEscape, true)}), table, false).stop);
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanQ, true)}), table, false).stop);
+    // Pause est une position : celle du W d'un QWERTY, que la lettre marquée dessus soit « w » ou
+    // « z » (AZERTY) ; la touche qui tape « w » ailleurs (la position de Z) ne pause pas.
+    auto atW = keyEvent(ScanW, true);
+    atW.keycode = 'z'; // AZERTY : la touche à la place du W porte un Z
+    CHECK(gameKeysPressed(state, eventsOf({atW}), table, false).actions ==
+          std::vector<Action>{Action::Pause});
+    atW.down = false;
+    static_cast<void>(gameKeysPressed(state, eventsOf({atW}), table, false));
+    auto atZ = keyEvent(ScanZ, true);
+    atZ.keycode = 'w'; // AZERTY : la touche à la place du Z porte un W
+    CHECK(gameKeysPressed(state, eventsOf({atZ}), table, false).actions.empty());
+    // Image suivante, ici sur une lettre : la lettre de la disposition, quelle que soit la
+    // position.
+    auto typedN = keyEvent(ScanF5, true);
+    typedN.keycode = 'n';
+    CHECK(gameKeysPressed(state, eventsOf({typedN}), table, false).actions ==
+          std::vector<Action>{Action::NextFrame});
+}
+
+TEST_CASE("Maj+F1 rend la souris, F1 seule non, et les modificateurs sont exacts")
+{
+    using levain::editor::Action;
+    using levain::editor::gameKeysPressed;
+    levain::editor::ModeState state = modeIn(levain::editor::Mode::Play);
+    const auto table = levain::editor::defaultShortcuts();
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanF1, true, {.shift = true})}), table, false)
+              .actions == std::vector<Action>{Action::GiveMouseBack});
+    CHECK(
+        gameKeysPressed(state, eventsOf({keyEvent(ScanF1, false)}), table, false).actions.empty());
+    // F1 seule ouvre les panneaux (`togglesPanels`) : elle ne rend pas la souris. Ctrl+Maj+F1 non
+    // plus.
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanF1, true)}), table, false).actions.empty());
+    CHECK(
+        gameKeysPressed(state, eventsOf({keyEvent(ScanF1, false)}), table, false).actions.empty());
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanF1, true, {.ctrl = true, .shift = true})}),
+                          table, false)
+              .actions.empty());
+    static_cast<void>(gameKeysPressed(state, eventsOf({keyEvent(ScanF1, false)}), table, false));
+    // La touche Pause, et l'ordre des appuis d'une image.
+    CHECK(gameKeysPressed(state,
+                          eventsOf({keyEvent(ScanPause, true), keyEvent(ScanPause, false),
+                                    keyEvent(ScanF1, true, {.shift = true})}),
+                          table, false)
+              .actions == std::vector<Action>{Action::Pause, Action::GiveMouseBack});
+}
+
+TEST_CASE(
+    "les touches du jeu ne partent ni en Édition, ni dans un champ de texte, mais sont suivies")
+{
+    using levain::editor::gameKeysPressed;
+    using levain::editor::Mode;
+    const auto table = levain::editor::defaultShortcuts();
+    levain::editor::ModeState edit = modeIn(Mode::Edit);
+    const auto pressed = eventsOf({keyEvent(ScanEscape, true), keyEvent(ScanPause, true)});
+    const auto none = gameKeysPressed(edit, pressed, table, false);
+    CHECK_FALSE(none.stop);
+    CHECK(none.actions.empty());
+    // Échap tenue depuis l'Édition : le front a eu lieu, le jeu qui commence ne le revoit pas.
+    CHECK(edit.keys.test(ScanEscape));
+    levain::editor::ModeState play = modeIn(Mode::Play);
+    play.keys = edit.keys;
+    CHECK_FALSE(gameKeysPressed(play, eventsOf({keyEvent(ScanEscape, true)}), table, false).stop);
+
+    // Un champ de texte actif garde Échap (elle y annule la frappe) et les autres touches.
+    levain::editor::ModeState typing = modeIn(Mode::Play);
+    const auto inField = gameKeysPressed(typing, pressed, table, true);
+    CHECK_FALSE(inField.stop);
+    CHECK(inField.actions.empty());
+    CHECK(typing.keys.test(ScanEscape)); // suivie quand même
 }
 
 TEST_CASE("Alt+P joue, Échap arrête, seul le bouton va dans les deux sens")

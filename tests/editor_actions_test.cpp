@@ -376,6 +376,29 @@ TEST_CASE("les touches d'outil lues dans les événements bruts : par position, 
     CHECK(bench.reached == std::vector<Action>{Action::Undo});
 }
 
+TEST_CASE("heldKeysAfter range les événements de l'image : un appui et un relâchement ne laissent "
+          "rien, la fenêtre qui perd le focus oublie tout")
+{
+    std::bitset<levain::platform::KeyCodeCount> held;
+    held.set(ScanR);
+    levain::platform::Events events;
+    events.ui = {keyEvent(ScanW, 'w', true),
+                 keyEvent(ScanSpace, ' ', true),
+                 keyEvent(ScanSpace, ' ', false),
+                 keyEvent(ScanR, 'r', false),
+                 {.type = UiEventType::MouseMoved, .x = 3.0f, .y = 4.0f}};
+    const auto after = heldKeysAfter(events, held);
+    CHECK(after.test(ScanW));
+    CHECK_FALSE(after.test(ScanSpace)); // appuyée et relâchée dans l'image
+    CHECK_FALSE(after.test(ScanR));     // relâchée
+    CHECK(after.count() == 1);
+    events.ui.insert(events.ui.begin() + 1, UiEvent{.type = UiEventType::FocusLost});
+    const auto lost = heldKeysAfter(events, held); // tout oublié avant l'appui de l'espace
+    CHECK_FALSE(lost.test(ScanR));
+    CHECK(lost.none()); // le W d'avant le focus perdu aussi, l'espace relâché
+    CHECK(heldKeysAfter({}, held) == held);
+}
+
 TEST_CASE("keyPressesOf rend la position, la lettre de la disposition et les modificateurs, et une "
           "répétition n'est pas un appui")
 {

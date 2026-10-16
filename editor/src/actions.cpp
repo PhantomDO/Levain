@@ -78,6 +78,23 @@ std::optional<Action> viewKeyActionOf(const ShortcutTable& table, const KeyPress
     return action && (isToolAction(*action) || *action == Action::GameView) ? action : std::nullopt;
 }
 
+std::bitset<platform::KeyCodeCount> heldKeysAfter(const platform::Events& events,
+                                                  std::bitset<platform::KeyCodeCount> held)
+{
+    for (const platform::UiEvent& event : events.ui)
+    {
+        if (event.type == platform::UiEventType::FocusLost)
+        {
+            held.reset();
+        }
+        else if (event.type == platform::UiEventType::Key && event.scancode < held.size())
+        {
+            held.set(event.scancode, event.down);
+        }
+    }
+    return held;
+}
+
 std::vector<KeyPress> keyPressesOf(const platform::Events& events,
                                    std::bitset<platform::KeyCodeCount> held)
 {

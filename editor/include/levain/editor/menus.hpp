@@ -77,6 +77,10 @@ struct Equivalents
         return {.unreal = "Alt+S", .unity = ""};
     case Action::Stop:
         return {.unreal = "Échap", .unity = "Ctrl+P"};
+    case Action::Pause:
+        return {.unreal = "Pause", .unity = "Ctrl+Maj+P"};
+    case Action::NextFrame:
+        return {.unreal = "", .unity = "Ctrl+Alt+P"};
     case Action::GiveMouseBack:
         return {.unreal = "Maj+F1", .unity = "Échap"};
     case Action::Count:

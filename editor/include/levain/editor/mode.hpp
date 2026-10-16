@@ -8,15 +8,18 @@
 // Équivalents : le mode Édition d'Unity (hors Play) et d'Unreal (hors PIE) ; Godot, lui, ne joue
 // que dans une fenêtre à part.
 
+#include <bitset>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <imgui.h>
 
 #include "levain/app/app.hpp"
 #include "levain/editor/shortcuts.hpp"
-#include "levain/input/state.hpp"
+#include "levain/platform/input.hpp"
+#include "levain/platform/window.hpp"
 
 namespace levain::editor
 {
@@ -27,12 +30,14 @@ enum class Mode : std::uint8_t
     Play, ///< « Jouer » : le jeu tourne ; Stop rend la scène (`stopPlay`).
 };
 
-/// Où en sont les modes : celui d'aujourd'hui, et la touche d'arrêt vue à l'image d'avant (pour
-/// n'en lire que le front).
+/// Où en sont les modes : celui d'aujourd'hui, et les touches tenues telles que l'éditeur les voit.
 struct ModeState
 {
     Mode current = Mode::Edit;
-    bool stopHeld = false;
+    /// Les touches tenues, lues dans les événements bruts de l'image (`App::rawFrameEvents`) :
+    /// **quelle que soit la route**, car le jeu ne reçoit pas toujours le clavier, et
+    /// Échap, Pause et Maj+F1 doivent encore se lire (`gameKeysPressed`).
+    std::bitset<platform::KeyCodeCount> keys;
 };
 
 /// La simulation est arrêtée en Édition (`App::simulationPaused`).
@@ -163,15 +168,70 @@ struct ModeRequests
     return "";
 }
 
-/// Échap vient d'être appuyée : le front, lu sur l'input brut du jeu, à la position que la table
-/// donne à « Arrêter » (`table`, ADR-0036, décision 13) : un accord changé par l'utilisateur
-/// (morceau 16) arrête aussi. Une touche tenue ne le redonne pas. **Elle vaut partout où le jeu
-/// reçoit le clavier** : sous la route *jeu*, mais aussi sous la route *UI* quand une fenêtre a le
-/// focus sans qu'un champ soit actif ; la décision 13 la réserve au contexte *jeu* (la route *jeu*
-/// seule sait l'être : M7.5 la lui rendra avec « Arrêter »). Sans accord de position pour l'action,
-/// jamais.
-[[nodiscard]] bool stopPressed(ModeState& state, const input::RawInput& raw,
-                               const ShortcutTable& table);
+/// Ce que les touches du contexte *jeu* ont demandé à cette image.
+struct GameKeys
+{
+    bool stop = false;           ///< « Arrêter » (Échap) vient d'être appuyée.
+    std::vector<Action> actions; ///< Pause, Image suivante, Rendre la souris : dans l'ordre.
+};
+
+/// Les touches du contexte *jeu* qui viennent d'être appuyées (la décision 13 : Échap, la touche
+/// Pause, Maj+F1, et l'accord qu'on aurait donné à « Image suivante »), **lues dans les
+/// événements bruts de l'image** et à la place que la table leur donne : un accord changé dans la
+/// fenêtre « Raccourcis » vaut aussi. **Pas sur l'input du jeu** : la route peut le lui retirer
+/// (sous la route *UI* ou *éditeur*), et Échap doit pourtant arrêter. Un
+/// appui est le front (`keyPressesOf` : une répétition n'en est pas un) ; Échap ignore les
+/// modificateurs (`isHeldAction`), les autres les veulent exacts. Rien en Édition, ni quand
+/// `blocked` : un champ de texte actif (Échap y annule la frappe) ou une modale ouverte (Échap la
+/// ferme, et ne doit pas arrêter le jeu dessous) ; `state.keys` se tient à jour dans tous les cas,
+/// pour que le front soit juste à la première image où les touches valent.
+[[nodiscard]] GameKeys gameKeysPressed(ModeState& state, const platform::Events& events,
+                                       const ShortcutTable& table, bool blocked);
+
+/// Ce que Pause, Image suivante et Rendre la souris font au jeu.
+enum class PlayControl : std::uint8_t
+{
+    TogglePause, ///< Pause quand le jeu tourne, Reprendre quand il est en pause.
+    StepFrame,   ///< Un pas, puis la pause reprend (`App::singleStep`).
+    FreeMouse,   ///< Maj+F1 : la souris à l'éditeur jusqu'au prochain clic dans la scène.
+};
+
+/// Le contrôle de jeu qu'une action est, ou rien (Jouer, Arrêter et le reste suivent d'autres
+/// chemins).
+[[nodiscard]] constexpr std::optional<PlayControl> playControlOf(Action action)
+{
+    switch (action)
+    {
+    case Action::Pause:
+        return PlayControl::TogglePause;
+    case Action::NextFrame:
+        return PlayControl::StepFrame;
+    case Action::GiveMouseBack:
+        return PlayControl::FreeMouse;
+    case Action::MoveForward:
+    case Action::MoveBackward:
+    case Action::MoveLeft:
+    case Action::MoveRight:
+    case Action::MoveUp:
+    case Action::MoveDown:
+    case Action::FrameSelection:
+    case Action::GameView:
+    case Action::RealTime:
+    case Action::ToolMove:
+    case Action::ToolRotate:
+    case Action::ToolScale:
+    case Action::NextTool:
+    case Action::Save:
+    case Action::Undo:
+    case Action::Redo:
+    case Action::Play:
+    case Action::Simulate:
+    case Action::Stop:
+    case Action::Count:
+        return std::nullopt; // pas de `default` : une action de plus doit être classée ici
+    }
+    return std::nullopt;
+}
 
 /// Passe dans ce mode. **Remet `mouseCaptureWanted` à faux** à chaque changement : en Édition le
 /// `frame` du programme, qui le repose, ne tourne plus, et la souris qu'un clic droit tenu avait
