@@ -387,7 +387,9 @@ if(NOT EMSCRIPTEN)
     # le refus d'un rapport de sanitizer ou d'une erreur d'exécution (règle n°4). Sous Linux seulement, comme les
     # autres lancements de fenêtre de l'exécutable éditeur.
     if(NOT WIN32)
-        set(pickFailure "Sanitizer|runtime error")
+        # « la commande est sortie avec le code » est le message de run_expect_exit_zero.cmake : sans lui, un éditeur qui plante
+        # après la ligne attendue resterait vert (ctest ignore le code de sortie avec PASS_REGULAR_EXPRESSION).
+        set(pickFailure "Sanitizer|runtime error|la commande est sortie avec le code")
         add_test(NAME editor.vue-pick-inside
             COMMAND ${CMAKE_COMMAND}
                     "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;40;--input-script;${CMAKE_CURRENT_SOURCE_DIR}/data/editor/vue_pick_inside.txt"
@@ -404,6 +406,21 @@ if(NOT EMSCRIPTEN)
             ENVIRONMENT "${testVideo}"
             PASS_REGULAR_EXPRESSION "editor.mode mode=play steps=[1-9]"
             FAIL_REGULAR_EXPRESSION "[[]sandbox[]] sélection :|${pickFailure}")
+    endif()
+
+    # Le critère de M7.5 dans l'exécutable éditeur (ADR-0037, décision 7) : la vue physics joue 120 pas (Alt+P, Échap), les
+    # caisses tombent, puis Stop rend la scène. La CI lit la ligne `editor.stop`, sous son nom stable : des pas (un Play de zéro
+    # pas ne prouverait rien, règle n°7) et zéro différence. Les 120 sont ceux du script (play_stop.txt) : le motif les écrit
+    # en toutes lettres (`steps=120`), il refuse donc « steps=0 » (la session de la CI, morceau 7, exigera `[1-9][0-9]*`). Un Stop sans restauration donne `differences=` non nul : le test est rouge.
+    if(NOT WIN32)
+        add_test(NAME editor.play-stop
+            COMMAND ${CMAKE_COMMAND}
+                    "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;130;--input-script;${CMAKE_CURRENT_SOURCE_DIR}/data/editor/play_stop.txt"
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
+        set_tests_properties(editor.play-stop PROPERTIES
+            ENVIRONMENT "${testVideo}"
+            PASS_REGULAR_EXPRESSION "editor.stop steps=120 differences=0 ms="
+            FAIL_REGULAR_EXPRESSION "${pickFailure}")
     endif()
 
     # L'exécutable éditeur refuse `--gpu webgpu` avant d'ouvrir fenêtre ni device (ADR-0036, décision 7) : le message de

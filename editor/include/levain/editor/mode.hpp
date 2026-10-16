@@ -1,8 +1,8 @@
 #pragma once
 
 // Les modes de l'éditeur (ADR-0036, décision 3, ADR-0037) : **Édition**, où rien ne tourne et où le
-// jeu ne reçoit rien, et **Jouer**, où le jeu tourne dans la Vue ; Stop n'y rend pas encore la
-// scène (M7.5, morceau 4). Simuler et la pause (morceaux 5 et 6) viendront s'y ajouter : un
+// jeu ne reçoit rien, et **Jouer**, où le jeu tourne dans la Vue et où Stop rend la scène telle
+// qu'elle était (`play.hpp`). Simuler et la pause (morceaux 5 et 6) viendront s'y ajouter : un
 // mode de plus, et un drapeau, sans toucher aux fonctions ci-dessous. La logique est en fonctions
 // libres dont les dépendances sont des paramètres (ADR-0011) ; `withEditor` n'en a que la glu.
 // Équivalents : le mode Édition d'Unity (hors Play) et d'Unreal (hors PIE) ; Godot, lui, ne joue
@@ -24,7 +24,7 @@ namespace levain::editor
 enum class Mode : std::uint8_t
 {
     Edit, ///< « Édition » : aucun pas, `frame` du programme jamais appelé, route *éditeur*.
-    Play, ///< « Jouer » : le jeu tourne, rien n'est encore restauré à l'arrêt.
+    Play, ///< « Jouer » : le jeu tourne ; Stop rend la scène (`stopPlay`).
 };
 
 /// Où en sont les modes : celui d'aujourd'hui, et la touche d'arrêt vue à l'image d'avant (pour

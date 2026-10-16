@@ -137,7 +137,7 @@ ModeBarOverlay drawModeBarContents(Mode current, bool interactive, const std::st
         ImGui::TextColored(
             {1.0f, 0.75f, 0.2f, 1.0f}, "%s",
             ui::icon::withIcon(ui::icon::Play,
-                               ui::tr("Jouer : la scène n'est pas restaurée à l'arrêt"))
+                               ui::tr("Jouer : à l'arrêt, la scène revient telle qu'avant Play"))
                 .c_str());
         break;
     }

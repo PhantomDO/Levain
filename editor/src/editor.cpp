@@ -223,11 +223,62 @@ void recheckShortcutsAfterKeymap(const app::App& app, Editor& editor)
     logShortcutConflicts(editor.shortcuts, app.keyAtPosition, "disposition du clavier");
 }
 
+/// Arrête le jeu : Stop rend la scène (`stopPlay`) et la console dit ce qu'il a trouvé. `false` si
+/// Stop a été refusé : on reste en jeu, rien n'a changé. La sélection d'une entité née en jeu
+/// disparaît avec elle (`selectedIfAlive`), les autres survivent avec leur identifiant.
+bool stopEditorPlay(app::App& app, Editor& editor)
+{
+    if (!editor.play)
+    {
+        return true;
+    }
+    const StopReport report = stopPlay(playTargetOf(app), *editor.play);
+    if (report.refused)
+    {
+        core::log("editor", core::LogLevel::Error, "{}",
+                  ui::trf("Stop refusé : {}", report.refusal));
+        return false;
+    }
+    logStop(report);
+    editor.play.reset();
+    editor.selected = selectedIfAlive(app.world, editor.selected);
+    app.recomposeAfterUi = true; // la scène rendue se voit dans cette image même
+    return true;
+}
+
+/// Ce que Jouer et Arrêter font avant de changer de mode ; `false` si le changement n'a pas lieu
+/// (Play refusé : un composant qui ne se copie pas, Stop refusé : le monde est en mode différé).
+/// La console dit pourquoi, et le mode reste celui d'avant. **Clés sur la session, non sur
+/// `Mode::Play`** : quitter l'Édition ouvre une session, y revenir la ferme, quel que soit le mode
+/// de jeu (Simuler, en M7.5, piece 6).
+bool carryOutPlayTransition(app::App& app, Editor& editor, Mode to)
+{
+    if (!editor.play && to != Mode::Edit)
+    {
+        auto session = startPlay(playTargetOf(app));
+        if (!session)
+        {
+            core::log("editor", core::LogLevel::Error, "{}",
+                      ui::trf("Jouer refusé : {}", session.error().message));
+            return false;
+        }
+        editor.play = std::move(*session);
+        return true;
+    }
+    return !editor.play || to != Mode::Edit || stopEditorPlay(app, editor);
+}
+
 /// Passe de mode. Jouer met la Vue en avant : le jeu reçoit le clavier sans qu'il faille cliquer
-/// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`).
+/// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`). **Jouer prend
+/// l'instantané et Arrêter rend la scène avant** `enterMode`, hors du mode différé : `frame` et la
+/// fin de `ui` y sont (ADR-0037, décision 3).
 void changeMode(app::App& app, Editor& editor, Mode mode)
 {
     const Mode from = editor.mode.current;
+    if (!carryOutPlayTransition(app, editor, mode))
+    {
+        return;
+    }
     // Une saisie d'accord ne survit pas au changement de mode : hors de l'Édition les touches ne
     // lui parviennent plus (`frameGestures`), et plus rien ne pourrait la finir.
     abandonCapture(editor.shortcutWindow);
@@ -425,6 +476,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .hierarchy = createHierarchy(app.world),
                    .inspector = createInspector(app.world, &app.registry),
                    .mode = {},
+                   .play = {},
                    .log = capture,
                    .console = {},
                    .windows = {},
@@ -560,6 +612,12 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             // Avant les raccourcis et la route, qui lisent si elle est ouverte.
             if (drawQuitModal(editor->quit) == QuitAnswer::Quit)
             {
+                // Quitter en jeu rend la scène d'abord (ADR-0037) : une exécution scriptée qui
+                // s'arrête avant son terme ne passe pas par `finish`.
+                if (editor->play)
+                {
+                    changeMode(app, *editor, Mode::Edit);
+                }
                 app.quitRequested = true;
             }
             runReachedActions(app, *editor, std::move(reached), capturing);
@@ -618,7 +676,16 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             logEditor(app.world, *editor);
             logMode(app, *editor);
             logView(editor->view);
-            return !finish || finish(app);
+            // Le programme rend compte de ce qu'il a vu en jeu (le sandbox dit ses corps) AVANT
+            // que Stop ne rende la scène, puis quitter ou finir une exécution scriptée en jeu passe
+            // par Stop (ADR-0037). Une capture (`--capture`) est prise après ce point : elle voit
+            // la scène rendue.
+            const bool programOk = !finish || finish(app);
+            if (editor->play)
+            {
+                changeMode(app, *editor, Mode::Edit);
+            }
+            return programOk;
         };
         return hooks;
     };

@@ -241,8 +241,7 @@ M couverts par un test ».
 16. **L'éditeur s'ouvre en Édition** (`mode.hpp`, ADR-0036, décision 3) : aucun pas (`App::simulationPaused`), le
     `frame` du programme jamais appelé (`programFrameRunsIn`), la route de l'input *éditeur* (rien au jeu, ce qu'il
     tenait relâché), `PlayerInput` vide touches tenues. **Alt+P** (`ImGui::Shortcut`, route globale) ou le bouton de
-    la barre de mode passent en « Jouer » : le jeu d'aujourd'hui sous un bandeau, rien n'est restauré à
-    l'arrêt (M7.5 viendra avec Play et Stop). **Alt+P ne fait que jouer** (la table de la décision 13 : « Jouer »),
+    la barre de mode passent en « Jouer » (voir l'invariant sur Play et Stop, plus bas). **Alt+P ne fait que jouer** (la table de la décision 13 : « Jouer »),
     **Échap ne fait qu'arrêter**, et seul le bouton va dans les deux sens : `modeRequested` en décide, testée. Sous la
     route *jeu*, ImGui n'a pas Alt+P ; une Alt+P qui basculerait ne ramènerait qu'aux images où un panneau a le focus.
     Échap est lue sur l'input brut par la position que la table donne à « Arrêter » (`stopPressed`) : elle vaut partout où le jeu reçoit le clavier,
@@ -267,6 +266,22 @@ M couverts par un test ».
     (`drawModeBarOverlay`). Panneaux fermés, il n'y a pas de Vue, et la barre est le bandeau d'avant, sans bouton
     (`NoInputs`), pour que le bandeau de « Jouer » se voie aussi sans panneaux et que la route *jeu*
     reste. Celle du morceau 12 la remplacera.
+16 bis. **Jouer garde la scène, Arrêter la rend** (`play.hpp`, ADR-0037). `startPlay` prend l'instantané (`scene::takeSnapshot`),
+    retient les assets en usage, remplace le monde Jolt par un neuf et bascule les nouveaux identifiants dans la plage du
+    jeu ; chaque refus (un composant qui ne se copie pas, des assets déjà retenus) laisse l'Édition et dit pourquoi à la
+    console. `stopPlay` finit d'abord la physique (`physics::endPlay`, sinon des `onExit` du jeu partiraient), rend la scène
+    (`scene::restoreSnapshot`), revient aux identifiants de l'édition, remplace encore le monde Jolt (aucun corps en
+    Édition) et rend l'accumulateur du pas fixe, l'animation (`app::AnimationMemo`) et les assets. **Les deux passent par
+    `changeMode`, hors du mode différé** (`frame` et la fin de `ui`), et sont **clés sur la session** (`Editor::play`) : quitter
+    l'Édition en ouvre une, y revenir la ferme, quel que soit le mode de jeu (Simuler en dépendra). `stopPlay` refuse le mode
+    différé dès sa première ligne, avec ou sans physique : la session reste, le mode aussi. `differences` de la ligne
+    `editor.stop steps=N differences=D ms=T -- …` est le compte des vraies différences que rend `scene::compareWithSnapshot`,
+    recalculé et non lu dans le résultat de la restauration : une restauration sautée se voit dans la ligne que lit la CI ; les
+    enfants internes perdus sont comptés à part (un avertissement chacun). **Quitter en jeu** (le bouton Quitter de la
+    modale) passe par Stop. **Finir une exécution scriptée en jeu** aussi : `withEditor` lance d'abord le `finish` du
+    programme (le sandbox y dit ses corps, tels que le jeu les laisse), puis Stop. Une capture (`--capture`) est prise après
+    ce point : elle montre la scène rendue. La sélection survit à Stop, sauf celle d'une entité née en jeu. La Hiérarchie range ses racines par index (`order_by(0, …)`, retriées par flecs quand les tables de
+    la requête changent seulement), pour qu'une entité réveillée reprenne sa place.
 17. **Une valeur tapée dans l'inspecteur se voit dans l'image même** : `commitEdit` qui écrit lève
     `Inspector::wrote` (remis à faux à chaque `drawInspector`), et `withEditor` pose alors
     `App::recomposeAfterUi` (ADR-0036, décision 2). Le scénario de bout en bout attend le texte scripté (morceau 12).
@@ -469,6 +484,9 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   `playShortcutPressed`, `sceneHasFocus` (`mode.hpp`) : les modes, en fonctions libres. À la fin, `withEditor` écrit aussi `editor.mode mode=edit steps=0 -- mode : Édition ; pas : 0`,
   sous son nom stable (ADR-0036, décision 14), que la CI lit : l'éditeur lancé sans script est en Édition à zéro pas
   (`App::stepsPlayed`, tous les pas de la boucle).
+- `startPlay`, `stopPlay`, `PlayTarget`, `PlaySession`, `StopReport`, `stopLineOf`, `logStop` (`play.hpp`) : Jouer et Arrêter
+  en fonctions libres, testées sans fenêtre (`tests/editor_play_test.cpp`). `withEditor` écrit à chaque Stop
+  `editor.stop steps=120 differences=0 ms=… -- Stop : …`, sous ce nom stable (ADR-0036, décision 14).
 - `Action`, `Context`, `Chord`, `Binding`, `ShortcutTable`, `defaultShortcuts`, `bindingOf`, `nameOf`, `actionFor`,
   `chordMatches`, `positionHeld`, `displayNameOf`, `tokenOf`, `chordFromToken`, `imguiChordOf`, `letterChordPressed`
   (`shortcuts.hpp`) : la
@@ -628,6 +646,6 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
 | **Unreal**, la grille et la vue de jeu | Le menu *Show* du viewport, la touche G | G passe le viewport en *Game View*, qui cache ce que le jeu ne montre pas (la grille, les icônes : **documenté**, GESTES.md [E1]) ; la grille se règle dans ses préférences (**supposé**). Levain suit : « Vue de jeu » cache la grille et le contour de la sélection, et Jouer les cache aussi (le viewport de PIE n'en a pas, **supposé**). |
 | **Unity**, la grille | La grille de la Scene View et les *Gizmos* | Un bouton *Gizmos* montre ou cache les aides, la grille se règle dans la barre de la Scene View (**supposé**, non relu pour ce morceau) ; l'écart par puissances de 10 suivant le zoom est aussi le comportement que je lui connais (**supposé**). |
 | **Godot**, la grille | View > Grid et View > Gizmos | Le menu *View* du viewport 3D active la grille et les gizmos (**supposé**, non relu pour ce morceau). |
-| **Unreal**, les modes | Édition, puis *Play* (PIE) | Échap arrête le jeu, Alt+S simule (**documenté**, ADR-0036 [2]), Alt+P joue (**supposé**) ; PIE joue une copie du niveau, que notre « Jouer » ne fait pas avant M7.5 (**supposé**). |
-| **Unity**, les modes | Le mode Play | Un mode Édition où rien ne tourne, Play à part, et les changements faits en jeu perdus à l'arrêt (**documenté**, GESTES.md [U20]) ; ici, rien n'est restauré avant M7.5. |
+| **Unreal**, les modes | Édition, puis *Play* (PIE) | Échap arrête le jeu, Alt+S simule (**documenté**, ADR-0036 [2]), Alt+P joue (**supposé**) ; PIE joue une copie du niveau (**supposé**), là où Jouer garde la scène en mémoire et la rend en place à Stop, avec les mêmes identifiants (ADR-0037). |
+| **Unity**, les modes | Le mode Play | Un mode Édition où rien ne tourne, Play à part, et les changements faits en jeu perdus à l'arrêt (**documenté**, GESTES.md [U20]) ; ici aussi, sans recharger la scène : Play garde un instantané, Stop le rend en place (ADR-0037). |
 | **Godot**, les modes | Jouer la scène | Le jeu tourne dans une fenêtre à part, l'éditeur ne change pas de mode (**supposé**) : l'écart est assumé. |
