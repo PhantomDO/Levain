@@ -134,7 +134,7 @@ le vérifie lui-même**, dans tous les builds (règle n°7).
    | Édition | arrêtée | jamais | non | de l'éditeur |
    | Jouer | tourne | oui | Vue focalisée seulement | du jeu |
    | Simuler | tourne | jamais | non | de l'éditeur |
-   | Pause, en Jouer ou en Simuler | arrêtée | non | non | ceux du mode |
+   | Pause, en Jouer ou en Simuler | arrêtée | non, sauf pour Image suivante (input vide, la durée d'un pas) | non | ceux du mode |
 
    - **Les touches** : Alt+P joue (supposé), Alt+S simule, Échap arrête, Maj+F1 rend la souris jusqu'au prochain
      clic dans la Vue (Unreal, documenté [1]) ; Pause, la touche Pause (supposé) et le bouton. Image suivante, le

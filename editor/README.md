@@ -303,10 +303,12 @@ M couverts par un test ».
     les autres les veulent exacts ; rien en Édition, dans un champ de texte actif, sous la modale « Quitter ? ». **La teinte** : la
     barre d'outils (son fond) et le bord de la Vue prennent la couleur du jeu, une autre en pause, aucune en Édition
     (`playTintOf`, `ui::PlayTint`, `ui::PausedTint`, `ui::tintedBarBackground`) ; le bandeau de la barre de mode garde son texte
-    (ce que Jouer fait à la scène, « Pause », ou « Souris rendue : cliquer dans la Vue pour la rendre au jeu » après Maj+F1,
+    (ce que Jouer fait à la scène, « Pause », ou « Souris rendue : cliquer dans la scène pour la rendre au jeu » après Maj+F1,
     `modeBannerOf`) et une icône teintée. **Le bord est dessiné sur la scène** : les teintes sont de luminance moyenne, pour se
     lire sur un ciel clair comme sur un sol sombre (3 de contraste contre l'un, l'autre et le gris des panneaux). La barre d'outils montre Jouer et Simuler en Édition ; Arrêter,
     Pause (Reprendre) et Image suivante en jeu, le bouton de mode toujours en tête.
+    **Le `frame` du programme voit la durée d'un pas** (`programFrameSecondsOf`) sur une image d'Image suivante, non le temps mesuré de
+    l'image en pause, que les gestes de l'éditeur gardent.
 17. **Une valeur tapée dans l'inspecteur se voit dans l'image même** : `commitEdit` qui écrit lève
     `Inspector::wrote` (remis à faux à chaque `drawInspector`), et `withEditor` pose alors
     `App::recomposeAfterUi` (ADR-0036, décision 2). Le scénario de bout en bout attend le texte scripté (morceau 12).
@@ -504,7 +506,7 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
 - `QuitState`, `askToQuit`, `shouldOpenQuitModal`, `drawQuitModal` (`quit.hpp`) : la modale de fermeture.
 - `Mode`, `ModeState`, `ModeRequests`, `modeRequested`, `enterMode`, `gameKeysPressed`, `GameKeys`, `mousePressedIn`,
   `PlayControl`, `playControlOf`, `playControlRefusal`, `applyPlayControl`, `keepMouseFromGame`, `inputRouteFor`, `inputRouteOf`,
-  `simulationRunsIn`, `programFrameRunsIn`, `playTintOf`, `modeBannerOf`, `pauseButtonLabel`, `stepButtonLabel`, `otherMode`,
+  `simulationRunsIn`, `programFrameRunsIn`, `programFrameSecondsOf`, `playTintOf`, `modeBannerOf`, `pauseButtonLabel`, `stepButtonLabel`, `otherMode`,
   `modeNameOf`, `modeHintOf`, `modeTokenOf`, `drawModeBar`,
   `drawModeBarOverlay` et son `ModeBarOverlay` (le mode demandé, le survol, les rectangles de la barre et de son bouton,
   que la Vue garde : `View::modeBarRect`, `View::modeBarButton`),

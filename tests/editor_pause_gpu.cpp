@@ -3,9 +3,10 @@
 //   - pause : la touche Pause arrête les pas, l'accumulateur ne bouge pas, le `frame` du programme
 //     se tait, le jeu ne reçoit rien (une touche tenue en pause ne le rejoint pas à la reprise) ;
 //     Pause reprend ; Échap, de la pause, arrête et rend la scène (la ligne `editor.stop`) ;
-//   - Image suivante : exactement un pas, puis la pause reprend ; refusée en marche ;
-//   - la barre d'outils : Pause, Image suivante, Reprendre et Arrêter, cliqués à la souris scriptée
-//   ;
+//   - Image suivante : exactement un pas, puis la pause reprend ; refusée en marche ; le `frame` du
+//     programme y voit la durée d'un pas fixe, non le temps mesuré de l'image en pause ;
+//   - la barre d'outils : Pause, Image suivante, Reprendre et Arrêter, cliqués à la souris
+//     scriptée ;
 //   - Maj+F1 : la souris est rendue (plus capturée), le jeu ne reçoit plus rien ; un clic dans la
 //     scène la lui rend, et ce clic ne l'atteint pas ; un clic hors de la scène ne la rend pas ;
 //   - QWERTY et AZERTY : une touche de position se lit à la position, une lettre à la lettre ;
@@ -90,6 +91,9 @@ struct Run
     std::vector<Frame> frames;
     std::vector<std::string> stopLines; ///< les `editor.stop` du journal
     int programFrames = 0;
+    /// Ce que `App::frameSeconds` valait à chaque appel du `frame` du programme : l'image (celle
+    /// que `run.frames` relèvera à sa fin) et la durée.
+    std::vector<std::pair<std::size_t, float>> programSeconds;
 };
 
 /// Ce qu'un scénario ajoute à une exécution.
@@ -97,6 +101,10 @@ struct Options
 {
     bool panels = false;    ///< panneaux ouverts (640 x 360) ou fermés (320 x 180)
     bool grabMouse = false; ///< le `frame` du programme veut la souris à chaque image
+    /// Une durée mesurée de remplacement, posée avant chaque image : sous `--steps` elle vaudrait
+    /// toujours le pas fixe, et le test ne verrait pas si le programme en reçoit la durée mesurée
+    /// ou celle d'un pas. Zéro : on la laisse.
+    float measuredSeconds = 0.0f;
     /// Appelé à la fin de chaque image, éditeur modifiable : un test règle la table des raccourcis
     /// ou l'accumulateur sans passer par la fenêtre.
     std::function<void(App&, Editor&, int frame)> atFrameEnd;
@@ -125,6 +133,7 @@ levain::app::StartFunction programOf(Run& run, bool grabMouse)
         hooks.frame = [&run, grabMouse, forward = *forward](App& frameApp)
         {
             ++run.programFrames;
+            run.programSeconds.emplace_back(run.frames.size(), frameApp.frameSeconds);
             // Comme le sandbox : ce que le joueur demande, lu sur l'input de l'image, que les
             // systèmes du pas appliquent ; la caméra avance tant que W est tenue.
             frameApp.world.set<levain::scene::FpsInput>(
@@ -200,22 +209,37 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, int
         }
     };
     auto start = programOf(run, options.grabMouse);
+    const auto withEditor = levain::editor::withEditor(
+        [&](App& app) -> levain::core::Result<levain::app::FrameHooks>
+        {
+            appSeen = &app;
+            const auto axis = levain::input::axisIndex(app.bindings, "move_forward");
+            if (!axis)
+            {
+                return levain::core::makeError(levain::core::ErrorCode::InvalidData,
+                                               "data/input.cfg : move_forward manque");
+            }
+            forwardAxis = *axis;
+            return start(app);
+        },
+        std::move(editorOptions));
     run.exitCode = levain::app::runApp(
         settings,
-        levain::editor::withEditor(
-            [&](App& app) -> levain::core::Result<levain::app::FrameHooks>
+        [&](App& app) -> levain::core::Result<levain::app::FrameHooks>
+        {
+            auto hooks = withEditor(app);
+            if (hooks && options.measuredSeconds > 0.0f)
             {
-                appSeen = &app;
-                const auto axis = levain::input::axisIndex(app.bindings, "move_forward");
-                if (!axis)
+                // Posée **avant** le crochet de l'éditeur, comme la boucle pose la durée mesurée.
+                hooks->frame = [editorFrame = std::move(hooks->frame),
+                                seconds = options.measuredSeconds](App& frameApp)
                 {
-                    return levain::core::makeError(levain::core::ErrorCode::InvalidData,
-                                                   "data/input.cfg : move_forward manque");
-                }
-                forwardAxis = *axis;
-                return start(app);
-            },
-            std::move(editorOptions)));
+                    frameApp.frameSeconds = seconds;
+                    editorFrame(frameApp);
+                };
+            }
+            return hooks;
+        });
     for (const auto& entry : levain::core::snapshotOf(*capture.ring).entries)
     {
         if (entry.text.starts_with("editor.stop"))
@@ -507,8 +531,8 @@ int stepsDoNotReplayInput(const levain::tests::TestBackend& backend)
         }
     };
     const std::string script = sorted(altP(2) + "6 key down W\n14 key up W\n" + tap(10, "Pause") +
-                                      tap(18, "N") + tap(22, "N"));
-    constexpr int Frames = 28; // le script va jusqu'à l'image 23
+                                      tap(18, "N") + tap(22, "N") + tap(24, "Pause"));
+    constexpr int Frames = 28; // le script va jusqu'à l'image 25
     const Run run = play(backend, script, Frames, options);
     if (expect(run.exitCode == 0 && run.frames.size() == Frames,
                "pas sans input rejoué : code 0") != 0)
@@ -525,7 +549,8 @@ int stepsDoNotReplayInput(const levain::tests::TestBackend& backend)
         const Frame& seen = run.frames.at(frame);
         const std::string at = std::format("pas sans input rejoué, image {} : ", frame);
         failures += expect(seen.cameraZ == movingTo, at + "la caméra ne bouge pas, pas compris");
-        failures += expect(!seen.captured, at + "la souris reste à l'éditeur, même pour un pas");
+        failures += expect(frame >= 24 || !seen.captured,
+                           at + "la souris reste à l'éditeur, même pour un pas");
         failures += expect(seen.forward == 0.0f && !seen.anyHeld, at + "PlayerInput reste vide");
     }
     failures += expect(run.frames.at(18).moverX > run.frames.at(17).moverX &&
@@ -534,7 +559,58 @@ int stepsDoNotReplayInput(const levain::tests::TestBackend& backend)
     failures += expect(run.frames.at(18).programFrames == run.frames.at(17).programFrames + 1 &&
                            run.frames.at(22).programFrames == run.frames.at(21).programFrames + 1,
                        "pas sans input rejoué : le frame du programme a tourné à chaque pas");
+    // Reprendre (24) rend la souris au jeu, qui la réclame à chaque image : un pas ne l'a pas
+    // laissée prise à l'éditeur pour de bon.
+    for (std::size_t frame = 26; frame < 28; ++frame)
+    {
+        failures += expect(!run.frames.at(frame).paused && run.frames.at(frame).captured,
+                           std::format("pas sans input rejoué, image {} : après Reprendre, le jeu "
+                                       "a la souris",
+                                       frame));
+    }
     return failures;
+}
+
+/// **Le `frame` du programme voit la durée d'un pas** sur une image d'Image suivante, non le temps
+/// mesuré de l'image en pause : le monde avance d'un pas fixe, et un minuteur de jeu lu dans
+/// `frame` dériverait à chaque pas. Sous `--steps` la durée serait déjà le pas fixe, d'où une durée
+/// mesurée de remplacement (`Options::measuredSeconds`, 0,5 s) posée avant le crochet de l'éditeur
+/// : le jeu en marche la voit telle quelle, le pas en pause voit `FixedStep::stepSeconds`. Alt+P à
+/// 2, Pause à 6, N à 10 et à 14, Pause à 18 (reprise).
+int stepSeesFixedStepSeconds(const levain::tests::TestBackend& backend)
+{
+    constexpr float Measured = 0.5f;
+    Options options;
+    options.measuredSeconds = Measured;
+    options.atFrameEnd = [](App&, Editor& editor, int frame)
+    {
+        if (frame == 0)
+        {
+            bindNextFrame(editor, levain::editor::positionChord(ScanN));
+        }
+    };
+    constexpr int Frames = 24;
+    const Run run = play(
+        backend, sorted(altP(2) + tap(6, "Pause") + tap(10, "N") + tap(14, "N") + tap(18, "Pause")),
+        Frames, options);
+    if (expect(run.exitCode == 0 && run.frames.size() == Frames, "durée d'un pas : code 0") != 0)
+    {
+        return 1;
+    }
+    const float stepSeconds = levain::scene::FixedStep{}.stepSeconds;
+    int failures = 0;
+    int steps = 0;
+    for (const auto& [frame, seconds] : run.programSeconds)
+    {
+        // Un pas en pause : les images 10 et 14 ; le reste, en marche, voit le temps mesuré.
+        const bool stepped = frame == 10 || frame == 14;
+        steps += stepped ? 1 : 0;
+        failures +=
+            expect(seconds == (stepped ? stepSeconds : Measured),
+                   std::format("durée d'un pas, image {} : le programme voit {} (a vu {})", frame,
+                               stepped ? "le pas fixe" : "le temps mesuré", seconds));
+    }
+    return failures + expect(steps == 2, "durée d'un pas : le frame a tourné pour les deux pas");
 }
 
 /// QWERTY et AZERTY : Pause lue à la position que la table lui donne (ici celle du W), « Image
@@ -858,7 +934,8 @@ int main(int argc, char** argv)
         }
         const int failures = pauseAndResume(*backend) + escapeFromPause(*backend) +
                              stepOnce(*backend) + stepsDoNotReplayInput(*backend) +
-                             layouts(*backend) + freeMouse(*backend) + toolbarButtons(*backend) +
+                             stepSeesFixedStepSeconds(*backend) + layouts(*backend) +
+                             freeMouse(*backend) + toolbarButtons(*backend) +
                              freeMouseOutsideView(*backend) + tint(*backend);
         return failures == 0 ? 0 : 1;
     }

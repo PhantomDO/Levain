@@ -432,7 +432,10 @@ TEST_CASE("l'icône du bandeau du jeu, dans sa teinte, se voit sur le calque, m�
     // morceau 17d : la cible est UNORM partout). Une icône est un graphisme : 3 de contraste
     // (WCAG 1.4.11), là où le texte du bandeau, en `Text`, en veut 4,5 (le test du rappel de
     // touche, qui garde aussi le mélange linéaire d'avant : la teinte, de luminance moyenne pour
-    // se lire sur la scène, ne s'y tient pas, et ce mélange n'existe plus).
+    // se lire sur la scène, ne s'y tient pas, et ce mélange n'existe plus). **Ce mélange gamma est
+    // celui de la présentation** parce que la swapchain est UNORM sur tous les backends, ce que
+    // garde `clearByte` (tests/scene_view_gpu.cpp) : le jour où une cible sRGB reviendrait, ce test
+    // rougirait là, et il faudrait remettre la vérification en linéaire (règle n°7).
     const ImVec4 inGamma = blendInGamma({overlay.x, overlay.y, overlay.z, 1.0f}, white, overlay.w);
     for (const ImVec4& tint : {levain::ui::PlayTint, levain::ui::PausedTint})
     {

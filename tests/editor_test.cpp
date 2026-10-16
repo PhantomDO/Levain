@@ -1044,6 +1044,20 @@ TEST_CASE("la pause arrête la simulation et le frame du programme, et le jeu ne
     CHECK(levain::editor::inputRouteOf(modeIn(Mode::Edit), true) == InputRoute::Editor);
 }
 
+TEST_CASE("le frame du programme voit la durée d'un pas sur un pas en pause, le temps mesuré sinon")
+{
+    using levain::editor::programFrameSecondsOf;
+    constexpr float Measured = 0.5f;
+    constexpr float Step = 1.0f / 60.0f;
+    // Un pas en pause : le monde avance d'un pas fixe, le programme le voit.
+    CHECK(programFrameSecondsOf(true, true, Measured, Step) == Step);
+    // En marche (pas demandé ou non : `planFrame` l'ignore), ou en pause sans pas : le temps
+    // mesuré.
+    CHECK(programFrameSecondsOf(false, false, Measured, Step) == Measured);
+    CHECK(programFrameSecondsOf(false, true, Measured, Step) == Measured);
+    CHECK(programFrameSecondsOf(true, false, Measured, Step) == Measured);
+}
+
 TEST_CASE("la teinte du jeu : rien en Édition, une teinte qui joue, une autre en pause")
 {
     using levain::editor::Mode;
