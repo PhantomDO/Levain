@@ -133,16 +133,21 @@ le vérifie lui-même**, dans tous les builds (règle n°7).
    |---|---|---|---|---|
    | Édition | arrêtée | jamais | non | de l'éditeur |
    | Jouer | tourne | oui | Vue focalisée seulement | du jeu |
-   | Simuler | tourne | jamais | non | de l'éditeur |
+   | Simuler | tourne | oui, sous l'input vide¹ | non | de l'éditeur |
    | Pause, en Jouer ou en Simuler | arrêtée | non, sauf pour Image suivante (input vide, la durée d'un pas) | non | ceux du mode |
+
+   ¹ Amendé au morceau 6 : le tableau disait « jamais ». `FpsInput` du sandbox est un singleton du monde que le `frame` du
+   programme pose et que Stop ne rend pas (`WalkInput` est un composant du joueur, que Stop rend) ; sans `frame`, il garde
+   la dernière image de Jouer (W tenue, Échap, Alt+S : la caméra du jeu avançait toute seule). Le `frame` tourne donc à chaque image de Simuler, sous la route de
+   l'éditeur, un input vide : le jeu ne reçoit rien (`tests/editor_pause_gpu.cpp simulate`).
 
    - **Les touches** : Alt+P joue (supposé), Alt+S simule, Échap arrête, Maj+F1 rend la souris jusqu'au prochain
      clic dans la Vue (Unreal, documenté [1]) ; Pause, la touche Pause (supposé) et le bouton. Image suivante, le
      bouton seul : Unreal n'en documente pas, et Ctrl+Alt+P d'Unity [3] est AltGr+P sous Windows en AZERTY. Elle
      joue exactement un pas (`App::singleStep`, le pas de `--steps`), puis la pause reprend.
    - **La teinte** : en jeu, la barre d'outils et le bord de la Vue prennent la couleur du jeu, comme Unity assombrit
-     ce qui n'est pas la vue Game (documenté [2]). La barre montre Jouer et Simuler en Édition ; Pause (puis
-     Reprendre), Image suivante et Arrêter en jeu.
+     ce qui n'est pas la vue Game (documenté [2]) ; Simuler a la même teinte que Jouer. La barre montre Jouer et
+     Simuler en Édition ; Pause (puis Reprendre), Image suivante et Arrêter en jeu.
    - **La Hiérarchie et l'Inspecteur** montrent le monde vivant ; ce qu'on y change est perdu à Stop, comme dans Unity
      et Unreal (documenté [1], [2]). La sélection garde son identifiant : elle survit à Stop, sauf celle d'une entité
      née en jeu. La Hiérarchie range ses racines par index (retriées quand sa requête des racines a changé), pour

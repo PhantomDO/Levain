@@ -357,6 +357,20 @@ TEST_CASE("la barre d'outils en jeu : Pause, Reprendre et Image suivante, le mod
     CHECK(bench.actions == std::vector<Action>{Action::NextFrame});
     bench.click(bench.toolbar.pause);
     CHECK(bench.actions == std::vector<Action>{Action::NextFrame, Action::Pause});
+
+    // Simuler a les mêmes boutons que Jouer, et le bouton de mode y propose l'Édition.
+    bench.actions.clear();
+    bench.modes.clear();
+    bench.paused = false;
+    bench.mode = Mode::Simulate;
+    bench.settle();
+    CHECK(bench.toolbar.step.x > bench.toolbar.pause.x);
+    CHECK(bench.toolbar.pause.x > bench.toolbar.mode.x);
+    bench.click(bench.toolbar.mode);
+    REQUIRE(bench.modes.size() == 1);
+    CHECK(bench.modes.back() == Mode::Edit);
+    bench.click(bench.toolbar.pause);
+    CHECK(bench.actions == std::vector<Action>{Action::Pause});
 }
 
 namespace
@@ -596,6 +610,10 @@ TEST_CASE("le bandeau de la barre de mode dit la pause et la souris rendue, la p
     CHECK(freed.starts_with("Souris rendue"));
     CHECK(paused.starts_with("Pause"));
     CHECK(modeBannerOf(Mode::Play, true, true) == paused);
+    // Simuler dit son nom, la même pause, et ne parle jamais de la souris (elle est à l'éditeur).
+    CHECK(std::string_view{modeBannerOf(Mode::Simulate, false, false)}.starts_with("Simuler"));
+    CHECK(modeBannerOf(Mode::Simulate, false, true) == modeBannerOf(Mode::Simulate, false, false));
+    CHECK(modeBannerOf(Mode::Simulate, true, false) == paused);
 
     // Et le bandeau dessiné le dit : la barre s'ajuste à son texte (`AutoResizeX`), donc l'écart de
     // largeur entre deux états est celui de leurs textes.
@@ -635,7 +653,7 @@ TEST_CASE("la barre de mode en calque rend ses rectangles : la barre au coin dem
     // (`ModeBarOverlay::bar`), un test vise le bouton (`ModeBarOverlay::button`).
     for (const float scale : {1.0f, 1.25f})
     {
-        for (const Mode mode : {Mode::Edit, Mode::Play})
+        for (const Mode mode : {Mode::Edit, Mode::Play, Mode::Simulate})
         {
             CAPTURE(scale);
             CAPTURE(modeTokenOf(mode));

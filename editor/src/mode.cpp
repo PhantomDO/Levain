@@ -38,6 +38,7 @@ Action actionLeaving(Mode mode)
     case Mode::Edit:
         return Action::Play;
     case Mode::Play:
+    case Mode::Simulate:
         return Action::Stop;
     }
     return Action::Stop;
@@ -60,6 +61,7 @@ std::string modeHintOf(Mode mode, const ShortcutTable& table,
     case Mode::Edit:
         return ui::trf("{} : jouer", key);
     case Mode::Play:
+    case Mode::Simulate:
         return ui::trf("{} : arrêter", key);
     }
     return {};
@@ -150,12 +152,12 @@ void applyPlayControl(PlayControl control, app::App& app, ModeState& state)
     }
 }
 
-void keepMouseFromGame(app::App& app, const ModeState& state)
+void keepMouseFromGame(app::App& app, const ModeState& state, bool editorWantsMouse)
 {
-    if (state.mouseFreed || state.paused)
+    if (state.mouseFreed || state.paused || editorOwnsViewIn(state.current))
     {
-        app.mouseCaptureWanted = false;
-        app.mouseCaptureOverPanels = false;
+        app.mouseCaptureWanted = editorWantsMouse;
+        app.mouseCaptureOverPanels = editorWantsMouse;
     }
 }
 
@@ -167,6 +169,8 @@ std::string modeButtonLabel(Mode target)
         return ui::icon::withIcon(ui::icon::Stop, ui::labelOf("Arrêter"));
     case Mode::Play:
         return ui::icon::withIcon(ui::icon::Play, ui::labelOf("Jouer"));
+    case Mode::Simulate:
+        return ui::labelOf("Simuler");
     }
     return {};
 }
