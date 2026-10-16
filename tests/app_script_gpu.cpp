@@ -6,6 +6,8 @@
 //   levain_app_script [vulkan|d3d12|d3d12-warp]
 
 #include <algorithm>
+#include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <exception>
@@ -16,6 +18,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <imgui.h>
@@ -256,6 +259,83 @@ int playRealCursorIgnored(const levain::tests::TestBackend& backend)
     return failures;
 }
 
+/// Ce qu'ImGui voit d'une image : le temps qu'elle lui a compté, et un double-clic de la souris.
+struct UiTime
+{
+    float deltaSeconds = 0.0f;
+    bool doubleClick = false;
+    std::string imageLine; ///< « N images/s, M ms » du panneau « Image » (`UiLayer::imageLine`)
+};
+
+/// Le programme dont chaque image dure plus que la fenêtre d'un double-clic d'ImGui (0,30 s) : le
+/// `frame` dort 350 ms. Il note à chaque image `io.DeltaTime` et `IsMouseDoubleClicked`.
+std::vector<UiTime> uiTimeUnderSlowFrames(const levain::tests::TestBackend& backend)
+{
+    // Deux appuis du bouton gauche à deux images d'écart (2 et 4), au même point.
+    auto settings = withScript("0 mouse move 40 40\n2 button down left\n3 button up left\n"
+                               "4 button down left\n5 button up left\n");
+    settings.width = 320;
+    settings.height = 180;
+    settings.showUiPanels = true; // le panneau « Image » dit les images par seconde
+    settings.assetRoots = {LEVAIN_DATA_DIR};
+    settings.bindingsFile = LEVAIN_DATA_DIR "/input.cfg";
+    settings.api = backend.api;
+    settings.adapter = backend.adapter;
+    std::vector<UiTime> seen;
+    const int exitCode = levain::app::runApp(
+        settings,
+        [&seen](App& app) -> levain::core::Result<levain::app::FrameHooks>
+        {
+            app.world.entity("camera")
+                .set(levain::scene::Transform{})
+                .set(levain::app::CameraLens{});
+            levain::app::FrameHooks hooks;
+            hooks.frame = [](App&) { std::this_thread::sleep_for(std::chrono::milliseconds{350}); };
+            hooks.ui = [&seen](App& uiApp)
+            {
+                seen.push_back({.deltaSeconds = ImGui::GetIO().DeltaTime,
+                                .doubleClick = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left),
+                                .imageLine = uiApp.ui.imageLine});
+            };
+            return hooks;
+        });
+    if (exitCode != 0)
+    {
+        throw std::runtime_error{"uiTimeUnderSlowFrames : la boucle a échoué"};
+    }
+    return seen;
+}
+
+/// **Sous un script, ImGui compte le temps en pas fixes**, pas en secondes de la machine : avec des
+/// images de 350 ms, deux clics à deux images d'écart restent un double-clic (2 x 1/60 s), et
+/// chaque image dure 1/60 s pour ImGui. Sans `uiFrameSecondsFor`, ils sont à 0,7 s l'un de l'autre
+/// : `gpu.editor-gestures.vulkan` perdait ainsi son double-clic dans la hiérarchie sous ASan.
+int playUiTimeIsFixed(const levain::tests::TestBackend& backend)
+{
+    const std::vector<UiTime> seen = uiTimeUnderSlowFrames(backend);
+    if (expect(seen.size() == 6,
+               "le temps de l'interface : une image relevée par image du script") != 0)
+    {
+        return 1;
+    }
+    const bool fixedStep =
+        std::all_of(seen.begin() + 1, seen.end(), [](const UiTime& frame)
+                    { return std::abs(frame.deltaSeconds - 1.0f / 60.0f) < 1e-6f; });
+    // Le panneau « Image » montre le temps mesuré (350 ms et plus : moins de 3 images/s), non les
+    // 60 images/s du pas fixe que lit `io.Framerate`.
+    const std::string& line = seen.back().imageLine;
+    int shown = -1;
+    static_cast<void>(std::from_chars(line.data(), line.data() + line.size(), shown));
+    return expect(shown >= 0 && shown < 5,
+                  "le panneau « Image » montre la cadence mesurée, non celle du pas fixe : « " +
+                      line + " »") +
+           expect(fixedStep,
+                  "sous un script, ImGui reçoit le pas fixe, des images de 350 ms ou non") +
+           expect(
+               seen.at(4).doubleClick,
+               "deux clics à deux images d'écart sont un double-clic, la machine fût-elle lente");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -271,7 +351,7 @@ int main(int argc, char** argv)
             return 2;
         }
         const int failures = playKeys(*backend) + playFile(*backend) + playCutShort(*backend) +
-                             playRealCursorIgnored(*backend);
+                             playRealCursorIgnored(*backend) + playUiTimeIsFixed(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

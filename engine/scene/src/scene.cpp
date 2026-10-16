@@ -207,9 +207,10 @@ SceneModule::SceneModule(flecs::world& world)
     world.set<WorldTransformSystem>({.system = computeWorldTransforms.id()});
 }
 
-int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds, bool simulationPaused)
+int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds, bool simulationPaused,
+                 bool singleStep)
 {
-    const StepPlan plan = planFrame(step, frameSeconds, simulationPaused);
+    const StepPlan plan = planFrame(step, frameSeconds, simulationPaused, singleStep);
     const flecs::entity_t simulation = world.get<SimulationPipeline>().pipeline;
     for (int i = 0; i < plan.steps; ++i)
     {
