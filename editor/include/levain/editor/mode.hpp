@@ -198,24 +198,26 @@ struct ModeState
 [[nodiscard]] std::string stepButtonLabel();
 
 /// Ce qui demande un changement de mode à cette image : le bouton de la barre (le mode qu'il
-/// propose), Alt+P, le front d'Échap.
+/// propose), Alt+P, Alt+S ou le bouton « Simuler » (l'action `Simulate`, que `runAction` rend), le
+/// front d'Échap.
 struct ModeRequests
 {
     std::optional<Mode> toolbar = std::nullopt;
     bool playShortcut = false;
+    bool simulate = false;
     bool stop = false;
 };
 
 /// Le mode où passer, s'il y en a un. **Alt+P ne fait que jouer** (« Jouer » dans la table des
-/// raccourcis, ADR-0036, décision 13) et **Échap ne fait qu'arrêter** : sous la route *jeu*, ImGui
-/// n'a pas Alt+P, donc une Alt+P qui basculerait dans les deux sens ne reviendrait qu'à certaines
-/// images, selon le focus. Seul le bouton va dans les deux sens, par le mode qu'il propose. Échap
-/// passe avant le reste : sortir du jeu ne se dispute pas.
+/// raccourcis, ADR-0036, décision 13), **Alt+S que simuler** et **Échap qu'arrêter** : sous la
+/// route *jeu*, ImGui n'a pas Alt+P, donc une Alt+P qui basculerait dans les deux sens ne
+/// reviendrait qu'à certaines images, selon le focus. Seul le bouton va dans les deux sens, par le
+/// mode qu'il propose. Échap passe avant le reste : sortir du jeu ne se dispute pas.
 [[nodiscard]] constexpr std::optional<Mode> modeRequested(Mode current,
                                                           const ModeRequests& requests)
 {
-    // Arrêter vaut de tout mode qui n'est pas l'Édition, jouer de l'Édition seule : un mode de plus
-    // (Simuler) s'arrête par Échap sans toucher à cette fonction.
+    // Arrêter vaut de tout mode qui n'est pas l'Édition, jouer et simuler de l'Édition seule : de
+    // Jouer on ne passe pas à Simuler (il faut arrêter, la scène rendue, puis entrer).
     if (requests.stop && current != Mode::Edit)
     {
         return Mode::Edit;
@@ -223,6 +225,10 @@ struct ModeRequests
     if (requests.playShortcut && current == Mode::Edit)
     {
         return Mode::Play;
+    }
+    if (requests.simulate && current == Mode::Edit)
+    {
+        return Mode::Simulate;
     }
     if (requests.toolbar && *requests.toolbar != current)
     {
@@ -370,10 +376,14 @@ enum class PlayRefusal : std::uint8_t
     None,       ///< Il peut partir.
     NotPlaying, ///< « seulement en jeu » : aucun contrôle n'a de sens en Édition.
     NotPaused,  ///< « seulement en pause » : Image suivante.
+    NotInPlay,  ///< « seulement en Jouer » : Maj+F1, la souris étant déjà à l'éditeur en Simuler.
 };
 
 /// Ce qui empêche le contrôle. **« Image suivante » veut la pause** : en marche elle serait un pas
-/// de plus que le temps ne mérite, et `planFrame` l'ignorerait de toute façon.
+/// de plus que le temps ne mérite, et `planFrame` l'ignorerait de toute façon. **Maj+F1 veut
+/// Jouer** : en Simuler le jeu n'a pas la souris, il n'y a rien à rendre ; la refuser bruyamment
+/// (comptée, dite à la console) vaut mieux qu'un bandeau « Souris rendue » devant une souris qui
+/// n'a jamais été au jeu.
 [[nodiscard]] constexpr PlayRefusal playControlRefusal(PlayControl control, Mode mode, bool paused)
 {
     switch (mode)
@@ -382,6 +392,10 @@ enum class PlayRefusal : std::uint8_t
         return PlayRefusal::NotPlaying;
     case Mode::Play:
     case Mode::Simulate:
+        if (control == PlayControl::FreeMouse && mode == Mode::Simulate)
+        {
+            return PlayRefusal::NotInPlay;
+        }
         return control == PlayControl::StepFrame && !paused ? PlayRefusal::NotPaused
                                                             : PlayRefusal::None;
     }

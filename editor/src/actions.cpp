@@ -41,9 +41,12 @@ std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& rea
                   ui::trf("{} : arrive en {}", ui::tr(nameOf(action)), availability.milestone));
         return std::nullopt;
     }
-    if (action == Action::RealTime && current != Mode::Edit)
+    if ((action == Action::RealTime || action == Action::Simulate || action == Action::Play) &&
+        current != Mode::Edit)
     {
-        // Grisé hors de l'Édition (`switchRealTime`) : Ctrl+R le dit, il ne bascule rien.
+        // Grisé hors de l'Édition (`switchRealTime`) : Ctrl+R le dit, il ne bascule rien. Alt+S et
+        // Alt+P aussi : on joue et on simule depuis l'Édition, la scène rendue ; en jeu, elles
+        // compteraient un appui sans effet.
         ++counters.declined.at(indexOf(action));
         core::log("editor", core::LogLevel::Info, "{}",
                   ui::trf("{} : seulement en Édition", ui::tr(nameOf(action))));
@@ -57,6 +60,8 @@ std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& rea
         return std::nullopt;
     case Action::Play:
         return modeRequested(current, {.playShortcut = true});
+    case Action::Simulate:
+        return modeRequested(current, {.simulate = true});
     case Action::Stop:
         return modeRequested(current, {.stop = true});
     default:
@@ -84,6 +89,10 @@ std::optional<PlayControl> runPlayControl(Action action, ActionCounters& counter
     case PlayRefusal::NotPaused:
         ++counters.declined.at(indexOf(action));
         core::log("editor", core::LogLevel::Info, "{}", ui::trf("{} : seulement en pause", name));
+        return std::nullopt;
+    case PlayRefusal::NotInPlay:
+        ++counters.declined.at(indexOf(action));
+        core::log("editor", core::LogLevel::Info, "{}", ui::trf("{} : seulement en Jouer", name));
         return std::nullopt;
     }
     ++counters.performed.at(indexOf(action));

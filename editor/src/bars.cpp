@@ -113,7 +113,13 @@ ToolbarResult drawToolbar(Mode mode, bool paused, float flySpeed, bool realTime,
     switch (mode)
     {
     case Mode::Edit:
-        layout.simulate = disabledButton("Simuler", availabilityOf(Action::Simulate).milestone);
+        // Comme Alt+S : l'action, que `runAction` change en mode (le bouton de mode, lui, propose
+        // Jouer ou Arrêter).
+        if (ImGui::Button(modeButtonLabel(Mode::Simulate).c_str()))
+        {
+            result.actions.push_back(Action::Simulate);
+        }
+        layout.simulate = centerOfLastItem();
         break;
     case Mode::Play:
     case Mode::Simulate:

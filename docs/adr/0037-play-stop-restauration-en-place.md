@@ -142,7 +142,8 @@ le vérifie lui-même**, dans tous les builds (règle n°7).
    l'éditeur, un input vide : le jeu ne reçoit rien (`tests/editor_pause_gpu.cpp simulate`).
 
    - **Les touches** : Alt+P joue (supposé), Alt+S simule, Échap arrête, Maj+F1 rend la souris jusqu'au prochain
-     clic dans la Vue (Unreal, documenté [1]) ; Pause, la touche Pause (supposé) et le bouton. Image suivante, le
+     clic dans la Vue (Unreal, documenté [1] ; refusée en Simuler, où la souris est déjà à l'éditeur) ; Pause, la
+     touche Pause (supposé) et le bouton. Image suivante, le
      bouton seul : Unreal n'en documente pas, et Ctrl+Alt+P d'Unity [3] est AltGr+P sous Windows en AZERTY. Elle
      joue exactement un pas (`App::singleStep`, le pas de `--steps`), puis la pause reprend.
    - **La teinte** : en jeu, la barre d'outils et le bord de la Vue prennent la couleur du jeu, comme Unity assombrit

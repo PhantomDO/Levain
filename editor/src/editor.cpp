@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 #include <imgui.h>
@@ -261,13 +262,31 @@ bool carryOutPlayTransition(app::App& app, Editor& editor, Mode to)
         if (!session)
         {
             core::log("editor", core::LogLevel::Error, "{}",
-                      ui::trf("Jouer refusé : {}", session.error().message));
+                      ui::trf("{} refusé : {}", ui::tr(modeNameOf(to)), session.error().message));
             return false;
         }
         editor.play = std::move(*session);
         return true;
     }
     return !editor.play || to != Mode::Edit || stopEditorPlay(app, editor);
+}
+
+/// Alt+P est pressée, dans une image où les accords globaux valent. Hors de l'Édition elle est
+/// refusée, comptée et dite comme Alt+S (`runAction`), plutôt que muette : on ne joue que depuis
+/// l'Édition. Elle est lue ici et non par `shortcutsPressed`, qui la compterait deux fois
+/// (`playShortcutPressed`).
+bool readPlayChord(app::App& app, Editor& editor, bool allowed)
+{
+    if (!allowed || !playShortcutPressed(editor.shortcuts))
+    {
+        return false;
+    }
+    if (editor.mode.current != Mode::Edit)
+    {
+        std::ignore = runAction(Action::Play, editor.actions, app.realTime, editor.mode.current);
+        return false;
+    }
+    return true;
 }
 
 /// Atteint un contrôle de jeu (Pause, Image suivante, Rendre la souris) : compté, dit à la console
@@ -695,8 +714,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             if (const auto next = modeRequested(
                     editor->mode.current,
                     {.toolbar = requested,
-                     .playShortcut = globalChordsAllowed(editor->quit) && !capturing &&
-                                     playShortcutPressed(editor->shortcuts)}))
+                     .playShortcut = readPlayChord(
+                         app, *editor, globalChordsAllowed(editor->quit) && !capturing)}))
             {
                 changeMode(app, *editor, *next);
             }
