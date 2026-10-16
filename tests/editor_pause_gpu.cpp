@@ -1,8 +1,11 @@
-// La pause du jeu, de bout en bout, dans la vraie boucle (ADR-0037, décision 6,
+// Pause et Image suivante, de bout en bout, dans la vraie boucle (ADR-0037, décision 6,
 // morceau 5), un script d'input rejoué hors écran (le banc d'essai de l'App) :
 //   - pause : la touche Pause arrête les pas, l'accumulateur ne bouge pas, le `frame` du programme
 //     se tait, le jeu ne reçoit rien (une touche tenue en pause ne le rejoint pas à la reprise) ;
-//     Pause reprend ; Échap, de la pause, arrête et rend la scène (la ligne `editor.stop`).
+//     Pause reprend ; Échap, de la pause, arrête et rend la scène (la ligne `editor.stop`) ;
+//   - Image suivante : exactement un pas, puis la pause reprend ; refusée en marche ;
+//   - la barre d'outils : Pause, Image suivante, Reprendre et Arrêter, cliqués à la souris
+//     scriptée.
 // Il faut un device, comme `levain_app_script`.
 //   levain_editor_pause [vulkan|d3d12|d3d12-warp]
 
@@ -33,6 +36,7 @@
 #include "levain/core/log_ring.hpp"
 #include "levain/editor/editor.hpp"
 #include "levain/editor/mode.hpp"
+#include "levain/editor/shortcut_edit.hpp"
 #include "levain/input/state.hpp"
 #include "levain/platform/input_script.hpp"
 #include "levain/scene/camera_control.hpp"
@@ -45,6 +49,8 @@ using levain::app::App;
 using levain::editor::Action;
 using levain::editor::Editor;
 using levain::editor::Mode;
+
+constexpr std::uint16_t ScanN = 17; // USB HID, vérifié contre SDL
 
 /// Ce que le banc relève à la fin de chaque image (`afterUi`), la route comprise.
 struct Frame
@@ -251,6 +257,14 @@ std::string sorted(const std::string& script)
     return joined;
 }
 
+/// Un clic de la souris scriptée : le curseur d'abord (ImGui trouve ce qu'il survole avant
+/// l'appui), l'appui à l'image d'après, le relâchement à la suivante.
+std::string click(int frame, ImVec2 at)
+{
+    return std::format("{0} mouse move {1} {2}\n{3} button down left\n{4} button up left\n", frame,
+                       at.x, at.y, frame + 1, frame + 2);
+}
+
 /// Une touche pressée à l'image `frame` et relâchée à la suivante.
 std::string tap(int frame, std::string_view key)
 {
@@ -394,6 +408,195 @@ int escapeFromPause(const levain::tests::TestBackend& backend)
     return failures;
 }
 
+/// Donne un accord à « Image suivante » (aucun par défaut) comme la fenêtre « Raccourcis » le fait,
+/// par `replaceChord`.
+void bindNextFrame(Editor& editor, const levain::editor::Chord& chord)
+{
+    levain::editor::replaceChord(editor.shortcuts, Action::NextFrame, 0, chord,
+                                 levain::platform::qwertyKeyAtPosition);
+}
+
+/// Image suivante : exactement un pas, puis la pause reprend. L'accord est celui qu'on lui donne
+/// (position de N). Alt+P à 2, N à 5 (en marche : refusée, aucun pas de plus), Pause à 8, N à 12 et
+/// à 20 (un pas chacun), N tenue de 26 à 40 sans se répéter (un seul pas), Pause à 44 (reprise).
+int stepOnce(const levain::tests::TestBackend& backend)
+{
+    // N tenue de 26 à 40, avec les répétitions de SDL (des appuis de plus, sans relâchement).
+    const std::string script =
+        sorted(altP(2) + tap(5, "N") + tap(8, "Pause") + tap(12, "N") + tap(20, "N") +
+               "26 key down N\n28 key down N\n30 key down N\n40 key up N\n" + tap(44, "Pause"));
+    Options options;
+    options.atFrameEnd = [](App& app, Editor& editor, int frame)
+    {
+        if (frame == 0)
+        {
+            bindNextFrame(editor, levain::editor::positionChord(ScanN));
+        }
+        plantAccumulator(app, editor, frame);
+    };
+    constexpr int Frames = 50;
+    const Run run = play(backend, script, Frames, options);
+    if (expect(run.exitCode == 0 && run.frames.size() == Frames,
+               "Image suivante : la boucle va au bout") != 0)
+    {
+        return 1;
+    }
+    int failures = 0;
+    // En marche, à l'image 5 : un pas comme les autres, la demande refusée et comptée.
+    failures += expect(stepsIn(run, 5) == 1 && run.frames.at(5).refusedSteps == 1 &&
+                           run.frames.at(5).steppedFrames == 0,
+                       "Image suivante en marche : refusée, comptée, aucun pas de plus");
+    // De la pause (8) à la reprise (44), des pas aux images 12, 20 et 26 seulement, un chacun.
+    for (std::size_t frame = 8; frame < 44; ++frame)
+    {
+        const bool stepped = frame == 12 || frame == 20 || frame == 26;
+        const Frame& seen = run.frames.at(frame);
+        const std::string at = std::format("Image suivante, image {} : ", frame);
+        failures +=
+            expect(stepsIn(run, frame) == (stepped ? 1 : 0),
+                   at + (stepped ? "exactement un pas" : "aucun pas, puis la pause reprend"));
+        failures += expect(seen.paused && seen.accumulator == run.frames.at(8).accumulator,
+                           at + "en pause, l'accumulateur intact, pas compris");
+        // Le `frame` du programme tourne pour un pas, et pour lui seul (sous l'input vide de la
+        // pause) : le pas lit ce qu'il pose, non l'input d'avant la pause.
+        const int stepsSincePause =
+            (frame >= 12 ? 1 : 0) + (frame >= 20 ? 1 : 0) + (frame >= 26 ? 1 : 0);
+        failures += expect(seen.programFrames == run.frames.at(8).programFrames + stepsSincePause,
+                           at + "le frame du programme tourne pour un pas, pas en pause");
+    }
+    failures += expect(run.frames.at(43).steppedFrames == 3,
+                       "Image suivante : trois pas comptés (le tenu ne se répète pas)");
+    failures += expect(run.frames.at(43).refusedSteps == 1, "Image suivante : un seul refus");
+    failures += expect(run.frames.at(12).moverX > run.frames.at(11).moverX,
+                       "Image suivante : le pas joué se voit dans la scène");
+    // La reprise (44) : un pas par image de nouveau.
+    failures += expect(!run.frames.at(45).paused && stepsIn(run, 45) == 1 && stepsIn(run, 49) == 1,
+                       "Reprendre après des pas : un pas par image");
+    return failures;
+}
+
+/// **Image suivante ne rejoue pas l'input d'avant la pause.** W est tenue (images 6 à 13) et la
+/// caméra avance ; Pause à 10 ; W relâchée à 14, en pause ; deux pas, à 18 et 22 : la caméra ne
+/// bouge pas, car le `frame` du programme y pose l'input de la pause, vide (`FpsInput` du sandbox
+/// restait sinon sur « avant », et chaque pas avançait la caméra). Le jeu réclame la souris à
+/// chaque image (`grabMouse`) : même pour un pas, elle reste à l'éditeur.
+int stepsDoNotReplayInput(const levain::tests::TestBackend& backend)
+{
+    Options options;
+    options.grabMouse = true;
+    options.atFrameEnd = [](App&, Editor& editor, int frame)
+    {
+        if (frame == 0)
+        {
+            bindNextFrame(editor, levain::editor::positionChord(ScanN));
+        }
+    };
+    const std::string script = sorted(altP(2) + "6 key down W\n14 key up W\n" + tap(10, "Pause") +
+                                      tap(18, "N") + tap(22, "N"));
+    constexpr int Frames = 28; // le script va jusqu'à l'image 23
+    const Run run = play(backend, script, Frames, options);
+    if (expect(run.exitCode == 0 && run.frames.size() == Frames,
+               "pas sans input rejoué : code 0") != 0)
+    {
+        return 1;
+    }
+    const float movingTo = run.frames.at(9).cameraZ;
+    int failures =
+        expect(movingTo < run.frames.at(5).cameraZ && run.frames.at(8).captured,
+               "pas sans input rejoué : la caméra avance tant que W est tenue en jeu, la "
+               "souris est au jeu (la précondition)");
+    for (std::size_t frame = 10; frame < Frames; ++frame)
+    {
+        const Frame& seen = run.frames.at(frame);
+        const std::string at = std::format("pas sans input rejoué, image {} : ", frame);
+        failures += expect(seen.cameraZ == movingTo, at + "la caméra ne bouge pas, pas compris");
+        failures += expect(!seen.captured, at + "la souris reste à l'éditeur, même pour un pas");
+        failures += expect(seen.forward == 0.0f && !seen.anyHeld, at + "PlayerInput reste vide");
+    }
+    failures += expect(run.frames.at(18).moverX > run.frames.at(17).moverX &&
+                           run.frames.at(22).moverX > run.frames.at(21).moverX,
+                       "pas sans input rejoué : les deux pas ont bien joué");
+    failures += expect(run.frames.at(18).programFrames == run.frames.at(17).programFrames + 1 &&
+                           run.frames.at(22).programFrames == run.frames.at(21).programFrames + 1,
+                       "pas sans input rejoué : le frame du programme a tourné à chaque pas");
+    return failures;
+}
+
+/// Un pas demandé par la barre d'outils (dans `ui`, relâché à l'image 10) et Échap à l'image
+/// d'après, avant que le pas ne soit joué : Stop l'emporte. Sans cela l'Édition jouerait le pas
+/// après que la scène a été rendue, et ce que le jeu a déplacé le serait de nouveau.
+int stopAfterStepRequest(const levain::tests::TestBackend& backend, ImVec2 stepPaused,
+                         const Options& options)
+{
+    const Run run =
+        play(backend, sorted(altP(2) + tap(4, "Pause") + click(8, stepPaused) + tap(11, "Escape")),
+             16, options);
+    if (expect(run.exitCode == 0 && run.frames.size() == 16, "pas puis Échap : code 0") != 0)
+    {
+        return 1;
+    }
+    return expect(run.frames.at(10).steppedFrames == 1 && run.frames.at(10).paused,
+                  "pas puis Échap : le pas est demandé en pause") +
+           expect(run.frames.at(11).mode == Mode::Edit && stepsIn(run, 11) == 0 &&
+                      stepsIn(run, 12) == 0,
+                  "pas puis Échap : Stop l'emporte, l'Édition ne joue pas le pas demandé") +
+           expect(run.stopLines.size() == 1 && noDifferences(run.stopLines.front()),
+                  "pas puis Échap : la scène est rendue, zéro différence");
+}
+
+/// La barre d'outils, panneaux ouverts, cliquée à la souris scriptée : Pause (image 5 et 6), Image
+/// suivante (10 et 11), Reprendre (15 et 16). Un passage sans clic relève où sont les boutons, en
+/// marche puis en pause (leur largeur change avec le libellé).
+int toolbarButtons(const levain::tests::TestBackend& backend)
+{
+    Options options;
+    options.panels = true;
+    const Run probe =
+        play(backend, sorted(altP(2) + tap(6, "Pause") + "0 mouse move 1 1\n"), 12, options);
+    if (expect(probe.frames.size() == 12 && probe.frames.at(4).toolbar.pause.x > 0.0f &&
+                   probe.frames.at(10).toolbar.step.x > 0.0f,
+               "la barre d'outils : le passage qui relève les boutons les a vus") != 0)
+    {
+        return 1;
+    }
+    const ImVec2 pauseRunning = probe.frames.at(4).toolbar.pause;
+    const ImVec2 pausePaused = probe.frames.at(10).toolbar.pause;
+    const ImVec2 stepPaused = probe.frames.at(10).toolbar.step;
+    // Pause (relâché à l'image 6), Image suivante (11), Reprendre (16).
+    const std::string script =
+        sorted(altP(2) + click(4, pauseRunning) + click(9, stepPaused) + click(14, pausePaused));
+    constexpr int Frames = 22;
+    const Run run = play(backend, script, Frames, options);
+    if (expect(run.exitCode == 0 && run.frames.size() == Frames, "la barre d'outils : code 0") != 0)
+    {
+        return 1;
+    }
+    int failures = 0;
+    // `ui` voit le relâchement et met en pause après le monde de l'image : l'arrêt vaut dès la 7.
+    failures += expect(stepsIn(run, 5) == 1 && !run.frames.at(5).paused,
+                       "la barre : avant le relâchement, le jeu joue encore");
+    failures +=
+        expect(stepsIn(run, 6) == 1 && run.frames.at(6).paused && run.frames.at(6).pauses == 1,
+               "la barre : le bouton Pause met en pause, à la fin de l'image");
+    for (std::size_t frame = 7; frame < 16; ++frame)
+    {
+        const bool stepped = frame == 12; // Image suivante relâché à 11 : un pas à l'image 12
+        failures += expect(stepsIn(run, frame) == (stepped ? 1 : 0),
+                           std::format("la barre, image {} : {}", frame,
+                                       stepped ? "Image suivante joue un pas" : "la pause tient"));
+    }
+    failures +=
+        expect(run.frames.at(16).steppedFrames == 1, "la barre : Image suivante comptée une fois");
+    failures += expect(!run.frames.at(16).paused && run.frames.at(16).pauses == 2,
+                       "la barre : Reprendre reprend");
+    failures += expect(stepsIn(run, 17) == 1 && stepsIn(run, 21) == 1,
+                       "la barre : un pas par image après Reprendre");
+    // Aucun clic de la barre n'a atteint le jeu.
+    failures += expect(std::ranges::none_of(run.frames, [](const Frame& f) { return f.leftSeen; }),
+                       "la barre : aucun clic de ses boutons n'atteint le jeu");
+    return failures + stopAfterStepRequest(backend, stepPaused, options);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -408,7 +611,9 @@ int main(int argc, char** argv)
             std::println(stderr, "usage : levain_editor_pause [vulkan|d3d12|d3d12-warp]");
             return 2;
         }
-        const int failures = pauseAndResume(*backend) + escapeFromPause(*backend);
+        const int failures = pauseAndResume(*backend) + escapeFromPause(*backend) +
+                             stepOnce(*backend) + stepsDoNotReplayInput(*backend) +
+                             toolbarButtons(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

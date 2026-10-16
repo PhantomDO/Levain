@@ -21,9 +21,8 @@ namespace levain::editor
 namespace
 {
 
-/// Un contrôle grisé jusqu'à son milestone : sans fond ni contour et en texte éteint, donc
-/// visiblement autre chose qu'un bouton qui répond (le fond atténué seul se lisait « cliquable »),
-/// et qui dit au survol quand il arrive.
+/// Un bouton éteint : sans fond ni contour et en texte éteint, donc visiblement autre chose qu'un
+/// bouton qui répond (le fond atténué seul se lisait « cliquable »).
 ///
 /// **Dessiné tel que le test le mesure** : `BeginDisabled` multiplierait le texte, déjà éteint
 /// (`TextDisabled`), par `DisabledAlpha` : à 0,6, un contraste de 2,6 contre la barre. Le grisé est
@@ -31,24 +30,57 @@ namespace
 /// `BeginDisabled`), et le contraste de `TextDisabled` est celui que `tests/ui_style_test.cpp`
 /// tient. Le contour (`Border`, `FrameBorderSize`) redessinerait la forme qu'on a retirée : rien
 /// à encadrer, il resterait pour les champs de saisie.
-ImVec2 disabledButton(const char* french, const char* milestone)
+ImVec2 dimButton(const std::string& label)
 {
     ImGui::PushStyleVar(ImGuiStyleVar_DisabledAlpha, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
     ImGui::BeginDisabled();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::Button(ui::labelOf(french).c_str());
+    ImGui::Button(label.c_str());
     ImGui::PopStyleColor(2);
     ImGui::EndDisabled();
     ImGui::PopStyleVar(2);
-    saySoon(milestone, SoonSide::Below);
     return centerOfLastItem();
+}
+
+/// Un contrôle grisé jusqu'à son milestone : éteint (`dimButton`), et il dit au survol quand il
+/// arrive.
+ImVec2 disabledButton(const char* french, const char* milestone)
+{
+    const ImVec2 center = dimButton(ui::labelOf(french));
+    saySoon(milestone, SoonSide::Below);
+    return center;
+}
+
+/// Les boutons du jeu : Pause (Reprendre en pause) et Image suivante, qui n'agit qu'en pause et
+/// s'éteint sinon, sans milestone à dire. Ce qu'ils demandent va aux actions, comme la touche.
+void drawPlayControls(bool paused, ToolbarLayout& layout, ToolbarResult& result)
+{
+    if (ImGui::Button(pauseButtonLabel(paused).c_str()))
+    {
+        result.actions.push_back(Action::Pause);
+    }
+    layout.pause = centerOfLastItem();
+    ImGui::SameLine();
+    if (paused)
+    {
+        if (ImGui::Button(stepButtonLabel().c_str()))
+        {
+            result.actions.push_back(Action::NextFrame);
+        }
+        layout.step = centerOfLastItem();
+    }
+    else
+    {
+        layout.step = dimButton(stepButtonLabel());
+    }
 }
 
 } // namespace
 
-ToolbarResult drawToolbar(Mode mode, float flySpeed, bool realTime, ToolbarLayout& layout)
+ToolbarResult drawToolbar(Mode mode, bool paused, float flySpeed, bool realTime,
+                          ToolbarLayout& layout)
 {
     ToolbarResult result;
     const int flags =
@@ -61,7 +93,7 @@ ToolbarResult drawToolbar(Mode mode, float flySpeed, bool realTime, ToolbarLayou
         ImGui::End();
         return result;
     }
-    // Le mode d'abord : celui qu'on cherche le plus.
+    // Le mode d'abord, toujours à la même place : celui qu'on cherche le plus.
     const Mode target = otherMode(mode);
     if (ImGui::Button(modeButtonLabel(target).c_str()))
     {
@@ -69,7 +101,15 @@ ToolbarResult drawToolbar(Mode mode, float flySpeed, bool realTime, ToolbarLayou
     }
     layout.mode = centerOfLastItem();
     ImGui::SameLine();
-    layout.simulate = disabledButton("Simuler", availabilityOf(Action::Simulate).milestone);
+    switch (mode)
+    {
+    case Mode::Edit:
+        layout.simulate = disabledButton("Simuler", availabilityOf(Action::Simulate).milestone);
+        break;
+    case Mode::Play:
+        drawPlayControls(paused, layout, result);
+        break;
+    }
     ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();

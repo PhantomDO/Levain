@@ -150,6 +150,7 @@ struct BarBench
     std::vector<float> speeds;
     // Ce que les barres reçoivent.
     Mode mode = Mode::Edit;
+    bool paused = false;
     float flySpeed = DefaultFlySpeed;
     bool realTime = true;
     std::function<std::uint32_t(std::uint16_t)> layout = levain::platform::qwertyKeyAtPosition;
@@ -163,7 +164,7 @@ struct BarBench
         const MenuRequests requests = drawMenuBar(inputs, windowLayout, bar, help);
         actions.insert(actions.end(), requests.actions.begin(), requests.actions.end());
         quit = quit || requests.quit;
-        const ToolbarResult tools = drawToolbar(mode, flySpeed, realTime, toolbar);
+        const ToolbarResult tools = drawToolbar(mode, paused, flySpeed, realTime, toolbar);
         actions.insert(actions.end(), tools.actions.begin(), tools.actions.end());
         if (tools.mode)
         {
@@ -311,6 +312,39 @@ TEST_CASE("la barre d'outils : le mode, la vitesse bornée, Temps réel, et des 
     CHECK(bench.speeds.back() > DefaultFlySpeed);
     CHECK(bench.speeds.back() <= MaxFlySpeed);
     CHECK(bench.flySpeed == bench.speeds.back());
+}
+
+TEST_CASE("la barre d'outils en jeu : Pause, Reprendre et Image suivante, le mode à sa place")
+{
+    BarBench bench;
+    bench.settle();
+    // Édition : ni Pause ni Image suivante, Jouer et Simuler (grisé) comme avant.
+    CHECK(bench.toolbar.pause.x == 0.0f);
+    CHECK(bench.toolbar.step.x == 0.0f);
+
+    // Jeu : le bouton de mode (Arrêter) reste en tête, Pause vient après lui, puis Image suivante.
+    bench.mode = Mode::Play;
+    bench.settle();
+    CHECK(bench.toolbar.pause.x > bench.toolbar.mode.x);
+    CHECK(bench.toolbar.step.x > bench.toolbar.pause.x);
+    bench.click(bench.toolbar.mode);
+    REQUIRE(bench.modes.size() == 1);
+    CHECK(bench.modes.back() == Mode::Edit); // Arrêter propose l'Édition
+
+    // Le jeu tourne : Pause rend l'action Pause, Image suivante est éteinte et ne rend rien.
+    bench.click(bench.toolbar.step);
+    CHECK(bench.actions.empty());
+    bench.click(bench.toolbar.pause);
+    CHECK(bench.actions == std::vector<Action>{Action::Pause});
+
+    // En pause : le même bouton dit Reprendre et rend la même action, Image suivante répond.
+    bench.actions.clear();
+    bench.paused = true;
+    bench.settle();
+    bench.click(bench.toolbar.step);
+    CHECK(bench.actions == std::vector<Action>{Action::NextFrame});
+    bench.click(bench.toolbar.pause);
+    CHECK(bench.actions == std::vector<Action>{Action::NextFrame, Action::Pause});
 }
 
 namespace
