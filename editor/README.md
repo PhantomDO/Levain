@@ -486,7 +486,10 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   (`App::stepsPlayed`, tous les pas de la boucle).
 - `startPlay`, `stopPlay`, `PlayTarget`, `PlaySession`, `StopReport`, `stopLineOf`, `logStop` (`play.hpp`) : Jouer et Arrêter
   en fonctions libres, testées sans fenêtre (`tests/editor_play_test.cpp`). `withEditor` écrit à chaque Stop
-  `editor.stop steps=120 differences=0 ms=… -- Stop : …`, sous ce nom stable (ADR-0036, décision 14).
+  `editor.stop steps=120 differences=0 ms=… -- Stop : …`, sous ce nom stable (ADR-0036, décision 14) : la CI lit cette
+  ligne, exactement 120 pas et zéro différence (le test ctest `editor.play-stop` sous Linux, le lancement
+  `tools/ci-programs.sh editor-play` sous Windows, où ce test ne tourne pas), et `tools/play-stop-cost.sh` en tire le
+  coût de Stop sur les 10 000 cubes de la démo.
 - `Action`, `Context`, `Chord`, `Binding`, `ShortcutTable`, `defaultShortcuts`, `bindingOf`, `nameOf`, `actionFor`,
   `chordMatches`, `positionHeld`, `displayNameOf`, `tokenOf`, `chordFromToken`, `imguiChordOf`, `letterChordPressed`
   (`shortcuts.hpp`) : la

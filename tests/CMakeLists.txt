@@ -409,9 +409,12 @@ if(NOT EMSCRIPTEN)
     endif()
 
     # Le critère de M7.5 dans l'exécutable éditeur (ADR-0037, décision 7) : la vue physics joue 120 pas (Alt+P, Échap), les
-    # caisses tombent, puis Stop rend la scène. La CI lit la ligne `editor.stop`, sous son nom stable : des pas (un Play de zéro
-    # pas ne prouverait rien, règle n°7) et zéro différence. Les 120 sont ceux du script (play_stop.txt) : le motif les écrit
-    # en toutes lettres (`steps=120`), il refuse donc « steps=0 » (la session de la CI, morceau 7, exigera `[1-9][0-9]*`). Un Stop sans restauration donne `differences=` non nul : le test est rouge.
+    # caisses tombent, puis Stop rend la scène. Ce test lit la ligne `editor.stop`, sous son nom stable : des pas (un Play de
+    # zéro pas ne prouverait rien, règle n°7) et zéro différence. Les 120 sont ceux du script (play_stop.txt) : le motif les
+    # écrit en toutes lettres (`steps=120`), il refuse donc « steps=0 ». Un Stop sans restauration donne `differences=` non
+    # nul : le test est rouge. Ce test ne tourne pas sous Windows : la CI y rejoue le même script par
+    # `tools/ci-programs.sh editor-play`, qui exige lui aussi exactement 120 pas (un seuil de un laisserait vert un Échap
+    # cassé, dont la fin scriptée passe par Stop et donne environ 127 pas).
     if(NOT WIN32)
         add_test(NAME editor.play-stop
             COMMAND ${CMAKE_COMMAND}

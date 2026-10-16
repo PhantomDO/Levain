@@ -7,9 +7,10 @@
 #   tools/ci-programs.sh <lancement> <dossier de build>
 #   SDL_VIDEO_DRIVER=offscreen tools/ci-programs.sh sandbox build/linux-debug
 #
-# Lancements : sandbox, fox, terrain, physics, sponza, character, hike, ui, editor, cooked. Depuis la racine du
-# dépôt, après tools/fetch-assets.sh ; les journaux et les captures s'écrivent dans le dossier courant. Chaque
-# contrôle échoue avec son message `::error::` (règle n°7), qu'Actions affiche en annotation.
+# Lancements : sandbox, fox, terrain, physics, sponza, character, hike, ui, editor, editor-play (la CI ne le lance que
+# sous Windows : voir runEditorPlay), cooked. Depuis la racine du dépôt, après tools/fetch-assets.sh ; les journaux et
+# les captures s'écrivent dans le dossier courant. Chaque contrôle échoue avec son message `::error::` (règle n°7),
+# qu'Actions affiche en annotation.
 #
 # --seconds N : la boucle s'arrête d'elle-même N s après son premier tour, puis le programme sort normalement, et
 # c'est à cette sortie que LeakSanitizer fait son compte. La durée est comptée depuis la boucle, pas depuis le
@@ -310,6 +311,51 @@ runEditor() {
         || { echo "::error::la Vue de l'éditeur n'a aucune taille : $view"; exit 1; }
 }
 
+# La session Play/Stop de l'éditeur (M7.5, ADR-0037, décision 7). Un lancement à part de `editor`, qui est lancé sans
+# script et vérifie justement qu'il ne joue aucun pas (`editor.mode … steps=0`). Le script (Alt+P, 120 pas, Échap) joue
+# la vue physics, dont les caisses tombent, puis Stop rend la scène ; la CI lit la ligne
+# `editor.stop steps=S differences=D ms=T -- …`, sous son nom stable (ADR-0036, décision 14). `--steps 130` : le script
+# finit à l'image 124, le jeu compte donc 120 pas quelle que soit la vitesse du runner.
+# **La CI ne le lance que sous Windows** : sous Linux, le test ctest `editor.play-stop` (tests/CMakeLists.txt) rejoue le
+# même script dans l'étape des tests de chaque configuration et exige la même ligne, `steps=120` compris ; il ne tourne
+# pas sous Windows (`if(NOT WIN32)`), d'où ce lancement. Il reste lançable partout (`SDL_VIDEO_DRIVER=offscreen
+# tools/ci-programs.sh editor-play build/linux-debug`).
+# Cinq refus, chacun son message (règle n°7) : une sortie en échec (lue ici, sous `set -e` elle arrêterait le script
+# sans `::error::`), la ligne absente ou en double (un contrôle qui ne trouve rien ne juge rien), un autre nombre de pas
+# que les 120 du script, une différence (Stop n'a pas tout rendu) et une ligne d'erreur de l'éditeur (Stop écrit
+# « la restauration a échoué » même quand le compte des différences est nul).
+# **Exactement 120 pas, pas « au moins un »** : si Échap n'arrête pas le jeu (la Vue n'a pas le focus, Stop refusé),
+# la fin scriptée passe par Stop et la ligne se lit quand même, avec `steps` d'environ 127 et zéro différence : un
+# seuil de un le laisserait vert. 120, ce sont les pas de tests/data/editor/play_stop.txt (Alt+P à l'image 2, Échap à
+# l'image 123).
+runEditorPlay() {
+    scriptedSteps=120
+    status=0
+    timeout --foreground --preserve-status -k 10 300 \
+        "$editor" --view physics --steps 130 \
+        --input-script tests/data/editor/play_stop.txt | logTo editor-play.log || status=$?
+    [ "$status" -eq 0 ] \
+        || { echo "::error::la session Play/Stop de l'éditeur est sortie avec le code $status"; exit 1; }
+    # Le début de la ligne seulement (les mots sans langue), sans l'heure ni la phrase traduite.
+    stopPattern="editor\.stop steps=[0-9]+ differences=[0-9]+ ms=[0-9.]+"
+    stops=$(grep -Ec "$stopPattern" editor-play.log || true)
+    [ "$stops" -eq 1 ] \
+        || { echo "::error::la session Play/Stop devait écrire une ligne editor.stop, elle en a écrit $stops"; exit 1; }
+    stop=$(grep -Eo "$stopPattern" editor-play.log)
+    steps=$(sed -E 's/.* steps=([0-9]+) .*/\1/' <<<"$stop")
+    differences=$(sed -E 's/.* differences=([0-9]+) .*/\1/' <<<"$stop")
+    [ "$steps" -eq "$scriptedSteps" ] \
+        || { echo "::error::Play a joué $steps pas, les $scriptedSteps de play_stop.txt étaient attendus" \
+                "(Échap à l'image 123 n'a pas arrêté le jeu à temps ?) : $stop"; exit 1; }
+    [ "$differences" -eq 0 ] \
+        || { echo "::error::Stop n'a pas rendu la scène, $differences différence(s) : $stop"; exit 1; }
+    # Seules les lignes de l'éditeur : le chargeur Vulkan ou une couche installée sur la machine écrivent les leurs.
+    editorErrors=$(grep -F "] [error] [editor] " editor-play.log || true)
+    [ -z "$editorErrors" ] \
+        || { echo "::error::l'éditeur a écrit des lignes d'erreur pendant la session Play/Stop :" \
+                "$(head -n 1 <<<"$editorErrors")"; exit 1; }
+}
+
 # Sponza cuite, après levain_cook : aucun asset chargé depuis sa source (ADR-0020).
 runCooked() {
     timeout --foreground --preserve-status -k 10 120 \
@@ -341,6 +387,7 @@ case "$run" in
     hike) runHike ;;
     ui) runUi ;;
     editor) runEditor ;;
+    editor-play) runEditorPlay ;;
     cooked) runCooked ;;
     *) echo "::error::lancement inconnu : $run" >&2; exit 2 ;;
 esac
