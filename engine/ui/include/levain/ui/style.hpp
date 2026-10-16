@@ -34,6 +34,24 @@ inline constexpr ImVec4 EditorAccentDark = srgb8(24, 80, 148);
 /// (`pushSelectedRowColors`).
 inline constexpr ImVec4 EditorAccentHover = srgb8(32, 98, 176);
 
+/// **La teinte du jeu** (ADR-0037, décision 6) : le bord de la Vue et le fond de la barre d'outils
+/// quand le jeu tourne (`PlayTint`, un orange brûlé : Unreal teinte l'éditeur, Unity l'assombrit),
+/// et quand il est en pause (`PausedTint`, un bleu : une autre teinte, non une nuance de la
+/// première, pour qu'on ne les confonde pas d'un coup d'œil). Ni l'un ni l'autre n'est l'accent
+/// (`EditorAccent`, un bleu foncé) : l'accent désigne ce qu'on a choisi, la teinte dit que le
+/// monde bouge. **Le bord est dessiné sur la scène**, qui peut être un ciel clair ou un sol sombre
+/// : une couleur claire se perd sur le ciel, une sombre sur le sol. Leur luminance relative est
+/// donc au milieu (0,16 à 0,19), où l'on garde 3 de contraste (WCAG 1.4.11) contre l'un comme
+/// l'autre, et contre le gris des panneaux (`tests/ui_style_test.cpp`). Le texte clair du calque de
+/// la Vue se lit sur le fond tinté.
+inline constexpr ImVec4 PlayTint = srgb8(190, 85, 10);
+inline constexpr ImVec4 PausedTint = srgb8(35, 115, 205);
+
+/// Le fond de la barre d'outils quand le jeu est teinté : le gris des barres, tiré de 20 % vers la
+/// teinte, opaque. Assez peu pour que le texte, grisé compris, garde ses 4,5 de contraste (WCAG) ;
+/// assez pour qu'on voie d'un coup d'œil que la barre n'est plus celle de l'Édition.
+[[nodiscard]] ImVec4 tintedBarBackground(const ImVec4& tint);
+
 /// L'opacité d'un calque posé sur la scène (le bandeau de mode de la Vue) : presque opaque. Mesuré
 /// quand la 4070 mélangeait encore en linéaire (avant le morceau 17d) : un fond sombre translucide
 /// sur une scène claire s'éclaircissait bien plus qu'en gamma, à 0,78 le fond montait à 131 sur du

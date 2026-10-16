@@ -652,7 +652,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 editor->view.gameViewShortcut = shortcutTextOf(*editor, app, Action::GameView);
                 editor->view.modeHint =
                     modeHintOf(editor->mode.current, editor->shortcuts, app.keyAtPosition);
-                if (const auto fromView = drawView(editor->view, app, editor->mode.current))
+                if (const auto fromView = drawView(editor->view, app, editor->mode))
                 {
                     requested = fromView; // le bouton de la Vue, avant celui de la barre d'outils
                 }
@@ -682,7 +682,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             // `modeRequested` décide, avec Alt+P, qui ne joue pas sous la modale.
             if (!app.ui.panelsOpen)
             {
-                drawModeBar(editor->mode.current, app.sceneRect,
+                drawModeBar(editor->mode, app.sceneRect,
                             modeHintOf(editor->mode.current, editor->shortcuts, app.keyAtPosition));
             }
             if (const auto next = modeRequested(

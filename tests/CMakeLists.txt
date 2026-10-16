@@ -511,8 +511,9 @@ target_compile_definitions(levain_editor_play PRIVATE LEVAIN_DATA_DIR="${CMAKE_S
 add_test(NAME gpu.editor-play.vulkan COMMAND levain_editor_play vulkan)
 set_tests_properties(gpu.editor-play.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
-# Pause et Image suivante (ADR-0037, décision 6, morceau 5) dans la vraie boucle : les pas, l'accumulateur
-# et le `frame` du programme à l'arrêt, le jeu qui ne reçoit rien, un pas exactement, la barre d'outils cliquée.
+# Pause, Image suivante et la teinte du jeu (ADR-0037, décision 6, morceau 5) dans la vraie boucle : les pas, l'accumulateur
+# et le `frame` du programme à l'arrêt, le jeu qui ne reçoit rien, un pas exactement, la barre d'outils cliquée,
+# la barre d'outils et le bord de la Vue lus dans l'image.
 add_executable(levain_editor_pause editor_pause_gpu.cpp)
 target_link_libraries(levain_editor_pause PRIVATE levain::editor levain::app levain::assets levain::core levain::input
     levain::platform levain::scene)
