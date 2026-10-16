@@ -309,6 +309,23 @@ M couverts par un test ».
     Pause (Reprendre) et Image suivante en jeu, le bouton de mode toujours en tête.
     **Le `frame` du programme voit la durée d'un pas** (`programFrameSecondsOf`) sur une image d'Image suivante, non le temps mesuré de
     l'image en pause, que les gestes de l'éditeur gardent.
+16 quater. **Simuler** (M7.5, morceau 6, ADR-0037, décision 8 ; Alt+S, ou le bouton « Simuler » de la barre d'outils en Édition),
+    le Simulate d'Unreal (Unity n'en a pas, Godot joue dans une autre fenêtre). `Mode::Simulate` prend le même instantané que Jouer
+    (`carryOutPlayTransition` est clé sur la session) et Stop le rend de même : la ligne `editor.stop`, zéro différence. La
+    simulation tourne (`simulationRunsIn`), **la caméra et les gestes sont ceux de l'éditeur** (`editorOwnsViewIn`, que l'Édition
+    partage : vol, orbite, cadrage, aides et touches de la Vue), **le jeu ne reçoit rien** (`inputRouteFor` : la route de l'éditeur,
+    `PlayerInput` reste vide touches tenues). La Hiérarchie et l'Inspecteur montrent le monde vivant, ce qu'on y change est perdu à
+    Stop. **Le `frame` du programme y tourne à chaque image, sous cet input vide** (l'ADR disait « jamais », il est amendé) : sans
+    lui `FpsInput`, un singleton du monde que ni Stop ni `enterMode` ne remettent, garde la dernière image de Jouer (W tenue,
+    Échap, Alt+S, et la caméra du jeu avançait pour de bon) ; `WalkInput` est un composant du joueur, que Stop rend. Il repose la capture de la souris à son gré : le vol de
+    l'éditeur la reprend (`keepMouseFromGame`). Pause et Image suivante comme en Jouer ; **Maj+F1 y est refusée**, comptée et dite
+    (« seulement en Jouer », `PlayRefusal::NotInPlay`) : la souris est déjà à l'éditeur, rien à rendre. **La teinte est celle de
+    Jouer** (`playTintOf`) : elle dit que le monde bouge et que Stop le rend, vrai des deux, et une couleur de plus voudrait son
+    propre contraste mesuré. Alt+S, un accord de lettre comme Ctrl+S, ne part que de l'Édition (`modeRequested`) : ailleurs
+    `runAction` la refuse, comptée et dite. Tests : `gpu.editor-simulate.*` (`tests/editor_pause_gpu.cpp simulate`, le banc de la
+    pause), `editor.simulate-stop` (le critère de Stop dans l'exécutable éditeur, vue physics, Alt+S puis Échap : la ligne
+    `editor.stop steps=120 differences=0`) et, sans GPU, `levain_tests` (« Simuler : … », « Simuler a la teinte de Jouer… »). Pas encore : cliquer dans la Vue pour
+    choisir (M7.4, comme en Édition).
 17. **Une valeur tapée dans l'inspecteur se voit dans l'image même** : `commitEdit` qui écrit lève
     `Inspector::wrote` (remis à faux à chaque `drawInspector`), et `withEditor` pose alors
     `App::recomposeAfterUi` (ADR-0036, décision 2). Le scénario de bout en bout attend le texte scripté (morceau 12).
