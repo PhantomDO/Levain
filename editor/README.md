@@ -11,7 +11,9 @@ de `rando`, dont la cible ne change pas.
 
 **État après M7.7 : l'éditeur n'est plus le jeu avec deux panneaux de plus** : il s'ouvre en Édition, la simulation
 arrêtée, la scène dans la Vue, une caméra qui se pilote comme celle d'Unreal (invariant 20), des menus, des
-raccourcis qu'on change, une console, sa disposition gardée (les paragraphes qui suivent). Il a le branchement sur la
+raccourcis qu'on change, une console, sa disposition gardée (les paragraphes qui suivent). **M7.5 y ajoute Jouer, Simuler
+et Arrêter**, qui rendent la scène en place et avec les mêmes identifiants (invariants 16 bis à 16 quater), puis
+Pause, Image suivante et Maj+F1 en jeu. Il a le branchement sur la
 boucle, l'option `--select`, le bilan que lit la CI, **la hiérarchie** : les entités placées (`Transform`), rangées par
 `flecs::Parent` (ADR-0015), et un nœud *Singletons*, qui sélectionne seulement ; et **l'inspecteur** : les
 composants de l'entité choisie, un widget par champ, lus dans la description de flecs, aux valeurs de l'image. Une
@@ -152,8 +154,8 @@ y = 0 du monde). Le menu
 **Afficher** est dans la barre de la Vue, à côté du bouton de mode, en Édition : « Grille » et « Vue de jeu » (son raccourci
 vient de la table, comme dans les autres menus). **La vue de jeu cache les aides de l'éditeur** : la grille, et le contour de
 la sélection du programme, par un seul drapeau, `App::editorHelpersVisible` (engine/app/README.md) que l'éditeur pose à la fin
-de `ui` (`helpersVisibleIn` : sous la caméra de l'éditeur, Édition ou Simuler, et pas de vue de jeu ; **Jouer cache aussi les aides**, comme le viewport de PIE
-d'Unreal). **G** passe par `viewKeyActionOf` : à la position G, dans la Vue active (survolée ou focalisée), jamais en vol ni
+de `ui` (`helpersVisibleIn` : sous la caméra de l'éditeur, Édition ou Simuler, et pas de vue de jeu ; **Jouer cache aussi
+les aides**, comme le viewport de PIE d'Unreal). **G** passe par `viewKeyActionOf` : à la position G, dans la Vue active (survolée ou focalisée), jamais en vol ni
 dans un champ de texte ; le menu atteint la même action (`runAction` puis `applyShowAction`, un seul chemin).
 **Pas encore** : l'état de « Grille » et de « Vue de jeu » est celui de la session, il n'est pas dans le fichier des
 préférences (une clé de plus demande une décision de version) ; le contour de la sélection du bac à sable n'apparaît pas
@@ -166,9 +168,10 @@ dessiné est lu sur l'étape de rendu (`GridState::framesDrawn`, `lastLines` : l
 la case ; le scénario des pixels laisse de côté les barres que le texte d'ImGui recouvre (`View::modeBarRect`,
 `ShowMenuLayout::bar`), dont les pixels changent d'une exécution à l'autre.
 
-La suite : M7.5 (Play/Stop), puis M7.3, M7.4, M7.6 et M7.8 ;
+La suite : M7.3 (l'annulation, puis les scènes), M7.4, M7.6 et M7.8 ;
 l'[ADR-0036](../docs/adr/0036-mode-edition-vue-et-camera-de-l-editeur.md) dit ce que M7.7 a posé, et ce qu'il laisse
-(« Ce qui reste »). Les gestes quotidiens d'Unity et d'Unreal que l'éditeur doit rendre, chacun avec son
+(« Ce qui reste »), l'[ADR-0037](../docs/adr/0037-play-stop-restauration-en-place.md) ce que M7.5 a posé et laisse.
+Les gestes quotidiens d'Unity et d'Unreal que l'éditeur doit rendre, chacun avec son
 milestone et le scénario qui le prouvera, sont dans [GESTES.md](GESTES.md) : chaque clôture y compte « N gestes sur
 M couverts par un test ».
 
@@ -547,8 +550,9 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
   `acceptPending`, `drawShortcutWindow`, `shortcutCaptureActive` (`shortcut_window.hpp`, `editor.hpp`) : changer la table.
 - `drawMenuBar(inputs, windowLayout, layout, help)`, `drawHelp`, `helpRowsOf`, `helpRowMatches`, `equivalentsOf`
   (`menus.hpp`) ; `drawToolbar`, `drawStatusBar`, `statusOf` (`bars.hpp`) ; `availabilityOf`, `runAction`,
-  `shortcutsPressed`, `keyPressesOf`, `heldKeysAfter`, `runPlayControl`, `toolActionOf`, `viewKeyActionOf`, `viewActiveIn`,
-  `switchRealTime`, `ActionCounters`
+  `shortcutsPressed`, `keyPressesOf`, `heldKeysAfter`, `runPlayControl`, `countRefusedTransition` (un Jouer, un Simuler ou
+  un Arrêter que `startPlay` ou `stopPlay` a refusé passe de « fait » à « refusé »), `toolActionOf`, `viewKeyActionOf`,
+  `viewActiveIn`, `switchRealTime`, `ActionCounters`
   (`actions.hpp`) : les menus, les barres, la
   fenêtre Aide et ce que les raccourcis atteignent, en fonctions libres.
 - `gridLinesFor`, `gridSpacingFor`, `drawGrid`, `GridState` (`grid.hpp`) ; `drawShowMenu`, `applyShowAction`, `helpersVisibleIn`,

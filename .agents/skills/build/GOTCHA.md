@@ -3,6 +3,58 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un contre-test sur une cible laisse les autres exécutables liés à la faute (2026-10-16)
+
+- **Symptôme** : après un contre-test rouge puis vert (le fichier remis, `touch`), `gpu.editor-play.vulkan` restait rouge dans
+  la suite d'ensemble, alors qu'il passait seul avant le contre-test.
+- **Cause** : le contre-test avait reconstruit une seule cible (`--target levain_editor_play`, puis `levain_tests`) ; la
+  restauration n'en a reconstruit qu'une. Les autres exécutables qui lient la bibliothèque de l'éditeur gardaient l'objet fauté.
+- **Parade** : après la dernière restauration, un `cmake --build --preset …` sans `--target`, puis la suite d'ensemble. Ici le
+  rouge venait de l'exécutable resté fauté ; après le build complet, la même suite est verte.
+
+## Un test qui prouve « aussitôt » avec une horloge cède sous la charge d'un build (2026-10-15, corrigé le 2026-10-16)
+
+`préférences : un fichier qui ne se lit pas est dit illisible aussitôt, sans attendre` (`tests/editor_preferences_test.cpp`).
+
+- **Symptôme** : `CHECK(elapsed < 100 ms)` rouge une fois, **1,3 s** mesurée, pendant que d'autres builds tournaient sur le
+  portable (load average 15). Relancé seul, vert.
+- **Cause** : la lecture d'un dossier à la place du fichier ne dure rien, mais sur une machine saturée l'ordonnanceur peut
+  lui prendre une seconde : le bord de 100 ms mesurait la machine, non le code.
+- **Parade** : compter ce qui prouve le « aussitôt » au lieu de le chronométrer. `loadPreferences` prend l'attente entre
+  deux essais en paramètre (vide : celle du système) ; le test lui passe un compteur et exige **zéro attente**.
+  `retryWhileBusy` pareil (`calls == 1` et `sleeps == 0`). Contre-tests : `loadPreferences` qui réessaie toute erreur, puis
+  `retryWhileBusy` qui réessaie toute erreur, deux fois rouges (de centaines de milliers à des dizaines de millions
+  d'essais comptés dans le délai de 3 s, l'attente injectée ne dormant pas).
+- **Reste exposé** : `retryWhileBusy : un refus passager est réessayé jusqu'au délai, mesuré au temps…` garde un bord haut
+  de 500 ms (`CHECK(elapsed < 500 ms)`, `calls >= 2`), parce que son objet est le temps : jamais vu rouge. S'il l'est,
+  lui donner une horloge en paramètre plutôt qu'élargir le bord.
+
+## flecs 4.1.6 : `ecs_get_ordered_children` s'arrête sur une assertion pour un parent sans enfant `flecs::Parent` (2026-10-15)
+
+M7.5, morceau 2b (`engine/scene/src/snapshot.cpp`, `orderedChildrenOf`).
+
+- **Symptôme** : l'appel abat le processus (assertion de flecs, src/entity.c:2520) pour un parent dont aucun enfant ne porte
+  `flecs::Parent`, par exemple un volume déclencheur dont les seuls enfants sont ses observateurs `onEnter` et `onExit`,
+  rangés par `ChildOf`. Vérifié sur la 4.1.6.
+- **Cause** : la liste ordonnée des enfants n'existe que pour un parent de `flecs::Parent` ; flecs ne rend pas une liste
+  vide, il vérifie qu'elle existe.
+- **Parade** : `orderedChildrenOf` parcourt `ecs_children` et ne l'appelle que si un enfant porte `flecs::Parent` ; sinon la
+  liste vient de l'itérateur. `engine/scene/README.md` (« L'instantané de la scène »).
+
+## flecs 4.1.6 : une struct à copie supprimée et déplacement par défaut compte pour trivialement copiable (2026-10-15)
+
+M7.5, morceau 1b (`tests/snapshot_test.cpp`, `Unique`).
+
+- **Symptôme** : un composant dont la copie est supprimée (`T(const T&) = delete`) mais dont le déplacement est
+  `= default` n'est pas rangé en `ECS_TYPE_HOOK_COPY_ILLEGAL` : l'instantané ne le refuse pas, et `ecs_value_copy` le copie
+  par `memcpy`. Un test « Play refuse un composant qui ne se copie pas » écrit avec un tel type ne refuse rien.
+- **Cause** : pour flecs, ce type est trivialement copiable (constaté ; la copie supprimée ne compte pas, le déplacement
+  trivial suffit). Sans risque pour l'instantané tant que le destructeur est trivial ; ce qui pend, ce sont les handles
+  (`scene::Transient`).
+- **Parade** : un type de test pour ce refus porte un membre qui n'est pas trivialement copiable, un `std::unique_ptr` par
+  exemple (`Unique` de `snapshot_test.cpp` et de `editor_play_gpu.cpp`). Ne pas compter sur `= delete` seul pour qu'un
+  composant soit refusé à Play ; ce qui ne doit pas être copié parce qu'il pend (un handle) se marque `Transient`.
+
 ## Simuler : un singleton du programme que Stop ne rend pas, et deux pièges de test (2026-10-16)
 
 M7.5, morceau 6 (`tests/editor_pause_gpu.cpp simulate`, `gpu.editor-simulate.*`).
