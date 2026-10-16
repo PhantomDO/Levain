@@ -511,6 +511,16 @@ target_compile_definitions(levain_editor_play PRIVATE LEVAIN_DATA_DIR="${CMAKE_S
 add_test(NAME gpu.editor-play.vulkan COMMAND levain_editor_play vulkan)
 set_tests_properties(gpu.editor-play.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# La pause du jeu (ADR-0037, décision 6, morceau 5) dans la vraie boucle : les pas, l'accumulateur
+# et le `frame` du programme à l'arrêt, le jeu qui ne reçoit rien, la reprise, Échap de la pause.
+add_executable(levain_editor_pause editor_pause_gpu.cpp)
+target_link_libraries(levain_editor_pause PRIVATE levain::editor levain::app levain::assets levain::core levain::input
+    levain::platform levain::scene)
+target_compile_definitions(levain_editor_pause PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-pause.vulkan COMMAND levain_editor_pause vulkan)
+set_tests_properties(gpu.editor-pause.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # Les raccourcis de l'éditeur (ADR-0036, morceau 10) dans la vraie boucle : une paire AZERTY donne Z à la place du W, Maj+F1
 # laisse les panneaux ouverts, et après un vol à la souris capturée le menu du clic droit s'ouvre.
 add_executable(levain_editor_shortcuts editor_shortcuts_gpu.cpp)
@@ -704,6 +714,7 @@ if(WIN32)
     add_test(NAME gpu.app-loop.d3d12-warp COMMAND levain_app_loop d3d12-warp)
     add_test(NAME gpu.editor-modes.d3d12-warp COMMAND levain_editor_modes d3d12-warp)
     add_test(NAME gpu.editor-play.d3d12-warp COMMAND levain_editor_play d3d12-warp)
+    add_test(NAME gpu.editor-pause.d3d12-warp COMMAND levain_editor_pause d3d12-warp)
     add_test(NAME gpu.editor-console.d3d12-warp COMMAND levain_editor_console d3d12-warp)
     add_test(NAME gpu.editor-view.d3d12-warp COMMAND levain_editor_view d3d12-warp)
     set(editorPreferencesWarp)
@@ -729,7 +740,7 @@ if(WIN32)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
         gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp gpu.editor-console.d3d12-warp
         gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp gpu.editor-gestures.d3d12-warp
-        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp gpu.editor-play.d3d12-warp ${editorPreferencesWarp} ${editorShortcutSettingsWarp} ${editorGridWarp}
+        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp gpu.editor-play.d3d12-warp gpu.editor-pause.d3d12-warp ${editorPreferencesWarp} ${editorShortcutSettingsWarp} ${editorGridWarp}
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 
