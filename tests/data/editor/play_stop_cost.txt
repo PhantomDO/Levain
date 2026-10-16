@@ -1,0 +1,8 @@
+# Le coût de Stop sur les 10 000 cubes de la démo (tools/play-stop-cost.sh, ADR-0037) : jouer 40 pas (Alt+P à l'image 2, le
+# jeu dès la 3), puis Échap à l'image 43 : Stop avant le 41e pas. Lancé avec `--steps 50`, un pas par image.
+2 key down Left Alt
+2 key down P
+3 key up P
+3 key up Left Alt
+43 key down Escape
+44 key up Escape

@@ -886,6 +886,18 @@ jobs:
         working-directory: ${{ env.MIRROR }}
         run: tools/ci-programs.sh editor build/${{ matrix.preset }}
 
+      # Le critère de M7.5 (ADR-0037, décision 7) : Alt+P, 120 pas, Échap sur la vue physics, et la ligne `editor.stop` doit
+      # dire exactement 120 pas et zéro différence. **Sous Windows seulement** : sous Linux, le test ctest `editor.play-stop`
+      # rejoue le même script dans l'étape « Tests » de chaque configuration (linux-debug, linux-asan, linux-release) et lit
+      # la même ligne, mais il ne tourne pas sous Windows (`if(NOT WIN32)`, tests/CMakeLists.txt). Un second passage Linux
+      # n'ajouterait que du temps de CI. tests/data/editor/play_stop.txt est dans l'artefact (`find tests/data`), et le
+      # chemin relatif se lit à la racine du miroir.
+      - name: L'éditeur, Jouer puis Arrêter
+        if: matrix.preset == 'windows-debug'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh editor-play build/${{ matrix.preset }}
+
       # Sans cache des fichiers cuits : le cuiseur repart de zéro à chaque passage (le contrôle du cache du job Linux
       # n'a donc rien à vérifier ici), et Sponza cuite lit ce qu'il vient d'écrire.
       - name: Cuire les assets de test
