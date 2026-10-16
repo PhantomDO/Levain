@@ -354,8 +354,8 @@ std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>&
     const MenuBarInputs inputs{
         .table = editor.shortcuts, .keyAtPosition = app.keyAtPosition, .windows = windows};
     MenuRequests menus = drawMenuBar(inputs, editor.menu, editor.bar, editor.help);
-    const ToolbarResult toolbar =
-        drawToolbar(editor.mode.current, editor.camera.flySpeed, app.realTime, editor.toolbar);
+    const ToolbarResult toolbar = drawToolbar(editor.mode.current, editor.mode.paused,
+                                              editor.camera.flySpeed, app.realTime, editor.toolbar);
     editor.status = statusOf(*editor.log->ring);
     drawStatusBar(editor.status);
     drawHelp(editor.help, inputs);
@@ -400,6 +400,11 @@ void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reache
     reached.insert(reached.end(), editor.lastShortcuts.begin(), editor.lastShortcuts.end());
     for (const Action action : reached)
     {
+        if (playControlOf(action)) // Pause et Image suivante, de la barre d'outils
+        {
+            reachPlayControl(app, editor, action);
+            continue;
+        }
         // **« Vue de jeu » ne bascule que si `runAction` l'a faite** (comptée) : une action refusée
         // (grisée, annoncée à la console) ne change rien.
         const int before = editor.actions.performed.at(indexOf(action));

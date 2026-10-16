@@ -124,6 +124,12 @@ struct ModeState
 /// de la Vue le partagent.
 [[nodiscard]] std::string modeButtonLabel(Mode target);
 
+/// Les libellés de la barre d'outils en jeu : « Pause » devient « Reprendre » quand le jeu est en
+/// pause, et « Image suivante » a le sien. Chacun une icône et le texte traduit, avec
+/// l'identifiant de `labelOf`.
+[[nodiscard]] std::string pauseButtonLabel(bool paused);
+[[nodiscard]] std::string stepButtonLabel();
+
 /// Ce qui demande un changement de mode à cette image : le bouton de la barre (le mode qu'il
 /// propose), Alt+P, le front d'Échap.
 struct ModeRequests

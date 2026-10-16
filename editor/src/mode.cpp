@@ -171,6 +171,17 @@ std::string modeButtonLabel(Mode target)
     return {};
 }
 
+std::string pauseButtonLabel(bool paused)
+{
+    return paused ? ui::icon::withIcon(ui::icon::Play, ui::labelOf("Reprendre"))
+                  : ui::icon::withIcon(ui::icon::Pause, ui::labelOf("Pause"));
+}
+
+std::string stepButtonLabel()
+{
+    return ui::icon::withIcon(ui::icon::Step, ui::labelOf("Image suivante"));
+}
+
 namespace
 {
 
