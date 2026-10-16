@@ -3,6 +3,27 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Simuler : un singleton du programme que Stop ne rend pas, et deux pièges de test (2026-10-16)
+
+M7.5, morceau 6 (`tests/editor_pause_gpu.cpp simulate`, `gpu.editor-simulate.*`).
+
+- **Symptôme** : W tenue en Jouer, Échap, Alt+S, et la caméra du jeu avance toute seule en Simuler. **Cause** : `Stop` rend les
+  entités et leurs composants (la caméra revient à sa place), mais `FpsInput` est un singleton du monde que le `frame` du
+  programme pose, et que ni Stop ni `enterMode` ne remettent (`WalkInput`, composant du joueur, est rendu par Stop) ; en
+  Édition `frame` ne tourne pas, il garde la dernière image jouée, et les pas de Simuler le lisent. **Parade** : le `frame` du programme tourne à chaque image de Simuler, sous la
+  route de l'éditeur (un input vide) : `programFrameRunsIn(Simulate, …)`. L'ADR-0037 disait « jamais » : amendé. Le test lit la
+  caméra du jeu avant Stop (elle avançait), après (elle est revenue, ce n'est pas une précondition à lire avant), puis en
+  Simuler (elle ne bouge pas).
+- **Symptôme** : `App::frameSeconds` vaut toujours le pas fixe dans un test, mesuré ou non. **Cause** : sous `--steps` (tout
+  test du banc) la boucle pose le pas fixe, donc « le programme voit la durée du pas » est vrai même sans le code qui la pose.
+  **Parade** : empoisonner la durée avant le crochet de l'éditeur (`Options::measuredSeconds` enveloppe `hooks->frame`), puis lire
+  ce que le programme voit : le temps empoisonné en marche, `FixedStep::stepSeconds` sur un pas.
+- **Symptôme** : un scénario « les cases de Simuler et de Rendre la souris sont grisées : aucune saisie ne démarre » passait,
+  et passait encore une fois les cases dégrisées. **Cause** : la table de la fenêtre « Raccourcis » défile (`ScrollY`) et ces
+  deux lignes sont sous le pli : `centerOfLastItem` rend des coordonnées hors de la fenêtre, le clic ne touche rien, et le
+  « rien » vérifié était vrai de toute façon. **Parade** : un test d'absence a son contrôle positif (le même clic sur une ligne
+  visible démarre la saisie) ; ici la case grisée n'existe plus (`rebindableFrom` supprimée), le clic est retiré.
+
 ## Pause, Maj+F1 et la teinte : quatre pièges de ImGui et de la boucle (2026-10-16)
 
 M7.5, morceau 5 (`tests/editor_pause_gpu.cpp`, `gpu.editor-pause.*`).

@@ -1,5 +1,6 @@
-// Pause, Image suivante, Maj+F1 et la teinte du jeu dans la vraie boucle (ADR-0037, décision 6,
-// morceau 5), un script d'input rejoué hors écran (le banc d'essai de l'App) :
+// Pause, Image suivante, Maj+F1, la teinte du jeu (ADR-0037, décision 6, morceau 5) et Simuler
+// (décision 8, morceau 6) dans la vraie boucle, un script d'input rejoué hors écran (le banc
+// d'essai de l'App) :
 //   - pause : la touche Pause arrête les pas, l'accumulateur ne bouge pas, le `frame` du programme
 //     se tait, le jeu ne reçoit rien (une touche tenue en pause ne le rejoint pas à la reprise) ;
 //     Pause reprend ; Échap, de la pause, arrête et rend la scène (la ligne `editor.stop`) ;
@@ -11,9 +12,19 @@
 //     scène la lui rend, et ce clic ne l'atteint pas ; un clic hors de la scène ne la rend pas ;
 //   - QWERTY et AZERTY : une touche de position se lit à la position, une lettre à la lettre ;
 //   - la teinte : la barre d'outils et le bord de la Vue prennent la couleur du jeu, une autre en
-//     pause, aucune en Édition (lues dans les listes de dessin d'ImGui, image par image).
+//     pause, aucune en Édition (lues dans les listes de dessin d'ImGui, image par image) ; celle
+//     de Simuler est celle de Jouer.
+// Le scénario `simulate` (second argument) joue Simuler :
+//   - Alt+S : des pas, la caméra imposée est celle de l'éditeur et vole à ses gestes (la souris
+//     capturée pendant le vol malgré le `frame` du programme), le jeu ne reçoit rien (touches
+//     tenues, `PlayerInput` vide), Pause, Image suivante, Maj+F1 refusée, Échap rend la scène ;
+//   - l'input d'avant n'est pas rejoué : W tenue en Jouer, Échap, Alt+S, et la caméra du jeu
+//     reste en place ;
+//   - le bouton « Simuler » de la barre d'outils, la sélection dans la hiérarchie et
+//     l'inspecteur, Arrêter ;
+//   - Alt+S à la lettre : QWERTY, AZERTY, une disposition où la lettre S est ailleurs.
 // Il faut un device, comme `levain_app_script`.
-//   levain_editor_pause [vulkan|d3d12|d3d12-warp]
+//   levain_editor_pause [vulkan|d3d12|d3d12-warp] [simulate]
 
 #include <algorithm>
 #include <array>
@@ -82,7 +93,15 @@ struct Frame
     int refusedSteps = 0;  ///< `declined` de Image suivante
     levain::editor::ToolbarLayout toolbar{};
     levain::app::ScreenRect view{};
-    float cameraZ = 0.0f; ///< la caméra que W, tenue, fait avancer
+    float cameraZ = 0.0f;                ///< la caméra du jeu, que W, tenue, fait avancer
+    glm::vec3 editorEye{};               ///< l'œil de la caméra de l'éditeur
+    bool overrideIsEditorCamera = false; ///< la caméra imposée à l'App est celle de l'éditeur
+    int refusedFreeMouse = 0;            ///< `declined` de Rendre la souris
+    int refusedPlay = 0;                 ///< `declined` de Jouer (Alt+P hors de l'Édition)
+    flecs::entity_t selected = 0;        ///< la sélection de l'éditeur
+    flecs::entity_t mover = 0;           ///< l'entité « mover »
+    int fieldsDrawn = 0;                 ///< les champs de l'inspecteur pour la sélection
+    ImVec2 moverRow{};                   ///< la ligne de « mover » dans la hiérarchie
 };
 
 struct Run
@@ -167,6 +186,21 @@ Frame frameOf(App& app, const Editor& editor, const Run& run, int forwardAxis)
     frame.toolbar = editor.toolbar;
     frame.view = editor.view.image;
     frame.cameraZ = app.world.lookup("camera").get<levain::scene::Transform>().position.z;
+    frame.editorEye = editor.camera.position;
+    frame.overrideIsEditorCamera =
+        app.cameraOverride && app.cameraOverride->position == editor.camera.position;
+    frame.refusedFreeMouse =
+        editor.actions.declined.at(levain::editor::indexOf(Action::GiveMouseBack));
+    frame.refusedPlay = editor.actions.declined.at(levain::editor::indexOf(Action::Play));
+    frame.selected = editor.selected;
+    frame.mover = app.world.lookup("mover").id();
+    frame.fieldsDrawn = editor.inspector.fieldsDrawn;
+    if (const auto row = editor.hierarchy.rects.find(app.world.lookup("mover").id());
+        row != editor.hierarchy.rects.end())
+    {
+        frame.moverRow = {(row->second.min.x + row->second.max.x) / 2.0f,
+                          (row->second.min.y + row->second.max.y) / 2.0f};
+    }
     return frame;
 }
 
@@ -307,6 +341,14 @@ std::string altP(int frame)
 {
     return std::format("{0} key down Left Alt\n{0} key down P\n{1} key up P\n{1} key up Left Alt\n",
                        frame, frame + 1);
+}
+
+/// Alt+S, la touche qui tape `key` : la lettre du chord est celle de la disposition.
+std::string altS(int frame, std::string_view key = "S")
+{
+    return std::format(
+        "{0} key down Left Alt\n{0} key down {2}\n{1} key up {2}\n{1} key up Left Alt\n", frame,
+        frame + 1, key);
 }
 
 std::string shiftF1(int frame)
@@ -832,6 +874,218 @@ int freeMouseOutsideView(const levain::tests::TestBackend& backend)
     return failures;
 }
 
+// -- Simuler --------------------------------------------------------------------------------------
+
+/// **Simuler de bout en bout**, panneaux fermés (la scène est la fenêtre). Alt+S à l'image 2 (la
+/// simulation dès la 3) ; W tenue de 4 à 8 (le jeu ne la voit pas) ; un vol de l'éditeur, clic
+/// droit tenu au centre (12 à 20) avec la touche à la place du W (13 à 19) ; Pause à 24, Image
+/// suivante à 28, Pause à 34 (reprise) ; Maj+F1 à 38 et Alt+P à 41 (refusées, comptées) ; Échap à
+/// 44. **Le jeu réclame la souris à chaque image** (`grabMouse`) : elle n'est capturée que pour le
+/// vol de l'éditeur.
+int simulateEndToEnd(const levain::tests::TestBackend& backend)
+{
+    Options options;
+    options.grabMouse = true;
+    options.atFrameEnd = [](App&, Editor& editor, int frame)
+    {
+        if (frame == 0)
+        {
+            bindNextFrame(editor, levain::editor::positionChord(ScanN));
+        }
+    };
+    const std::string script =
+        sorted(altS(2) + "4 key down W\n8 key up W\n" +
+               "10 mouse move 160 90\n12 button down right\n13 key down W\n19 key up W\n" +
+               "20 button up right\n" + tap(24, "Pause") + tap(28, "N") + tap(34, "Pause") +
+               shiftF1(38) + altP(41) + tap(44, "Escape"));
+    constexpr int Frames = 50;
+    const Run run = play(backend, script, Frames, options);
+    if (expect(run.exitCode == 0 && run.frames.size() == Frames, "Simuler : code 0") != 0)
+    {
+        return 1;
+    }
+    const float gameCameraZ = run.frames.at(2).cameraZ;
+    int failures = 0;
+    for (std::size_t frame = 3; frame < 44; ++frame)
+    {
+        const Frame& seen = run.frames.at(frame);
+        const std::string at = std::format("Simuler, image {} : ", frame);
+        const bool paused = frame >= 24 && frame < 34;
+        const bool stepped = frame == 28;
+        failures += expect(seen.mode == Mode::Simulate && seen.paused == paused,
+                           at + "en Simuler, en pause entre 24 et 33");
+        failures += expect(stepsIn(run, frame) == (paused && !stepped ? 0 : 1),
+                           at + (paused && !stepped ? "aucun pas en pause" : "un pas"));
+        // Le jeu ne reçoit rien : la route est celle de l'éditeur, PlayerInput reste vide, W tenue
+        // (4 à 8, puis le vol) comprise.
+        failures += expect(seen.route == levain::app::InputRoute::Editor,
+                           at + "la route est celle de l'éditeur");
+        failures += expect(seen.forward == 0.0f && !seen.anyHeld,
+                           at + "PlayerInput reste vide, touches tenues");
+        // Le `frame` du programme tourne sous cet input vide : la caméra du jeu ne bouge pas.
+        failures += expect(seen.cameraZ == gameCameraZ, at + "la caméra du jeu reste en place");
+        failures +=
+            expect(seen.overrideIsEditorCamera, at + "la caméra imposée est celle de l'éditeur");
+        failures += expect(seen.programFrames == run.frames.at(frame - 1).programFrames +
+                                                     (paused && !stepped ? 0 : 1),
+                           at + "le frame du programme tourne, hors pause (et pour un pas)");
+        failures +=
+            expect(!seen.mouseFreed, at + "la souris n'est jamais rendue : elle est à l'éditeur");
+        // Le jeu la veut à chaque image (`grabMouse`) : elle n'est à lui jamais, à l'éditeur
+        // pendant son vol (clic droit tenu de 12 à 20) seulement.
+        failures += expect(!seen.captured || (frame >= 12 && frame <= 21),
+                           at + "la souris n'est capturée que pour le vol");
+    }
+    // Le vol de l'éditeur : l'œil avance, la souris est capturée pendant le vol (le `frame` du
+    // programme la réclame ou la repose à chaque image : l'éditeur la reprend).
+    failures += expect(run.frames.at(19).editorEye.z < run.frames.at(11).editorEye.z - 0.5f,
+                       "Simuler : le vol de l'éditeur avance l'œil");
+    failures += expect(run.frames.at(16).captured && !run.frames.at(8).captured &&
+                           !run.frames.at(24).captured,
+                       "Simuler : la souris est capturée pendant le vol seulement");
+    failures += expect(run.frames.at(24).moverX == run.frames.at(23).moverX &&
+                           run.frames.at(28).moverX > run.frames.at(27).moverX &&
+                           run.frames.at(39).moverX > run.frames.at(33).moverX,
+                       "Simuler : la scène vit (et la pause l'arrête, un pas la fait avancer)");
+    // Maj+F1 n'a rien à rendre : refusée, comptée ; le jeu ne s'arrête pas pour autant.
+    failures +=
+        expect(run.frames.at(37).refusedFreeMouse == 0 && run.frames.at(40).refusedFreeMouse == 1,
+               "Simuler : Maj+F1 est refusée et comptée");
+    // Alt+P en Simuler : refusée, comptée et dite comme Alt+S en Jouer, et le mode ne change pas.
+    failures += expect(run.frames.at(40).refusedPlay == 0 && run.frames.at(43).refusedPlay == 1 &&
+                           run.frames.at(43).mode == Mode::Simulate,
+                       "Simuler : Alt+P est refusée et comptée");
+    // Échap (44) : l'Édition, la scène rendue, la caméra de l'éditeur gardée.
+    failures += expect(run.frames.at(44).mode == Mode::Edit && stepsIn(run, 44) == 0 &&
+                           run.frames.at(44).overrideIsEditorCamera,
+                       "Simuler : Échap arrête, la caméra de l'éditeur reste");
+    failures += expect(run.stopLines.size() == 1 && noDifferences(run.stopLines.front()) &&
+                           stepsOf(run.stopLines.front()) ==
+                               run.frames.at(43).steps - run.frames.at(2).steps &&
+                           run.stopLines.front().contains(" from=simulate -- "),
+                       "Simuler : Échap, la ligne editor.stop : les pas joués, zéro différence, "
+                       "from=simulate");
+    return failures;
+}
+
+/// **Simuler ne rejoue pas l'input de Jouer.** W est tenue en Jouer (6 à 14) et la caméra du jeu
+/// avance ; Échap à 10, W toujours tenue : `FpsInput` garde « avancer » de la dernière image jouée.
+/// Alt+S à 16 : sans le `frame` du programme sous l'input vide, chaque pas avancerait la caméra du
+/// jeu pour de bon.
+int simulateDoesNotReplayInput(const levain::tests::TestBackend& backend)
+{
+    constexpr int Frames = 30;
+    const Run run = play(
+        backend, sorted(altP(2) + "6 key down W\n14 key up W\n" + tap(10, "Escape") + altS(16)),
+        Frames);
+    if (expect(run.exitCode == 0 && run.frames.size() == Frames, "Simuler après Jouer : code 0") !=
+        0)
+    {
+        return 1;
+    }
+    // Stop rend la caméra du jeu où elle était avant Jouer ; la tenir là est tout ce que Simuler a
+    // à faire, `FpsInput` gardant pourtant « avancer » de la dernière image jouée.
+    const float stoppedAt = run.frames.at(10).cameraZ;
+    int failures =
+        expect(run.frames.at(9).cameraZ < run.frames.at(5).cameraZ &&
+                   stoppedAt == run.frames.at(5).cameraZ && run.frames.at(10).mode == Mode::Edit,
+               "Simuler après Jouer : la caméra avançait en Jouer, Stop l'a rendue (la "
+               "précondition)");
+    for (std::size_t frame = 11; frame < Frames; ++frame)
+    {
+        failures += expect(run.frames.at(frame).cameraZ == stoppedAt,
+                           std::format("Simuler après Jouer, image {} : la caméra du jeu ne bouge "
+                                       "pas",
+                                       frame));
+    }
+    return failures + expect(run.frames.at(20).mode == Mode::Simulate && stepsIn(run, 20) == 1,
+                             "Simuler après Jouer : la simulation tourne bien");
+}
+
+/// Le bouton « Simuler » de la barre d'outils, la sélection dans la hiérarchie et l'inspecteur
+/// vivants, Arrêter ; panneaux ouverts, à la souris scriptée. Un passage sans clic relève où sont
+/// les boutons (Simuler en Édition, Arrêter en Simuler) et la ligne de « mover ».
+int simulateToolbarAndSelection(const levain::tests::TestBackend& backend)
+{
+    Options options;
+    options.panels = true;
+    const Run probe = play(backend, sorted(altS(3) + "0 mouse move 1 1\n"), 10, options);
+    if (expect(probe.frames.size() == 10 && probe.frames.at(1).toolbar.simulate.x > 0.0f &&
+                   probe.frames.at(8).mode == Mode::Simulate &&
+                   probe.frames.at(8).toolbar.mode.x > 0.0f && probe.frames.at(8).moverRow.x > 0.0f,
+               "Simuler, barre et sélection : le passage qui relève les boutons les a vus") != 0)
+    {
+        return 1;
+    }
+    const ImVec2 simulateButton = probe.frames.at(1).toolbar.simulate;
+    const ImVec2 stopButton = probe.frames.at(8).toolbar.mode;
+    const ImVec2 moverRow = probe.frames.at(8).moverRow;
+    // Simuler (relâché à 6), la ligne de « mover » (12), Arrêter (18).
+    constexpr int Frames = 26;
+    const Run run = play(
+        backend, sorted(click(4, simulateButton) + click(10, moverRow) + click(16, stopButton)),
+        Frames, options);
+    if (expect(run.exitCode == 0 && run.frames.size() == Frames,
+               "Simuler, barre et sélection : code 0") != 0)
+    {
+        return 1;
+    }
+    int failures = 0;
+    failures += expect(run.frames.at(5).mode == Mode::Edit && stepsIn(run, 6) == 0,
+                       "Simuler, la barre : le bouton agit au relâchement");
+    failures += expect(run.frames.at(8).mode == Mode::Simulate && stepsIn(run, 8) == 1,
+                       "Simuler, la barre : le bouton Simuler lance la simulation");
+    const flecs::entity_t mover = run.frames.at(14).mover;
+    failures +=
+        expect(mover != 0 && run.frames.at(9).selected == 0 && run.frames.at(14).selected == mover,
+               "Simuler, la sélection : le clic sur la ligne choisit « mover »");
+    failures += expect(run.frames.at(14).fieldsDrawn > 0 && stepsIn(run, 14) == 1,
+                       "Simuler, l'inspecteur : les champs de la sélection, la simulation tourne");
+    failures += expect(run.frames.at(14).moverX > run.frames.at(10).moverX,
+                       "Simuler, la scène vit pendant qu'on regarde l'entité");
+    // Arrêter (relâché à 18) : l'Édition, la scène rendue, la sélection gardée.
+    failures += expect(run.frames.at(18).mode == Mode::Edit && stepsIn(run, 19) == 0 &&
+                           run.frames.at(25).selected == mover,
+                       "Simuler, la barre : Arrêter revient à l'Édition, la sélection survit");
+    failures += expect(run.stopLines.size() == 1 && noDifferences(run.stopLines.front()) &&
+                           stepsOf(run.stopLines.front()) > 0 &&
+                           run.stopLines.front().contains(" from=simulate -- "),
+                       "Simuler, la barre : la ligne editor.stop, des pas, zéro différence, "
+                       "from=simulate");
+    return failures;
+}
+
+/// Alt+S se lit **à la lettre** (c'est un accord de lettre, comme Ctrl+S) : sur un QWERTY et sur un
+/// AZERTY la touche marquée S la lance (c'est la même place), une touche qui tape « s » ailleurs
+/// aussi (`O as s`), et la touche à la place du S qui tape autre chose (`S as o`) non.
+int simulateLayouts(const levain::tests::TestBackend& backend)
+{
+    struct Layout
+    {
+        const char* name;
+        const char* key;
+        bool simulates;
+    };
+
+    int failures = 0;
+    for (const Layout& layout : {Layout{"QWERTY", "S", true}, Layout{"AZERTY", "S as s", true},
+                                 Layout{"la lettre S ailleurs", "O as s", true},
+                                 Layout{"la place du S, une autre lettre", "S as o", false}})
+    {
+        const Run run = play(backend, altS(2, layout.key), 10);
+        const std::string at = std::format("Alt+S, {} : ", layout.name);
+        if (expect(run.exitCode == 0 && run.frames.size() == 10, at + "code 0") != 0)
+        {
+            ++failures;
+            continue;
+        }
+        failures += expect((run.frames.at(5).mode == Mode::Simulate) == layout.simulates &&
+                               (stepsIn(run, 5) == 1) == layout.simulates,
+                           at + (layout.simulates ? "lance la simulation" : "ne fait rien"));
+    }
+    return failures;
+}
+
 // -- La teinte ------------------------------------------------------------------------------------
 
 /// La teinte qu'une fenêtre a dessinée à l'image : celle du jeu, celle de la pause, ou aucune.
@@ -881,12 +1135,13 @@ TintsDrawn tintsDrawn()
 }
 
 /// La teinte de la barre d'outils et du bord de la Vue, image par image, dans la vraie boucle :
-/// aucune en Édition, celle du jeu quand il tourne (Alt+P à 2, Pause à 8, reprise à 14), celle de
-/// la pause arrêté, aucune de nouveau à Échap (20). **Lue dans les listes de dessin d'ImGui**, non
+/// aucune en Édition, celle du jeu quand il tourne (`start` : Alt+P ou Alt+S à 2, Pause à 8,
+/// reprise à 14), celle de la pause arrêté, aucune de nouveau à Échap (20). Simuler a la teinte de
+/// Jouer (`playTintOf`). **Lue dans les listes de dessin d'ImGui**, non
 /// dans l'image : la capture de la boucle est prise après le `finish` du programme, où Stop a déjà
 /// rendu l'Édition (ADR-0037), donc elle ne montrerait jamais le jeu. Le test des contrastes de
 /// `ui_style_test` garde ce que la couleur donne à l'écran.
-int tint(const levain::tests::TestBackend& backend)
+int tint(const levain::tests::TestBackend& backend, const std::string& start)
 {
     Options options;
     options.panels = true;
@@ -898,7 +1153,7 @@ int tint(const levain::tests::TestBackend& backend)
 
     options.atFrameEnd = [&drawn](App&, Editor&, int) { drawn.frames.push_back(tintsDrawn()); };
     const Run run =
-        play(backend, sorted(altP(2) + tap(8, "Pause") + tap(14, "Pause") + tap(20, "Escape")), 26,
+        play(backend, sorted(start + tap(8, "Pause") + tap(14, "Pause") + tap(20, "Escape")), 26,
              options);
     if (expect(run.exitCode == 0 && run.frames.size() == 26 && drawn.frames.size() == 26,
                "teinte : code 0, une image relevée par image") != 0)
@@ -927,17 +1182,24 @@ int main(int argc, char** argv)
     {
         const std::span arguments{argv, static_cast<std::size_t>(argc)};
         const auto backend =
-            levain::tests::testBackendNamed(arguments.size() == 2 ? arguments[1] : "vulkan");
-        if (arguments.size() > 2 || !backend)
+            levain::tests::testBackendNamed(arguments.size() >= 2 ? arguments[1] : "vulkan");
+        const std::string_view scenario = arguments.size() == 3 ? arguments[2] : "pause";
+        if (arguments.size() > 3 || !backend || (scenario != "pause" && scenario != "simulate"))
         {
-            std::println(stderr, "usage : levain_editor_pause [vulkan|d3d12|d3d12-warp]");
+            std::println(stderr,
+                         "usage : levain_editor_pause [vulkan|d3d12|d3d12-warp] [pause|simulate]");
             return 2;
         }
-        const int failures = pauseAndResume(*backend) + escapeFromPause(*backend) +
-                             stepOnce(*backend) + stepsDoNotReplayInput(*backend) +
-                             stepSeesFixedStepSeconds(*backend) + layouts(*backend) +
-                             freeMouse(*backend) + toolbarButtons(*backend) +
-                             freeMouseOutsideView(*backend) + tint(*backend);
+        // Deux lancements, pour tenir sous le délai de la CI : la pause (le défaut) et Simuler.
+        const int failures =
+            scenario == "simulate"
+                ? simulateEndToEnd(*backend) + simulateDoesNotReplayInput(*backend) +
+                      simulateToolbarAndSelection(*backend) + simulateLayouts(*backend) +
+                      tint(*backend, altS(2))
+                : pauseAndResume(*backend) + escapeFromPause(*backend) + stepOnce(*backend) +
+                      stepsDoNotReplayInput(*backend) + stepSeesFixedStepSeconds(*backend) +
+                      layouts(*backend) + freeMouse(*backend) + toolbarButtons(*backend) +
+                      freeMouseOutsideView(*backend) + tint(*backend, altP(2));
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)
