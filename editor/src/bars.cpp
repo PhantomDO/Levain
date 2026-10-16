@@ -86,11 +86,20 @@ ToolbarResult drawToolbar(Mode mode, bool paused, float flySpeed, bool realTime,
     const int flags =
         ui::withFlags(ui::withFlags(ImGuiWindowFlags_NoScrollbar, ImGuiWindowFlags_NoSavedSettings),
                       ImGuiWindowFlags_NoDecoration);
-    if (!ImGui::BeginViewportSideBar(
-            ui::labelOf("Barre d'outils").c_str(), ImGui::GetMainViewport(), ImGuiDir_Up,
-            ImGui::GetFrameHeight() + 2.0f * ImGui::GetStyle().WindowPadding.y, flags))
+    // **La teinte du jeu** : le fond de la barre, depuis le style (`playTintOf`), poussé avant le
+    // `Begin` qui le lit pour dessiner la fenêtre.
+    const auto tint = playTintOf(mode, paused);
+    if (tint)
+    {
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ui::tintedBarBackground(*tint));
+    }
+    const bool shown = ImGui::BeginViewportSideBar(
+        ui::labelOf("Barre d'outils").c_str(), ImGui::GetMainViewport(), ImGuiDir_Up,
+        ImGui::GetFrameHeight() + 2.0f * ImGui::GetStyle().WindowPadding.y, flags);
+    if (!shown)
     {
         ImGui::End();
+        ImGui::PopStyleColor(tint ? 1 : 0);
         return result;
     }
     // Le mode d'abord, toujours à la même place : celui qu'on cherche le plus.
@@ -147,6 +156,7 @@ ToolbarResult drawToolbar(Mode mode, bool paused, float flySpeed, bool realTime,
     ImGui::EndDisabled();
     layout.realTime = centerOfLastItem();
     ImGui::End();
+    ImGui::PopStyleColor(tint ? 1 : 0);
     return result;
 }
 

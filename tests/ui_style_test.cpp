@@ -376,6 +376,70 @@ TEST_CASE("une ligne choisie prend l'accent le temps d'une ligne, les trois coul
     CHECK(sameColor(ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered), greyHovered));
 }
 
+TEST_CASE("la barre d'outils teintée reste lisible, texte grisé compris, et se voit de celle de "
+          "l'Édition")
+{
+    const ImGuiStyle style = editorStyleAt(1.0f);
+    const ImVec4 plain = style.Colors[ImGuiCol_MenuBarBg]; // le gris des barres
+    for (const ImVec4& tint : {levain::ui::PlayTint, levain::ui::PausedTint})
+    {
+        const ImVec4 bar = levain::ui::tintedBarBackground(tint);
+        CHECK(bar.w == 1.0f); // opaque : aucun alpha dans l'interface
+        // Le texte et le texte grisé (les outils éteints restent dans la barre en jeu) se lisent
+        // dessus comme sur la barre de l'Édition.
+        CHECK(contrastRatio(style.Colors[ImGuiCol_Text], bar) >= Readable);
+        CHECK(contrastRatio(style.Colors[ImGuiCol_TextDisabled], bar) >= Readable);
+        // Elle n'est plus un gris : la teinte se voit (au moins 10 niveaux d'écart entre ses
+        // canaux), sans quoi « teinter » ne changerait rien d'un coup d'œil.
+        const float spread = std::max({bar.x, bar.y, bar.z}) - std::min({bar.x, bar.y, bar.z});
+        CHECK(spread * 255.0f >= 10.0f);
+        CHECK_FALSE(sameRgb(bar, plain));
+    }
+    // Le jeu qui tourne et la pause sont deux couleurs, non deux nuances d'une (la barre aussi).
+    const ImVec4 playing = levain::ui::tintedBarBackground(levain::ui::PlayTint);
+    const ImVec4 paused = levain::ui::tintedBarBackground(levain::ui::PausedTint);
+    CHECK(playing.x > playing.z);
+    CHECK(paused.z > paused.x);
+}
+
+TEST_CASE(
+    "le bord teinté de la Vue se lit sur un ciel clair comme sur un sol sombre, et contre les "
+    "panneaux")
+{
+    // **Le bord est dessiné sur la scène**, non sur `WindowBg` : un ciel clair et un sol sombre
+    // sont les deux écueils (un bleu clair se perdait sur le ciel). Un contour se lit à 3 contre
+    // ce qu'il borde (WCAG 1.4.11) ; le gris des panneaux borde l'autre côté.
+    const ImGuiStyle style = editorStyleAt(1.0f);
+    const ImVec4 lightSky = levain::ui::srgb8(190, 215, 240);
+    const ImVec4 darkGround = levain::ui::srgb8(30, 28, 26);
+    for (const ImVec4& tint : {levain::ui::PlayTint, levain::ui::PausedTint})
+    {
+        CHECK(contrastRatio(tint, lightSky) >= 3.0f);
+        CHECK(contrastRatio(tint, darkGround) >= 3.0f);
+        CHECK(contrastRatio(tint, style.Colors[ImGuiCol_WindowBg]) >= 3.0f);
+    }
+    // Le contrôle du contrôle : les tons d'avant (un orange vif, un bleu clair) y échouaient.
+    CHECK(contrastRatio(levain::ui::srgb8(70, 170, 200), lightSky) < 3.0f);
+    CHECK(contrastRatio(levain::ui::srgb8(236, 140, 28), lightSky) < 3.0f);
+}
+
+TEST_CASE("l'icône du bandeau du jeu, dans sa teinte, se voit sur le calque, même sur une scène "
+          "blanche")
+{
+    const ImVec4 overlay = levain::ui::overlayBackground();
+    const ImVec4 white = levain::ui::srgb8(255, 255, 255);
+    // Le calque presque opaque sur du blanc, tel que l'interface le mélange (en gamma, depuis le
+    // morceau 17d : la cible est UNORM partout). Une icône est un graphisme : 3 de contraste
+    // (WCAG 1.4.11), là où le texte du bandeau, en `Text`, en veut 4,5 (le test du rappel de
+    // touche, qui garde aussi le mélange linéaire d'avant : la teinte, de luminance moyenne pour
+    // se lire sur la scène, ne s'y tient pas, et ce mélange n'existe plus).
+    const ImVec4 inGamma = blendInGamma({overlay.x, overlay.y, overlay.z, 1.0f}, white, overlay.w);
+    for (const ImVec4& tint : {levain::ui::PlayTint, levain::ui::PausedTint})
+    {
+        CHECK(contrastRatio(tint, inGamma) >= 3.0f);
+    }
+}
+
 TEST_CASE("le fond d'un calque sur la scène est un gris de la palette, presque opaque")
 {
     const ImVec4 overlay = levain::ui::overlayBackground();

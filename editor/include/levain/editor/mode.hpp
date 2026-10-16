@@ -21,6 +21,7 @@
 #include "levain/editor/shortcuts.hpp"
 #include "levain/platform/input.hpp"
 #include "levain/platform/window.hpp"
+#include "levain/ui/style.hpp"
 
 namespace levain::editor
 {
@@ -107,6 +108,23 @@ struct ModeState
                                             : inputRouteFor(state.current, sceneFocused);
 }
 
+/// **La teinte du jeu** (ADR-0037, décision 6) : la couleur du bord de la Vue et de la barre
+/// d'outils quand le jeu tourne, celle de la pause quand il est arrêté, rien en Édition. Unreal
+/// teinte, Unity assombrit ce qui n'est pas la vue Game (documenté, ADR-0037 [2]). Les couleurs
+/// sont celles du style (`ui/style.hpp`), jamais des littéraux ici. Une pause en Édition n'existe
+/// pas : pas de teinte.
+[[nodiscard]] constexpr std::optional<ImVec4> playTintOf(Mode mode, bool paused)
+{
+    switch (mode)
+    {
+    case Mode::Edit:
+        return std::nullopt;
+    case Mode::Play:
+        return paused ? ui::PausedTint : ui::PlayTint;
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] constexpr Mode otherMode(Mode mode)
 {
     switch (mode)
@@ -173,6 +191,21 @@ struct ModeRequests
         return "Édition";
     case Mode::Play:
         return "Jouer";
+    }
+    return "";
+}
+
+/// Le bandeau de la barre de mode, une clé du catalogue : ce que le jeu fait à la scène, ou la
+/// pause. Rien en Édition.
+[[nodiscard]] constexpr const char* modeBannerOf(Mode mode, bool paused)
+{
+    switch (mode)
+    {
+    case Mode::Edit:
+        return "";
+    case Mode::Play:
+        return paused ? "Pause : la simulation est arrêtée"
+                      : "Jouer : à l'arrêt, la scène revient telle qu'avant Play";
     }
     return "";
 }
@@ -314,8 +347,9 @@ void enterMode(app::App& app, ModeState& state, Mode mode);
 /// le bandeau de « Jouer » et le rappel de la touche valent aussi panneaux fermés, où le bouton
 /// manque : la fenêtre est un bandeau que rien ne vise ni ne focalise, et la route *jeu* reste.
 /// Panneaux ouverts, la barre est celle de la Vue (`drawModeBarOverlay`). `hint` : le rappel de
-/// la touche (`modeHintOf`).
-void drawModeBar(Mode current, const app::ScreenRect& scene, const std::string& hint);
+/// la touche (`modeHintOf`). Le bandeau dit la pause (`modeBannerOf`), dans la
+/// teinte du jeu (`playTintOf`).
+void drawModeBar(const ModeState& mode, const app::ScreenRect& scene, const std::string& hint);
 
 /// Ce que la barre de mode en calque a fait à cette image (`drawModeBarOverlay`), et où ImGui l'a
 /// dessinée : des rectangles à l'écran, nuls tant que rien n'est dessiné.
@@ -339,7 +373,7 @@ struct ModeBarOverlay
 /// un enfant de cette fenêtre, que le focus de la Vue ne passe jamais derrière. Toujours avec son
 /// bouton : la Vue n'existe que panneaux ouverts. Fond semi-opaque, pour que le rappel de la touche
 /// se lise sur un ciel clair. `hint` : le rappel de la touche (`modeHintOf`).
-[[nodiscard]] ModeBarOverlay drawModeBarOverlay(Mode current, ImVec2 corner,
+[[nodiscard]] ModeBarOverlay drawModeBarOverlay(const ModeState& mode, ImVec2 corner,
                                                 const std::string& hint);
 
 /// Alt+P est pressée, par la lettre que la table donne à « Jouer » (`imguiChordOf`, ADR-0036,

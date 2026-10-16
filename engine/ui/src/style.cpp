@@ -208,6 +208,13 @@ ImVec4 overlayBackground()
     return {Bar.x, Bar.y, Bar.z, OverlayAlpha};
 }
 
+ImVec4 tintedBarBackground(const ImVec4& tint)
+{
+    constexpr float Pull = 0.2f; // la part de la teinte, que le test des contrastes borne
+    return {Bar.x + ((tint.x - Bar.x) * Pull), Bar.y + ((tint.y - Bar.y) * Pull),
+            Bar.z + ((tint.z - Bar.z) * Pull), 1.0f};
+}
+
 float relativeLuminance(const ImVec4& srgb)
 {
     return (0.2126f * linearOfSrgbChannel(srgb.x)) + (0.7152f * linearOfSrgbChannel(srgb.y)) +

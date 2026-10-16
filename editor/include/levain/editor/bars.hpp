@@ -4,7 +4,7 @@
 // retirent leur hauteur à l'espace d'ancrage, sous la barre de menus et au bas de la fenêtre.
 // **La barre d'outils** : le mode (Jouer, ou arrêter), puis Simuler (grisé jusqu'au morceau 6 de
 // M7.5) en Édition, Pause et Image suivante en jeu, les outils (grisés jusqu'à M7.4), la vitesse de
-// la caméra de l'éditeur et « Temps réel ».
+// la caméra de l'éditeur et « Temps réel ». Son fond prend la teinte du jeu.
 // **La barre d'état** : le dernier message du journal et les compteurs d'avertissements et
 // d'erreurs, ceux de la console (`core::LogRing`). La logique est en fonctions libres dont toutes
 // les dépendances sont des paramètres (ADR-0011). Équivalents : la barre d'outils d'Unity (Play,
@@ -51,7 +51,7 @@ struct ToolbarResult
 /// Dessine la barre d'outils sous la barre de menus. `flySpeed` est la vitesse de vol de la caméra
 /// de l'éditeur, `realTime` l'état de la case. **Le mode d'abord, à sa place** (Jouer ou Arrêter),
 /// puis en Édition Simuler (grisé), en jeu Pause (ou Reprendre) et Image suivante, qui ne marche
-/// qu'en pause. Panneaux ouverts seulement.
+/// qu'en pause ; **le fond prend la teinte du jeu** (`playTintOf`). Panneaux ouverts seulement.
 [[nodiscard]] ToolbarResult drawToolbar(Mode mode, bool paused, float flySpeed, bool realTime,
                                         ToolbarLayout& layout);
 

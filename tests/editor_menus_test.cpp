@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -49,6 +50,16 @@ std::uint32_t azertyAt(std::uint16_t scancode)
     default:
         return levain::platform::qwertyKeyAtPosition(scancode);
     }
+}
+
+/// L'état des modes, chaque champ nommé (les initialiseurs désignés les veulent tous).
+ModeState modeIn(Mode mode, bool paused = false, bool mouseFreed = false)
+{
+    ModeState state;
+    state.current = mode;
+    state.paused = paused;
+    state.mouseFreed = mouseFreed;
+    return state;
 }
 
 const HelpRow* rowOf(const std::vector<HelpRow>& rows, Action action)
@@ -406,6 +417,42 @@ ButtonDrawing drawingOf(const std::vector<ImDrawVert>& vertices, const ImVec2& c
 
 } // namespace
 
+TEST_CASE("la barre d'outils prend la teinte du jeu quand il tourne, une autre en pause, aucune "
+          "en Édition")
+{
+    BarBench bench;
+    levain::ui::applyEditorStyle(ImGui::GetStyle(), 1.0f);
+    const ImU32 playing = packed(levain::ui::tintedBarBackground(levain::ui::PlayTint));
+    const ImU32 paused = packed(levain::ui::tintedBarBackground(levain::ui::PausedTint));
+    const auto drawn = [&](ImU32 color)
+    {
+        return std::ranges::any_of(drawnVertices(), [color](const ImDrawVert& vertex)
+                                   { return sameRgb(vertex.col, color); });
+    };
+    const auto settleAndRender = [&bench]
+    {
+        bench.settle();
+        bench.frame(true);
+    };
+    settleAndRender();
+    CHECK_FALSE(drawn(playing));
+    CHECK_FALSE(drawn(paused));
+    bench.mode = Mode::Play;
+    settleAndRender();
+    CHECK(drawn(playing));
+    CHECK_FALSE(drawn(paused));
+    bench.paused = true;
+    settleAndRender();
+    CHECK(drawn(paused));
+    CHECK_FALSE(drawn(playing));
+    // Retour à l'Édition : la teinte part avec le jeu.
+    bench.mode = Mode::Edit;
+    bench.paused = false;
+    settleAndRender();
+    CHECK_FALSE(drawn(playing));
+    CHECK_FALSE(drawn(paused));
+}
+
 TEST_CASE("un bouton grisé de la barre d'outils : texte éteint plein, ni contour ni alpha de plus")
 {
     BarBench bench;
@@ -513,7 +560,7 @@ TEST_CASE("le bandeau de la barre de mode se dessine sur un gris de la palette, 
         ImGui::SetNextWindowPos({0.0f, 0.0f});
         ImGui::SetNextWindowSize({400.0f, 300.0f});
         ImGui::Begin("Vue");
-        std::ignore = drawModeBarOverlay(Mode::Edit, {10.0f, 10.0f}, "Alt+P");
+        std::ignore = drawModeBarOverlay(modeIn(Mode::Edit), {10.0f, 10.0f}, "Alt+P");
         ImGui::End();
         ImGui::Render();
     }
@@ -533,6 +580,17 @@ TEST_CASE("le bandeau de la barre de mode se dessine sur un gris de la palette, 
     const ImU32 dim = packed(ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
     CHECK(std::ranges::none_of(drawnVertices(),
                                [&](const ImDrawVert& vertex) { return sameRgb(vertex.col, dim); }));
+}
+
+TEST_CASE("le bandeau de la barre de mode dit la pause")
+{
+    // Le texte choisi : rien en Édition, la pause en pause, sinon ce que Jouer fait à la scène.
+    CHECK(std::string_view{modeBannerOf(Mode::Edit, false)}.empty());
+    CHECK(std::string_view{modeBannerOf(Mode::Edit, true)}.empty());
+    const std::string_view playing = modeBannerOf(Mode::Play, false);
+    const std::string_view paused = modeBannerOf(Mode::Play, true);
+    CHECK(playing.starts_with("Jouer"));
+    CHECK(paused.starts_with("Pause"));
 }
 
 TEST_CASE("la barre de mode en calque rend ses rectangles : la barre au coin demandé, son bouton "
@@ -560,7 +618,7 @@ TEST_CASE("la barre de mode en calque rend ses rectangles : la barre au coin dem
                 ImGui::SetNextWindowPos({0.0f, 0.0f});
                 ImGui::SetNextWindowSize({880.0f, 300.0f});
                 ImGui::Begin("Vue");
-                overlay = drawModeBarOverlay(mode, {10.0f, 10.0f}, "Alt+P");
+                overlay = drawModeBarOverlay(modeIn(mode), {10.0f, 10.0f}, "Alt+P");
                 frameHeight = ImGui::GetFrameHeight();
                 ImGui::End();
                 ImGui::Render();

@@ -195,11 +195,12 @@ app::ScreenRect lastItemRect()
 }
 
 /// Le contenu de la barre, dans la fenêtre ou le calque courant : le bouton qui montre où l'on va
-/// (seul il va dans les deux sens, `modeRequested`), le bandeau de « Jouer » et le
+/// (seul il va dans les deux sens, `modeRequested`), le bandeau du jeu, dans sa teinte, et le
 /// rappel de la touche. Rend le mode demandé et le rectangle du bouton, s'il y en a un (le reste
 /// est à l'appelant, qui tient l'enfant).
-ModeBarOverlay drawModeBarContents(Mode current, bool interactive, const std::string& hint)
+ModeBarOverlay drawModeBarContents(const ModeState& mode, bool interactive, const std::string& hint)
 {
+    const Mode current = mode.current;
     ModeBarOverlay bar;
     if (interactive)
     {
@@ -210,17 +211,14 @@ ModeBarOverlay drawModeBarContents(Mode current, bool interactive, const std::st
         }
         bar.button = lastItemRect();
     }
-    switch (current)
+    if (const auto tint = playTintOf(current, mode.paused))
     {
-    case Mode::Edit:
-        break;
-    case Mode::Play:
-        ImGui::TextColored(
-            {1.0f, 0.75f, 0.2f, 1.0f}, "%s",
-            ui::icon::withIcon(ui::icon::Play,
-                               ui::tr("Jouer : à l'arrêt, la scène revient telle qu'avant Play"))
-                .c_str());
-        break;
+        // L'icône dans la teinte, le texte en `Text` : une icône est un graphisme (3 de contraste
+        // suffisent, sur une scène blanche comme sur une sombre), un texte en couleur de teinte
+        // n'atteindrait pas 4,5 (`tests/ui_style_test.cpp`).
+        ImGui::TextColored(*tint, "%s", mode.paused ? ui::icon::Pause : ui::icon::Play);
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::TextUnformatted(ui::tr(modeBannerOf(current, mode.paused)));
     }
     if (!hint.empty())
     {
@@ -233,17 +231,17 @@ ModeBarOverlay drawModeBarContents(Mode current, bool interactive, const std::st
 
 } // namespace
 
-void drawModeBar(Mode current, const app::ScreenRect& scene, const std::string& hint)
+void drawModeBar(const ModeState& mode, const app::ScreenRect& scene, const std::string& hint)
 {
     ImGui::SetNextWindowPos({scene.x + 8.0f, scene.y + 8.0f});
     if (ImGui::Begin(ui::labelOf("Mode").c_str(), nullptr, modeBarFlags()))
     {
-        std::ignore = drawModeBarContents(current, false, hint);
+        std::ignore = drawModeBarContents(mode, false, hint);
     }
     ImGui::End();
 }
 
-ModeBarOverlay drawModeBarOverlay(Mode current, ImVec2 corner, const std::string& hint)
+ModeBarOverlay drawModeBarOverlay(const ModeState& mode, ImVec2 corner, const std::string& hint)
 {
     ModeBarOverlay bar;
     // Un enfant de la fenêtre de la Vue, non une fenêtre flottante : une fenêtre flottante passe
@@ -258,7 +256,7 @@ ModeBarOverlay drawModeBarOverlay(Mode current, ImVec2 corner, const std::string
                           ui::withFlags(childFlags, ImGuiChildFlags_Borders),
                           ImGuiWindowFlags_NoScrollbar))
     {
-        bar = drawModeBarContents(current, true, hint);
+        bar = drawModeBarContents(mode, true, hint);
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();

@@ -1,11 +1,13 @@
-// Pause et Image suivante, de bout en bout, dans la vraie boucle (ADR-0037, décision 6,
+// Pause, Image suivante et la teinte du jeu dans la vraie boucle (ADR-0037, décision 6,
 // morceau 5), un script d'input rejoué hors écran (le banc d'essai de l'App) :
 //   - pause : la touche Pause arrête les pas, l'accumulateur ne bouge pas, le `frame` du programme
 //     se tait, le jeu ne reçoit rien (une touche tenue en pause ne le rejoint pas à la reprise) ;
 //     Pause reprend ; Échap, de la pause, arrête et rend la scène (la ligne `editor.stop`) ;
 //   - Image suivante : exactement un pas, puis la pause reprend ; refusée en marche ;
 //   - la barre d'outils : Pause, Image suivante, Reprendre et Arrêter, cliqués à la souris
-//     scriptée.
+//     scriptée ;
+//   - la teinte : la barre d'outils et le bord de la Vue prennent la couleur du jeu, une autre en
+//     pause, aucune en Édition (lues dans les listes de dessin d'ImGui, image par image).
 // Il faut un device, comme `levain_app_script`.
 //   levain_editor_pause [vulkan|d3d12|d3d12-warp]
 
@@ -28,6 +30,7 @@
 #include <vector>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include "gpu_test_backend.hpp"
 
@@ -41,6 +44,8 @@
 #include "levain/platform/input_script.hpp"
 #include "levain/scene/camera_control.hpp"
 #include "levain/scene/components.hpp"
+#include "levain/ui/style.hpp"
+#include "levain/ui/tr.hpp"
 
 namespace
 {
@@ -597,6 +602,93 @@ int toolbarButtons(const levain::tests::TestBackend& backend)
     return failures + stopAfterStepRequest(backend, stepPaused, options);
 }
 
+// -- La teinte ------------------------------------------------------------------------------------
+
+/// La teinte qu'une fenêtre a dessinée à l'image : celle du jeu, celle de la pause, ou aucune.
+enum class Tint : std::uint8_t
+{
+    None,
+    Play,
+    Paused,
+};
+
+bool sameRgb(ImU32 a, ImU32 b)
+{
+    return (a & ~static_cast<ImU32>(IM_COL32_A_MASK)) == (b & ~static_cast<ImU32>(IM_COL32_A_MASK));
+}
+
+/// La couleur dessinée dans la liste de dessin de la fenêtre (ses sommets, tels qu'ImGui les écrira
+/// dans l'image) : ce que le rendu va montrer, sans lire l'image.
+bool drawnIn(const std::string& windowName, const ImVec4& color)
+{
+    const ImGuiWindow* window = ImGui::FindWindowByName(windowName.c_str());
+    const ImU32 wanted = ImGui::ColorConvertFloat4ToU32(color);
+    return window != nullptr &&
+           std::ranges::any_of(window->DrawList->VtxBuffer, [wanted](const ImDrawVert& vertex)
+                               { return sameRgb(vertex.col, wanted); });
+}
+
+/// Le fond de la barre d'outils et le bord de la Vue, quelle teinte ils ont à cette image.
+struct TintsDrawn
+{
+    Tint toolbar = Tint::None;
+    Tint border = Tint::None;
+};
+
+TintsDrawn tintsDrawn()
+{
+    const auto of = [](const std::string& window, const ImVec4& play, const ImVec4& paused)
+    {
+        const bool isPlay = drawnIn(window, play);
+        const bool isPaused = drawnIn(window, paused);
+        return isPlay ? Tint::Play : isPaused ? Tint::Paused : Tint::None;
+    };
+    return {.toolbar = of(levain::ui::labelOf("Barre d'outils"),
+                          levain::ui::tintedBarBackground(levain::ui::PlayTint),
+                          levain::ui::tintedBarBackground(levain::ui::PausedTint)),
+            .border = of(levain::ui::labelOf(levain::editor::ViewWindow), levain::ui::PlayTint,
+                         levain::ui::PausedTint)};
+}
+
+/// La teinte de la barre d'outils et du bord de la Vue, image par image, dans la vraie boucle :
+/// aucune en Édition, celle du jeu quand il tourne (Alt+P à 2, Pause à 8, reprise à 14), celle de
+/// la pause arrêté, aucune de nouveau à Échap (20). **Lue dans les listes de dessin d'ImGui**, non
+/// dans l'image : la capture de la boucle est prise après le `finish` du programme, où Stop a déjà
+/// rendu l'Édition (ADR-0037), donc elle ne montrerait jamais le jeu. Le test des contrastes de
+/// `ui_style_test` garde ce que la couleur donne à l'écran.
+int tint(const levain::tests::TestBackend& backend)
+{
+    Options options;
+    options.panels = true;
+
+    struct Drawn
+    {
+        std::vector<TintsDrawn> frames;
+    } drawn;
+
+    options.atFrameEnd = [&drawn](App&, Editor&, int) { drawn.frames.push_back(tintsDrawn()); };
+    const Run run =
+        play(backend, sorted(altP(2) + tap(8, "Pause") + tap(14, "Pause") + tap(20, "Escape")), 26,
+             options);
+    if (expect(run.exitCode == 0 && run.frames.size() == 26 && drawn.frames.size() == 26,
+               "teinte : code 0, une image relevée par image") != 0)
+    {
+        return 1;
+    }
+    int failures = 0;
+    for (std::size_t frame = 0; frame < drawn.frames.size(); ++frame)
+    {
+        const bool inPlay = (frame >= 3 && frame < 8) || (frame >= 14 && frame < 20);
+        const bool inPause = frame >= 8 && frame < 14;
+        const Tint expected = inPause ? Tint::Paused : inPlay ? Tint::Play : Tint::None;
+        failures += expect(drawn.frames.at(frame).toolbar == expected,
+                           std::format("teinte, image {} : la barre d'outils", frame));
+        failures += expect(drawn.frames.at(frame).border == expected,
+                           std::format("teinte, image {} : le bord de la Vue", frame));
+    }
+    return failures;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -613,7 +705,7 @@ int main(int argc, char** argv)
         }
         const int failures = pauseAndResume(*backend) + escapeFromPause(*backend) +
                              stepOnce(*backend) + stepsDoNotReplayInput(*backend) +
-                             toolbarButtons(*backend);
+                             toolbarButtons(*backend) + tint(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

@@ -1044,6 +1044,28 @@ TEST_CASE("la pause arrête la simulation et le frame du programme, et le jeu ne
     CHECK(levain::editor::inputRouteOf(modeIn(Mode::Edit), true) == InputRoute::Editor);
 }
 
+TEST_CASE("la teinte du jeu : rien en Édition, une teinte qui joue, une autre en pause")
+{
+    using levain::editor::Mode;
+    using levain::editor::playTintOf;
+    CHECK_FALSE(playTintOf(Mode::Edit, false).has_value());
+    CHECK_FALSE(playTintOf(Mode::Edit, true).has_value()); // une pause d'Édition n'existe pas
+    // `value_or` : clang-tidy ne suit pas `REQUIRE`, et lit `.value()` comme un accès non gardé
+    // (build/GOTCHA.md). Les deux teintes existent, les `CHECK` suivants le disent par leurs
+    // couleurs.
+    CHECK(playTintOf(Mode::Play, false).has_value());
+    CHECK(playTintOf(Mode::Play, true).has_value());
+    const ImVec4 playing = playTintOf(Mode::Play, false).value_or(ImVec4{});
+    const ImVec4 paused = playTintOf(Mode::Play, true).value_or(ImVec4{});
+    // Les couleurs du style, non des littéraux d'ici ; et deux teintes qu'on distingue d'un coup
+    // d'œil : une autre couleur, pas une nuance de la première (la teinte du jeu est chaude, celle
+    // de la pause froide).
+    CHECK(playing.x == levain::ui::PlayTint.x);
+    CHECK(paused.x == levain::ui::PausedTint.x);
+    CHECK(playing.x > playing.z); // plus de rouge que de bleu
+    CHECK(paused.z > paused.x);   // plus de bleu que de rouge
+}
+
 namespace
 {
 
