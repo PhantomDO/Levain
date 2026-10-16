@@ -181,7 +181,9 @@ M couverts par un test ».
    laisserait le premier vert sans rien lire (règle n°7). La cible éditeur d'un plugin (M7.6) pourra le lier.
    Le configure ne lit que les liens directs : une cible intermédiaire qui lie l'éditeur lui échappe, et seul
    `build.no-editor` la rattrape, pour le sandbox.
-2. **L'éditeur ne lie jamais un plugin** : la même fonction parcourt `editor/` comme `engine/`.
+2. **L'éditeur ne lie jamais un plugin** : la même fonction parcourt `editor/` comme `engine/`. **Il lie `levain::app` (PUBLIC) et
+   `levain::physics` (PRIVATE)** : Jouer et Arrêter appellent `physics::freshPhysicsWorld` et `physics::endPlay` (`play.cpp`,
+   ADR-0037, décision 3) ; aucun type de Jolt ne sort de la physique.
 3. **Natif seulement**, hors du bloc `PROJECT_IS_TOP_LEVEL` : la page web n'a pas d'éditeur, et un jeu qui
    récupère Levain par `FetchContent` reçoit la bibliothèque.
 4. **La boucle ne change que par les points nommés d'`app`** (ADR-0036, qui modifie cet invariant) :
