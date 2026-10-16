@@ -406,9 +406,12 @@ TEST_CASE("isTransientlyBusy : sous Windows l'accès refusé, le partage et le v
 TEST_CASE("retryWhileBusy : une erreur qui ne passera pas rend aussitôt, sans attendre le délai")
 {
     // Un droit refusé sous Linux, un disque plein : avant, chaque erreur était réessayée, et un
-    // échec qui dure attendait tout le délai avant d'être dit.
+    // échec qui dure attendait tout le délai avant d'être dit. **Les attentes sont comptées, non
+    // chronométrées** : un bord de 100 ms a cédé une fois sous la charge d'un build (load average
+    // 15, 1,3 s mesurée). Une erreur réessayée à tort ferait plus d'un essai et au moins une
+    // attente, quelle que soit la vitesse de la machine.
     int calls = 0;
-    const auto start = std::chrono::steady_clock::now();
+    int sleeps = 0;
     const std::error_code error = retryWhileBusy(
         PreferencesFileRetry,
         [&calls]()
@@ -416,13 +419,11 @@ TEST_CASE("retryWhileBusy : une erreur qui ne passera pas rend aussitôt, sans a
             ++calls;
             return std::make_error_code(std::errc::permission_denied);
         },
-        isTransientlyBusy,
-        [](std::chrono::milliseconds pause) { std::this_thread::sleep_for(pause); });
-    const auto elapsed = std::chrono::steady_clock::now() - start;
+        isTransientlyBusy, [&sleeps](std::chrono::milliseconds) { ++sleeps; });
 
     CHECK(error == std::errc::permission_denied);
     CHECK(calls == 1);
-    CHECK(elapsed < std::chrono::milliseconds{100});
+    CHECK(sleeps == 0);
 }
 
 TEST_CASE("retryWhileBusy : un refus passager est réessayé jusqu'au délai, mesuré au temps et non "
@@ -486,14 +487,17 @@ TEST_CASE("préférences : un fichier qui ne se lit pas est dit illisible aussit
     const fs::path file = directory.path / PreferencesFileName;
     fs::create_directories(file);
 
-    const auto start = std::chrono::steady_clock::now();
-    const auto read = loadPreferences(file);
-    const auto elapsed = std::chrono::steady_clock::now() - start;
+    // **Les attentes sont comptées, non chronométrées** (un bord de 100 ms a cédé une fois sous la
+    // charge d'un build) : un fichier lu « aussitôt » n'a demandé aucune attente, quel que soit le
+    // temps que la machine met à lire.
+    int sleeps = 0;
+    const auto read = loadPreferences(file, PreferencesFileRetry,
+                                      [&sleeps](std::chrono::milliseconds) { ++sleeps; });
 
     REQUIRE_FALSE(read.has_value());
     CHECK(read.error().message.find("illisible") != std::string::npos);
     CHECK(read.error().message.find("refusé pendant") == std::string::npos);
-    CHECK(elapsed < std::chrono::milliseconds{100});
+    CHECK(sleeps == 0);
 }
 #endif
 

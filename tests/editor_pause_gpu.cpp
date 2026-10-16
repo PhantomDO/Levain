@@ -15,9 +15,10 @@
 //     pause, aucune en Édition (lues dans les listes de dessin d'ImGui, image par image) ; celle
 //     de Simuler est celle de Jouer.
 // Le scénario `simulate` (second argument) joue Simuler :
-//   - Alt+S : des pas, la caméra imposée est celle de l'éditeur et vole à ses gestes (la souris
-//     capturée pendant le vol malgré le `frame` du programme), le jeu ne reçoit rien (touches
-//     tenues, `PlayerInput` vide), Pause, Image suivante, Maj+F1 refusée, Échap rend la scène ;
+//   - Alt+S : des pas, la caméra imposée est celle de l'éditeur et vole à ses gestes (le jeu
+//     réclame la souris à chaque image, `grabMouse` ; elle n'est capturée que pendant le vol), le
+//     jeu ne reçoit rien (touches tenues, `PlayerInput` vide), Pause, Image suivante, Maj+F1 et
+//     Alt+P refusées et comptées, Échap rend la scène ;
 //   - l'input d'avant n'est pas rejoué : W tenue en Jouer, Échap, Alt+S, et la caméra du jeu
 //     reste en place ;
 //   - le bouton « Simuler » de la barre d'outils, la sélection dans la hiérarchie et

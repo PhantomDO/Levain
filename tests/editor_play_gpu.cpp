@@ -51,6 +51,7 @@ namespace
 {
 
 using levain::app::App;
+using levain::editor::Action;
 using levain::editor::Editor;
 using levain::editor::Mode;
 using levain::scene::Transform;
@@ -80,6 +81,7 @@ struct Frame
     std::vector<flecs::entity_t> roots; ///< les lignes de la Hiérarchie
     std::int32_t transforms = 0;
     std::size_t deadCrates = 0; ///< les caisses détruites en jeu et pas (encore) revenues
+    levain::editor::ActionCounters actions; ///< faites et refusées, par action
 };
 
 struct Run
@@ -226,6 +228,7 @@ Frame frameOf(App& app, const Editor& editor, const Run& run)
         frame.roots.push_back(row.entity);
     }
     frame.transforms = app.world.count<Transform>();
+    frame.actions = editor.actions;
     return frame;
 }
 
@@ -588,9 +591,11 @@ int scriptedRunEndsPlaying(const levain::tests::TestBackend& backend)
 
 /// Un composant qui ne se copie pas : Play est refusé, l'Édition reste et la console dit pourquoi.
 /// `start` entre en jeu (Alt+P ou Alt+S) et `refusal` est le début du message : la console nomme
-/// le mode demandé, « Jouer refusé » ou « Simuler refusé ».
+/// le mode demandé, « Jouer refusé » ou « Simuler refusé ». `counted` est l'action que le départ
+/// atteint par la table des actions (Alt+S ; Alt+P est lue ailleurs, `playShortcutPressed`) : un
+/// départ refusé n'est pas « fait », il est compté refusé.
 int refusedPlay(const levain::tests::TestBackend& backend, const std::string& start,
-                const std::string& refusal)
+                const std::string& refusal, std::optional<levain::editor::Action> counted)
 {
     const TempDir dir;
     Scenario scenario;
@@ -610,7 +615,15 @@ int refusedPlay(const levain::tests::TestBackend& backend, const std::string& st
         stayedInEdit =
             stayedInEdit && frame.mode == Mode::Edit && !frame.playing && frame.bodies == 0;
     }
-    return expect(stayedInEdit, refusal + " : l'éditeur reste en Édition, sans état de jeu") +
+    bool countedRefused = true;
+    if (counted)
+    {
+        const auto& actions = run.frames.back().actions;
+        countedRefused = actions.performed.at(levain::editor::indexOf(*counted)) == 0 &&
+                         actions.declined.at(levain::editor::indexOf(*counted)) == 1;
+    }
+    return expect(countedRefused, refusal + " : l'action est comptée refusée, non faite") +
+           expect(stayedInEdit, refusal + " : l'éditeur reste en Édition, sans état de jeu") +
            expect(named, refusal + " : la console nomme le mode demandé et l'entité") +
            expect(run.stopLines.empty(), refusal + " : aucun Stop à faire");
 }
@@ -631,8 +644,8 @@ int main(int argc, char** argv)
         }
         const int failures = criterion(*backend) + selection(*backend) + skinnedModel(*backend) +
                              quitWhilePlaying(*backend) + scriptedRunEndsPlaying(*backend) +
-                             refusedPlay(*backend, altP(2), "Jouer refusé") +
-                             refusedPlay(*backend, altS(2), "Simuler refusé");
+                             refusedPlay(*backend, altP(2), "Jouer refusé", std::nullopt) +
+                             refusedPlay(*backend, altS(2), "Simuler refusé", Action::Simulate);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

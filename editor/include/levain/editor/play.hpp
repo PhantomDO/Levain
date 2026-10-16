@@ -10,6 +10,7 @@
 
 #include <map>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <flecs.h>
@@ -66,9 +67,9 @@ struct StopReport
     bool refused = false;
     std::string refusal;
     int steps = 0; ///< Les pas joués pendant cette session.
-    /// Le mode que Stop quitte, en mot sans langue (`modeTokenOf` : « play », « simulate »), posé
-    /// par l'appelant, qui le sait : la ligne de la CI le dit (`from=`), sans quoi un Alt+S qui
-    /// jouerait à la place de simuler rendrait la même ligne. Vide tant qu'il n'est pas posé.
+    /// Le mode que Stop quitte, en mot sans langue (`modeTokenOf` : « play », « simulate »), que
+    /// l'appelant donne à `stopPlay` : la ligne de la CI le dit (`from=`), sans quoi un Alt+S qui
+    /// jouerait à la place de simuler rendrait la même ligne. Posé aussi quand Stop est refusé.
     std::string from;
     /// Le nombre de vraies différences que `scene::compareWithSnapshot` a trouvées : 0 si la scène
     /// est identique, sans plafond, enfants internes perdus exclus (ils sont dans
@@ -91,8 +92,10 @@ struct StopReport
 /// les identifiants reviennent à l'édition, le monde Jolt est remplacé (sans corps, comme avant le
 /// premier Play), puis l'accumulateur, l'animation et les assets retenus sont rendus. **Hors du
 /// mode différé.** Une différence trouvée n'empêche pas l'Édition de reprendre (elle est dans le
-/// rapport) ; seul un refus (`refused`) laisse le jeu en cours.
-[[nodiscard]] StopReport stopPlay(const PlayTarget& target, PlaySession& session);
+/// rapport) ; seul un refus (`refused`) laisse le jeu en cours. `from` est le mode quitté
+/// (`modeTokenOf`), recopié dans le rapport.
+[[nodiscard]] StopReport stopPlay(const PlayTarget& target, PlaySession& session,
+                                  std::string_view from);
 
 /// La ligne de la CI, sous son nom stable (ADR-0036, décision 14) : `editor.stop steps=120
 /// differences=0 ms=3.2 from=simulate -- Stop : …`. Des mots sans langue, puis la phrase.

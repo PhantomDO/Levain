@@ -116,8 +116,8 @@
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante au 14/10/2026 (14,85 h, M7.5 à M8.3), selon le rythme : **2 h/sem. → 8 semaines** (09/12/2026) ·
-**1,5 h/sem. → 10 semaines** (23/12/2026) · **1 h/sem. → 15 semaines** (27/01/2027).
+Durée restante au 16/10/2026 (14,1 h, M7.3 à M8.3), selon le rythme : **2 h/sem. → 8 semaines** (11/12/2026) ·
+**1,5 h/sem. → 10 semaines** (25/12/2026) · **1 h/sem. → 15 semaines** (29/01/2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 23/05/2027.
@@ -409,8 +409,8 @@ pourquoi c'est presque toujours une bibliothèque.
 |---|---:|---:|---|
 | M7.1 ImGui et panneaux de debug | 1,0 (réel, 1,1 estimées) | 1 | fini le 07/10/2026 |
 | M7.2 Réflexion et inspecteur | 0,75 (réel, 1,25 estimées) | 1 | fini le 10/10/2026 |
-| M7.7 L'atelier (ajouté en v0.16) | 2,0 (réel, 1,0 estimée) | 2 | fini le 14/10/2026 |
-| M7.5 Play/Stop dans l'éditeur | 0,75 | 1 | 28/03/2027 |
+| M7.7 L'atelier (ajouté en v0.16) | 4,5 (réel, 1,0 estimée) | 2 | fini le 14/10/2026 |
+| M7.5 Play/Stop dans l'éditeur | 0,25 (réel à ce jour, 0,75 estimée) | 1 | fini le 16/10/2026 |
 | M7.3 Sérialisation et undo/redo | 1,5 | 2 | 04/04/2027 |
 | M7.4 Gizmos et picking | 1,5 | 2 | 11/04/2027 |
 | M7.6 Outils de terrain | 2,25 | 2 | 18/04/2027 |
@@ -440,12 +440,14 @@ Symbols. Un mode temporaire, « Jouer (sans retour) », garde le jeu d'aujourd'h
 l'accumulateur immobile et `PlayerInput` vide, touches tenues ; une écriture faite depuis le point d'accroche `ui` se
 voit dans l'image rendue de la même image ; la Vue rend la scène à sa taille ; chaque geste de navigation passe en
 QWERTY et en AZERTY simulés ; un raccourci changé survit à un redémarrage ; un conflit est nommé, et rien ne change
-sans « Remplacer ». *Fini le 14/10/2026* : 2,0 h pour 1,0 estimée, chaque critère prouvé par un test (journal, clôture
-de M7.7) ; M7.5 suit.
+sans « Remplacer ». *Fini le 14/10/2026* : 4,5 h pour 1,0 estimée (2,0 h à la clôture, plus 2,5 h de relecture
+déclarées le 15/10), chaque critère prouvé par un test (journal, clôture de M7.7) ; M7.5 suit.
 
 **M7.5 — Play/Stop.** Sauvegarde de la scène, simulation, restauration. Remonté après M7.7 (v0.16) : Stop doit
 restaurer la scène en place, sans relire de fichier ([ADR-0037](adr/0037-play-stop-restauration-en-place.md)).
-*Critère* : après Stop, la scène est identique à l'état d'avant Play (test).
+*Critère* : après Stop, la scène est identique à l'état d'avant Play (test). *Fini le 16/10/2026* : 0,25 h à ce jour pour
+0,75 estimée (la lecture de la synthèse de Donnovan s'y ajoutera), le critère prouvé par des tests, de la scène seule
+jusqu'à l'éditeur lancé (journal, clôture de M7.5) ; M7.3 suit.
 
 **M7.3 — Sérialisation et undo/redo.** Scènes en JSON : les valeurs par le JSON de flecs, l'enveloppe et le
 chargeur à nous (ADR-0034) ; pattern Command. Deux fonctionnalités, donc deux PR vers `main` : l'annulation, puis
@@ -528,6 +530,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0034 | La réflexion des composants : une déclaration, les champs lus dans la struct, rangés dans flecs | M7.2 |
 | 0035 | Windows revient, compilé depuis Linux par clang-cl ; Vulkan d'abord, puis D3D12 ; la CI compile sous Linux et teste sous Windows | M1.4 |
 | 0036 | L'atelier : le mode Édition, l'input de l'éditeur, la Vue et sa caméra, les raccourcis d'Unreal, un catalogue de chaînes, les polices sous OFL | M7.7 |
+| 0037 | Play/Stop : jouer dans la Vue, puis rendre la scène en place (l'instantané, les plages d'identifiants, Simuler) | M7.5 |
 
 ## Numérotation des ADR
 

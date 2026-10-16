@@ -218,6 +218,8 @@ C# par la réflexion du langage, et `[Range]` borne l'inspecteur ; Godot les dé
 | Une requête dont le **singleton manque** ne correspond à rien, et son système se tait au lieu d'échouer | poser le singleton à l'import du module (`RenderAlpha`), et un test qui vérifie qu'un `progress` seul compose quand même les matrices |
 | Les *tick sources* (`interval(1/60)`) **ne rattrapent pas** le retard : à 30 images/s, le système tourne 30 fois par seconde, pas 60 | l'accumulateur de `fixed_step.hpp` et un pipeline exécuté N fois ([ADR-0016](../../docs/adr/0016-boucle-a-pas-fixe.md)) |
 | Sans `ipaddr`, le serveur REST écoute sur **toutes les interfaces**, et son API sait supprimer des entités et exécuter des scripts | toujours `127.0.0.1` ; `tools/explorer-check.sh` échoue sinon |
+| `ecs_get_ordered_children` s'arrête sur une assertion pour un parent sans enfant `flecs::Parent` (un volume dont les seuls enfants sont ses observateurs `ChildOf`) | `orderedChildrenOf` ne l'appelle qu'avec un enfant `Parent` ([GOTCHA](../../.agents/skills/build/GOTCHA.md)) |
+| Une struct à copie supprimée et déplacement `= default` compte pour trivialement copiable : pas de `COPY_ILLEGAL`, `ecs_value_copy` la copie par `memcpy` | un type de test pour un refus porte un `std::unique_ptr` ; ce qui pend, ce sont les handles, d'où `Transient` |
 
 ## Ce que coûte un tour (Release, 100 000 entités)
 

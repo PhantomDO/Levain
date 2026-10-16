@@ -111,6 +111,24 @@ TEST_CASE("les actions qui sont là : le temps réel bascule, jouer et arrêter 
     CHECK(levain::core::snapshotOf(*capture.ring).entries.empty()); // rien de grisé, rien de dit
 }
 
+TEST_CASE(
+    "un changement de mode refusé par startPlay n'est pas une action faite : le compte passe à "
+    "refusé")
+{
+    ActionCounters counters;
+    bool realTime = true;
+    REQUIRE(runAction(Action::Simulate, counters, realTime, Mode::Edit) == Mode::Simulate);
+    CHECK(counters.performed.at(indexOf(Action::Simulate)) == 1);
+
+    countRefusedTransition(counters, Action::Simulate);
+
+    CHECK(counters.performed.at(indexOf(Action::Simulate)) == 0);
+    CHECK(counters.declined.at(indexOf(Action::Simulate)) == 1);
+    // Une autre action n'est pas touchée.
+    CHECK(counters.performed.at(indexOf(Action::Stop)) == 0);
+    CHECK(counters.declined.at(indexOf(Action::Stop)) == 0);
+}
+
 TEST_CASE("Jouer et Simuler ne partent que de l'Édition : en jeu elles sont refusées, comptées et "
           "dites")
 {

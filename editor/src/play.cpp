@@ -79,11 +79,12 @@ core::Result<PlaySession> startPlay(const PlayTarget& target)
                        .stepsAtStart = target.stepsPlayed};
 }
 
-StopReport stopPlay(const PlayTarget& target, PlaySession& session)
+StopReport stopPlay(const PlayTarget& target, PlaySession& session, std::string_view from)
 {
     const auto start = std::chrono::steady_clock::now();
     flecs::world& world = target.world;
     StopReport report;
+    report.from = std::string{from};
     report.steps = target.stepsPlayed - session.stepsAtStart;
     // Dans tous les builds et avec ou sans physique : `restoreSnapshot` refuse aussi le mode
     // différé, mais l'éditeur aurait alors perdu la session et quitté le jeu sur un monde pas

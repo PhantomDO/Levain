@@ -177,6 +177,14 @@ l'éditeur demande à la boucle (ADR-0036 ; les invariants 6, 8, 9, 12 à 16 et 
    jamais et garde ses aides. Équivalent : le *Game View* d'Unreal (touche G), qui cache de même ce que le jeu ne
    montre pas.
 
+17. **Deux plages d'identifiants, créées par `createApp`** (ADR-0037, décision 2 ; `App::idRanges`) : l'édition,
+   [1, 2^24 − 1], et le jeu, au-dessus. `createApp` les crée juste après le monde, avant toute entité détruite : flecs
+   refuse en Debug une plage créée après une destruction, et `scene::createIdRanges` le vérifie dans tous les builds
+   (`createApp` échoue sinon). Un programme sans éditeur reste dans la plage de l'édition et n'en voit rien ; l'éditeur
+   passe dans celle du jeu à Play (`scene::usePlayIds`) et revient à celle de l'édition à Stop (`useEditIds`), ce qui
+   rend à une entité détruite en jeu son index (`restoreSnapshot`). Une scène tient en 16 millions d'identifiants, jeu
+   livré compris.
+
 ## Fermer, et `isScriptedRun` (ADR-0036, décisions 10 et 11)
 
 `isScriptedRun(settings)` est vrai sous `--seconds`, `--steps`, `--time`, `--capture` ou `--input-script` : ni préférences
@@ -252,6 +260,6 @@ attend le code 1.
 | **Unity** | `PlayerLoop` ; `MeshRenderer`, `SkinnedMeshRenderer` | La boucle du *Player*, que les scripts modifient (**documenté**, ADR-0029) ; un modèle se dessine par son renderer, skinné ou non. |
 | **Godot** | `MainLoop`, `SceneTree` ; `MeshInstance3D`, `Skeleton3D` | La boucle par défaut d'un projet (**documenté**, ADR-0029) ; un modèle est un nœud, son squelette un autre. |
 | **La caméra** | `CameraComponent` actif (Unreal), `Camera.main` (Unity), `Camera3D.current` (Godot) | Une caméra parmi d'autres est celle du rendu ; ici, il n'y en a qu'une, et deux sont une erreur. |
-| **L'arrêt** | `SetGamePaused` (Unreal), `Time.timeScale = 0` (Unity), `SceneTree.paused` (Godot) | Arrêter la simulation sans arrêter le rendu (**documenté**) ; ici un drapeau d'`App`, et les squelettes suivent la simulation, l'eau non. La caméra de l'éditeur, hors de la scène, est celle de la vue de niveau chez Unreal (**supposé**). |
+| **L'arrêt** | `SetGamePaused` (Unreal), `Time.timeScale = 0` (Unity), `SceneTree.paused` (Godot) | Arrêter la simulation sans arrêter le rendu (**documenté**) ; ici un drapeau d'`App`, et les squelettes suivent la simulation, l'eau non. La caméra de l'éditeur, hors de la scène, est celle de la vue de niveau chez Unreal (**supposé**). **Image suivante** (`App::singleStep`) : le *Frame Skip* d'Unreal (**documenté**, `editor/GESTES.md` [E5]) et le *Step* d'Unity, Ctrl+Alt+P (**documenté**, [U6]) jouent exactement une image pendant la pause ; ici un pas de simulation, le même que `--steps` compte. |
 | **La scène dans une texture** | `USceneCaptureComponent2D` et `UTextureRenderTarget2D` (Unreal), `Camera.targetTexture` (Unity), `SubViewport` et `ViewportTexture` (Godot) | Rendre une caméra dans une texture que l'UI affiche (**documenté** pour chacun). Les vues de l'éditeur d'Unreal et d'Unity ne passent pas par ces API publiques : ce qu'elles font à la taille d'une fenêtre qu'on glisse, **non vérifié**. Ici, la taille ne se reprend qu'une fois stable. |
 | **L'input** | `Input.GetKeyDown` (Unity), `Input.is_action_just_pressed` (Godot) | Un appui ne vaut que pour l'image : Unity dit de le lire dans `Update`, pas dans `FixedUpdate` (**documenté**, `Input.GetKeyDown`). `PlayerInput` le garde jusqu'au pas suivant. |

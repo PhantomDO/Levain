@@ -128,10 +128,12 @@ TEST_CASE("jouer 120 pas puis arrêter rend la scène identique, et le dit")
     CHECK_FALSE(sameBits(crates[11].get<Transform>(), before[11]));
     CHECK(levain::physics::bodyCount(bench.world.get<levain::physics::PhysicsWorld>()) > 0);
 
-    const levain::editor::StopReport report = levain::editor::stopPlay(bench.target(), *session);
+    const levain::editor::StopReport report =
+        levain::editor::stopPlay(bench.target(), *session, "play");
 
     CHECK_FALSE(report.refused);
-    CHECK(report.steps == 120); // exige des pas : un Play de zéro pas ne prouverait rien
+    CHECK(report.steps == 120);   // exige des pas : un Play de zéro pas ne prouverait rien
+    CHECK(report.from == "play"); // le mode quitté est celui que l'appelant a donné
     CHECK(report.differences == 0);
     CHECK(levain::scene::differencesFrom(bench.world, session->snapshot).empty());
     const std::vector<Transform> after = transformsOf(crates);
@@ -154,7 +156,7 @@ TEST_CASE("après Stop, l'Édition n'a ni handle ni corps de Jolt, et le Play su
     const void* const joltOfThePlay = bench.world.get<levain::physics::PhysicsWorld>().state.get();
     bench.play(10);
     CHECK(levain::physics::bodyCount(bench.world.get<levain::physics::PhysicsWorld>()) > 0);
-    REQUIRE(levain::editor::stopPlay(bench.target(), *first).differences == 0);
+    REQUIRE(levain::editor::stopPlay(bench.target(), *first, "play").differences == 0);
     // Un monde Jolt neuf, non celui du jeu dont on a seulement retiré les corps : ses identifiants
     // de corps, son état interne repartent de zéro (ADR-0037, décision 4).
     CHECK(bench.world.get<levain::physics::PhysicsWorld>().state.get() != joltOfThePlay);
@@ -179,13 +181,13 @@ TEST_CASE("jouer deux fois de suite : les mêmes identifiants, et la physique re
     REQUIRE(first.has_value());
     bench.play(90);
     const std::vector<Transform> firstRun = transformsOf(crates);
-    REQUIRE(levain::editor::stopPlay(bench.target(), *first).differences == 0);
+    REQUIRE(levain::editor::stopPlay(bench.target(), *first, "play").differences == 0);
 
     auto second = levain::editor::startPlay(bench.target());
     REQUIRE(second.has_value());
     bench.play(90);
     const std::vector<Transform> secondRun = transformsOf(crates);
-    REQUIRE(levain::editor::stopPlay(bench.target(), *second).differences == 0);
+    REQUIRE(levain::editor::stopPlay(bench.target(), *second, "play").differences == 0);
 
     CHECK(bench.world.count<Transform>() == entitiesBefore); // aucune croissance
     for (std::size_t i = 0; i < crates.size(); ++i)
@@ -206,7 +208,7 @@ TEST_CASE("Stop rend aussi l'accumulateur du pas fixe")
     REQUIRE(session.has_value());
     bench.fixedStep.accumulator = 0.9f * Step; // le jeu l'a fait avancer
     bench.play(3);
-    REQUIRE_FALSE(levain::editor::stopPlay(bench.target(), *session).refused);
+    REQUIRE_FALSE(levain::editor::stopPlay(bench.target(), *session, "play").refused);
 
     CHECK(bench.fixedStep.accumulator == 0.4f * Step);
 }
@@ -223,7 +225,8 @@ TEST_CASE("une entité née en jeu part à Stop, une détruite en jeu revient av
     CHECK(levain::scene::bornInPlay(bench.world, born));
     crates[1].destruct();
     bench.play(5);
-    const levain::editor::StopReport report = levain::editor::stopPlay(bench.target(), *session);
+    const levain::editor::StopReport report =
+        levain::editor::stopPlay(bench.target(), *session, "play");
 
     CHECK(report.differences == 0);
     CHECK_FALSE(bench.world.is_alive(born.id()));
@@ -260,14 +263,16 @@ TEST_CASE("Stop en mode différé est refusé : on reste en jeu, rien n'a chang�
     const Transform moved = crates[1].get<Transform>();
 
     bench.world.defer_begin();
-    const levain::editor::StopReport refused = levain::editor::stopPlay(bench.target(), *session);
+    const levain::editor::StopReport refused =
+        levain::editor::stopPlay(bench.target(), *session, "simulate");
     bench.world.defer_end();
 
     CHECK(refused.refused);
     CHECK_FALSE(refused.refusal.empty());
+    CHECK(refused.from == "simulate"); // un Stop refusé dit aussi d'où il partait
     CHECK(sameBits(crates[1].get<Transform>(), moved));
     // Hors du mode différé, le même Stop passe.
-    CHECK_FALSE(levain::editor::stopPlay(bench.target(), *session).refused);
+    CHECK_FALSE(levain::editor::stopPlay(bench.target(), *session, "play").refused);
 }
 
 TEST_CASE("sans module de physique, Jouer et Arrêter ne créent pas de monde Jolt")
@@ -278,7 +283,8 @@ TEST_CASE("sans module de physique, Jouer et Arrêter ne créent pas de monde Jo
     auto session = levain::editor::startPlay(bench.target());
     REQUIRE(session.has_value());
     bench.play(3);
-    const levain::editor::StopReport report = levain::editor::stopPlay(bench.target(), *session);
+    const levain::editor::StopReport report =
+        levain::editor::stopPlay(bench.target(), *session, "play");
 
     CHECK(report.differences == 0);
     CHECK_FALSE(bench.world.has<levain::physics::PhysicsWorld>());
@@ -330,14 +336,16 @@ TEST_CASE("Stop en mode différé est refusé aussi sans module de physique, la 
     const flecs::entity born = bench.world.entity("née").set(Transform{});
 
     bench.world.defer_begin();
-    const levain::editor::StopReport refused = levain::editor::stopPlay(bench.target(), *session);
+    const levain::editor::StopReport refused =
+        levain::editor::stopPlay(bench.target(), *session, "play");
     bench.world.defer_end();
 
     CHECK(refused.refused);
     CHECK_FALSE(refused.refusal.empty());
     CHECK(bench.world.is_alive(born.id())); // rien n'a été détruit
     // La session sert encore : le même Stop, hors du mode différé, rend la scène.
-    const levain::editor::StopReport stopped = levain::editor::stopPlay(bench.target(), *session);
+    const levain::editor::StopReport stopped =
+        levain::editor::stopPlay(bench.target(), *session, "play");
     CHECK_FALSE(stopped.refused);
     CHECK(stopped.differences == 0);
     CHECK(bench.world.is_alive(a.id()));
@@ -365,7 +373,7 @@ TEST_CASE(
     if (again)
     {
         auto session = std::move(*again);
-        CHECK(levain::editor::stopPlay(bench.target(), session).differences == 0);
+        CHECK(levain::editor::stopPlay(bench.target(), session, "play").differences == 0);
     }
 }
 
