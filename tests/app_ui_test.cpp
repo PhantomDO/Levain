@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <optional>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -292,4 +293,36 @@ TEST_CASE("la scène est le trou du nœud central, et rien tant qu'une fenêtre 
     CHECK_FALSE(levain::app::rectContains(empty, 50.0f, 40.0f));
     CHECK((empty.x == 10.0f && empty.y == 20.0f));
     ImGui::EndFrame();
+}
+
+TEST_CASE("le temps d'image d'ImGui : mesuré à la main, le pas fixe sous un script d'input")
+{
+    constexpr double Step = 1.0 / 60.0;
+    // Interactif : ce qu'on a mesuré, une image lente comprise (c'est le temps de l'humain).
+    CHECK(levain::app::uiFrameSecondsFor(false, 0.016, Step) == 0.016);
+    CHECK(levain::app::uiFrameSecondsFor(false, 0.5, Step) == 0.5);
+    // Scripté : le pas fixe, quelle que soit la lenteur de la machine (ASan, un runner chargé) ;
+    // deux images voisines restent sous les 0,30 s d'un double-clic d'ImGui, comme la rapidité de
+    // la touche ou le délai d'un survol.
+    CHECK(levain::app::uiFrameSecondsFor(true, 0.016, Step) == Step);
+    CHECK(levain::app::uiFrameSecondsFor(true, 0.5, Step) == Step);
+    CHECK(levain::app::uiFrameSecondsFor(true, 0.0, Step) == Step);
+    CHECK(2.0 * Step < static_cast<double>(ImGuiIO{}.MouseDoubleClickTime));
+}
+
+TEST_CASE("averageFrameMs : la moyenne des images mesurées, zéro sans aucune, un anneau qui tourne")
+{
+    levain::app::FrameHistory history;
+    // Aucune image : zéro (les cases à zéro ne sont pas des images), non une division par zéro.
+    CHECK(levain::app::averageFrameMs(history) == 0.0f);
+    levain::app::recordHistory(history, 16.0f, std::nullopt);
+    levain::app::recordHistory(history, 32.0f, std::nullopt);
+    // Deux images mesurées sur 240 cases : la moyenne des deux, pas de 48 / 240.
+    CHECK(levain::app::averageFrameMs(history) == doctest::Approx(24.0f));
+    // L'anneau plein ne garde que les dernières : 240 images de 10 ms effacent les premières.
+    for (std::size_t frame = 0; frame < levain::app::HistoryLength; ++frame)
+    {
+        levain::app::recordHistory(history, 10.0f, std::nullopt);
+    }
+    CHECK(levain::app::averageFrameMs(history) == doctest::Approx(10.0f));
 }

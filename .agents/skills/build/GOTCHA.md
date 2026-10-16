@@ -3,6 +3,23 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## ImGui compte le double-clic en secondes de la machine : sous charge un script le perdait (2026-10-16)
+
+`gpu.editor-gestures.vulkan` rouge sous ASan chargé (« le double-clic dans la hiérarchie cadre l'entité »), vert à vide.
+
+- **Cause** : ImGui juge un double-clic (`io.MouseDoubleClickTime`, 0,30 s), la répétition d'une touche et les délais de survol
+  sur son horloge, qu'il avance de `io.DeltaTime` ; la boucle lui passait le temps *mesuré* de l'image, et deux clics scriptés
+  sur des images voisines tombaient à plus de 0,30 s l'un de l'autre quand la machine ralentissait.
+- **Parade** : sous un script d'input, `uiFrameSecondsFor` donne à ImGui le pas fixe (1/60 s, celui que `--steps` donne au monde) ;
+  interactif, le temps mesuré. `levain_app_script` joue des images de 350 ms (`sleep_for`) et exige quand même le double-clic
+  et un `DeltaTime` de 1/60 s à chaque image : rouge sans la fonction (appel retiré, ou fonction qui rend le mesuré). Les
+  55 entrées `gpu.*` et `editor.*` restent vertes. Reste mesuré, sous un script, `App::frameSeconds` hors `--steps` et le temps
+  de `updateInput` (la vitesse de la souris) : ils ne se jugent pas sur l'horloge d'ImGui.
+- **Conséquences à savoir** (revue du morceau 5) : sous un script, un double-clic s'écrit à moins de 18 images d'écart (0,30 s à
+  1/60 s), la répétition d'une touche tenue commence après 17 images (0,275 s), un délai de survol se compte de même ;
+  `io.Framerate` vaut 60 en permanence, le panneau « Image » lit donc la moyenne de l'historique mesuré (`averageFrameMs`,
+  `UiLayer::imageLine`, lue par `levain_app_script`).
+
 ## Vulkan, Windows : la fenêtre réduite recrée la swapchain à 0 × 0 (2026-10-14)
 
 M7.7, `tools/wsl/resize-sandbox.sh … --gpu vulkan` : après « pilote : réduite », `vkCreateSwapchainKHR(): pCreateInfo->imageExtent

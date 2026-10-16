@@ -272,6 +272,13 @@ struct App
     /// images : à l'arrêt, il ne joue aucun pas. Les squelettes s'arrêtent avec elle
     /// (`skinningState.clock`) ; l'eau, l'herbe et les matériaux gardent le temps de la scène.
     bool simulationPaused = false;
+    /// **Un pas, puis l'arrêt reprend** (« Image suivante », ADR-0037, décision 6) : posé, le
+    /// monde joue **exactement un pas** à la prochaine image alors que `simulationPaused` tient la
+    /// simulation arrêtée, le même pas que `--steps` compte ; l'accumulateur de `fixedStep`
+    /// n'est pas touché. **La boucle le remet à faux à chaque image** : posé en marche, il ne
+    /// vaut rien (il ne garderait pas un pas pour l'arrêt suivant). Les squelettes avancent d'une
+    /// image avec lui.
+    bool singleStep = false;
     /// **Le temps réel** (ADR-0036, décisions 9 et 12), que l'éditeur décoche avec « Temps réel »
     /// (Ctrl+R) : décoché, le temps de la scène que lisent l'eau, l'herbe, les matériaux et le
     /// point d'accroche `record` ne court plus (les squelettes, qui le suivent, non plus) ; la

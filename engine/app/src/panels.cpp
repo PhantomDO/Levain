@@ -102,7 +102,7 @@ void plotHistory(const char* french, const std::array<float, HistoryLength>& val
                      ImVec2(0.0f, 60.0f * ImGui::GetStyle().FontScaleDpi));
 }
 
-void drawImageWindow(const App& app, bool& open, bool closable)
+void drawImageWindow(App& app, bool& open, bool closable)
 {
     if (!open)
     {
@@ -110,9 +110,12 @@ void drawImageWindow(const App& app, bool& open, bool closable)
     }
     if (ImGui::Begin(ui::labelOf(ImageWindow).c_str(), closable ? &open : nullptr))
     {
-        const ImGuiIO& io = ImGui::GetIO();
-        ui::textf("{:.0f} images/s, {:.2f} ms", io.Framerate,
-                  1000.0 / static_cast<double>(std::max(io.Framerate, 1.0f)));
+        // **Le temps mesuré de la boucle**, non `io.Framerate` : ImGui moyenne le temps qu'on lui
+        // donne, qui est fixe sous un script d'input (`uiFrameSecondsFor`).
+        const float averageMs = averageFrameMs(app.ui.history);
+        app.ui.imageLine = ui::trf("{:.0f} images/s, {:.2f} ms",
+                                   averageMs > 0.0f ? 1000.0f / averageMs : 0.0f, averageMs);
+        ImGui::TextUnformatted(app.ui.imageLine.c_str());
         // Sous WebGPU, notre backend ne relit pas les minuteurs : « non mesuré », jamais 0.
         if (app.totalGpu.samples > 0)
         {
