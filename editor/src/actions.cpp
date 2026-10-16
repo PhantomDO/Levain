@@ -64,6 +64,32 @@ std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& rea
     }
 }
 
+std::optional<PlayControl> runPlayControl(Action action, ActionCounters& counters, Mode current,
+                                          bool paused)
+{
+    const auto control = playControlOf(action);
+    if (!control)
+    {
+        return std::nullopt;
+    }
+    const std::string name = ui::tr(nameOf(action));
+    switch (playControlRefusal(*control, current, paused))
+    {
+    case PlayRefusal::None:
+        break;
+    case PlayRefusal::NotPlaying:
+        ++counters.declined.at(indexOf(action));
+        core::log("editor", core::LogLevel::Info, "{}", ui::trf("{} : seulement en jeu", name));
+        return std::nullopt;
+    case PlayRefusal::NotPaused:
+        ++counters.declined.at(indexOf(action));
+        core::log("editor", core::LogLevel::Info, "{}", ui::trf("{} : seulement en pause", name));
+        return std::nullopt;
+    }
+    ++counters.performed.at(indexOf(action));
+    return control;
+}
+
 std::optional<Action> toolActionOf(const ShortcutTable& table, const KeyPress& press,
                                    const ActiveContexts& active)
 {

@@ -986,10 +986,10 @@ TEST_CASE(
 {
     using levain::app::InputRoute;
     using levain::editor::Mode;
-    CHECK(levain::editor::simulationPausedIn(Mode::Edit));
-    CHECK_FALSE(levain::editor::simulationPausedIn(Mode::Play));
-    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Edit));
-    CHECK(levain::editor::programFrameRunsIn(Mode::Play));
+    CHECK_FALSE(levain::editor::simulationRunsIn(Mode::Edit, false));
+    CHECK(levain::editor::simulationRunsIn(Mode::Play, false));
+    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Edit, false, false));
+    CHECK(levain::editor::programFrameRunsIn(Mode::Play, false, false));
     // Édition : rien au jeu, que la scène ait le focus ou non.
     CHECK(levain::editor::inputRouteFor(Mode::Edit, true) == InputRoute::Editor);
     CHECK(levain::editor::inputRouteFor(Mode::Edit, false) == InputRoute::Editor);
@@ -1006,14 +1006,43 @@ namespace
 
 /// L'état des modes, chaque champ nommé : le dernier (`keys`) est un défaut, et les initialiseurs
 /// désignés les veulent tous.
-levain::editor::ModeState modeIn(levain::editor::Mode mode)
+levain::editor::ModeState modeIn(levain::editor::Mode mode, bool paused = false,
+                                 bool mouseFreed = false)
 {
     levain::editor::ModeState state;
     state.current = mode;
+    state.paused = paused;
+    state.mouseFreed = mouseFreed;
     return state;
 }
 
 } // namespace
+
+TEST_CASE("la pause arrête la simulation et le frame du programme, et le jeu ne reçoit plus rien")
+{
+    using levain::app::InputRoute;
+    using levain::editor::Mode;
+    using levain::editor::ModeState;
+    // En pause : ni pas ni frame du programme. Une pause n'existe pas en Édition, où rien ne
+    // tourne de toute façon.
+    CHECK_FALSE(levain::editor::simulationRunsIn(Mode::Play, true));
+    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Play, true, false));
+    // Un pas en pause fait tourner `frame` : ce qu'il pose (l'input, vide en pause) est ce que le
+    // pas lit, non l'input d'avant la pause. Pas en Édition, où un pas est refusé.
+    CHECK(levain::editor::programFrameRunsIn(Mode::Play, true, true));
+    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Edit, false, true));
+    CHECK_FALSE(levain::editor::simulationRunsIn(Mode::Edit, true));
+    // La route : la pause comme la souris rendue (Maj+F1) ôtent le jeu de l'input, la scène
+    // focalisée ou non ; sinon la route du mode.
+    const ModeState playing = modeIn(Mode::Play);
+    const ModeState paused = modeIn(Mode::Play, true);
+    const ModeState freed = modeIn(Mode::Play, false, true);
+    CHECK(levain::editor::inputRouteOf(playing, true) == InputRoute::Game);
+    CHECK(levain::editor::inputRouteOf(playing, false) == InputRoute::Ui);
+    CHECK(levain::editor::inputRouteOf(paused, true) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteOf(freed, true) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteOf(modeIn(Mode::Edit), true) == InputRoute::Editor);
+}
 
 namespace
 {
@@ -1099,6 +1128,21 @@ TEST_CASE("les touches du jeu se lisent à la place que la table leur donne, non
     typedN.keycode = 'n';
     CHECK(gameKeysPressed(state, eventsOf({typedN}), table, false).actions ==
           std::vector<Action>{Action::NextFrame});
+}
+
+TEST_CASE("un clic est un bouton de la souris enfoncé : ni relâchement, ni mouvement, ni molette")
+{
+    using levain::editor::mousePressedIn;
+    using levain::platform::UiEvent;
+    using levain::platform::UiEventType;
+    CHECK_FALSE(mousePressedIn(eventsOf({})));
+    CHECK_FALSE(mousePressedIn(eventsOf({{.type = UiEventType::MouseMoved, .x = 3.0f, .y = 4.0f},
+                                         {.type = UiEventType::MouseWheel},
+                                         {.type = UiEventType::MouseButton, .down = false},
+                                         keyEvent(ScanW, true)})));
+    CHECK(
+        mousePressedIn(eventsOf({{.type = UiEventType::MouseMoved},
+                                 {.type = UiEventType::MouseButton, .button = 3, .down = true}})));
 }
 
 TEST_CASE("Maj+F1 rend la souris, F1 seule non, et les modificateurs sont exacts")
