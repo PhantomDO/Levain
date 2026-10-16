@@ -3,6 +3,31 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Pause, Maj+F1 et la teinte : quatre pièges de ImGui et de la boucle (2026-10-16)
+
+M7.5, morceau 5 (`tests/editor_pause_gpu.cpp`, `gpu.editor-pause.*`).
+
+- **Symptôme** : un clic scripté dans la Vue ne rendait pas la souris après Maj+F1, alors que le curseur était sur l'image.
+  Relevé : `View::hovered` vrai à l'image du mouvement de la souris, **faux à celle de l'appui**. **Cause** : à l'appui,
+  ImGui prend la fenêtre de la Vue (déplaçable, ancrée) pour la déplacer (`ActiveId` posé à `NewFrame`) et
+  `IsItemHovered` de son image rend faux. **Parade** : le clic est lu dans `frame`, avec le survol de l'image *d'avant*
+  (`giveMouseBackOnClick`), pas dans `ui`. Un test qui clique doit donc déplacer la souris une image avant d'appuyer.
+  Il doit aussi viser un point que la barre de mode (un enfant de la Vue, grande dans une Vue de 376 px) ne couvre pas :
+  son coin bas droit.
+- **Symptôme** : la capture de la boucle (`--capture`) ne peut pas montrer le jeu. **Cause** : elle est prise après
+  `FrameHooks::finish`, où l'éditeur a déjà fait Stop (ADR-0037) ; elle montre l'Édition rendue. **Parade** : la teinte de la
+  barre d'outils et du bord de la Vue se lit dans les listes de dessin d'ImGui (`ImGuiWindow::DrawList->VtxBuffer`, à la fin
+  de `ui`, avant `ImGui::Render`), image par image ; le test des contrastes (`ui_style_test`) garde ce que la couleur donne.
+- **Symptôme** : `Échap ferme la modale en jeu, sans arrêter le jeu` rouge (`gpu.editor-close.vulkan`) après que les touches
+  du jeu ont été lues dans les événements bruts. **Cause** : l'input du jeu est vide sous la modale (route *UI*), les
+  événements bruts, eux, y sont. **Parade** : `gameKeysPressed` ne lit rien quand `blocked` (champ de texte actif, modale ouverte
+  ou croix reçue : `cameraGesturesAllowed`).
+- **Symptôme** : `-Wmissing-designated-field-initializers` sur `ModeState{.current = Mode::Play}` dès qu'on lui ajoute un champ
+  (le défaut ne suffit pas, le projet compile en `-Werror`). **Parade** : un petit constructeur de test qui nomme chaque
+  champ (`modeIn` dans `tests/editor_test.cpp`).
+- **Symptôme** : `bugprone-unchecked-optional-access` sur `playTintOf(...)->x` après un `REQUIRE(has_value())`, et sur
+  `.value()` aussi. **Parade** : `value_or(ImVec4{})` après un `CHECK(has_value())`.
+
 ## ImGui compte le double-clic en secondes de la machine : sous charge un script le perdait (2026-10-16)
 
 `gpu.editor-gestures.vulkan` rouge sous ASan chargé (« le double-clic dans la hiérarchie cadre l'entité »), vert à vide.

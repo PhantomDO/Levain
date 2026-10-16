@@ -199,6 +199,7 @@ l'anglais de M7.8 ; des polices sous OFL, une console, une disposition gardée. 
     | Rétablir (M7.3) | Ctrl+Y, et Ctrl+Maj+Z (en plus, de Godot) | lettre | global | supposé |
     | Jouer ; simuler, si M7.5 le garde | Alt+P ; Alt+S | lettre | global | supposé ; [2] |
     | Arrêter (M7.5) ; rendre la souris | Échap ; Maj+F1 | position | jeu | [2] |
+    | Pause ; image suivante (M7.5, ADR-0037) | Pause ; aucun accord | position | jeu | supposé ; [2] |
 
 14. **Les chaînes passent par un catalogue** (6A) : tout texte affiché par l'éditeur et les panneaux du moteur passe par
     `ui::tr`, dont la clé est le texte français, comme le `msgid` de gettext [8]. **Un texte traduit n'est jamais un

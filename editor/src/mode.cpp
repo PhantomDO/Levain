@@ -218,7 +218,7 @@ ModeBarOverlay drawModeBarContents(const ModeState& mode, bool interactive, cons
         // n'atteindrait pas 4,5 (`tests/ui_style_test.cpp`).
         ImGui::TextColored(*tint, "%s", mode.paused ? ui::icon::Pause : ui::icon::Play);
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-        ImGui::TextUnformatted(ui::tr(modeBannerOf(current, mode.paused)));
+        ImGui::TextUnformatted(ui::tr(modeBannerOf(current, mode.paused, mode.mouseFreed)));
     }
     if (!hint.empty())
     {

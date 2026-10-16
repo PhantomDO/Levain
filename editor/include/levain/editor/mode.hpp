@@ -195,17 +195,23 @@ struct ModeRequests
     return "";
 }
 
-/// Le bandeau de la barre de mode, une clé du catalogue : ce que le jeu fait à la scène, ou la
-/// pause. Rien en Édition.
-[[nodiscard]] constexpr const char* modeBannerOf(Mode mode, bool paused)
+/// Le bandeau de la barre de mode, une clé du catalogue : la pause, ou la souris rendue (Maj+F1,
+/// que rien d'autre ne montre : sans lui, le jeu semble gelé), ou ce que le jeu fait à la scène.
+/// Rien en Édition. La pause passe avant la souris rendue : elle arrête le jeu, la souris rendue
+/// reste dite à la reprise.
+[[nodiscard]] constexpr const char* modeBannerOf(Mode mode, bool paused, bool mouseFreed)
 {
     switch (mode)
     {
     case Mode::Edit:
         return "";
     case Mode::Play:
-        return paused ? "Pause : la simulation est arrêtée"
-                      : "Jouer : à l'arrêt, la scène revient telle qu'avant Play";
+        if (paused)
+        {
+            return "Pause : la simulation est arrêtée";
+        }
+        return mouseFreed ? "Souris rendue : cliquer dans la Vue pour la rendre au jeu"
+                          : "Jouer : à l'arrêt, la scène revient telle qu'avant Play";
     }
     return "";
 }
@@ -347,7 +353,7 @@ void enterMode(app::App& app, ModeState& state, Mode mode);
 /// le bandeau de « Jouer » et le rappel de la touche valent aussi panneaux fermés, où le bouton
 /// manque : la fenêtre est un bandeau que rien ne vise ni ne focalise, et la route *jeu* reste.
 /// Panneaux ouverts, la barre est celle de la Vue (`drawModeBarOverlay`). `hint` : le rappel de
-/// la touche (`modeHintOf`). Le bandeau dit la pause (`modeBannerOf`), dans la
+/// la touche (`modeHintOf`). Le bandeau dit la pause ou la souris rendue (`modeBannerOf`), dans la
 /// teinte du jeu (`playTintOf`).
 void drawModeBar(const ModeState& mode, const app::ScreenRect& scene, const std::string& hint);
 
