@@ -290,11 +290,15 @@ TEST_CASE("la ligne de la CI est sous son nom stable, des mots sans langue puis 
     report.steps = 120;
     report.differences = 0;
     report.milliseconds = 3.25;
+    report.from = "simulate";
 
     const std::string line = levain::editor::stopLineOf(report);
 
     CHECK(line.starts_with("editor.stop steps=120 differences=0 ms="));
-    CHECK(line.find(" -- ") != std::string::npos);
+    // Le mode quitté, après les millisecondes : la CI sait si Stop sort de Jouer ou de Simuler.
+    CHECK(line.contains("ms=3.2 from=simulate -- "));
+    report.from = "play";
+    CHECK(levain::editor::stopLineOf(report).contains(" from=play -- "));
 }
 
 TEST_CASE("l'instantané ne copie pas les handles de Jolt : ils sont Transient")

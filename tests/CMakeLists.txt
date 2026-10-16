@@ -410,7 +410,8 @@ if(NOT EMSCRIPTEN)
 
     # Le critère de M7.5 dans l'exécutable éditeur (ADR-0037, décision 7) : la vue physics joue 120 pas (Alt+P, Échap), les
     # caisses tombent, puis Stop rend la scène. Ce test lit la ligne `editor.stop`, sous son nom stable : des pas (un Play de
-    # zéro pas ne prouverait rien, règle n°7) et zéro différence. Les 120 sont ceux du script (play_stop.txt) : le motif les
+    # zéro pas ne prouverait rien, règle n°7), zéro différence et le mode quitté (`from=play`, que `editor.simulate-stop`
+    # distingue de `from=simulate`). Les 120 sont ceux du script (play_stop.txt) : le motif les
     # écrit en toutes lettres (`steps=120`), il refuse donc « steps=0 ». Un Stop sans restauration donne `differences=` non
     # nul : le test est rouge. Ce test ne tourne pas sous Windows : la CI y rejoue le même script par
     # `tools/ci-programs.sh editor-play`, qui exige lui aussi exactement 120 pas (un seuil de un laisserait vert un Échap
@@ -422,7 +423,18 @@ if(NOT EMSCRIPTEN)
                     -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
         set_tests_properties(editor.play-stop PROPERTIES
             ENVIRONMENT "${testVideo}"
-            PASS_REGULAR_EXPRESSION "editor.stop steps=120 differences=0 ms="
+            PASS_REGULAR_EXPRESSION "editor.stop steps=120 differences=0 ms=[0-9.]+ from=play "
+            FAIL_REGULAR_EXPRESSION "${pickFailure}")
+        # Le même critère depuis Simuler (Alt+S, simulate_stop.txt) : 120 pas, zéro différence, **et `from=simulate`** : Alt+S qui
+        # jouerait à la place rendrait sinon la même ligne que Alt+P. Un Alt+S qui ne simule pas donne `steps=0`, que le motif
+        # refuse. Le sandbox y tourne sous l'input vide de l'éditeur, comme le banc `gpu.editor-simulate`.
+        add_test(NAME editor.simulate-stop
+            COMMAND ${CMAKE_COMMAND}
+                    "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;130;--input-script;${CMAKE_CURRENT_SOURCE_DIR}/data/editor/simulate_stop.txt"
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
+        set_tests_properties(editor.simulate-stop PROPERTIES
+            ENVIRONMENT "${testVideo}"
+            PASS_REGULAR_EXPRESSION "editor.stop steps=120 differences=0 ms=[0-9.]+ from=simulate "
             FAIL_REGULAR_EXPRESSION "${pickFailure}")
     endif()
 

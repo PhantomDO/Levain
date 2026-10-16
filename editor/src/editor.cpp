@@ -235,7 +235,8 @@ bool stopEditorPlay(app::App& app, Editor& editor)
     {
         return true;
     }
-    const StopReport report = stopPlay(playTargetOf(app), *editor.play);
+    StopReport report = stopPlay(playTargetOf(app), *editor.play);
+    report.from = modeTokenOf(editor.mode.current); // le mode qu'on quitte : la CI le lit
     if (report.refused)
     {
         core::log("editor", core::LogLevel::Error, "{}",

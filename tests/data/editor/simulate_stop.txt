@@ -1,0 +1,8 @@
+# Simuler dans l'exécutable éditeur (ADR-0037, décision 8) : simuler 120 pas sur la vue physics (Alt+S à l'image 2, la simulation
+# dès la 3), puis Échap à l'image 123 : Stop avant le 121e pas. Comme jouer : les caisses tombent, la scène doit être rendue à l'identique.
+2 key down Left Alt
+2 key down S
+3 key up S
+3 key up Left Alt
+123 key down Escape
+124 key up Escape
