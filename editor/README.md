@@ -152,7 +152,7 @@ y = 0 du monde). Le menu
 **Afficher** est dans la barre de la Vue, à côté du bouton de mode, en Édition : « Grille » et « Vue de jeu » (son raccourci
 vient de la table, comme dans les autres menus). **La vue de jeu cache les aides de l'éditeur** : la grille, et le contour de
 la sélection du programme, par un seul drapeau, `App::editorHelpersVisible` (engine/app/README.md) que l'éditeur pose à la fin
-de `ui` (`helpersVisibleIn` : Édition et pas de vue de jeu ; **Jouer cache aussi les aides**, comme le viewport de PIE
+de `ui` (`helpersVisibleIn` : sous la caméra de l'éditeur, Édition ou Simuler, et pas de vue de jeu ; **Jouer cache aussi les aides**, comme le viewport de PIE
 d'Unreal). **G** passe par `viewKeyActionOf` : à la position G, dans la Vue active (survolée ou focalisée), jamais en vol ni
 dans un champ de texte ; le menu atteint la même action (`runAction` puis `applyShowAction`, un seul chemin).
 **Pas encore** : l'état de « Grille » et de « Vue de jeu » est celui de la session, il n'est pas dans le fichier des

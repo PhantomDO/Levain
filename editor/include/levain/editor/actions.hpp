@@ -93,6 +93,13 @@ void switchRealTime(Mode from, Mode to, bool& appRealTime, bool& editChoice);
 [[nodiscard]] std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& realTime,
                                             Mode current);
 
+/// **Un changement de mode que `startPlay` ou `stopPlay` a refusé** (un composant qui ne se copie
+/// pas, un monde en mode différé) : `runAction` avait compté l'action faite avant qu'il soit tenté.
+/// `performed` ne dit que ce qui a eu lieu : le compte passe à `declined`, et la console a déjà dit
+/// pourquoi (`carryOutPlayTransition`). À appeler une fois, juste après un `runAction` qui a rendu
+/// un mode, quand le changement n'a pas eu lieu.
+void countRefusedTransition(ActionCounters& counters, Action action);
+
 /// Une touche d'outil (`isToolAction`) appuyée dans la Vue : l'action de l'outil, ou rien.
 /// **En vol (clic droit tenu), aucune** : `actionFor` rend Avancer pour W et ne laisse rien à la
 /// Vue pour R ou Espace (la Vue se tait en vol). Avec Ctrl ou tout autre modificateur, ce n'est pas

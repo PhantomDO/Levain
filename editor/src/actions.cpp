@@ -1,5 +1,6 @@
 #include "levain/editor/actions.hpp"
 
+#include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
 #include "levain/ui/tr.hpp"
 
@@ -67,6 +68,14 @@ std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& rea
     default:
         return std::nullopt;
     }
+}
+
+void countRefusedTransition(ActionCounters& counters, Action action)
+{
+    int& performed = counters.performed.at(indexOf(action));
+    LEVAIN_ASSERT(performed > 0, "countRefusedTransition : l'action n'avait pas été comptée faite");
+    --performed;
+    ++counters.declined.at(indexOf(action));
 }
 
 std::optional<PlayControl> runPlayControl(Action action, ActionCounters& counters, Mode current,

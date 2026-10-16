@@ -128,7 +128,7 @@ void abandonCapture(ShortcutWindow& window);
 /// Où est le clavier à cette image : la saisie ne le lit que si rien d'autre ne l'a.
 struct CaptureSurroundings
 {
-    bool editing = false;       ///< Mode Édition : hors de lui les touches ne lui parviennent pas.
+    bool editing = false; ///< Mode Édition seulement : en Simuler, Échap arrêterait la simulation.
     bool windowFocused = false; ///< La fenêtre « Raccourcis » a le focus (un onglet caché : non).
     bool textInput = false;     ///< Un champ de texte est actif, le filtre ou celui d'un autre.
     bool appFocused = false;    ///< L'application a le focus du système (Alt+Tab : non).

@@ -235,8 +235,8 @@ bool stopEditorPlay(app::App& app, Editor& editor)
     {
         return true;
     }
-    StopReport report = stopPlay(playTargetOf(app), *editor.play);
-    report.from = modeTokenOf(editor.mode.current); // le mode qu'on quitte : la CI le lit
+    const StopReport report =
+        stopPlay(playTargetOf(app), *editor.play, modeTokenOf(editor.mode.current));
     if (report.refused)
     {
         core::log("editor", core::LogLevel::Error, "{}",
@@ -304,16 +304,18 @@ void reachPlayControl(app::App& app, Editor& editor, Action action)
 /// Passe de mode. Jouer met la Vue en avant : le jeu reçoit le clavier sans qu'il faille cliquer
 /// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`). **Jouer prend
 /// l'instantané et Arrêter rend la scène avant** `enterMode`, hors du mode différé : `frame` et la
-/// fin de `ui` y sont (ADR-0037, décision 3).
-void changeMode(app::App& app, Editor& editor, Mode mode)
+/// fin de `ui` y sont (ADR-0037, décision 3). `false` si le changement n'a pas eu lieu (Jouer ou
+/// Arrêter refusé : la console a dit pourquoi, le mode est celui d'avant).
+bool changeMode(app::App& app, Editor& editor, Mode mode)
 {
     const Mode from = editor.mode.current;
     if (!carryOutPlayTransition(app, editor, mode))
     {
-        return;
+        return false;
     }
-    // Une saisie d'accord ne survit pas au changement de mode : hors de l'Édition les touches ne
-    // lui parviennent plus (`frameGestures`), et plus rien ne pourrait la finir.
+    // Une saisie d'accord ne survit pas au changement de mode : elle n'est que de l'Édition
+    // (`drawShortcutWindow`, `editing`). En Simuler les touches arrivent, mais Échap, qui
+    // l'annulerait, arrêterait aussi la simulation ; et plus rien ne pourrait la finir.
     abandonCapture(editor.shortcutWindow);
     enterMode(app, editor.mode, mode);
     switchRealTime(from, mode, app.realTime, editor.realTimeEdit);
@@ -327,6 +329,7 @@ void changeMode(app::App& app, Editor& editor, Mode mode)
     {
         app.cameraOverride.reset();
     }
+    return true;
 }
 
 /// Les touches du contexte *jeu* de cette image (`gameKeysPressed`), dans `frame` : Échap arrête
@@ -430,9 +433,10 @@ void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reache
         // **« Vue de jeu » ne bascule que si `runAction` l'a faite** (comptée) : une action refusée
         // (grisée, annoncée à la console) ne change rien.
         const int before = editor.actions.performed.at(indexOf(action));
-        if (const auto next = runAction(action, editor.actions, app.realTime, editor.mode.current))
+        if (const auto next = runAction(action, editor.actions, app.realTime, editor.mode.current);
+            next && !changeMode(app, editor, *next))
         {
-            changeMode(app, editor, *next);
+            countRefusedTransition(editor.actions, action); // « faite » ne dit que ce qui a eu lieu
         }
         if (editor.actions.performed.at(indexOf(action)) > before)
         {
@@ -725,8 +729,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 // Après les gestes, le cadrage et les écritures de l'image.
                 imposeCamera(app, *editor, wroteWorld);
             }
-            // Les aides se voient en Édition hors vue de jeu : la grille et le contour du
-            // programme.
+            // Les aides se voient sous la caméra de l'éditeur (Édition, Simuler) hors vue de jeu :
+            // la grille et le contour du programme.
             app.editorHelpersVisible =
                 helpersVisibleIn(editor->mode.current, editor->view.show.gameView);
             // La route de l'image suivante : le focus ne se sait que maintenant (ADR-0036, 4).
