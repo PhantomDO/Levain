@@ -278,7 +278,7 @@ voici pourquoi, un par un. Les relectures sont dans le journal de M7.5.
   Windows : la fin scriptée passe par Stop et dit environ 127 pas, zéro différence (relecture du morceau 7). Linux lit la
   ligne par ctest (`editor.play-stop`, `editor.simulate-stop`, Linux seulement) ; Windows par `tools/ci-programs.sh
   editor-play`. La ligne dit aussi d'où Stop part (`from=play` ou `from=simulate`).
-- **A8. L'étape 6 laisse passer une seule différence** (décision 3, étape 6). Le texte voulait `differencesFrom` vide.
+- **A8. L'étape 6 laisse passer une seule sorte de différence, l'enfant interne perdu** (décision 3, étape 6). Le texte voulait `differencesFrom` vide.
   Un volume détruit en jeu revient sans l'observateur d'`onEnter` ou d'`onExit` rangé dessous, et Stop ne peut pas le
   rendre : `RestoreReport` le nomme, la console en fait un avertissement, et toute autre différence reste une erreur.
 - **A9. Les morceaux, tels que fusionnés** : le tableau plus haut, avec un morceau 2c que le plan n'avait pas, et les

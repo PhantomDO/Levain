@@ -37,7 +37,7 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 - **Temps Donnovan : 0,25 h à ce jour** (le sondage du 15/10 ; estimé 0,75 h). Sa lecture de la synthèse d'une page
   s'y ajoutera (sondage du 15/10, « Une page, puis l'éditeur »). **Pas de ratio avant son temps total** : celui de M7.7
   est passé de 2,0 à 4,5 une fois sa lecture comptée (note dans son entrée).
-- Sessions Claude Code : 1 (estimé 1) : un seul `Claude-Session`, sur 34 lignes de commits du milestone
+- Sessions Claude Code : 1 (estimé 1) : un seul `Claude-Session` dans les commits du milestone
   (`git log 594f418..c3e5e3e --format=%b | grep Claude-Session | sort | uniq -c`).
 - Définition de « terminé » (SPECS §9) :
   - l'éditeur du bac à sable sur la RTX 4070, build Debug de l'arbre final, Direct3D 12 hors écran puis Vulkan en vraie
@@ -50,10 +50,15 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
   - CI : celle de la PR vers `main` est la porte (règle n°1) et **reste à passer** : aucune n'a tourné sur `m7.5/play`, pas
     même à la main après le morceau 7, qui change `ci.yml` ; le board, le tag `m7.5` et la release suivent la fusion.
 - Fait, les 15 et 16/10, en mode autonome (ADR-0037) : **Jouer garde la scène, Arrêter la rend, avec les mêmes
-  identifiants et générations**, en 8 morceaux et 30 PR dans `m7.5/play`, de #517 à #546 : 0, l'ADR (#517) ; 1, l'instantané
-  et `differencesFrom` (#521-#524) ; 2, `restoreSnapshot` et les plages d'identifiants (#525-#527) ; 3, la physique
-  rejouable et les assets retenus (#518-#520) ; 4, Jouer et Arrêter dans l'éditeur (#528-#533) ; 5, Pause, Image suivante,
-  Maj+F1, la teinte (#535-#542) ; 6, Simuler, Alt+S (#543-#546) ; 7, la session de la CI et le script de coût (#534).
+  identifiants et générations**, en 8 morceaux et 30 PR dans `m7.5/play`, de #517 à #546 :
+  - 0 — l'ADR (#517) ;
+  - 1 — l'instantané et `differencesFrom` (#521-#524) ;
+  - 2 — `restoreSnapshot` et les plages d'identifiants (#525-#527) ;
+  - 3 — la physique rejouable et les assets retenus (#518-#520) ;
+  - 4 — Jouer et Arrêter dans l'éditeur (#528-#533) ;
+  - 5 — Pause, Image suivante, Maj+F1, la teinte (#535-#542) ;
+  - 6 — Simuler, Alt+S (#543-#546) ;
+  - 7 — la session de la CI et le script de coût (#534).
 - Mesures :
   - **le critère**, test par test (ADR-0037, « Les contrôles »). Les tests GPU tournent sous lavapipe et WARP
     (`d3d12-warp`) ; `editor.*-stop` sous Linux, la CI Windows lance `editor-play` :
@@ -90,6 +95,7 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
     charge : il compte maintenant les attentes (`build/GOTCHA.md`, quatre pièges) ;
   - `editor.play-stop` et `editor.simulate-stop` ne tournent que sous Linux (`NOT WIN32`) ; Windows a `editor-play` à la CI
     et `gpu.editor-simulate.d3d12-warp`.
+  - le morceau 7 change `ci.yml` sans passage de la CI à la main (règle n°1) : la PR vers `main` en sera le premier.
 - Prochaine étape : la PR de `m7.5/play` vers `main`, sa CI pour porte, fusion en merge commit, puis le tag `m7.5`, le
   milestone et le board ; Donnovan lit la synthèse, essaie l'éditeur (Alt+P, Alt+S, Échap) et donne son temps total.
   Ensuite M7.3 (l'annulation, puis les scènes), avec, d'abord, le sondage « Scène ».

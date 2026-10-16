@@ -116,8 +116,8 @@
 
 Les sessions Claude Code ne sont pas recalibrées : le ratio mesure le temps de Donnovan, pas le quota.
 
-Durée restante au 14/10/2026 (14,85 h, M7.5 à M8.3), selon le rythme : **2 h/sem. → 8 semaines** (09/12/2026) ·
-**1,5 h/sem. → 10 semaines** (23/12/2026) · **1 h/sem. → 15 semaines** (27/01/2027).
+Durée restante au 16/10/2026 (14,1 h, M7.3 à M8.3), selon le rythme : **2 h/sem. → 8 semaines** (11/12/2026) ·
+**1,5 h/sem. → 10 semaines** (25/12/2026) · **1 h/sem. → 15 semaines** (29/01/2027).
 
 Jalons visibles : **premier triangle** atteint le 21/09/2026 (prévu le 01/11/2026) · **choix du jeu** le
 23/09/2026 (prévu le 01/11/2026) · **le jeu jouable** le 23/05/2027.
