@@ -124,9 +124,9 @@ std::optional<Mode> drawView(View& view, app::App& app, const ModeState& mode)
                 view.barHovered = overlay.hovered;
                 view.modeBarRect = overlay.bar;
                 view.modeBarButton = overlay.button;
-                // Le menu « Afficher » à côté de la barre de mode, en Édition : jouer, c'est déjà
-                // la vue de jeu. Cliquer sa barre n'est pas cliquer la scène.
-                if (mode.current == Mode::Edit)
+                // Le menu « Afficher » à côté de la barre de mode, sous la caméra de l'éditeur :
+                // jouer, c'est déjà la vue de jeu. Cliquer sa barre n'est pas cliquer la scène.
+                if (editorOwnsViewIn(mode.current))
                 {
                     const ImVec2 afterBar{overlay.bar.x + overlay.bar.width + 6.0f, overlay.bar.y};
                     view.gameViewRequested =

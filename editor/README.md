@@ -272,7 +272,7 @@ M couverts par un test ».
     (`scene::restoreSnapshot`), revient aux identifiants de l'édition, remplace encore le monde Jolt (aucun corps en
     Édition) et rend l'accumulateur du pas fixe, l'animation (`app::AnimationMemo`) et les assets. **Les deux passent par
     `changeMode`, hors du mode différé** (`frame` et la fin de `ui`), et sont **clés sur la session** (`Editor::play`) : quitter
-    l'Édition en ouvre une, y revenir la ferme, quel que soit le mode de jeu (Simuler en dépendra). `stopPlay` refuse le mode
+    l'Édition en ouvre une, y revenir la ferme, quel que soit le mode de jeu (Simuler prend le même instantané). `stopPlay` refuse le mode
     différé dès sa première ligne, avec ou sans physique : la session reste, le mode aussi. `differences` de la ligne
     `editor.stop steps=N differences=D ms=T -- …` est le compte des vraies différences que rend `scene::compareWithSnapshot`,
     recalculé et non lu dans le résultat de la restauration : une restauration sautée se voit dans la ligne que lit la CI ; les
@@ -282,7 +282,7 @@ M couverts par un test ».
     ce point : elle montre la scène rendue. La sélection survit à Stop, sauf celle d'une entité née en jeu. La Hiérarchie range ses racines par index (`order_by(0, …)`, retriées par flecs quand les tables de
     la requête changent seulement), pour qu'une entité réveillée reprenne sa place.
 16 ter. **Pause, Image suivante, Maj+F1 et la teinte** (M7.5, morceau 5, ADR-0037, décision 6 ; `mode.hpp`). **La pause est un drapeau de
-    `ModeState`, non un mode** : elle vaudra aussi en Simuler. En pause la simulation s'arrête (`simulationRunsIn`, l'accumulateur
+    `ModeState`, non un mode** : elle vaut aussi en Simuler. En pause la simulation s'arrête (`simulationRunsIn`, l'accumulateur
     de `fixedStep` n'est pas touché), le `frame` du programme se tait (`programFrameRunsIn`, **sauf pour un pas** : voir plus bas), **le jeu ne reçoit rien** (la route
     est celle de l'Édition, `inputRouteOf` : ce qu'il tenait est relâché, une touche tenue pendant la pause ne le rejoint pas à
     la reprise) et la caméra reste celle du jeu ; Hiérarchie et Inspecteur montrent le monde tel qu'il est. **Image suivante**
@@ -506,7 +506,7 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
 - `QuitState`, `askToQuit`, `shouldOpenQuitModal`, `drawQuitModal` (`quit.hpp`) : la modale de fermeture.
 - `Mode`, `ModeState`, `ModeRequests`, `modeRequested`, `enterMode`, `gameKeysPressed`, `GameKeys`, `mousePressedIn`,
   `PlayControl`, `playControlOf`, `playControlRefusal`, `applyPlayControl`, `keepMouseFromGame`, `inputRouteFor`, `inputRouteOf`,
-  `simulationRunsIn`, `programFrameRunsIn`, `programFrameSecondsOf`, `playTintOf`, `modeBannerOf`, `pauseButtonLabel`, `stepButtonLabel`, `otherMode`,
+  `simulationRunsIn`, `programFrameRunsIn`, `programFrameSecondsOf`, `editorOwnsViewIn`, `playTintOf`, `modeBannerOf`, `pauseButtonLabel`, `stepButtonLabel`, `otherMode`,
   `modeNameOf`, `modeHintOf`, `modeTokenOf`, `drawModeBar`,
   `drawModeBarOverlay` et son `ModeBarOverlay` (le mode demandé, le survol, les rectangles de la barre et de son bouton,
   que la Vue garde : `View::modeBarRect`, `View::modeBarButton`),

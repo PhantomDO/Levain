@@ -119,9 +119,9 @@ app::ScreenRect gestureRegionOf(const app::App& app, const Editor& editor)
 void frameSelection(const app::App& app, Editor& editor)
 {
     // Jouer ne bouge pas la caméra de l'éditeur : un double-clic dans la hiérarchie, ouverte en
-    // jeu, la cadrerait pour le retour en Édition.
+    // jeu, la cadrerait pour le retour en Édition. Simuler, lui, la regarde : elle se cadre.
     const flecs::entity selected = selectedIfAlive(app.world, editor.selected);
-    if (editor.mode.current != Mode::Edit || !canFrameEntity(selected))
+    if (!editorOwnsViewIn(editor.mode.current) || !canFrameEntity(selected))
     {
         return;
     }
@@ -159,13 +159,15 @@ GestureContext gestureContextOf(const app::App& app, const Editor& editor)
             .textInput = ImGui::GetIO().WantTextInput};
 }
 
-/// **Les gestes de l'image**, en Édition, dans `frame` : avant `ui`, pour que la capture de la
-/// souris soit celle de la même image (`applyMouseCapture` suit `frame`). Hors Édition, rien ne
-/// se tient : un vol commencé ne survit pas au changement de mode, ni à la croix (`quit.hpp`).
+/// **Les gestes de l'image**, sous la caméra de l'éditeur (Édition, Simuler), dans `frame` : avant
+/// `ui`, pour que la capture de la souris soit celle de la même image (`applyMouseCapture` suit
+/// `frame`). En Jouer, rien ne se tient : un vol commencé ne survit pas au changement de mode, ni
+/// à la croix (`quit.hpp`). En Simuler, le `frame` du programme tourne après eux et repose
+/// `mouseCaptureWanted` (faux sous l'input vide) : `keepMouseFromGame` rend le vol à l'éditeur.
 void frameGestures(app::App& app, Editor& editor)
 {
-    editor.presses.clear(); // les touches de l'Édition seulement, hors de la modale
-    if (editor.mode.current != Mode::Edit)
+    editor.presses.clear(); // les touches de l'éditeur seulement, hors de la modale
+    if (!editorOwnsViewIn(editor.mode.current))
     {
         editor.gestures = idleGestures(editor.gestures);
         // Jouer : le clic droit est au jeu (le bac à sable regarde à la souris), pas de menu.
@@ -246,11 +248,11 @@ bool stopEditorPlay(app::App& app, Editor& editor)
     return true;
 }
 
-/// Ce que Jouer et Arrêter font avant de changer de mode ; `false` si le changement n'a pas lieu
-/// (Play refusé : un composant qui ne se copie pas, Stop refusé : le monde est en mode différé).
-/// La console dit pourquoi, et le mode reste celui d'avant. **Clés sur la session, non sur
-/// `Mode::Play`** : quitter l'Édition ouvre une session, y revenir la ferme, quel que soit le mode
-/// de jeu (Simuler, en M7.5, piece 6).
+/// Ce que Jouer, Simuler et Arrêter font avant de changer de mode ; `false` si le changement n'a
+/// pas lieu (Play refusé : un composant qui ne se copie pas, Stop refusé : le monde est en mode
+/// différé). La console dit pourquoi, et le mode reste celui d'avant. **Clés sur la session, non
+/// sur `Mode::Play`** : quitter l'Édition ouvre une session, y revenir la ferme, quel que soit le
+/// mode de jeu : Simuler prend le même instantané que Jouer et Stop le rend de même.
 bool carryOutPlayTransition(app::App& app, Editor& editor, Mode to)
 {
     if (!editor.play && to != Mode::Edit)
@@ -296,8 +298,8 @@ void changeMode(app::App& app, Editor& editor, Mode mode)
     enterMode(app, editor.mode, mode);
     switchRealTime(from, mode, app.realTime, editor.realTimeEdit);
     editor.view.focusRequested = mode == Mode::Play;
-    // Le jeu voit par sa caméra ; l'édition, par la sienne.
-    if (mode == Mode::Edit)
+    // Le jeu voit par sa caméra ; l'édition et Simuler, par celle de l'éditeur.
+    if (editorOwnsViewIn(mode))
     {
         imposeCamera(app, editor, true); // le jeu a pu tout déplacer
     }
@@ -392,7 +394,7 @@ void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reache
     editor.lastShortcuts =
         shortcutsPressed({.table = editor.shortcuts,
                           .presses = editor.presses,
-                          .editing = editor.mode.current == Mode::Edit,
+                          .editing = editorOwnsViewIn(editor.mode.current),
                           .globalAllowed = globalChordsAllowed(editor.quit) && !capturing,
                           .viewActive = viewActiveOf(app, editor),
                           .flight = inFlight(editor.gestures),
@@ -607,7 +609,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                     programFrameSecondsOf(editor->mode.paused, app.singleStep, app.frameSeconds,
                                           app.fixedStep.stepSeconds);
                 frame(app);
-                keepMouseFromGame(app, editor->mode); // le jeu a pu reposer la capture
+                // Le jeu a pu reposer la capture : la souris reste à l'éditeur quand il ne l'a pas.
+                keepMouseFromGame(app, editor->mode, capturesMouse(editor->gestures));
             }
         };
         hooks->ui = [ui = std::move(hooks->ui), editor, afterUi = options.afterUi,
@@ -697,7 +700,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             {
                 changeMode(app, *editor, *next);
             }
-            if (editor->mode.current == Mode::Edit)
+            if (editorOwnsViewIn(editor->mode.current))
             {
                 // Après les gestes, le cadrage et les écritures de l'image.
                 imposeCamera(app, *editor, wroteWorld);

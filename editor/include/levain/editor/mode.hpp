@@ -1,13 +1,15 @@
 #pragma once
 
 // Les modes de l'éditeur (ADR-0036, décision 3, ADR-0037) : **Édition**, où rien ne tourne et où le
-// jeu ne reçoit rien, et **Jouer**, où le jeu tourne dans la Vue et où Stop rend la scène telle
-// qu'elle était (`play.hpp`). **La pause** (ADR-0037, décision 6) n'est pas un mode mais un drapeau
-// de `ModeState`, qui vaut en Jouer et vaudra en Simuler (morceau 6) : un mode de plus s'ajoute aux
-// `switch` ci-dessous, sans toucher à la pause. La logique est en fonctions libres dont les
-// dépendances sont des paramètres (ADR-0011) ; `withEditor` n'en a que la glu. Équivalents : le
-// mode Édition d'Unity (hors Play) et d'Unreal (hors PIE), Pause et Maj+F1 d'Unreal, le bouton
-// Pause d'Unity ; Godot, lui, ne joue que dans une fenêtre à part.
+// jeu ne reçoit rien, **Jouer**, où le jeu tourne dans la Vue et où Stop rend la scène telle
+// qu'elle était (`play.hpp`), et **Simuler**, où la physique et le gameplay tournent sous la caméra
+// et les gestes de l'éditeur, sans input du jeu, et où Stop rend la scène de même. **La pause**
+// (ADR-0037, décision 6) n'est pas un mode mais un drapeau de `ModeState`, qui vaut en Jouer et en
+// Simuler : un mode de plus s'ajoute aux `switch` ci-dessous, sans toucher à la pause. La logique
+// est en fonctions libres dont les dépendances sont des paramètres (ADR-0011) ; `withEditor` n'en a
+// que la glu. Équivalents : le mode Édition d'Unity (hors Play) et d'Unreal (hors PIE), Pause,
+// Maj+F1 et Simulate (Alt+S) d'Unreal, le bouton Pause d'Unity (qui n'a pas de Simulate) ; Godot,
+// lui, ne joue que dans une fenêtre à part.
 
 #include <bitset>
 #include <cstdint>
@@ -30,10 +32,14 @@ enum class Mode : std::uint8_t
 {
     Edit, ///< « Édition » : aucun pas, `frame` du programme jamais appelé, route *éditeur*.
     Play, ///< « Jouer » : le jeu tourne ; Stop rend la scène (`stopPlay`).
+    /// « Simuler » (Alt+S) : la simulation tourne sous la caméra et les gestes de l'éditeur, le jeu
+    /// ne reçoit rien ; Stop rend la scène comme après Jouer (`stopPlay`).
+    Simulate,
 };
 
 /// Où en sont les modes : celui d'aujourd'hui, la pause et la souris rendue (qui n'ont de sens
-/// qu'en jeu, `enterMode` les remet à faux), et les touches tenues telles que l'éditeur les voit.
+/// qu'en jeu, `enterMode` les remet à faux ; la souris rendue seulement en Jouer, où le jeu en a
+/// une), et les touches tenues telles que l'éditeur les voit.
 struct ModeState
 {
     Mode current = Mode::Edit;
@@ -50,8 +56,8 @@ struct ModeState
     std::bitset<platform::KeyCodeCount> keys;
 };
 
-/// La simulation tourne : jamais en Édition, en jeu tant qu'elle n'est pas en pause
-/// (`App::simulationPaused` est l'inverse).
+/// La simulation tourne : jamais en Édition, en jeu (Jouer ou Simuler) tant qu'elle n'est pas en
+/// pause (`App::simulationPaused` est l'inverse).
 [[nodiscard]] constexpr bool simulationRunsIn(Mode mode, bool paused)
 {
     switch (mode)
@@ -59,19 +65,25 @@ struct ModeState
     case Mode::Edit:
         return false;
     case Mode::Play:
+    case Mode::Simulate:
         return !paused;
     }
     return false; // inatteignable : un nouveau mode doit être traité ci-dessus (pas de `default`)
 }
 
-/// Le `frame` du programme (ce que le joueur demande : `steerDemo` pour le sandbox) ne tourne
-/// qu'en jeu, et pas en pause. En Édition il ne tourne **jamais**, sans quoi ZQSD déplacerait la
-/// caméra pendant qu'on édite. **Sauf pour un pas en pause** (`stepping` : `App::singleStep` est
-/// posé) : les systèmes du pas lisent ce que `frame` a posé (`FpsInput`, `WalkInput` du sandbox),
-/// et sans lui ils rejouent l'input d'avant la pause (W tenue, Pause, W relâchée : deux pas
-/// avancent encore la caméra). Il tourne alors sous la route de la pause, celle de l'Édition : il y
-/// lit un input vide, et le pas joue un jeu qui ne reçoit rien. Unity (Step) et Unreal (avance
-/// d'une image) font tourner le jeu d'une image.
+/// Le `frame` du programme (ce que le joueur demande : `steerDemo` pour le sandbox) tourne en jeu,
+/// Jouer ou Simuler, et pas en pause. En Édition il ne tourne **jamais**, sans quoi ZQSD
+/// déplacerait la caméra pendant qu'on édite. **Sauf pour un pas en pause** (`stepping` :
+/// `App::singleStep` est posé) : les systèmes du pas lisent ce que `frame` a posé (`FpsInput`,
+/// `WalkInput` du sandbox), et sans lui ils rejouent l'input d'avant la pause (W tenue, Pause, W
+/// relâchée : deux pas avancent encore la caméra). Il tourne alors sous la route de la pause, celle
+/// de l'Édition : il y lit un input vide, et le pas joue un jeu qui ne reçoit rien. Unity (Step) et
+/// Unreal (avance d'une image) font tourner le jeu d'une image.
+/// **En Simuler il tourne à chaque image, toujours sous l'input vide** (`inputRouteFor`), pour la
+/// même raison : W tenue en Jouer, Échap, puis Alt+S, et la caméra du jeu avancerait pour de bon
+/// (`FpsInput`, un singleton du monde que Stop ne rend pas, garde la dernière image de Jouer, où
+/// `frame` s'est tu en Édition ; `WalkInput`, lui, est un composant du joueur, que Stop rend). Le
+/// tableau de la décision 6 de l'ADR-0037 disait « jamais » : il est amendé.
 [[nodiscard]] constexpr bool programFrameRunsIn(Mode mode, bool paused, bool stepping)
 {
     switch (mode)
@@ -79,6 +91,7 @@ struct ModeState
     case Mode::Edit:
         return false;
     case Mode::Play:
+    case Mode::Simulate:
         return !paused || stepping;
     }
     return false;
@@ -95,14 +108,32 @@ struct ModeState
     return paused && stepping ? stepSeconds : measuredSeconds;
 }
 
-/// La route de l'input pour l'image suivante (`App::inputRoute`). Édition : *éditeur*. Jeu : *jeu*
-/// quand la scène a le focus, sinon *UI* (une fenêtre d'ImGui le garde : un champ de texte actif
-/// ne doit pas faire marcher le renard).
+/// **La caméra et les gestes sont ceux de l'éditeur** : en Édition et en Simuler. Jouer rend la
+/// caméra au jeu et la souris à son `frame`. Un seul nom pour cette moitié des modes, plutôt qu'un
+/// `== Mode::Edit` écrit à chaque endroit où le vol, le cadrage, les aides ou les touches de la Vue
+/// valent : Simuler en oublierait un.
+[[nodiscard]] constexpr bool editorOwnsViewIn(Mode mode)
+{
+    switch (mode)
+    {
+    case Mode::Edit:
+    case Mode::Simulate:
+        return true;
+    case Mode::Play:
+        return false;
+    }
+    return false;
+}
+
+/// La route de l'input pour l'image suivante (`App::inputRoute`). Édition et Simuler : *éditeur*,
+/// le jeu ne reçoit rien. Jouer : *jeu* quand la scène a le focus, sinon *UI* (une fenêtre d'ImGui
+/// le garde : un champ de texte actif ne doit pas faire marcher le renard).
 [[nodiscard]] constexpr app::InputRoute inputRouteFor(Mode mode, bool sceneFocused)
 {
     switch (mode)
     {
     case Mode::Edit:
+    case Mode::Simulate:
         return app::InputRoute::Editor;
     case Mode::Play:
         return sceneFocused ? app::InputRoute::Game : app::InputRoute::Ui;
@@ -124,7 +155,10 @@ struct ModeState
 /// d'outils quand le jeu tourne, celle de la pause quand il est arrêté, rien en Édition. Unreal
 /// teinte, Unity assombrit ce qui n'est pas la vue Game (documenté, ADR-0037 [2]). Les couleurs
 /// sont celles du style (`ui/style.hpp`), jamais des littéraux ici. Une pause en Édition n'existe
-/// pas : pas de teinte.
+/// pas : pas de teinte. **Simuler a la teinte de Jouer** : elle dit que le monde bouge et que Stop
+/// le rend, vrai des deux ; une troisième couleur voudrait son propre contraste de 3 contre le
+/// ciel, le sol et les panneaux (`tests/ui_style_test.cpp`), et le bandeau de la barre de mode dit
+/// déjà lequel des deux on joue.
 [[nodiscard]] constexpr std::optional<ImVec4> playTintOf(Mode mode, bool paused)
 {
     switch (mode)
@@ -132,6 +166,7 @@ struct ModeState
     case Mode::Edit:
         return std::nullopt;
     case Mode::Play:
+    case Mode::Simulate:
         return paused ? ui::PausedTint : ui::PlayTint;
     }
     return std::nullopt;
@@ -144,6 +179,7 @@ struct ModeState
     case Mode::Edit:
         return Mode::Play;
     case Mode::Play:
+    case Mode::Simulate:
         return Mode::Edit;
     }
     return Mode::Edit;
@@ -151,7 +187,8 @@ struct ModeState
 
 /// Le libellé du bouton qui mène au mode `target` : une icône (lecture, ou arrêt pour revenir à
 /// l'édition) et le texte traduit, avec l'identifiant de `labelOf`. La barre d'outils et la barre
-/// de la Vue le partagent.
+/// de la Vue le partagent ; Simuler n'a pas d'icône, et son bouton n'est que dans la barre d'outils
+/// (`otherMode` ne mène jamais à Simuler : on y entre par Alt+S ou ce bouton).
 [[nodiscard]] std::string modeButtonLabel(Mode target);
 
 /// Les libellés de la barre d'outils en jeu : « Pause » devient « Reprendre » quand le jeu est en
@@ -203,6 +240,8 @@ struct ModeRequests
         return "Édition";
     case Mode::Play:
         return "Jouer";
+    case Mode::Simulate:
+        return "Simuler";
     }
     return "";
 }
@@ -210,7 +249,8 @@ struct ModeRequests
 /// Le bandeau de la barre de mode, une clé du catalogue : la pause, ou la souris rendue (Maj+F1,
 /// que rien d'autre ne montre : sans lui, le jeu semble gelé), ou ce que le jeu fait à la scène.
 /// Rien en Édition. La pause passe avant la souris rendue : elle arrête le jeu, la souris rendue
-/// reste dite à la reprise.
+/// reste dite à la reprise. Simuler ne rend pas la souris (elle est déjà à l'éditeur : Maj+F1 y est
+/// refusée, `playControlRefusal`) : son bandeau ne la dit jamais.
 [[nodiscard]] constexpr const char* modeBannerOf(Mode mode, bool paused, bool mouseFreed)
 {
     switch (mode)
@@ -224,6 +264,9 @@ struct ModeRequests
         }
         return mouseFreed ? "Souris rendue : cliquer dans la scène pour la rendre au jeu"
                           : "Jouer : à l'arrêt, la scène revient telle qu'avant Play";
+    case Mode::Simulate:
+        return paused ? "Pause : la simulation est arrêtée"
+                      : "Simuler : à l'arrêt, la scène revient telle qu'avant";
     }
     return "";
 }
@@ -245,6 +288,8 @@ struct ModeRequests
         return "edit";
     case Mode::Play:
         return "play";
+    case Mode::Simulate:
+        return "simulate";
     }
     return "";
 }
@@ -336,6 +381,7 @@ enum class PlayRefusal : std::uint8_t
     case Mode::Edit:
         return PlayRefusal::NotPlaying;
     case Mode::Play:
+    case Mode::Simulate:
         return control == PlayControl::StepFrame && !paused ? PlayRefusal::NotPaused
                                                             : PlayRefusal::None;
     }
@@ -347,11 +393,12 @@ enum class PlayRefusal : std::uint8_t
 /// appuis qu'aucun pas n'a vus sont oubliés. Une ligne de glu dans `withEditor`.
 void applyPlayControl(PlayControl control, app::App& app, ModeState& state);
 
-/// **La souris reste à l'éditeur quand le jeu ne reçoit rien** (Maj+F1, ou la pause) : le jeu
+/// **La souris reste à l'éditeur quand le jeu ne reçoit rien** (Maj+F1, la pause, Simuler) : le jeu
 /// repose `mouseCaptureWanted` à chaque image dans son `frame`, qui tourne encore avec la souris
-/// rendue, et pour un pas en pause (`programFrameRunsIn`), et il capturerait la souris de nouveau.
-/// À appeler juste après lui.
-void keepMouseFromGame(app::App& app, const ModeState& state);
+/// rendue, pour un pas en pause (`programFrameRunsIn`) et en Simuler, et il capturerait la souris
+/// de nouveau, ou effacerait le vol de l'éditeur. La capture vaut alors `editorWantsMouse` (le vol
+/// en cours, `capturesMouse`). À appeler juste après le `frame`.
+void keepMouseFromGame(app::App& app, const ModeState& state, bool editorWantsMouse);
 
 /// Passe dans ce mode. **Remet à faux la pause, la souris rendue et `mouseCaptureWanted`** à chaque
 /// changement : une session de jeu ne garde rien de la précédente, et en Édition le `frame` du

@@ -1044,6 +1044,38 @@ TEST_CASE("la pause arrête la simulation et le frame du programme, et le jeu ne
     CHECK(levain::editor::inputRouteOf(modeIn(Mode::Edit), true) == InputRoute::Editor);
 }
 
+TEST_CASE("Simuler : la simulation et le frame du programme tournent, sous l'input vide de "
+          "l'éditeur et sa caméra, tant que la pause ne les arrête pas")
+{
+    using levain::app::InputRoute;
+    using levain::editor::editorOwnsViewIn;
+    using levain::editor::Mode;
+    // La simulation et le `frame` : comme Jouer, pause et pas compris. Le `frame` y tourne pour
+    // lire un input vide (route *éditeur*), sans quoi le dernier input de Jouer serait rejoué.
+    CHECK(levain::editor::simulationRunsIn(Mode::Simulate, false));
+    CHECK_FALSE(levain::editor::simulationRunsIn(Mode::Simulate, true));
+    CHECK(levain::editor::programFrameRunsIn(Mode::Simulate, false, false));
+    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Simulate, true, false));
+    CHECK(levain::editor::programFrameRunsIn(Mode::Simulate, true, true));
+    // Le jeu ne reçoit rien, la scène focalisée ou non ; la pause n'y change rien.
+    CHECK(levain::editor::inputRouteFor(Mode::Simulate, true) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteFor(Mode::Simulate, false) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteOf(modeIn(Mode::Simulate), true) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteOf(modeIn(Mode::Simulate, true), true) == InputRoute::Editor);
+    CHECK(levain::editor::otherMode(Mode::Simulate) == Mode::Edit);
+    // La caméra et les gestes sont ceux de l'éditeur en Édition et en Simuler, ceux du jeu en
+    // Jouer.
+    CHECK(editorOwnsViewIn(Mode::Edit));
+    CHECK(editorOwnsViewIn(Mode::Simulate));
+    CHECK_FALSE(editorOwnsViewIn(Mode::Play));
+    CHECK(levain::editor::helpersVisibleIn(Mode::Simulate, false));
+    CHECK_FALSE(levain::editor::helpersVisibleIn(Mode::Simulate, true));
+    CHECK_FALSE(levain::editor::helpersVisibleIn(Mode::Play, false));
+    // Le mot de la ligne `editor.mode` que lit la CI, et le nom traduit du mode.
+    CHECK(std::string_view{levain::editor::modeTokenOf(Mode::Simulate)} == "simulate");
+    CHECK(std::string_view{levain::editor::modeNameOf(Mode::Simulate)} == "Simuler");
+}
+
 TEST_CASE("le frame du programme voit la durée d'un pas sur un pas en pause, le temps mesuré sinon")
 {
     using levain::editor::programFrameSecondsOf;
@@ -1078,6 +1110,24 @@ TEST_CASE("la teinte du jeu : rien en Édition, une teinte qui joue, une autre e
     CHECK(paused.x == levain::ui::PausedTint.x);
     CHECK(playing.x > playing.z); // plus de rouge que de bleu
     CHECK(paused.z > paused.x);   // plus de bleu que de rouge
+}
+
+TEST_CASE("Simuler a la teinte de Jouer, et celle de la pause en pause : le choix est celui-là")
+{
+    using levain::editor::Mode;
+    using levain::editor::playTintOf;
+    // Une couleur de plus voudrait son contraste mesuré contre le ciel, le sol et les panneaux :
+    // Simuler dit déjà qui il est par son bandeau, et la teinte dit que le monde bouge.
+    for (const bool paused : {false, true})
+    {
+        const ImVec4 play = playTintOf(Mode::Play, paused).value_or(ImVec4{});
+        const ImVec4 simulate = playTintOf(Mode::Simulate, paused).value_or(ImVec4{});
+        CHECK(play.w > 0.0f); // le test n'est pas vide : la teinte de Jouer existe
+        CHECK(simulate.x == play.x);
+        CHECK(simulate.y == play.y);
+        CHECK(simulate.z == play.z);
+        CHECK(simulate.w == play.w);
+    }
 }
 
 namespace
@@ -1267,6 +1317,7 @@ TEST_CASE("le rappel de la barre de mode suit la table, et ne promet pas d'Alt+P
     const std::string inPlay = levain::editor::modeHintOf(Mode::Play, table, qwerty);
     CHECK(inPlay == "Échap : arrêter");
     CHECK_FALSE(inPlay.contains("Alt+P"));
+    CHECK(levain::editor::modeHintOf(Mode::Simulate, table, qwerty) == inPlay); // sortir : Échap
     // Un accord changé change le rappel : jouer sur Ctrl+K, arrêter sur la position du F5 (62).
     levain::editor::replaceChord(table, levain::editor::Action::Play, 0,
                                  levain::editor::letterChord('k', {.ctrl = true}), qwerty);

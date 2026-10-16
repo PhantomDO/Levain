@@ -116,6 +116,7 @@ ToolbarResult drawToolbar(Mode mode, bool paused, float flySpeed, bool realTime,
         layout.simulate = disabledButton("Simuler", availabilityOf(Action::Simulate).milestone);
         break;
     case Mode::Play:
+    case Mode::Simulate:
         drawPlayControls(paused, layout, result);
         break;
     }
