@@ -51,7 +51,9 @@ struct FrameHistory
 /// les cases qu'aucune image n'a encore remplies (restées à zéro) n'en sont pas. Zéro sans aucune
 /// image. C'est ce que le panneau « Image » montre, et non `io.Framerate` d'ImGui, qui moyenne le
 /// temps que la boucle *lui donne* : sous un script d'input, le pas fixe (`uiFrameSecondsFor`),
-/// donc toujours 60 images/s, quelle que soit la machine.
+/// donc toujours 60 images/s, quelle que soit la machine. **Elle moyenne `HistoryLength` images**
+/// (240, soit 4 s à 60 Hz), là où `io.Framerate` en moyenne 60 (environ 1 s à 60 Hz) : un à-coup
+/// s'y dilue quatre fois plus, et y reste quatre fois plus longtemps.
 [[nodiscard]] float averageFrameMs(const FrameHistory& history);
 
 /// Les nœuds de la disposition des panneaux (`drawEnginePanels`), où l'éditeur ancre ses fenêtres

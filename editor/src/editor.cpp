@@ -593,7 +593,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 editor->savePreferencesNext = true;
             }
             // Échap ramène à l'Édition, Pause, Image suivante et Maj+F1 sont lues ici aussi ; le
-            // `frame` du programme ne tourne qu'en jeu, et pas en pause.
+            // `frame` du programme ne tourne qu'en jeu, et pas en pause, sauf pour un pas.
             reachGameKeys(app, *editor);
             giveMouseBackOnClick(app, *editor);
             frameGestures(app, *editor);
@@ -602,6 +602,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             if (programFrameRunsIn(editor->mode.current, editor->mode.paused, app.singleStep) &&
                 frame)
             {
+                // Après les gestes, qui lisent le temps mesuré : le programme voit le temps du pas.
+                app.frameSeconds =
+                    programFrameSecondsOf(editor->mode.paused, app.singleStep, app.frameSeconds,
+                                          app.fixedStep.stepSeconds);
                 frame(app);
                 keepMouseFromGame(app, editor->mode); // le jeu a pu reposer la capture
             }

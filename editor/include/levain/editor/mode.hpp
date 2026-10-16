@@ -37,8 +37,9 @@ enum class Mode : std::uint8_t
 struct ModeState
 {
     Mode current = Mode::Edit;
-    /// **La pause** : la simulation arrêtée, le `frame` du programme muet, rien au jeu. L'éditeur
-    /// regarde le monde tel qu'il est, caméra du jeu comprise.
+    /// **La pause** : la simulation arrêtée, le `frame` du programme muet (sauf pour un pas,
+    /// `programFrameRunsIn`), rien au jeu. L'éditeur regarde le monde tel qu'il est, caméra du jeu
+    /// comprise.
     bool paused = false;
     /// **Maj+F1** : la souris est rendue à l'éditeur, le jeu ne reçoit plus rien jusqu'au prochain
     /// clic dans la scène (`keepMouseFromGame`).
@@ -81,6 +82,17 @@ struct ModeState
         return !paused || stepping;
     }
     return false;
+}
+
+/// **La durée que le `frame` du programme voit** (`App::frameSeconds`). En marche, celle de
+/// l'image, que le monde compte aussi. Sur un pas en pause (`stepping`), le monde avance d'un pas
+/// fixe, non du temps mesuré de l'image en pause : un minuteur de jeu lu dans `frame` dériverait à
+/// chaque pas (le piège nommé). Les gestes de l'éditeur, eux, gardent le temps mesuré : la caméra
+/// vole en pause comme ailleurs.
+[[nodiscard]] constexpr float programFrameSecondsOf(bool paused, bool stepping,
+                                                    float measuredSeconds, float stepSeconds)
+{
+    return paused && stepping ? stepSeconds : measuredSeconds;
 }
 
 /// La route de l'input pour l'image suivante (`App::inputRoute`). Édition : *éditeur*. Jeu : *jeu*
@@ -210,7 +222,7 @@ struct ModeRequests
         {
             return "Pause : la simulation est arrêtée";
         }
-        return mouseFreed ? "Souris rendue : cliquer dans la Vue pour la rendre au jeu"
+        return mouseFreed ? "Souris rendue : cliquer dans la scène pour la rendre au jeu"
                           : "Jouer : à l'arrêt, la scène revient telle qu'avant Play";
     }
     return "";

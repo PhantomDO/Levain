@@ -42,8 +42,10 @@ inline constexpr ImVec4 EditorAccentHover = srgb8(32, 98, 176);
 /// monde bouge. **Le bord est dessiné sur la scène**, qui peut être un ciel clair ou un sol sombre
 /// : une couleur claire se perd sur le ciel, une sombre sur le sol. Leur luminance relative est
 /// donc au milieu (0,16 à 0,19), où l'on garde 3 de contraste (WCAG 1.4.11) contre l'un comme
-/// l'autre, et contre le gris des panneaux (`tests/ui_style_test.cpp`). Le texte clair du calque de
-/// la Vue se lit sur le fond tinté.
+/// l'autre, et contre le gris des panneaux (`tests/ui_style_test.cpp`). **Une luminance moyenne
+/// n'a pas 3 contre toute scène** (une herbe, un terrain de luminance voisine la perdent) : ce qui
+/// garde le bord visible alors, c'est son côté extérieur, qui touche le gris des panneaux, non la
+/// teinte seule. Le texte clair du calque de la Vue se lit sur le fond tinté.
 inline constexpr ImVec4 PlayTint = srgb8(190, 85, 10);
 inline constexpr ImVec4 PausedTint = srgb8(35, 115, 205);
 

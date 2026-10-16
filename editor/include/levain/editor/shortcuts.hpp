@@ -200,7 +200,8 @@ struct ActiveContexts
 
 /// **Une action tenue** : le jeu la lit comme une touche enfoncée (`positionHeld`), jamais comme un
 /// appui à modificateurs exacts. C'est le vol (Avancer, Reculer, Gauche, Droite, Monter, Descendre,
-/// que Maj tenu accélère sans les couper) et « Arrêter » (`stopPressed`). Un accord à modificateur
+/// que Maj tenu accélère sans les couper) et « Arrêter » (lue par `gameKeysPressed`, qui ignore les
+/// modificateurs d'Échap). Un accord à modificateur
 /// sur l'une d'elles serait affiché et enregistré sans jamais être lu comme tel : Maj+E sur
 /// « Avancer » prendrait la touche E à « Monter » sans que rien ne le dise (invariant 22). La
 /// saisie retire donc les modificateurs (`captureChord`), et le fichier qui en porte est refusé
