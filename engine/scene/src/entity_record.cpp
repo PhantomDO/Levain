@@ -205,6 +205,11 @@ const ecs_type_info_t* comparingHook(const flecs::world& world, flecs::entity_t 
 
 } // namespace
 
+std::vector<flecs::entity_t> sceneChildrenOf(const flecs::world& world, flecs::entity_t parent)
+{
+    return childrenOf(world, parent).scene;
+}
+
 bool isGenerated(const flecs::world& world, flecs::entity_t entity)
 {
     return ecs_has_id(world, entity, world.id<Generated>());
@@ -482,7 +487,7 @@ bool isPermutationOf(std::vector<flecs::entity_t> first, std::vector<flecs::enti
 /// Release : Levain vérifie lui-même que c'est une permutation des enfants du parent.
 core::Result<void> setSceneChildOrder(flecs::world& world, flecs::entity_t parent,
                                       std::span<const flecs::entity_t> sceneChildren,
-                                      const char* gesture)
+                                      const char* gesture, const char* source)
 {
     const std::vector<flecs::entity_t> current = orderedChildrenOf(world, parent);
     std::vector<flecs::entity_t> order(sceneChildren.begin(), sceneChildren.end());
@@ -493,16 +498,16 @@ core::Result<void> setSceneChildOrder(flecs::world& world, flecs::entity_t paren
     {
         return core::makeError(
             core::ErrorCode::InvalidData,
-            std::format("{} : les enfants de {} ne sont pas ceux de l'instantané ({} attendus, {} "
+            std::format("{} : les enfants de {} ne sont pas ceux de {} ({} attendus, {} "
                         "trouvés)",
-                        gesture, pathOf(world, parent), order.size(), current.size()));
+                        gesture, pathOf(world, parent), source, order.size(), current.size()));
     }
     ecs_set_child_order(world, parent, order.data(), static_cast<std::int32_t>(order.size()));
     return {};
 }
 
 core::Result<void> restoreRecords(flecs::world& world, std::span<const EntityRecord> records,
-                                  const char* gesture)
+                                  const char* gesture, const char* source)
 {
     restoreParents(world, records);
     restoreTypes(world, records);
@@ -514,7 +519,8 @@ core::Result<void> restoreRecords(flecs::world& world, std::span<const EntityRec
         {
             continue;
         }
-        if (auto ordered = setSceneChildOrder(world, record.id, record.children, gesture); !ordered)
+        if (auto ordered = setSceneChildOrder(world, record.id, record.children, gesture, source);
+            !ordered)
         {
             return ordered;
         }

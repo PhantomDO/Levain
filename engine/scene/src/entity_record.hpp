@@ -49,6 +49,11 @@ namespace levain::scene
 [[nodiscard]] bool sameComponentValue(const flecs::world& world, flecs::entity_t type,
                                       const void* first, const void* second);
 
+/// Les enfants de la scène d'un parent, dans l'ordre de flecs, sans les enfants internes (un
+/// observateur rangé par `ChildOf`).
+[[nodiscard]] std::vector<flecs::entity_t> sceneChildrenOf(const flecs::world& world,
+                                                           flecs::entity_t parent);
+
 /// Qui est dans le sous-arbre d'une suppression : **une seule règle**, que `removeKeepingIndex`
 /// (les pierres) et `readSubtree` (l'enregistrement) lisent toutes les deux. Deux règles avaient
 /// donné un préfab sous `flecs::Parent` réservé mais pas enregistré, qui revenait en racine vide.
@@ -92,15 +97,19 @@ struct SubtreeMembers
 
 /// L'ordre des enfants d'un parent (étape 5) : `sceneChildren` d'abord dans cet ordre, puis les
 /// enfants internes. Une erreur, le monde intact, si ce n'est pas une permutation des enfants.
-/// `gesture` (« Stop », « Annuler ») ouvre le message.
+/// `gesture` (« Stop », « Annuler ») ouvre le message, `source` dit d'où vient la liste
+/// (« l'instantané », « l'enregistrement »).
 [[nodiscard]] core::Result<void> setSceneChildOrder(flecs::world& world, flecs::entity_t parent,
                                                     std::span<const flecs::entity_t> sceneChildren,
-                                                    const char* gesture);
+                                                    const char* gesture, const char* source);
 
 /// Les étapes 4 et 5 de `restoreSnapshot` : parents (par profondeur croissante), types, valeurs,
 /// noms, puis l'ordre des enfants de chaque enregistrement. Les entités doivent être vivantes ;
 /// un parent hors de la liste (la racine d'un sous-arbre) doit l'être aussi. Hors du mode différé.
-[[nodiscard]] core::Result<void>
-restoreRecords(flecs::world& world, std::span<const EntityRecord> records, const char* gesture);
+/// Une erreur de l'étape 5 vient **après** l'étape 4 : parents, types, valeurs et noms sont déjà
+/// écrits, seul l'ordre des enfants manque (l'appelant vérifie la scène, `differencesFrom`).
+[[nodiscard]] core::Result<void> restoreRecords(flecs::world& world,
+                                                std::span<const EntityRecord> records,
+                                                const char* gesture, const char* source);
 
 } // namespace levain::scene

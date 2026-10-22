@@ -496,7 +496,7 @@ core::Result<RestoreReport> restoreSnapshot(flecs::world& world, const IdRanges&
     {
         ecs_make_alive(world, entity);
     }
-    if (auto ordered = restoreRecords(world, snapshot.entities, "Stop"); !ordered)
+    if (auto ordered = restoreRecords(world, snapshot.entities, "Stop", "l'instantané"); !ordered)
     {
         return std::unexpected(ordered.error());
     }

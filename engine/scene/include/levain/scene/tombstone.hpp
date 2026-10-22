@@ -18,7 +18,7 @@
 ///
 /// Un fichier à part de `snapshot.hpp` : l'instantané de Play/Stop copie tout le monde, la pierre
 /// sert une commande de l'éditeur sur un sous-arbre. Les deux partagent le réveil
-/// (`ecs_make_alive`) et se rejoignent au morceau A2 (ADR-0038), qui rend aussi types, valeurs et
+/// (`ecs_make_alive`) et se rejoignent dans `subtree.hpp`, qui garde et rend types, valeurs et
 /// noms.
 namespace levain::scene
 {
@@ -119,7 +119,7 @@ struct Tombstones
 /// différé et tout index hors de la plage active, garde ensuite (`checkTombstonesHold`, le monde
 /// intact si elle refuse), détruit les pierres puis réveille chaque entité avec son identifiant
 /// d'avant. Elles reviennent **vides** : ni type, ni valeur, ni nom, ni parent. Les rendre est
-/// l'affaire de l'enregistrement de la commande (`restoreSnapshot` en donne les étapes). Les mêmes
+/// l'affaire de l'enregistrement de la commande (`restoreSubtree`). Les mêmes
 /// `Tombstones` resservent à refaire : `removeKeepingIndex` repose les mêmes pierres (voir le
 /// contrat ci-dessus).
 [[nodiscard]] core::Result<void> reviveFromTombstones(flecs::world& world,
