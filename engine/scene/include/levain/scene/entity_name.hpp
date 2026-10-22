@@ -2,7 +2,12 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
+
+#include <flecs.h>
+
+#include "levain/core/error.hpp"
 
 /// Les noms d'entités (ADR-0038, décision 6). Un nom est ce que `lookup` et le fichier de scène
 /// retrouvent : il doit être unique entre frères, et ne pas être un mot que flecs interprète. Dans
@@ -40,5 +45,16 @@ enum class NameRefusal : std::uint8_t
 {
     return !refusalOfName(name, atRoot).has_value();
 }
+
+/// uniqueNameAmong : le nom voulu s'il est libre parmi les enfants de `parent` (0 : les racines),
+/// sinon « Entité 2 », « Entité 3 »… Un nom nu commence à 2 et prend le plus petit numéro libre. Un
+/// nom déjà numéroté reprend **après** son numéro : « Cube 2 » pris donne « Cube 3 », « Lampe 10 »
+/// pris donne « Lampe 11 » (pas « Lampe 2 », qui ferait remonter la liste), et jamais « Cube 2 2 ».
+/// Un nom refusé par `refusalOfName` est une erreur qui le dit. `self` : l'entité qu'on renomme,
+/// que son propre nom ne rend pas « pris ».
+[[nodiscard]] core::Result<std::string> uniqueNameAmong(const flecs::world& world,
+                                                        flecs::entity_t parent,
+                                                        std::string_view wanted,
+                                                        flecs::entity_t self = 0);
 
 } // namespace levain::scene
