@@ -32,7 +32,7 @@ d'entité et d'asset. Il n'a pas encore :
 101e fait sortir la plus ancienne en lui faisant rendre ce qu'elle retient (ses épingles d'assets ; plus tard ses
 pierres tombales), une commande nouvelle vide d'abord les refaisables, une commande dont l'avant égale l'après
 (`sameValue`) est jetée. Une commande de **valeur** garde l'entité, le composant et deux `ValueBox` ; `editValue` est
-la porte directe (l'inspecteur la prendra en A5), `recordValueChange` pose la commande d'une écriture déjà faite.
+la porte directe (la session de la CI s'en sert), `recordValueChange` pose la commande d'une écriture déjà faite.
 **« Modifié » se lit dans la pile** (un numéro par commande, `isModified`) et le « * » est dans la barre de menus.
 **Annuler n'est actif qu'en Édition** : en jeu la pile est gelée, pas vidée, et rien de ce qu'on y fait n'y entre
 (Stop rend la scène identique, les commandes d'avant Jouer restent vraies). En Jouer la touche va au jeu (route

@@ -55,6 +55,7 @@ set(nativeTests
     editor_shortcut_edit_test.cpp
     editor_shortcuts_test.cpp
     editor_test.cpp
+    editor_undo_session_test.cpp
     editor_undo_test.cpp
     environment_test.cpp
     grass_test.cpp
