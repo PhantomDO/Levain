@@ -126,6 +126,16 @@ core::Result<Tombstones> removeKeepingIndex(flecs::world& world, flecs::entity_t
     {
         return std::unexpected(deferred.error());
     }
+    // En jeu, supprimer n'est jamais une commande (ADR-0038, décision 9, amendement du
+    // 2026-10-22) : une pierre posée ici survivrait à Stop (`bornInPlay` l'ignore).
+    if (const ecs_entity_range_t* range = ecs_entity_range_get(world);
+        range != nullptr && range->min >= PlayFirstIndex)
+    {
+        return core::makeError(
+            core::ErrorCode::InvalidData,
+            "Supprimer : en jeu, supprimer est un ecs_delete simple et pas une "
+            "commande (une pierre survivrait à Stop), le monde n'est pas touché");
+    }
     // Avant toute destruction : passés les 256 identifiants bas de flecs, un composant enregistré
     // après une destruction prend l'index libéré (et devient sa propre pierre).
     const flecs::entity_t tag = world.component<Tombstone>().id();

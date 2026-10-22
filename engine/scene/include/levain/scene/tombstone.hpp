@@ -24,7 +24,7 @@ namespace levain::scene
 {
 
 /// Posée sur la pierre : une entité vivante qui n'est pas de la scène, juste un index tenu.
-/// `isSceneEntity` ne l'écarte pas encore (morceau A2) : aucun éditeur ne l'emploie avant.
+/// `isSceneEntity` l'écarte : ni instantané, ni Hiérarchie, ni fichier ne la voient.
 struct Tombstone
 {
 };
@@ -82,12 +82,13 @@ struct Tombstones
 ///  - un index hors de la plage d'identifiants **active** (`ecs_entity_range_get`) : supprimer en
 ///    jeu une entité de l'édition rangerait l'index libéré dans la liste de la plage du jeu, à la
 ///    génération de la pierre ; à Stop flecs s'arrête (Debug) ou donne l'identifiant de la pierre à
-///    la prochaine entité (Release).
+///    la prochaine entité (Release) ;
+///  - la plage du **jeu** active, sans exception.
 ///
 /// **En jeu (Play, Simulate), supprimer n'est pas une commande** : le chemin est un `ecs_delete`
-/// simple, que Stop défait (il réveille l'entité avec son identifiant, `restoreSnapshot`). Un
-/// appelant qui n'a pas le droit d'y passer (une entité de l'édition en jeu) n'appelle pas cette
-/// fonction ; ADR-0038, décision 9 (amendement du 2026-10-22).
+/// simple, que Stop défait (il réveille l'entité avec son identifiant, `restoreSnapshot`). Une
+/// pierre posée en jeu survivrait à Stop (`bornInPlay` l'ignore), d'où le refus ; ADR-0038,
+/// décision 9 (amendement du 2026-10-22).
 ///
 /// Si un observateur `OnRemove` crée une entité pendant la destruction et prend un index libéré,
 /// la suppression **est faite** mais n'est pas annulable : on rend les `Tombstones` avec `reserved`

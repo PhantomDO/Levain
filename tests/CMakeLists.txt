@@ -30,6 +30,7 @@ set(cpuTests
     registry_test.cpp
     scene_test.cpp
     snapshot_test.cpp
+    subtree_test.cpp
     tombstone_test.cpp
     version_test.cpp
     walk_test.cpp)

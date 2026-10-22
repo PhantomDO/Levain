@@ -14,6 +14,7 @@
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
 #include "levain/scene/snapshot.hpp"
+#include "levain/scene/tombstone.hpp"
 
 // L'instantané de la scène (ADR-0037, morceau 1) : ce qu'il garde, ce qu'il refuse, et chaque sorte
 // de différence que `differencesFrom` doit trouver. Sans éditeur ni GPU.
@@ -751,4 +752,55 @@ TEST_CASE("Stop rend l'ordre de beaucoup d'enfants renversés")
     REQUIRE(restoreSnapshot(world, *ranges, snapshot).has_value());
 
     CHECK(orderedChildren(world, parent) == before);
+}
+
+TEST_CASE("Stop rend une entité Generated et un composant Derived, copiés par l'instantané")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    world.component<Mass>().add<levain::scene::Derived>();
+    const flecs::entity root = world.entity("racine").set(Mass{3.0F});
+    const flecs::entity node =
+        child(world, root, "nœud").add<levain::scene::Generated>().set(Mass{7.0F});
+    const flecs::entity_t nodeId = node.id();
+    const Snapshot snapshot = snapshotOf(world);
+    const auto& copied =
+        std::ranges::find(snapshot.entities, nodeId, &levain::scene::EntityRecord::id);
+    REQUIRE(copied != snapshot.entities.end());
+    CHECK(copied->values.size() == 1); // la valeur du Derived est copiée
+
+    levain::scene::usePlayIds(world, *ranges);
+    node.destruct();
+    root.set(Mass{99.0F});
+    REQUIRE(restoreSnapshot(world, *ranges, snapshot).has_value());
+
+    CHECK(world.is_alive(nodeId));
+    CHECK(world.entity(nodeId).has<levain::scene::Generated>());
+    CHECK(world.entity(nodeId).get<Mass>().kilograms == 7.0F);
+    CHECK(world.entity(nodeId).parent() == root);
+    CHECK(differencesFrom(world, snapshot).empty());
+}
+
+TEST_CASE("une pierre tombale vivante n'est pas dans l'instantané, et Play/Stop reste à zéro "
+          "différence")
+{
+    flecs::world world = makeWorld();
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    const flecs::entity kept = world.entity("gardée").set(Mass{1.0F});
+    const flecs::entity gone = world.entity("supprimée").set(Mass{2.0F});
+    const auto removed = levain::scene::removeKeepingIndex(world, gone.id());
+    REQUIRE(removed.has_value());
+    const Snapshot snapshot = snapshotOf(world);
+
+    CHECK(snapshot.entities.size() == 1);
+    CHECK(snapshot.entities[0].id == kept.id());
+    levain::scene::usePlayIds(world, *ranges);
+    world.entity("née en jeu").set(Mass{});
+    REQUIRE(restoreSnapshot(world, *ranges, snapshot).has_value());
+
+    CHECK(differencesFrom(world, snapshot).empty());
+    CHECK(ecs_get_alive(world, levain::scene::entityIndexOf(gone.id())) ==
+          removed->reserved[0].stone);
 }

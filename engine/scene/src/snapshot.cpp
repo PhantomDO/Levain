@@ -13,6 +13,7 @@
 
 #include "levain/scene/components.hpp"
 #include "levain/scene/reflection.hpp"
+#include "levain/scene/tombstone.hpp"
 
 namespace levain::scene
 {
@@ -266,7 +267,9 @@ bool isSceneEntity(const flecs::world& world, flecs::entity_t entity)
         return false;
     }
     const flecs::table table = world.entity(entity).table();
-    return !isEngineInternal(table) && !table.has(flecs::ChildOf, flecs::Wildcard);
+    // Une pierre tombale tient un index, ce n'est pas une entité de la scène (ADR-0038, 3).
+    return !isEngineInternal(table) && !table.has(flecs::ChildOf, flecs::Wildcard) &&
+           !table.has<Tombstone>();
 }
 
 ValueBox::ValueBox(const flecs::world& world, flecs::entity_t type, const void* source)
@@ -300,6 +303,8 @@ ValueBox::~ValueBox()
 
 std::vector<flecs::entity_t> sceneEntities(const flecs::world& world)
 {
+    // Avant la liste des entités : enregistrer `Tombstone` (dans `isSceneEntity`) en crée une.
+    world.component<Tombstone>();
     // L'ordre du tableau de flecs change à chaque destruction ; un ordre d'index se compare d'un
     // monde à l'autre. On copie la liste avant tout : la moindre création l'invalide.
     const ecs_entities_t all = ecs_get_entities(world);
@@ -413,6 +418,7 @@ std::vector<flecs::entity_t> deadEntities(const flecs::world& world, const Snaps
 core::Result<Snapshot> takeSnapshot(const flecs::world& world)
 {
     world.component<Transient>(); // avant la liste des entités : l'enregistrer en crée une
+    world.component<Tombstone>();
     for (const PlacedByChildOf& placed : placedByChildOf(world))
     {
         if (world.entity(placed.entity).table().has<Transform>() &&
