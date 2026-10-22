@@ -240,7 +240,9 @@ struct ShortcutBench
     bool textInput = false;
     bool flight = false;
     bool allowed = true;
-    bool viewActive = true; ///< `viewActiveIn` : faux quand une fenêtre couvre la Vue
+    bool viewActive = true;   ///< `viewActiveIn` : faux quand une fenêtre couvre la Vue
+    bool sceneActive = false; ///< `sceneKeysActiveIn` : la Hiérarchie ou la Vue a le focus
+    bool editing = true;      ///< faux en Jouer : les outils ne valent plus
     std::array<char, 64> buffer{};
 
     void frame()
@@ -271,11 +273,12 @@ struct ShortcutBench
         raw = {};
         const auto now = shortcutsPressed({.table = table,
                                            .presses = presses,
-                                           .editing = true,
+                                           .editing = editing,
                                            .globalAllowed = allowed,
                                            .viewActive = viewActive,
                                            .flight = flight,
-                                           .textInput = textInput});
+                                           .textInput = textInput,
+                                           .sceneActive = sceneActive});
         reached.insert(reached.end(), now.begin(), now.end());
         ImGui::EndFrame();
     }
@@ -578,4 +581,72 @@ TEST_CASE("keyPressesOf rend la position, la lettre de la disposition et les mod
     CHECK(keyPressesOf(repeat, held).size() == 1);
     // Rien d'appuyé : aucune touche rendue.
     CHECK(keyPressesOf({}, {}).empty());
+}
+
+TEST_CASE(
+    "Suppr et F2 valent où la sélection a le focus : ni en vol, ni dans un champ de texte, ni "
+    "ailleurs")
+{
+    constexpr std::uint16_t ScanDelete = 76, ScanF2 = 59;
+    constexpr std::uint32_t DeleteKey = 0x7F, F2Key = (1U << 30U) | 59U;
+    ShortcutBench bench;
+    bench.settle();
+    bench.tap(ScanDelete, DeleteKey);
+    bench.tap(ScanF2, F2Key);
+    CHECK(bench.reached.empty()); // ni la Hiérarchie ni la Vue n'a le focus
+
+    bench.sceneActive = true;
+    bench.tap(ScanDelete, DeleteKey);
+    bench.tap(ScanF2, F2Key);
+    CHECK(bench.reached == (std::vector<Action>{Action::DeleteEntity, Action::RenameEntity}));
+
+    bench.reached.clear();
+    bench.flight = true; // le clic droit est tenu : la Vue se tait
+    bench.tap(ScanDelete, DeleteKey);
+    CHECK(bench.reached.empty());
+    bench.flight = false;
+
+    bench.withField = true; // un champ de texte actif garde ses touches
+    bench.settle();
+    bench.tap(ScanDelete, DeleteKey);
+    bench.tap(ScanF2, F2Key);
+    CHECK(bench.reached.empty());
+    bench.withField = false;
+    bench.settle();
+
+    // Jouer : les outils ne valent plus, Suppr et F2 d'un panneau focalisé oui.
+    bench.editing = false;
+    bench.tap(ScanW, 'w');
+    bench.tap(ScanDelete, DeleteKey);
+    CHECK(bench.reached == std::vector<Action>{Action::DeleteEntity});
+}
+
+TEST_CASE("sceneKeysActiveIn : la Hiérarchie en tout mode, la Vue là où l'éditeur la possède")
+{
+    CHECK(sceneKeysActiveIn(true, false, Mode::Edit));
+    CHECK(sceneKeysActiveIn(true, false, Mode::Play));
+    CHECK(sceneKeysActiveIn(false, true, Mode::Edit));
+    CHECK(sceneKeysActiveIn(false, true, Mode::Simulate));
+    CHECK_FALSE(sceneKeysActiveIn(false, true, Mode::Play)); // le clavier de la Vue est au jeu
+    CHECK_FALSE(sceneKeysActiveIn(false, false, Mode::Edit));
+}
+
+TEST_CASE("Créer, Supprimer et Renommer sont atteintes comme les autres actions, hors Jouer aussi")
+{
+    ActionCounters counters;
+    bool realTime = true;
+    for (const Mode mode : {Mode::Edit, Mode::Play, Mode::Simulate})
+    {
+        for (const Action action :
+             {Action::CreateEntity, Action::DeleteEntity, Action::RenameEntity})
+        {
+            CHECK(availabilityOf(action).available);
+            CHECK_FALSE(runAction(action, counters, realTime, mode).has_value());
+        }
+    }
+    CHECK(counters.performed.at(indexOf(Action::DeleteEntity)) == 3);
+    CHECK(counters.declined.at(indexOf(Action::DeleteEntity)) == 0);
+    CHECK(isSceneAction(Action::DeleteEntity));
+    CHECK(isSceneAction(Action::RenameEntity));
+    CHECK_FALSE(isSceneAction(Action::CreateEntity));
 }

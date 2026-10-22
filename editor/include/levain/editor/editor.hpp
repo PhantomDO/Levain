@@ -5,6 +5,7 @@
 // la page web n'en embarquent rien.
 
 #include <array>
+#include <bitset>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -194,6 +195,9 @@ struct Editor
     /// `defer_begin` et `defer_end`), exécutées par `applyEditorRequests` juste après.
     UndoStack undo;
     std::vector<EditorRequest> requests;
+    /// Les touches tenues en jeu, pour que Suppr et F2 d'un panneau focalisé ne se répètent pas
+    /// (`frameGestures` : les gestes sont au repos en Jouer, leurs touches aussi).
+    std::bitset<platform::KeyCodeCount> playKeys;
     /// La session scriptée de la CI, si `--undo-session` l'a demandée.
     std::optional<UndoSession> undoSession;
 };

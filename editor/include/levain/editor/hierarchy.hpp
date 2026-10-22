@@ -3,8 +3,8 @@
 // La hiérarchie de l'éditeur (ADR-0034, « Les panneaux ») : les entités placées (`Transform`),
 // rangées par `flecs::Parent` (ADR-0015), et un nœud des singletons. Elle sélectionne, et depuis
 // M7.3 (A6) elle crée, supprime et renomme : un clic droit ouvre le menu (« Créer un enfant »,
-// « Renommer », « Supprimer » sur une ligne, « Créer une entité » sur le vide).
-// **Elle n'écrit jamais dans le monde** : elle dessine entre `defer_begin`
+// « Renommer », « Supprimer » sur une ligne, « Créer une entité » sur le vide), F2 et Suppr valent
+// quand elle a le focus. **Elle n'écrit jamais dans le monde** : elle dessine entre `defer_begin`
 // et `defer_end`, ses demandes sont mises en file (`EditorRequest`) et `applyEditorRequests` les
 // exécute juste après. Équivalents : l'Outliner d'Unreal, la fenêtre Hierarchy d'Unity, le dock
 // Scène de Godot. Ses lignes se calculent sans ImGui : les tests les lisent.
@@ -85,6 +85,9 @@ struct Hierarchy
     /// test vise une ligne par son rectangle, et la hiérarchie qui défile jusqu'à la sélection
     /// (M7.4) en aura besoin.
     std::unordered_map<flecs::entity_t, RowRect> rects;
+    /// La fenêtre a le focus (elle ou un de ses champs) à la dernière image où elle a été dessinée
+    /// : Suppr et F2 y valent (`sceneKeysActiveIn`). Faux fenêtre fermée.
+    bool focused = false;
     RenameField rename;
     HierarchyMenuLayout menu;
 };

@@ -84,6 +84,12 @@ struct Equivalents
         return {.unreal = "", .unity = "Ctrl+Alt+P"};
     case Action::GiveMouseBack:
         return {.unreal = "Maj+F1", .unity = "Échap"};
+    case Action::CreateEntity:
+        return {.unreal = "", .unity = "Ctrl+Maj+N"};
+    case Action::DeleteEntity:
+        return {.unreal = "Suppr", .unity = "Maj+Suppr"};
+    case Action::RenameEntity:
+        return {.unreal = "F2", .unity = "F2"};
     case Action::Count:
         break;
     }
@@ -99,6 +105,8 @@ struct Equivalents
         return "Vol (clic droit tenu)";
     case Context::View:
         return "Vue";
+    case Context::Scene:
+        return "Hiérarchie ou Vue";
     case Context::Global:
         return "Partout";
     case Context::Game:

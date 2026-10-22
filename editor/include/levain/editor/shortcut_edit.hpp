@@ -25,10 +25,14 @@ namespace levain::editor
 
 /// Deux contextes se disputent un accord quand ils valent en même temps : le même, ou le global
 /// (qui vaut sous tous les autres). Le vol et la Vue ne se disputent rien : W avance en vol et
-/// prend l'outil Déplacer dans la Vue, par construction (la précédence de `actionFor`).
+/// prend l'outil Déplacer dans la Vue, par construction (la précédence de `actionFor`). **La scène
+/// (Suppr, F2) et la Vue se disputent**, elles : la Vue focalisée les rend toutes deux actives,
+/// et le premier contexte de la liste prendrait l'accord de l'autre sans rien dire.
 [[nodiscard]] constexpr bool contextsOverlap(Context a, Context b)
 {
-    return a == b || a == Context::Global || b == Context::Global;
+    const bool sceneAndView =
+        (a == Context::Scene && b == Context::View) || (a == Context::View && b == Context::Scene);
+    return a == b || a == Context::Global || b == Context::Global || sceneAndView;
 }
 
 /// Deux accords sont **la même touche avec les mêmes modificateurs**. Une position se compare à

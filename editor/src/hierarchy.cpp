@@ -321,6 +321,7 @@ Hierarchy createHierarchy(const flecs::world& world)
             .rows = {},
             .frameRequested = false,
             .rects = {},
+            .focused = false,
             .rename = {},
             .menu = {}};
 }
@@ -427,6 +428,7 @@ void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entit
     hierarchy.frameRequested = false;
     hierarchy.rects.clear();
     hierarchy.menu = {};
+    hierarchy.focused = false;
     if (hierarchy.rename.entity != 0 && !world.is_alive(hierarchy.rename.entity))
     {
         cancelRename(hierarchy); // l'entité a disparu (annuler, supprimer) : plus de champ
@@ -440,6 +442,7 @@ void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entit
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
     if (ImGui::Begin(ui::labelOf(HierarchyWindow).c_str(), open))
     {
+        hierarchy.focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
         drawSingletons(world, selected);
         // Ses lignes ont le retrait des racines qui suivent : le trait marque où le nœud s'arrête.
         ImGui::Separator();

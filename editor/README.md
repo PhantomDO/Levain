@@ -24,9 +24,9 @@ d'entité et d'asset. Il n'a pas encore :
   autres (Entité, M7.3) viennent avec leur milestone ;
 - **d'enregistrement** : rien n'écrit la scène (M7.3) ; fermer la fenêtre demande « Quitter l'éditeur ? », sans rien
   proposer d'enregistrer ;
-- ni raccourci d'édition, sauf Ctrl+Z, Ctrl+Y et Ctrl+Maj+Z (M7.3, A4) : Ctrl+S et les outils sont grisés jusqu'à leur
-  milestone (invariant 16 et le paragraphe des menus ci-dessous) ; ceux de M7.7 jouent, arrêtent, règlent le temps
-  réel, cadrent (F) et basculent la vue de jeu (G).
+- ni raccourci d'édition, sauf Ctrl+Z, Ctrl+Y et Ctrl+Maj+Z (M7.3, A4), Suppr, F2 et Ctrl+Maj+N (A6) : Ctrl+S et les
+  outils sont grisés jusqu'à leur milestone (invariant 16 et le paragraphe des menus ci-dessous) ; ceux de M7.7 jouent,
+  arrêtent, règlent le temps réel, cadrent (F) et basculent la vue de jeu (G).
 
 **La pile d'annulation est écrite** (M7.3, morceau A4, `undo.hpp`, ADR-0038 décisions 1 et 9) : 100 commandes, une
 101e fait sortir la plus ancienne en lui faisant rendre ce qu'elle retient (ses épingles d'assets ; plus tard ses
@@ -120,7 +120,7 @@ pour les trois : l'aspect est connu de l'interface, non relu dans une documentat
 ADR-0036, décisions 12 et 13). **La barre de menus** : Fichier, Édition, Entité, Fenêtre (celui du morceau 8, au
 milieu de la barre) et Aide ; chaque entrée montre le raccourci de la table, selon la disposition du clavier. **Une
 action grisée tant que son milestone n'est pas là** (`availabilityOf` : Enregistrer, Annuler, Rétablir en M7.3, les
-outils en M7.4, Entité > Créer… en M7.3) : le menu la montre
+outils en M7.4) : le menu la montre
 éteinte, dit au survol « Arrive en M7.3 », et le clic ne fait rien. **Le choix pour Ctrl+S** : l'entrée est grisée
 *et* le raccourci reste routé vers l'action, qui, grisée, le dit à la console (« Enregistrer : arrive en M7.3 » ; la
 barre d'état le montre) et compte le refus (`ActionCounters::declined`). Un Ctrl+S qui ne répondrait rien laisserait

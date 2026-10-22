@@ -66,6 +66,22 @@ struct Availability
     return action == Action::Undo || action == Action::Redo;
 }
 
+/// Supprimer et Renommer : les actions de la sélection (Suppr, F2), qui valent quand la
+/// Hiérarchie ou la Vue a le focus (`sceneKeysActiveIn`).
+[[nodiscard]] constexpr bool isSceneAction(Action action)
+{
+    return action == Action::DeleteEntity || action == Action::RenameEntity;
+}
+
+/// **Les touches de la sélection valent** (Suppr, F2) : la Hiérarchie a le focus, en tout mode
+/// (en Jouer aussi : supprimer y est un `ecs_delete` simple que Stop défait), ou la Vue l'a **là où
+/// l'éditeur l'a** (Édition, Simuler ; en Jouer le clavier de la Vue est au jeu, ADR-0036,
+/// décision 4). Jamais dans un champ de texte (`ShortcutInputs::textInput`).
+[[nodiscard]] constexpr bool sceneKeysActiveIn(bool hierarchyFocused, bool viewFocused, Mode mode)
+{
+    return hierarchyFocused || (viewFocused && editorOwnsViewIn(mode));
+}
+
 inline constexpr std::size_t ActionCount = static_cast<std::size_t>(Action::Count);
 
 [[nodiscard]] constexpr std::size_t indexOf(Action action)
@@ -123,6 +139,11 @@ withoutHistoryWhileActive(std::vector<Action> shortcuts, bool itemActive, Action
 [[nodiscard]] std::optional<Action> toolActionOf(const ShortcutTable& table, const KeyPress& press,
                                                  const ActiveContexts& active);
 
+/// Une touche de la sélection (`isSceneAction`) appuyée là où elle vaut : l'action, ou rien. Les
+/// mêmes garde-fous que la Vue : pas en vol, pas dans un champ de texte (`actionFor` les lit).
+[[nodiscard]] std::optional<Action>
+sceneKeyActionOf(const ShortcutTable& table, const KeyPress& press, const ActiveContexts& active);
+
 /// Une touche de position de la Vue qui atteint une action ici : un outil (`toolActionOf`) ou « Vue
 /// de jeu » (G). F (cadrer) est aux gestes (`stepGestures`), qui connaissent la souris. Mêmes
 /// garde-fous : ni en vol, ni avec un modificateur, ni dans un champ de texte.
@@ -177,6 +198,9 @@ struct ShortcutInputs
     bool viewActive = false;    ///< `viewActiveIn`.
     bool flight = false;        ///< Le vol est en cours (`inFlight`, l'état des gestes).
     bool textInput = false;     ///< Un champ de texte est actif (`io.WantTextInput`).
+    /// `sceneKeysActiveIn` : Suppr et F2 valent. Ces touches se lisent dans `presses`, qui doit
+    /// donc aussi contenir celles d'un panneau focalisé en Jouer (`Editor::presses`).
+    bool sceneActive = false;
 };
 
 /// Les actions que les raccourcis atteignent à cette image : d'abord les accords de **lettre**

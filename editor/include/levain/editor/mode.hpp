@@ -364,6 +364,9 @@ enum class PlayControl : std::uint8_t
     case Action::Play:
     case Action::Simulate:
     case Action::Stop:
+    case Action::CreateEntity:
+    case Action::DeleteEntity:
+    case Action::RenameEntity:
     case Action::Count:
         return std::nullopt; // pas de `default` : une action de plus doit être classée ici
     }

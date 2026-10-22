@@ -51,16 +51,20 @@ enum class Action : std::uint8_t
     NextFrame, ///< « Image suivante » : un pas à l'arrêt. **Sans accord par défaut** (voir
                ///< `defaultShortcuts`).
     GiveMouseBack,
-    Count, ///< Pas une action : la taille de la table.
+    CreateEntity, ///< Entité > Créer une entité (M7.3, A6) : une racine, en renommage.
+    DeleteEntity, ///< Suppr : la sélection, Hiérarchie ou Vue focalisée.
+    RenameEntity, ///< F2 : la sélection, dans la Hiérarchie.
+    Count,        ///< Pas une action : la taille de la table.
 };
 
 /// Où un accord vaut. **L'ordre est la précédence** (décision 13) : le vol (clic droit tenu) passe
-/// avant la Vue (survolée ou en focus), qui passe avant le global ; le jeu ne vaut que sous la
-/// route *jeu*, et seul.
+/// avant la Vue (survolée ou en focus), qui passe avant la scène (la Hiérarchie ou la Vue en
+/// focus : Suppr, F2), puis le global ; le jeu ne vaut que sous la route *jeu*, et seul.
 enum class Context : std::uint8_t
 {
     Flight,
     View,
+    Scene,
     Global,
     Game,
 };
@@ -175,7 +179,10 @@ struct ActiveContexts
 {
     bool flight = false; ///< Le vol est en cours (clic droit tenu, parti de la Vue : `inFlight`).
     bool view = false;   ///< Les touches de la Vue valent : survolée ou focalisée (`viewActiveIn`).
-    bool game = false;   ///< La route est *jeu* : seul le contexte *jeu* vaut alors.
+    /// Les touches de la sélection valent : la Hiérarchie ou la Vue a le focus
+    /// (`sceneKeysActiveIn`).
+    bool scene = false;
+    bool game = false; ///< La route est *jeu* : seul le contexte *jeu* vaut alors.
     /// Un champ de texte est actif (`io.WantTextInput`) : taper « w » dedans n'est pas l'outil
     /// Déplacer. Ni le vol, ni la Vue, ni le global ne valent alors ; le contexte *jeu* n'a pas
     /// de champ de texte, il n'est pas touché.
