@@ -58,6 +58,9 @@ struct Inspector
     UndoStack* history = nullptr;
     /// Le mode de l'image, posé par l'éditeur avant le dessin : en jeu, aucune commande.
     Mode mode = Mode::Edit;
+    /// Où cliquer pour saisir chaque champ dessiné à la dernière image (le milieu de son premier
+    /// cadre, en pixels de l'écran) : ce que lit le banc, qui clique dans le vrai inspecteur.
+    std::vector<ImVec2> fieldCenters{};
     /// Le geste ouvert (un glissé en cours), d'une image à l'autre.
     EditGesture gesture{};
     /// Ce que les composants ont vécu à cette image : `drawInspector` les règle en fin d'image
