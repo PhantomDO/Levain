@@ -15,6 +15,7 @@ using levain::scene::isValidEntityName;
 using levain::scene::NameRefusal;
 using levain::scene::reasonOf;
 using levain::scene::refusalOfName;
+using levain::scene::uniqueNameAmong;
 
 namespace
 {
@@ -135,4 +136,88 @@ TEST_CASE("un « . » éclate le chemin au rechargement, un « :: » se lit comm
     const flecs::entity scoped = world.entity();
     scoped.set_name("x::y");
     CHECK(world.lookup("x::y").id() != scoped.id());
+}
+
+TEST_CASE("uniqueNameAmong rend le nom voulu quand il est libre")
+{
+    flecs::world world;
+    world.entity("Autre");
+    const auto name = uniqueNameAmong(world, 0, "Entité");
+    REQUIRE(name.has_value());
+    CHECK(*name == "Entité");
+}
+
+TEST_CASE("uniqueNameAmong numérote à partir de 2 et prend le plus petit numéro libre")
+{
+    flecs::world world;
+    world.entity("Entité");
+    CHECK(*uniqueNameAmong(world, 0, "Entité") == "Entité 2");
+
+    world.entity("Entité 2");
+    CHECK(*uniqueNameAmong(world, 0, "Entité") == "Entité 3");
+
+    // Un trou : « Entité 3 » est pris, « Entité 2 » ne l'est plus.
+    flecs::world gap;
+    gap.entity("Entité");
+    gap.entity("Entité 3");
+    CHECK(*uniqueNameAmong(gap, 0, "Entité") == "Entité 2");
+}
+
+TEST_CASE("uniqueNameAmong remplace le numéro final au lieu de l'empiler")
+{
+    flecs::world world;
+    world.entity("Cube");
+    world.entity("Cube 2");
+    CHECK(*uniqueNameAmong(world, 0, "Cube 2") == "Cube 3");
+
+    // Après son numéro, pas depuis 2 : « Lampe 10 » pris donne « Lampe 11 ».
+    world.entity("Lampe 10");
+    CHECK(*uniqueNameAmong(world, 0, "Lampe 10") == "Lampe 11");
+
+    // Un nom qui n'est qu'un nombre garde son corps : jamais de nom vide.
+    flecs::world numbers;
+    numbers.entity("2");
+    CHECK(*uniqueNameAmong(numbers, 0, "2") == "2 2");
+}
+
+TEST_CASE("uniqueNameAmong ne compare qu'entre frères, racines comprises")
+{
+    flecs::world world;
+    const flecs::entity left = world.entity("gauche");
+    const flecs::entity right = world.entity("droite");
+    child(world, left, "Cube");
+    child(world, right, "Cube");
+    world.entity("Cube"); // une racine
+
+    // Sous « gauche » : « Cube » est pris par un frère, « Cube 2 » est libre.
+    CHECK(*uniqueNameAmong(world, left.id(), "Cube") == "Cube 2");
+    // Sous « gauche », « droite » est libre : c'est une racine, pas un frère.
+    CHECK(*uniqueNameAmong(world, left.id(), "droite") == "droite");
+    // Parmi les racines, « gauche » est pris (et pas par l'enfant « Cube » d'un autre).
+    CHECK(*uniqueNameAmong(world, 0, "gauche") == "gauche 2");
+    CHECK(*uniqueNameAmong(world, 0, "Cube") == "Cube 2");
+}
+
+TEST_CASE("uniqueNameAmong ne compte pas l'entité qu'on renomme")
+{
+    flecs::world world;
+    const flecs::entity cube = world.entity("Cube");
+    CHECK(*uniqueNameAmong(world, 0, "Cube", cube.id()) == "Cube");
+    CHECK(*uniqueNameAmong(world, 0, "Cube") == "Cube 2");
+}
+
+TEST_CASE("uniqueNameAmong refuse un nom invalide en disant pourquoi")
+{
+    flecs::world world;
+    const flecs::entity parent = world.entity("P");
+
+    const auto dotted = uniqueNameAmong(world, 0, "a.b");
+    REQUIRE_FALSE(dotted.has_value());
+    CHECK(dotted.error().message.find("a.b") != std::string::npos);
+    CHECK(dotted.error().message.find(reasonOf(NameRefusal::ContainsDot)) != std::string::npos);
+
+    CHECK_FALSE(uniqueNameAmong(world, 0, "").has_value());
+    CHECK_FALSE(uniqueNameAmong(world, 0, "#12").has_value());
+    CHECK_FALSE(uniqueNameAmong(world, 0, "*").has_value());
+    CHECK(uniqueNameAmong(world, parent.id(), "*").has_value()); // sous un parent, « * » est permis
 }
