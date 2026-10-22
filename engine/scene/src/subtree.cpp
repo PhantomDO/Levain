@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <format>
 #include <iterator>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "entity_record.hpp"
@@ -33,15 +35,7 @@ core::Result<void> refuseNotARoot(const flecs::world& world, flecs::entity_t roo
     {
         return refuse("est un nœud généré : on supprime son parent");
     }
-    return {};
-}
-
-/// Les enfants d'un enregistrement sans les nœuds générés : ils ne reviennent pas par lui.
-std::vector<flecs::entity_t> withoutGenerated(const flecs::world& world,
-                                              std::vector<flecs::entity_t> children)
-{
-    std::erase_if(children, [&](flecs::entity_t child) { return isGenerated(world, child); });
-    return children;
+    return refuseRootUnderGenerated(world, root, "Supprimer");
 }
 
 /// La racine reprend sa place parmi ses frères : juste après le plus proche prédécesseur de la
@@ -54,18 +48,26 @@ std::vector<flecs::entity_t> orderWithRootBack(const flecs::world& world,
     const flecs::entity_t root = record.entities.front().id;
     std::vector<flecs::entity_t> order = sceneChildrenOf(world, record.parent);
     std::erase(order, root);
-    auto insertAt = order.begin();
+    // Une table identifiant -> place : un `find` par prédécesseur coûtait O(n·m) (10 000 frères
+    // générés refaits : 352 ms en Debug contre 47 ms).
+    std::unordered_map<flecs::entity_t, std::size_t> place;
+    place.reserve(order.size());
+    for (std::size_t index = 0; index < order.size(); ++index)
+    {
+        place.emplace(order[index], index);
+    }
+    std::size_t insertAt = 0;
     const auto rootPlace = std::ranges::find(record.parentChildren, root);
     for (auto before = std::reverse_iterator{rootPlace}; before != record.parentChildren.rend();
          ++before)
     {
-        if (const auto found = std::ranges::find(order, *before); found != order.end())
+        if (const auto found = place.find(*before); found != place.end())
         {
-            insertAt = found + 1;
+            insertAt = found->second + 1;
             break;
         }
     }
-    order.insert(insertAt, root);
+    order.insert(order.begin() + static_cast<std::ptrdiff_t>(insertAt), root);
     return order;
 }
 
@@ -91,10 +93,14 @@ core::Result<SubtreeRecord> readSubtree(const flecs::world& world, flecs::entity
     }
     SubtreeRecord subtree;
     subtree.entities.reserve(members.scene.size());
+    const std::unordered_set<flecs::entity_t> inSubtree(members.scene.begin(), members.scene.end());
     for (const flecs::entity_t id : members.scene)
     {
         EntityRecord record = readRecord(world, id);
-        record.children = withoutGenerated(world, std::move(record.children));
+        // Les enfants viennent des membres : la règle n'est écrite qu'une fois
+        // (`subtreeMembersOf`).
+        std::erase_if(record.children,
+                      [&](flecs::entity_t child) { return !inSubtree.contains(child); });
         if (auto refusal = readValues(world, record))
         {
             return core::makeError(core::ErrorCode::Unsupported,
@@ -109,6 +115,18 @@ core::Result<SubtreeRecord> readSubtree(const flecs::world& world, flecs::entity
         subtree.parentChildren = sceneChildrenOf(world, subtree.parent);
     }
     return subtree;
+}
+
+core::Result<void> checkSubtreeRestorable(const flecs::world& world, const SubtreeRecord& record)
+{
+    if (record.parent != 0 && !ecs_is_alive(world, record.parent))
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               std::format("Annuler : le parent {} est mort, le monde n'est pas "
+                                           "touché",
+                                           entityIndexOf(record.parent)));
+    }
+    return {};
 }
 
 core::Result<void> restoreSubtree(flecs::world& world, const SubtreeRecord& record)
@@ -128,12 +146,9 @@ core::Result<void> restoreSubtree(flecs::world& world, const SubtreeRecord& reco
                             entityIndexOf(entity.id)));
         }
     }
-    if (record.parent != 0 && !ecs_is_alive(world, record.parent))
+    if (auto restorable = checkSubtreeRestorable(world, record); !restorable)
     {
-        return core::makeError(core::ErrorCode::InvalidData,
-                               std::format("Annuler : le parent {} est mort, le monde n'est pas "
-                                           "touché",
-                                           entityIndexOf(record.parent)));
+        return restorable;
     }
     if (auto restored = restoreRecords(world, record.entities, "Annuler", "l'enregistrement");
         !restored)

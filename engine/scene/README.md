@@ -171,7 +171,10 @@ Supprimer une entité pour de bon, et pouvoir la rendre avec **le même identifi
   pas (ils se refont depuis leur racine) et n'ont pas de pierre ; les enfants `ChildOf` sont rapportés par `lost`.
   `isSceneEntity` écarte les pierres. Une seule règle (`subtreeMembersOf`) dit ce qui reçoit une pierre et un
   enregistrement : un préfab sous `flecs::Parent` n'en reçoit pas, il est rapporté par `lost`. Une entité faite à la main
-  sous un nœud `Generated` est refusée, nommée. La racine se replace après son plus proche prédécesseur encore là. Unity
+  sous un nœud `Generated` est refusée, nommée, et une racine dont le **parent** est `Generated` (une épée sur un os)
+  l'est aussi. **Pour annuler**, les gardes qui ne touchent à rien (`checkTombstonesHold`, `checkSubtreeRestorable`) passent
+  d'abord, puis `reviveFromTombstones` et `restoreSubtree` à la suite : un refus après le réveil laisserait des entités vides.
+  La racine se replace après son plus proche prédécesseur encore là. Unity
   range l'objet supprimé dans l'`Undo` (documenté [1]), Unreal dans la transaction (documenté [8] pour la transaction,
   supposé pour le sort de l'acteur), Godot garde l'objet dans l'action (documenté [4]) ; qu'aucun ne rende des enfants
   *générés* par un composant est supposé.

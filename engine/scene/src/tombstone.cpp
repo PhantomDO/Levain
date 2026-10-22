@@ -105,6 +105,10 @@ core::Result<Tombstones> removeKeepingIndex(flecs::world& world, flecs::entity_t
                                            indexOf(entity)));
     }
 
+    if (auto underGenerated = refuseRootUnderGenerated(world, entity, "Supprimer"); !underGenerated)
+    {
+        return std::unexpected(underGenerated.error());
+    }
     const SubtreeMembers members = subtreeMembersOf(world, entity);
     if (auto handMade = refuseHandMadeUnderGenerated(world, members, "Supprimer"); !handMade)
     {

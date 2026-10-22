@@ -215,10 +215,31 @@ bool isGenerated(const flecs::world& world, flecs::entity_t entity)
     return ecs_has_id(world, entity, world.id<Generated>());
 }
 
+namespace
+{
+
+/// Ajoute à `list` les descendants de ses éléments, largeur d'abord. Par indice : `push_back`
+/// déplace le tableau.
+void appendDescendants(const flecs::world& world, std::vector<flecs::entity_t>& list)
+{
+    for (std::size_t next = 0; next < list.size(); ++next)
+    {
+        for (const flecs::entity_t child : orderedChildrenOf(world, list[next]))
+        {
+            list.push_back(child);
+        }
+    }
+}
+
+} // namespace
+
 SubtreeMembers subtreeMembersOf(const flecs::world& world, flecs::entity_t root)
 {
-    SubtreeMembers members{
-        .scene = {root}, .generated = {}, .handMadeUnderGenerated = 0, .other = {}};
+    SubtreeMembers members{.scene = {root},
+                           .generated = {},
+                           .handMadeUnderGenerated = 0,
+                           .other = {},
+                           .otherUnderGenerated = {}};
     // Les listes se parcourent par indice : `push_back` déplace le tableau.
     for (std::size_t next = 0; next < members.scene.size(); ++next)
     {
@@ -244,7 +265,7 @@ SubtreeMembers subtreeMembersOf(const flecs::world& world, flecs::entity_t root)
         {
             if (!isSceneEntity(world, child))
             {
-                members.other.push_back(child);
+                members.otherUnderGenerated.push_back(child);
             }
             else if (isGenerated(world, child))
             {
@@ -256,13 +277,8 @@ SubtreeMembers subtreeMembersOf(const flecs::world& world, flecs::entity_t root)
             }
         }
     }
-    for (std::size_t next = 0; next < members.other.size(); ++next)
-    {
-        for (const flecs::entity_t child : orderedChildrenOf(world, members.other[next]))
-        {
-            members.other.push_back(child);
-        }
-    }
+    appendDescendants(world, members.other);
+    appendDescendants(world, members.otherUnderGenerated);
     return members;
 }
 
@@ -278,6 +294,22 @@ core::Result<void> refuseHandMadeUnderGenerated(const flecs::world& world,
         std::format("{} : {} est faite à la main sous un nœud généré : l'annuler la réveillerait "
                     "sous un parent mort, le monde n'est pas touché",
                     gesture, pathOf(world, members.handMadeUnderGenerated)));
+}
+
+core::Result<void> refuseRootUnderGenerated(const flecs::world& world, flecs::entity_t root,
+                                            const char* gesture)
+{
+    const flecs::entity_t parent = ecs_get_parent(world, root);
+    if (parent == 0 || !isGenerated(world, parent))
+    {
+        return {};
+    }
+    return core::makeError(
+        core::ErrorCode::InvalidData,
+        std::format(
+            "{} : {} est faite à la main sous le nœud généré {} : l'annuler la réveillerait "
+            "sous un parent que le générateur peut avoir refait, le monde n'est pas touché",
+            gesture, pathOf(world, root), pathOf(world, parent)));
 }
 
 std::vector<LostChild> lostChildrenOf(const flecs::world& world, const SubtreeMembers& members)

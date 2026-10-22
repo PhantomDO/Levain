@@ -45,11 +45,21 @@ struct SubtreeRecord
 /// readSubtree : copie la racine et ses descendants de la scène, **avant** de les supprimer.
 /// Refus nommés, dans tous les builds, le monde intact : le mode différé ; une entité morte, une
 /// pierre, ou qui n'est pas de la scène ; une racine `Generated` (on supprime son parent) ; une
-/// entité faite à la main sous un nœud `Generated` (décision 10) ; un
-/// composant que l'annulation ne saurait pas rendre (`takeSnapshot` en donne la liste : copie
-/// interdite, instance de prefab).
+/// racine dont le **parent** est `Generated` (une épée sur un os : le générateur peut refaire l'os)
+/// ; une entité faite à la main sous un nœud `Generated` du sous-arbre (décision 10) ; un composant
+/// que l'annulation ne saurait pas rendre (`takeSnapshot` en donne la liste : copie interdite,
+/// instance de prefab).
 [[nodiscard]] core::Result<SubtreeRecord> readSubtree(const flecs::world& world,
                                                       flecs::entity_t root);
+
+/// checkSubtreeRestorable : la garde de `restoreSubtree` qui ne touche à rien, à lancer **avec
+/// `checkTombstonesHold` avant `reviveFromTombstones`** : le parent enregistré est vivant. Sans
+/// elle, le réveil a déjà eu lieu quand `restoreSubtree` découvre le parent mort, et une entité
+/// vide, sans nom ni parent, reste dans la scène (essai Q2 du relecteur). C'est le contrat de la
+/// pile : les deux gardes d'abord, le réveil ensuite, `restoreSubtree` à la suite sans
+/// interruption.
+[[nodiscard]] core::Result<void> checkSubtreeRestorable(const flecs::world& world,
+                                                        const SubtreeRecord& record);
 
 /// restoreSubtree : rend le sous-arbre aux entités que `reviveFromTombstones` a réveillées vides.
 /// Parents, types, valeurs, noms, ordre des enfants de chacune, puis la place de la racine parmi
