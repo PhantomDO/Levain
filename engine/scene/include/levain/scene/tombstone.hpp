@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include <flecs.h>
@@ -35,18 +36,35 @@ struct ReservedIndex
     flecs::entity_t stone = 0;  ///< Celui de la pierre qui tient l'index.
 };
 
+/// Un enfant rangé par `ChildOf` (l'observateur d'un `onEnter`), détruit avec son parent. Il ne
+/// revient pas (ADR-0038, décision 3) : la suppression le rapporte, la console le nomme (comme
+/// l'ADR-0037, A8). Son nom est lu **avant** la destruction.
+struct LostChild
+{
+    flecs::entity_t id = 0;
+    std::string name; ///< « (sans nom) » s'il n'en a pas.
+};
+
 /// Les pierres d'une suppression, que **la commande possède** : elle les rend en sortant de la pile
 /// (`releaseTombstones`) ou à l'annulation (`reviveFromTombstones`). Un monde ne survit pas à ses
 /// pierres : elles ne se gardent pas d'un monde à l'autre.
 struct Tombstones
 {
-    /// L'entité supprimée.
+    /// L'entité supprimée d'abord, puis ses descendants `flecs::Parent`, un parent avant ses
+    /// enfants.
     std::vector<ReservedIndex> reserved;
+    /// Les enfants rangés par `ChildOf` : détruits, jamais réservés ni réveillés.
+    std::vector<LostChild> lost;
 };
 
-/// removeKeepingIndex : détruit l'entité, puis pose une pierre sur son index libéré. Refus nommés,
-/// **dans tous les builds**, le monde intact : une entité morte, une pierre, ou qui n'est pas de la
-/// scène (`isSceneEntity` : un composant, un module).
+/// removeKeepingIndex : détruit l'entité et son sous-arbre, puis pose une pierre sur l'index libéré
+/// de chaque entité de la scène du sous-arbre (`flecs::Parent`). Les enfants rangés par `ChildOf`
+/// partent aussi et sont rapportés dans `lost`. Refus nommés, **dans tous les builds**, le monde
+/// intact : une entité morte, une pierre, ou qui n'est pas de la scène (`isSceneEntity` : un
+/// composant, un module).
+/// Si un observateur `OnRemove` crée une entité pendant la destruction et prend un index libéré,
+/// la suppression est faite mais l'erreur le dit : aucune pierre n'est posée, l'annulation est
+/// impossible (c'est préférable à une pierre posée sur l'entité d'un autre).
 ///
 /// Le composant `Tombstone` est enregistré **avant** la destruction : passés les 256 identifiants
 /// bas de flecs, un composant enregistré après une destruction prend l'index libéré (il devenait
@@ -57,11 +75,18 @@ struct Tombstones
 [[nodiscard]] core::Result<Tombstones> removeKeepingIndex(flecs::world& world,
                                                           flecs::entity_t entity);
 
-/// reviveFromTombstones : annule la suppression. Détruit les pierres puis réveille chaque entité
-/// avec son identifiant d'avant. Elles reviennent **vides** : ni type, ni valeur, ni nom, ni
-/// parent. Les rendre est l'affaire de l'enregistrement de la commande (`restoreSnapshot` en donne
-/// les étapes). Les mêmes `Tombstones` resservent à refaire : `removeKeepingIndex` repose les mêmes
-/// pierres.
+/// La garde de l'index, avant chaque réveil, **dans tous les builds** : chaque index réservé doit
+/// être vivant, à la génération de sa pierre, et porter `Tombstone`. Sinon une erreur qui nomme
+/// l'index. En Release `ecs_make_alive` écraserait sans rien dire l'entité qui a pris la place ;
+/// en Debug flecs s'arrête (src/entity.c:3133-3139).
+[[nodiscard]] core::Result<void> checkTombstonesHold(const flecs::world& world,
+                                                     const Tombstones& tombstones);
+
+/// reviveFromTombstones : annule la suppression. Garde d'abord (`checkTombstonesHold`, le monde
+/// intact si elle refuse), détruit les pierres puis réveille chaque entité avec son identifiant
+/// d'avant. Elles reviennent **vides** : ni type, ni valeur, ni nom, ni parent. Les rendre est
+/// l'affaire de l'enregistrement de la commande (`restoreSnapshot` en donne les étapes). Les mêmes
+/// `Tombstones` resservent à refaire : `removeKeepingIndex` repose les mêmes pierres.
 [[nodiscard]] core::Result<void> reviveFromTombstones(flecs::world& world,
                                                       const Tombstones& tombstones);
 
