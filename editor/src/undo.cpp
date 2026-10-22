@@ -48,6 +48,8 @@ struct Releaser
             assets::releasePin(*usage, command.pin);
         }
     }
+
+    void operator()(RenameCommand&) const {}
 };
 
 void dropRedo(UndoStack& stack, flecs::world& world)
@@ -71,8 +73,9 @@ void pushOutOldest(UndoStack& stack, flecs::world& world)
     stack.done.erase(stack.done.begin());
 }
 
-/// Écrit l'avant (annuler) ou l'après (refaire) d'une commande de valeur. Une erreur dit pourquoi,
-/// sans nom de geste : l'appelant le met devant.
+/// Annule (`redo` faux) ou refait une commande, selon sa sorte : un visiteur, une sorte de commande
+/// de plus ajoute sa surcharge ici. Une erreur dit pourquoi, sans nom de geste (l'appelant le met
+/// devant).
 struct Stepper
 {
     flecs::world& world;
@@ -101,11 +104,16 @@ struct Stepper
                                  (redo ? command.after : command.before).data());
         return {};
     }
+
+    core::Result<void> operator()(const RenameCommand& command) const
+    {
+        return stepRename(world, command, redo);
+    }
 };
 
 /// Annule (`redo` faux) ou refait la commande du sommet de la liste d'où elle vient, et la range
 /// dans l'autre. Échec : la commande est abandonnée (libérée), pour que la pile ne reste pas
-/// bloquée sur elle. Un visiteur : une sorte de commande de plus ajoute sa surcharge ici.
+/// bloquée sur elle.
 core::Result<void> stepOnce(UndoStack& stack, flecs::world& world, bool redo)
 {
     std::vector<Command>& from = redo ? stack.undone : stack.done;
@@ -254,6 +262,57 @@ core::Result<bool> editValue(UndoStack& stack, flecs::world& world, Mode mode,
 namespace
 {
 
+/// Le refus d'une opération de structure : une erreur nommée, le monde intact.
+std::unexpected<core::Error> refuseStructure(std::string_view gesture, std::string_view why)
+{
+    return core::makeError(core::ErrorCode::InvalidData,
+                           std::format("{} : {}, le monde n'est pas touché", gesture, why));
+}
+
+} // namespace
+
+core::Result<bool> renameEntity(UndoStack& stack, flecs::world& world, Mode mode,
+                                flecs::entity_t entity, std::string_view wanted)
+{
+    if (ecs_is_deferred(world))
+    {
+        return refuseStructure(ui::tr("Renommer"), ui::tr("appelée en mode différé"));
+    }
+    if (const auto refusal = renameRefusalOf(world, entity, wanted))
+    {
+        return refuseStructure(ui::tr("Renommer"), *refusal);
+    }
+    const char* current = ecs_get_name(world, entity);
+    if (current != nullptr && wanted == current)
+    {
+        return false; // le même nom n'est pas un changement
+    }
+    RenameCommand command{.entity = entity,
+                          .before = current != nullptr ? std::optional<std::string>{current}
+                                                       : std::nullopt,
+                          .after = std::string{wanted}};
+    if (mode == Mode::Edit)
+    {
+        dropRedo(stack, world);
+    }
+    writeName(world, entity, command.after);
+    if (mode == Mode::Edit) // hors de l'Édition le nom est perdu à Stop, qui rend ceux d'avant
+    {
+        pushCommand(stack, world, std::move(command));
+    }
+    return true;
+}
+
+namespace
+{
+
+/// Dit à la console qu'une opération de structure a été refusée, et la compte.
+void sayRefused(RequestsReport& report, const core::Error& error)
+{
+    ++report.refused;
+    core::log("editor", core::LogLevel::Warning, "{}", error.message);
+}
+
 /// Une étape d'historique de la file : Annuler ou Rétablir.
 void applyHistoryStep(RequestsReport& report, UndoStack& stack, flecs::world& world, Mode mode,
                       bool redo)
@@ -308,6 +367,16 @@ RequestsReport applyEditorRequests(std::vector<EditorRequest>& queue, UndoStack&
         case RequestKind::Undo:
         case RequestKind::Redo:
             applyHistoryStep(report, stack, world, mode, request.kind == RequestKind::Redo);
+            break;
+        case RequestKind::Rename:
+            if (const auto renamed = renameEntity(stack, world, mode, request.entity, request.name))
+            {
+                report.renamed += *renamed ? 1 : 0;
+            }
+            else
+            {
+                sayRefused(report, renamed.error());
+            }
             break;
         }
     }

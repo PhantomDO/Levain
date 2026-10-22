@@ -3,8 +3,9 @@
 // La pile d'annulation de l'éditeur (ADR-0038, décisions 1, 8 et 9) : 100 commandes, Annuler et
 // Rétablir. Une commande de **valeur** garde l'entité (identifiant complet), le composant et deux
 // `ValueBox`, l'avant et l'après, copiées par les crochets du type (jamais du JSON, qui arrondit).
-// Les autres sortes (créer, supprimer, renommer, déplacer, ajouter ou retirer un composant)
-// prendront leur place dans `CommandKind` aux morceaux A6 à A8.
+// Les sortes de structure (`structure.hpp`) : renommer garde deux noms (M7.3, A6) ; créer,
+// supprimer, déplacer, ajouter ou retirer un composant prendront leur place dans `CommandKind`
+// ensuite (A6, A7 et A8).
 //
 // La logique est en fonctions libres dont toutes les dépendances sont des paramètres (ADR-0011) ;
 // la glu d'`editor.cpp` tient en une ligne (`applyQueuedRequests`).
@@ -22,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -31,6 +33,7 @@
 #include "levain/assets/asset_ref.hpp"
 #include "levain/core/error.hpp"
 #include "levain/editor/mode.hpp"
+#include "levain/editor/structure.hpp"
 #include "levain/scene/snapshot.hpp"
 
 namespace levain::editor
@@ -51,8 +54,8 @@ struct ValueCommand
     assets::AssetPin pin;
 };
 
-/// Les sortes de commandes. Une seule aujourd'hui ; les autres arrivent avec leurs gestes.
-using CommandKind = std::variant<ValueCommand>;
+/// Les sortes de commandes : une valeur écrite, un nom changé.
+using CommandKind = std::variant<ValueCommand, RenameCommand>;
 
 /// Les assets qu'une commande épingle, pour que le test de la pile lise la même vérité que le
 /// décompte d'`AssetUsage` : une surcharge par sorte, un visiteur les atteint (une sorte de plus
@@ -60,6 +63,11 @@ using CommandKind = std::variant<ValueCommand>;
 [[nodiscard]] inline const std::vector<assets::AssetId>& pinnedAssetsOf(const ValueCommand& command)
 {
     return command.pin.assets;
+}
+
+[[nodiscard]] inline std::vector<assets::AssetId> pinnedAssetsOf(const RenameCommand&)
+{
+    return {}; // un nom ne désigne aucun asset
 }
 
 struct Command
@@ -135,6 +143,16 @@ enum class HistoryRefusal : std::uint8_t
                                            flecs::entity_t entity, flecs::entity_t component,
                                            const void* value);
 
+// --- Créer, supprimer, renommer : les opérations de la pile
+// ---------------------------------------
+
+/// renameEntity : donne `wanted` à `entity`. Un nom que `renameRefusalOf` refuse (vide, « . », « ::
+/// », « #12 », « _ », « * », « $ » à la racine, un frère identique, un nœud `Generated`) est une
+/// erreur qui dit pourquoi, le monde intact ; un nom égal au sien ne change rien (faux, pas de
+/// commande). Hors de l'Édition, le nom change sans commande. Rend vrai si le nom a changé.
+[[nodiscard]] core::Result<bool> renameEntity(UndoStack& stack, flecs::world& world, Mode mode,
+                                              flecs::entity_t entity, std::string_view wanted);
+
 // --- La file des demandes ------------------------------------------------------------------------
 
 /// Ce que la file demande.
@@ -142,6 +160,7 @@ enum class RequestKind : std::uint8_t
 {
     Undo,
     Redo,
+    Rename, ///< `entity` : l'entité ; `name` : son nouveau nom.
 };
 
 struct EditorRequest
@@ -162,11 +181,12 @@ struct RequestsReport
 {
     int undone = 0;
     int redone = 0;
-    int refused = 0; ///< Hors de l'Édition, ou rien à faire : dit à la console.
+    int renamed = 0;
+    int refused = 0; ///< Hors de l'Édition, rien à faire, ou un refus nommé : dit à la console.
     int failed =
         0; ///< La commande n'a pas pu s'appliquer : elle est abandonnée, dite à la console.
 
-    [[nodiscard]] bool changedWorld() const { return undone + redone > 0; }
+    [[nodiscard]] bool changedWorld() const { return undone + redone + renamed > 0; }
 };
 
 /// **Le point nommé où les demandes s'exécutent** (décision 9). Les fenêtres, dessinées entre
