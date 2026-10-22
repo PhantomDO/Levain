@@ -35,6 +35,7 @@
 #include "levain/editor/scene_bounds.hpp"
 #include "levain/editor/shortcut_window.hpp"
 #include "levain/editor/shortcuts.hpp"
+#include "levain/editor/undo.hpp"
 #include "levain/editor/view.hpp"
 #include "levain/editor/window_menu.hpp"
 #include "levain/scene/components.hpp"
@@ -183,6 +184,11 @@ struct Editor
     /// **La grille au sol** (`grid.hpp`) : sa passe de lignes et ce qu'elle a dessiné. Ce que la
     /// Vue montre (`view.show`) en décide, avec `App::editorHelpersVisible`.
     GridState grid;
+    /// **L'historique** (ADR-0038) : la pile de 100 commandes, gelée en jeu, et la file des
+    /// demandes d'Annuler et de Rétablir faites pendant le dessin (entre `defer_begin` et
+    /// `defer_end`), exécutées par `applyEditorRequests` juste après.
+    UndoStack undo;
+    std::vector<HistoryRequest> requests;
 };
 
 /// Une saisie d'accord est en cours : aucun raccourci ne part, aucun geste ne commence.

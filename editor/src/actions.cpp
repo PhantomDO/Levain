@@ -42,12 +42,13 @@ std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& rea
                   ui::trf("{} : arrive en {}", ui::tr(nameOf(action)), availability.milestone));
         return std::nullopt;
     }
-    if ((action == Action::RealTime || action == Action::Simulate || action == Action::Play) &&
+    if ((action == Action::RealTime || action == Action::Simulate || action == Action::Play ||
+         isHistoryAction(action)) &&
         current != Mode::Edit)
     {
         // Grisé hors de l'Édition (`switchRealTime`) : Ctrl+R le dit, il ne bascule rien. Alt+S et
         // Alt+P aussi : on joue et on simule depuis l'Édition, la scène rendue ; en jeu, elles
-        // compteraient un appui sans effet.
+        // compteraient un appui sans effet. Ctrl+Z et Ctrl+Y de même : la pile est gelée en jeu.
         ++counters.declined.at(indexOf(action));
         core::log("editor", core::LogLevel::Info, "{}",
                   ui::trf("{} : seulement en Édition", ui::tr(nameOf(action))));
@@ -106,6 +107,29 @@ std::optional<PlayControl> runPlayControl(Action action, ActionCounters& counter
     }
     ++counters.performed.at(indexOf(action));
     return control;
+}
+
+std::vector<Action> withoutHistoryWhileActive(std::vector<Action> shortcuts, bool itemActive,
+                                              ActionCounters& counters)
+{
+    if (!itemActive)
+    {
+        return shortcuts;
+    }
+    std::erase_if(
+        shortcuts,
+        [&](Action action)
+        {
+            if (!isHistoryAction(action))
+            {
+                return false;
+            }
+            ++counters.declined.at(indexOf(action));
+            core::log("editor", core::LogLevel::Info, "{}",
+                      ui::trf("{} : refusé pendant qu'un champ est actif", ui::tr(nameOf(action))));
+            return true;
+        });
+    return shortcuts;
 }
 
 std::optional<Action> toolActionOf(const ShortcutTable& table, const KeyPress& press,

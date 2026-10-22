@@ -53,6 +53,10 @@ enum class SoonSide : std::uint8_t
 /// elle, un grisé ne dirait pas pourquoi ni quand il s'éteint.
 void saySoon(const char* milestone, SoonSide side);
 
+/// Au survol de la dernière entrée (grisée comprise), dit **pourquoi** elle est grisée maintenant
+/// (« Seulement en Édition », « Rien à annuler ») : le texte est une clé du catalogue.
+void sayReason(const char* french, SoonSide side);
+
 /// Une entrée grisée, **dessinée comme un bouton grisé** (`disabledButton`) : libellé et raccourci
 /// en `TextDisabled` plein. `MenuItem` ouvre un `BeginDisabled` qui multiplie le libellé (`Text`)
 /// par `DisabledAlpha` : sur une cible qui mélange en linéaire (la 4070), le libellé grisé gardait
