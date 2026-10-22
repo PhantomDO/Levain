@@ -376,6 +376,28 @@ void giveMouseBackOnClick(app::App& app, Editor& editor)
     }
 }
 
+/// Une image de la session scriptée de la CI (`--undo-session`) : hors du mode différé, à la fin de
+/// `ui`. Le bilan s'écrit une fois, la ligne `editor.undo` que la CI lit.
+void runUndoSession(Editor& editor, app::App& app)
+{
+    if (!editor.undoSession)
+    {
+        return;
+    }
+    if (const auto report =
+            stepUndoSession(*editor.undoSession, editor.undo, app.world, editor.mode.current))
+    {
+        if (report->differences > 0)
+        {
+            core::log(
+                "editor", core::LogLevel::Error, "{}",
+                ui::trf("Annulation : le monde n'est pas celui d'après le 50e changement :\n{}",
+                        report->differencesText));
+        }
+        core::log("editor", core::LogLevel::Info, "{}", undoLineOf(*report));
+    }
+}
+
 /// Ce que la pile dit aux menus : pourquoi Annuler et Rétablir sont grisés, si la scène est
 /// modifiée.
 HistoryState historyStateOf(const Editor& editor)
@@ -547,6 +569,11 @@ std::vector<char*> takeEditorOptions(std::span<char* const> arguments, EditorOpt
             options.select = arguments[i + 1];
             continue;
         }
+        if (hasValue && std::string_view{arguments[i]} == "--undo-session")
+        {
+            options.undoSession = arguments[i + 1];
+            continue;
+        }
         rest.push_back(arguments[i]);
         if (hasValue)
         {
@@ -632,7 +659,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .keymapSeen = 0,
                    .grid = {},
                    .undo = {},
-                   .requests = {}});
+                   .requests = {},
+                   .undoSession = {}});
         editor->console.font = fonts->console;
         editor->inspector.history =
             &editor->undo; // les gestes de l'inspecteur posent leurs commandes
@@ -647,6 +675,15 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             }
             editor->selected = chosen;
             revealInHierarchy(editor->hierarchy, chosen);
+        }
+        if (options.undoSession)
+        {
+            auto session = startUndoSession(app.world, *options.undoSession);
+            if (!session)
+            {
+                return std::unexpected(session.error());
+            }
+            editor->undoSession = std::move(*session);
         }
         // L'éditeur s'ouvre en Édition : rien ne tourne, le jeu ne reçoit rien (ADR-0036).
         enterMode(app, editor->mode, Mode::Edit);
@@ -799,6 +836,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             {
                 savePreferencesNow(app, *editor);
             }
+            runUndoSession(*editor, app);
             if (afterUi)
             {
                 afterUi(*editor);

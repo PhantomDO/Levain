@@ -7,8 +7,8 @@
 #   tools/ci-programs.sh <lancement> <dossier de build>
 #   SDL_VIDEO_DRIVER=offscreen tools/ci-programs.sh sandbox build/linux-debug
 #
-# Lancements : sandbox, fox, terrain, physics, sponza, character, hike, ui, editor, editor-play (la CI ne le lance que
-# sous Windows : voir runEditorPlay), cooked. Depuis la racine du dépôt, après tools/fetch-assets.sh ; les journaux et
+# Lancements : sandbox, fox, terrain, physics, sponza, character, hike, ui, editor, editor-play et editor-undo (la CI
+# ne les lance que sous Windows : voir runEditorPlay), cooked. Depuis la racine du dépôt, après tools/fetch-assets.sh ; les journaux et
 # les captures s'écrivent dans le dossier courant. Chaque contrôle échoue avec son message `::error::` (règle n°7),
 # qu'Actions affiche en annotation.
 #
@@ -359,6 +359,45 @@ runEditorPlay() {
                 "$(head -n 1 <<<"$editorErrors")"; exit 1; }
 }
 
+# La session d'annulation de l'éditeur (M7.3, ADR-0038, « La ligne de la CI »). L'éditeur fait 150 changements de valeur sur
+# une caisse de la vue physics, en annule 100 et compare le monde à celui d'après le 50e changement
+# (`--undo-session`, editor/undo_session.hpp : une API de commandes, sur la même porte que l'inspecteur et Ctrl+Z ; les
+# gestes de l'inspecteur et le clavier ont leur banc, `gpu.editor-undo.*`). La CI lit la ligne
+# `editor.undo changes=C undone=U differences=D -- …`, sous son nom stable. `--steps 270` : 150 changements et 100
+# annulations, une par image, et la comparaison à la suivante.
+# **La CI ne le lance que sous Windows** : sous Linux, le test ctest `editor.undo` (tests/CMakeLists.txt) rejoue le même
+# lancement et exige la même ligne ; il ne tourne pas sous Windows (`if(NOT WIN32)`), d'où ce lancement.
+# Cinq refus, chacun son message (règle n°7) : une sortie en échec, la ligne absente ou en double, un autre compte que les
+# 150 changements et les 100 annulations (une pile de 99 niveaux ne défait que 99), une différence (une annulation qui ne
+# rend pas l'état) et une ligne d'erreur de l'éditeur.
+runEditorUndo() {
+    changes=150
+    undos=100
+    status=0
+    timeout --foreground --preserve-status -k 10 300 \
+        "$editor" --view physics --steps 270 --undo-session crate_3_0_8 | logTo editor-undo.log || status=$?
+    [ "$status" -eq 0 ] \
+        || { echo "::error::la session d'annulation de l'éditeur est sortie avec le code $status"; exit 1; }
+    undoPattern="editor\.undo changes=[0-9]+ undone=[0-9]+ differences=[0-9]+"
+    lines=$(grep -Ec "$undoPattern" editor-undo.log || true)
+    [ "$lines" -eq 1 ] \
+        || { echo "::error::la session d'annulation devait écrire une ligne editor.undo, elle en a écrit $lines"; exit 1; }
+    line=$(grep -Eo "$undoPattern" editor-undo.log)
+    counted=$(sed -E 's/.* changes=([0-9]+) .*/\1/' <<<"$line")
+    undone=$(sed -E 's/.* undone=([0-9]+) .*/\1/' <<<"$line")
+    differences=$(sed -E 's/.* differences=([0-9]+)$/\1/' <<<"$line")
+    [ "$counted" -eq "$changes" ] \
+        || { echo "::error::$counted changements faits, les $changes de la session étaient attendus : $line"; exit 1; }
+    [ "$undone" -eq "$undos" ] \
+        || { echo "::error::$undone annulations faites, les $undos de la session étaient attendues : $line"; exit 1; }
+    [ "$differences" -eq 0 ] \
+        || { echo "::error::les annulations n'ont pas rendu l'état d'après le 50e changement, $differences différence(s) : $line"; exit 1; }
+    editorErrors=$(grep -F "] [error] [editor] " editor-undo.log || true)
+    [ -z "$editorErrors" ] \
+        || { echo "::error::l'éditeur a écrit des lignes d'erreur pendant la session d'annulation :" \
+                "$(head -n 1 <<<"$editorErrors")"; exit 1; }
+}
+
 # Sponza cuite, après levain_cook : aucun asset chargé depuis sa source (ADR-0020).
 runCooked() {
     timeout --foreground --preserve-status -k 10 120 \
@@ -391,6 +430,7 @@ case "$run" in
     ui) runUi ;;
     editor) runEditor ;;
     editor-play) runEditorPlay ;;
+    editor-undo) runEditorUndo ;;
     cooked) runCooked ;;
     *) echo "::error::lancement inconnu : $run" >&2; exit 2 ;;
 esac

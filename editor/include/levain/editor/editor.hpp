@@ -36,6 +36,7 @@
 #include "levain/editor/shortcut_window.hpp"
 #include "levain/editor/shortcuts.hpp"
 #include "levain/editor/undo.hpp"
+#include "levain/editor/undo_session.hpp"
 #include "levain/editor/view.hpp"
 #include "levain/editor/window_menu.hpp"
 #include "levain/scene/components.hpp"
@@ -51,6 +52,10 @@ struct EditorOptions
     /// `--select chemin` : l'entité choisie au démarrage, par son chemin (`grid::cube_0_0`) ; le
     /// nom seul ne trouve qu'une racine. Pour la CI et les captures.
     std::optional<std::string> select;
+    /// `--undo-session entité` : la session scriptée de la CI (`undo_session.hpp`), 150 changements
+    /// du `Transform` de cette entité, 100 annulations, et la ligne `editor.undo …`. Un lancement à
+    /// part, comme `--steps` pour Play/Stop : l'éditeur ordinaire n'en fait rien.
+    std::optional<std::string> undoSession;
     /// Appelé à la fin de chaque `ui`, avec l'éditeur tel que cette image l'a laissé : le banc
     /// d'essai de l'App (ADR-0036, morceau 2) y lit ce que les fenêtres ont dessiné, que la boucle
     /// ne montre pas de l'extérieur. Vide hors des tests.
@@ -189,6 +194,8 @@ struct Editor
     /// `defer_end`), exécutées par `applyEditorRequests` juste après.
     UndoStack undo;
     std::vector<HistoryRequest> requests;
+    /// La session scriptée de la CI, si `--undo-session` l'a demandée.
+    std::optional<UndoSession> undoSession;
 };
 
 /// Une saisie d'accord est en cours : aucun raccourci ne part, aucun geste ne commence.
