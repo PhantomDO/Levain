@@ -190,8 +190,8 @@ struct Editor
     /// Vue montre (`view.show`) en décide, avec `App::editorHelpersVisible`.
     GridState grid;
     /// **L'historique** (ADR-0038) : la pile de 100 commandes, gelée en jeu, et la file des
-    /// demandes d'Annuler et de Rétablir faites pendant le dessin (entre `defer_begin` et
-    /// `defer_end`), exécutées par `applyEditorRequests` juste après.
+    /// demandes (Annuler, Rétablir, créer, supprimer, renommer) faites pendant le dessin (entre
+    /// `defer_begin` et `defer_end`), exécutées par `applyEditorRequests` juste après.
     UndoStack undo;
     std::vector<EditorRequest> requests;
     /// La session scriptée de la CI, si `--undo-session` l'a demandée.

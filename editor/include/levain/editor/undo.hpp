@@ -3,9 +3,9 @@
 // La pile d'annulation de l'éditeur (ADR-0038, décisions 1, 8 et 9) : 100 commandes, Annuler et
 // Rétablir. Une commande de **valeur** garde l'entité (identifiant complet), le composant et deux
 // `ValueBox`, l'avant et l'après, copiées par les crochets du type (jamais du JSON, qui arrondit).
-// Les sortes de structure (`structure.hpp`) : supprimer garde un sous-arbre et ses pierres
-// tombales, renommer deux noms (M7.3, A6) ; créer, déplacer, ajouter ou retirer un composant
-// prendront leur place dans `CommandKind` ensuite (A6, A7 et A8).
+// Les sortes de structure (`structure.hpp`) : créer et supprimer gardent un sous-arbre et ses
+// pierres tombales, renommer deux noms (M7.3, A6) ; déplacer, ajouter ou retirer un composant
+// prendront leur place dans `CommandKind` aux morceaux A7 et A8.
 //
 // La logique est en fonctions libres dont toutes les dépendances sont des paramètres (ADR-0011) ;
 // la glu d'`editor.cpp` tient en une ligne (`applyQueuedRequests`).
@@ -151,6 +151,16 @@ enum class HistoryRefusal : std::uint8_t
 // --- Créer, supprimer, renommer : les opérations de la pile
 // ---------------------------------------
 
+/// createEntity : crée une entité de la scène, nommée `wanted` (numéroté s'il est pris,
+/// `uniqueNameAmong` : « Entité », « Entité 2 »…) parmi les futurs frères, sous `parent` (0 : une
+/// racine), et pose la commande qui la défera. Elle reçoit un `Transform` (`makeEntity`). **L'ordre
+/// du contrat de la pile** : les refus d'abord (le monde intact), les refaisables libérés ensuite,
+/// la création enfin. Hors de l'Édition (Jouer, Simuler) l'entité naît **sans commande** : c'est
+/// perdu à Stop (ADR-0037). Rend l'entité créée, ou une erreur nommée.
+[[nodiscard]] core::Result<flecs::entity_t> createEntity(UndoStack& stack, flecs::world& world,
+                                                         Mode mode, flecs::entity_t parent,
+                                                         std::string_view wanted);
+
 /// deleteEntity : supprime `entity` et son sous-arbre, avec sa commande : `readSubtree` (les
 /// refus : mode différé, nœud `Generated`, racine sous un nœud `Generated`, composant qui ne se
 /// copie pas), les refaisables libérés, puis `removeKeepingIndex`. Les observateurs d'un volume
@@ -174,6 +184,7 @@ enum class RequestKind : std::uint8_t
 {
     Undo,
     Redo,
+    Create, ///< `entity` : le parent (0 : une racine) ; `name` : le nom voulu (vide : « Entité »).
     Delete, ///< `entity` : l'entité à supprimer.
     Rename, ///< `entity` : l'entité ; `name` : son nouveau nom.
 };
@@ -196,15 +207,21 @@ struct RequestsReport
 {
     int undone = 0;
     int redone = 0;
+    int created = 0;
     int deleted = 0;
     int renamed = 0;
     int refused = 0; ///< Hors de l'Édition, rien à faire, ou un refus nommé : dit à la console.
     int failed =
         0; ///< La commande n'a pas pu s'appliquer : elle est abandonnée, dite à la console.
-    /// L'entité que l'éditeur sélectionne (décision 8) : la dernière réveillée.
+    /// L'entité que l'éditeur sélectionne (décision 8) : la dernière créée ou réveillée.
     flecs::entity_t select = 0;
+    /// L'entité créée, que la Hiérarchie ouvre en renommage (Unity le fait, documenté [U12]).
+    flecs::entity_t beginRename = 0;
 
-    [[nodiscard]] bool changedWorld() const { return undone + redone + deleted + renamed > 0; }
+    [[nodiscard]] bool changedWorld() const
+    {
+        return undone + redone + created + deleted + renamed > 0;
+    }
 };
 
 /// **Le point nommé où les demandes s'exécutent** (décision 9). Les fenêtres, dessinées entre
