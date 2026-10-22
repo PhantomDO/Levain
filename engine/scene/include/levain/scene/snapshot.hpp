@@ -25,12 +25,35 @@ struct Transient
 {
 };
 
+/// Posée sur une **entité** : elle naît d'un composant de sa racine (`CubeGrid`, `ModelInstance`)
+/// et se recrée depuis lui. Elle ne s'enregistre pas, n'entre pas dans le sous-arbre d'une commande
+/// (`readSubtree`, `removeKeepingIndex`) et ne revient donc pas à l'annulation : le générateur la
+/// refait. L'instantané la copie pourtant, étiquette comprise, pour que Stop rende le même
+/// identifiant (ADR-0038, décision 10). `Transient` se pose sur un composant, `Generated` sur une
+/// entité : deux notions.
+///
+///     node.add<scene::Generated>(); // le nœud qu'un générateur crée sous sa racine
+struct Generated
+{
+};
+
+/// Posée sur l'entité d'un composant, comme `Transient`, mais **copiée** par l'instantané (Stop
+/// doit la rendre) et jamais enregistrée dans un fichier : une donnée que le code reconstruit
+/// depuis ce que l'auteur a écrit, le `Collider` que la physique tire des formes d'auteur
+/// (ADR-0038, décisions 10 et 15).
+///
+///     world.component<Collider>().add<scene::Derived>();
+struct Derived
+{
+};
+
 /// Une table d'entités de flecs plutôt que de la scène : modules, systèmes, observateurs,
 /// requêtes, composants, prefabs. La hiérarchie les tait, table par table et non entité par
 /// entité ; un composant qui porte sa propre valeur va dans « Singletons ».
 [[nodiscard]] bool isEngineInternal(const flecs::table& table);
 
-/// Une entité de la scène : ce que la Hiérarchie pourrait montrer. Vivante, ni flecs lui-même (un
+/// Une entité de la scène : ce que la Hiérarchie pourrait montrer. Vivante, ni une pierre tombale
+/// (`Tombstone`, qui ne fait que tenir un index), ni flecs lui-même (un
 /// index sous `EcsFirstUserEntityId`), ni `isEngineInternal`, ni rangée par flecs sous un module :
 /// sa **table** porte `(ChildOf, *)`. On lit la table, car un enfant de `flecs::Parent` répond oui
 /// à `entity.has(ChildOf, *)` sans être sous un module (ADR-0015, ADR-0037).

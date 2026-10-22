@@ -9,6 +9,7 @@
 #include "levain/scene/motion.hpp"
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/snapshot.hpp"
+#include "levain/scene/tombstone.hpp"
 #include "levain/scene/transform.hpp"
 
 namespace levain::scene
@@ -141,6 +142,12 @@ SceneModule::SceneModule(flecs::world& world)
     // L'étiquette que les modules posent sur leurs composants hors scène (snapshot.hpp) : connue
     // dès l'import, avant la première liste d'entités de l'instantané.
     world.component<Transient>();
+    // Les autres étiquettes de la scène, enregistrées ici et pas au premier appel : `isSceneEntity`
+    // est un prédicat const qui créerait une entité à son premier appel, entre une destruction et
+    // un réveil (le piège de l'ADR-0038, décision 3).
+    world.component<Generated>();
+    world.component<Derived>();
+    world.component<Tombstone>();
 
     world.component<Simulation>().add<SimulationPhase>();
     world.component<Physics>().add<SimulationPhase>().depends_on(world.component<Simulation>());

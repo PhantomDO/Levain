@@ -63,7 +63,7 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf`, `componentOfKey`, puis `setComponentValue` et `sameValue` |
 | [`include/levain/scene/tombstone.hpp`](include/levain/scene/tombstone.hpp) | La pierre tombale (ADR-0038) : `Tombstone`, `removeKeepingIndex`, `checkTombstonesHold`, `reviveFromTombstones`, `releaseTombstones` |
 | [`include/levain/scene/entity_name.hpp`](include/levain/scene/entity_name.hpp) | Les noms d'entités : `refusalOfName` et `reasonOf`, `isValidEntityName`, `uniqueNameAmong` |
-| [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient`, `takeSnapshot`, `differencesFrom`, `compareWithSnapshot` et sa `Comparison` (le compte des vraies différences, sans plafond, et les enfants internes perdus à part), `entityIndexOf` et `byEntityIndex` (l’ordre par index, partagé avec la physique et la Hiérarchie), `createIdRanges`, `useEditIds`/`usePlayIds`, `bornInPlay`, `restoreSnapshot` et son `RestoreReport` |
+| [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient`, `Generated`, `Derived`, `orderedChildrenOf` (public), `takeSnapshot`, `differencesFrom`, `compareWithSnapshot` et sa `Comparison` (le compte des vraies différences, sans plafond, et les enfants internes perdus à part), `entityIndexOf` et `byEntityIndex` (l’ordre par index, partagé avec la physique et la Hiérarchie), `createIdRanges`, `useEditIds`/`usePlayIds`, `bornInPlay`, `restoreSnapshot` et son `RestoreReport` |
 
 ## L'instantané de la scène
 
@@ -71,9 +71,15 @@ Play garde la scène, Stop la rend **en place**, avec les mêmes identifiants ([
 `snapshot.hpp`, sans éditeur ni GPU :
 
 - **Une entité de la scène** (`isSceneEntity`) est ce que la Hiérarchie pourrait montrer : vivante, ni flecs lui-même,
-  ni module, système, observateur, requête, composant ou prefab (`isEngineInternal`), ni rangée sous un module.
+  ni module, système, observateur, requête, composant ou prefab (`isEngineInternal`), ni rangée sous un module, ni
+  **pierre tombale** (`Tombstone`, qui ne fait que tenir un index).
   La scène n'emploie que `flecs::Parent` (ADR-0015) : une entité sous `ChildOf` n'en est pas une. On lit la **table**
   (`(ChildOf, *)`), car un enfant de `flecs::Parent` répond oui à `entity.has(ChildOf, *)`.
+- **`Generated`** (étiquette d'**entité**) : le nœud qu'un générateur crée sous sa racine. Ni enregistré, ni dans le
+  sous-arbre d'une commande ; l'instantané le copie pourtant. **`Derived`** (marqueur de **composant**, comme
+  `Transient`) : copié par l'instantané, valeurs comprises dans l'enregistrement d'une commande, jamais écrit dans un
+  fichier. `Tombstone`, `Generated` et `Derived` sont enregistrés à l'import de `SceneModule` : `isSceneEntity`, un
+  prédicat `const`, ne doit pas créer d'entité à son premier appel.
 - **`takeSnapshot`** copie, pour chaque entité de la scène, son identifiant avec sa génération, son type complet, la
   valeur de chaque composant **par les crochets du type** (`ecs_value_copy`), son nom, son parent, l'ordre de ses
   enfants et ses enfants internes (l'observateur d'un `onEnter`). Play **ne part pas**, en nommant l'entité et la
@@ -156,7 +162,7 @@ Supprimer une entité pour de bon, et pouvoir la rendre avec **le même identifi
   libérant, **avant** d'exécuter une nouvelle commande.
 - **`Tombstone` est enregistré avant la destruction** : passés les 256 identifiants bas que flecs réserve aux composants,
   un composant enregistré après une destruction prend l'index libéré et devient sa propre pierre.
-- **Pas encore faits** (morceau A2) : `isSceneEntity` n'écarte pas encore les pierres, et le sous-arbre n'est pas lu.
+- **Pas encore fait** (morceau A2) : le sous-arbre n'est pas lu.
 
 Les comportements de flecs dont tout cela dépend sont **épinglés** dans `tests/flecs_tombstone_pins_test.cpp`, en Debug
 et en Release (a : l'index recyclé sans pierre ; b : rien ne le prend avec ; c : réveil de la génération d'avant ;

@@ -381,7 +381,7 @@ TEST_CASE("en jeu, supprimer, annuler et libérer une entité de l'édition sont
     usePlayIds(world, *ranges);
     const auto removal = removeKeepingIndex(world, cube);
     REQUIRE_FALSE(removal.has_value());
-    CHECK(removal.error().message.find("plage d'identifiants") != std::string::npos);
+    CHECK(removal.error().message.find("en jeu") != std::string::npos);
     CHECK(ecs_is_alive(world, cube)); // le monde est intact
 
     const auto revival = reviveFromTombstones(world, *removed);
@@ -393,10 +393,14 @@ TEST_CASE("en jeu, supprimer, annuler et libérer une entité de l'édition sont
     useEditIds(world, *ranges);
     CHECK(checkTombstonesHold(world, *removed).has_value()); // les pierres n'ont pas bougé
 
-    // En jeu, une entité née en jeu se supprime : son index est dans la plage active.
+    // En jeu, même une entité née en jeu ne se supprime pas par la pierre : elle survivrait à Stop
+    // (`bornInPlay` l'ignore). Le jeu supprime par un `ecs_delete` simple.
     usePlayIds(world, *ranges);
     const flecs::entity_t born = world.entity("née en jeu").id();
-    CHECK(removeKeepingIndex(world, born).has_value());
+    const auto bornRemoval = removeKeepingIndex(world, born);
+    REQUIRE_FALSE(bornRemoval.has_value());
+    CHECK(bornRemoval.error().message.find("en jeu") != std::string::npos);
+    CHECK(ecs_is_alive(world, born));
     useEditIds(world, *ranges);
     CHECK(reviveFromTombstones(world, *removed).has_value());
 }
@@ -465,7 +469,7 @@ TEST_CASE("contrat de la pile : libérer les pierres d'une commande supplantée 
     CHECK(revival.error().message.find("pierre tombale") != std::string::npos);
 }
 
-TEST_CASE("les bornes de la plage : 2^24-1 se supprime en édition et pas en jeu, 2^24 en jeu")
+TEST_CASE("les bornes de la plage : 2^24-1 se libère en édition et pas en jeu, 2^24 en jeu")
 {
     flecs::world world;
     const auto ranges = levain::scene::createIdRanges(world);
@@ -474,15 +478,40 @@ TEST_CASE("les bornes de la plage : 2^24-1 se supprime en édition et pas en jeu
     world.component<Tombstone>();
     const flecs::entity_t editMax = (1U << 24U) - 1U;
     ecs_make_alive(world, editMax);
+    const auto removed = removeKeepingIndex(world, editMax); // en édition : le dernier index permis
+    REQUIRE(removed.has_value());
 
     usePlayIds(world, *ranges);
-    const auto inPlay = removeKeepingIndex(world, editMax);
+    const auto inPlay = releaseTombstones(world, *removed);
     REQUIRE_FALSE(inPlay.has_value());
     CHECK(inPlay.error().message.find("plage d'identifiants") != std::string::npos);
+    // Le premier index du jeu est dans la plage du jeu : la libération d'une pierre posée par là
+    // (à la main, `removeKeepingIndex` refuse en jeu) est permise.
     const flecs::entity_t playMin = world.entity("premier du jeu").id();
     REQUIRE(indexOf(playMin) == (1U << 24U));
-    CHECK(removeKeepingIndex(world, playMin).has_value());
+    const Tombstones playStone{
+        .reserved = {{.entity = playMin, .stone = ECS_GENERATION_INC(playMin)}},
+        .lost = {},
+        .notUndoable = {}};
+    CHECK(releaseTombstones(world, playStone).has_value());
 
     useEditIds(world, *ranges);
-    CHECK(removeKeepingIndex(world, editMax).has_value());
+    CHECK(releaseTombstones(world, *removed).has_value());
+}
+
+TEST_CASE("en jeu, supprimer est refusé même pour une entité née en jeu : Stop n'aurait pas de "
+          "pierre à rendre")
+{
+    flecs::world world;
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    world.component<Marker>();
+    usePlayIds(world, *ranges);
+    const flecs::entity_t born = world.entity("née en jeu").id();
+
+    const auto removal = removeKeepingIndex(world, born);
+
+    REQUIRE_FALSE(removal.has_value());
+    CHECK(removal.error().message.find("en jeu") != std::string::npos);
+    CHECK(ecs_is_alive(world, born));
 }
