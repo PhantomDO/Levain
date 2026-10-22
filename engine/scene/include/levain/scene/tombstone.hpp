@@ -63,6 +63,13 @@ struct Tombstones
     std::vector<ReservedIndex> reserved;
     /// Les enfants rangés par `ChildOf` : détruits, jamais réservés ni réveillés.
     std::vector<LostChild> lost;
+    /// Vide si la suppression est annulable. Sinon la raison : **la suppression est faite** mais
+    /// `reserved` est vide, et `reviveFromTombstones` refuse. À la différence d'un refus (une
+    /// erreur, le monde intact), l'appelant doit alors traiter la suppression comme faite : la
+    /// pile ne pose pas de commande à annuler, mais marque la scène modifiée, rend la sélection et
+    /// les épingles, et imprime `lost`. Un type de retour plutôt qu'un code d'erreur : une erreur
+    /// dit « rien n'a changé » dans tout le module, et un `Result` en échec perdrait `lost`.
+    std::string notUndoable;
 };
 
 /// removeKeepingIndex : détruit l'entité et son sous-arbre, puis pose une pierre sur l'index libéré
@@ -73,13 +80,19 @@ struct Tombstones
 ///  - une entité morte, une pierre, ou qui n'est pas de la scène (`isSceneEntity` : un composant,
 ///    un module) ;
 ///  - un index hors de la plage d'identifiants **active** (`ecs_entity_range_get`) : supprimer en
-///  jeu
-///    une entité de l'édition rangerait l'index libéré dans la liste de la plage du jeu, à la
+///    jeu une entité de l'édition rangerait l'index libéré dans la liste de la plage du jeu, à la
 ///    génération de la pierre ; à Stop flecs s'arrête (Debug) ou donne l'identifiant de la pierre à
-///    la prochaine entité (Release). Une suppression en jeu ne passe pas par la pile (ADR-0038, 9).
+///    la prochaine entité (Release).
+///
+/// **En jeu (Play, Simulate), supprimer n'est pas une commande** : le chemin est un `ecs_delete`
+/// simple, que Stop défait (il réveille l'entité avec son identifiant, `restoreSnapshot`). Un
+/// appelant qui n'a pas le droit d'y passer (une entité de l'édition en jeu) n'appelle pas cette
+/// fonction ; ADR-0038, décision 9 (amendement du 2026-10-22).
+///
 /// Si un observateur `OnRemove` crée une entité pendant la destruction et prend un index libéré,
-/// la suppression est faite mais l'erreur le dit : aucune pierre n'est posée, l'annulation est
-/// impossible (c'est préférable à une pierre posée sur l'entité d'un autre).
+/// la suppression **est faite** mais n'est pas annulable : on rend les `Tombstones` avec `reserved`
+/// vide, `lost` rempli et `notUndoable` dit pourquoi, et ce n'est **pas** un refus (aucune pierre
+/// n'est posée : mieux qu'une pierre sur l'entité d'un autre).
 ///
 /// Le composant `Tombstone` est enregistré **avant** la destruction : passés les 256 identifiants
 /// bas de flecs, un composant enregistré après une destruction prend l'index libéré (il devenait
@@ -97,12 +110,13 @@ struct Tombstones
 [[nodiscard]] core::Result<void> checkTombstonesHold(const flecs::world& world,
                                                      const Tombstones& tombstones);
 
-/// reviveFromTombstones : annule la suppression. Refuse le mode différé et tout index hors de la
-/// plage active, garde ensuite (`checkTombstonesHold`, le monde intact si elle refuse), détruit les
-/// pierres puis réveille chaque entité avec son identifiant d'avant. Elles reviennent **vides** :
-/// ni type, ni valeur, ni nom, ni parent. Les rendre est l'affaire de l'enregistrement de la
-/// commande (`restoreSnapshot` en donne les étapes). Les mêmes `Tombstones` resservent à refaire :
-/// `removeKeepingIndex` repose les mêmes pierres (voir le contrat ci-dessus).
+/// reviveFromTombstones : annule la suppression. Refuse une suppression `notUndoable`, le mode
+/// différé et tout index hors de la plage active, garde ensuite (`checkTombstonesHold`, le monde
+/// intact si elle refuse), détruit les pierres puis réveille chaque entité avec son identifiant
+/// d'avant. Elles reviennent **vides** : ni type, ni valeur, ni nom, ni parent. Les rendre est
+/// l'affaire de l'enregistrement de la commande (`restoreSnapshot` en donne les étapes). Les mêmes
+/// `Tombstones` resservent à refaire : `removeKeepingIndex` repose les mêmes pierres (voir le
+/// contrat ci-dessus).
 [[nodiscard]] core::Result<void> reviveFromTombstones(flecs::world& world,
                                                       const Tombstones& tombstones);
 

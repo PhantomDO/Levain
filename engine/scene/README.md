@@ -135,12 +135,16 @@ Supprimer une entité pour de bon, et pouvoir la rendre avec **le même identifi
     meurt), en Debug flecs s'arrête ;
   - tout index est dans la plage d'identifiants **active** (`ecs_entity_range_get`) : supprimer en jeu une entité de
     l'édition rangerait l'index dans la liste de la plage du jeu, à la génération de la pierre, et Stop s'arrêterait
-    (Debug) ou donnerait l'identifiant de la pierre à une autre entité (Release). Une suppression en jeu ne passe pas par
-    la pile (ADR-0038, 9) ;
+    (Debug) ou donnerait l'identifiant de la pierre à une autre entité (Release) ;
   - le mode différé est refusé, comme une entité morte, une pierre, ou ce qui n'est pas de la scène (`isSceneEntity` : un
     composant, un module) ;
   - si un observateur `OnRemove` crée une entité pendant la destruction et prend un index libéré (un `onExit` de
-    gameplay), aucune pierre n'est posée et l'erreur le dit : la suppression est faite, l'annulation impossible.
+    gameplay), la suppression est **faite** et pas refusée : `removeKeepingIndex` rend des `Tombstones` sans pierre
+    (`reserved` vide), avec `lost` rempli et `notUndoable` qui dit pourquoi ; `reviveFromTombstones` refuse ensuite. La
+    pile (A4) ne pose pas de commande, mais marque la scène modifiée et imprime `lost`.
+- **En jeu, supprimer n'est pas une commande** (ADR-0038, décision 9, amendement du 2026-10-22). Le chemin est un
+  `ecs_delete` simple : Stop réveille l'entité avec son identifiant (`restoreSnapshot`, étape 3). Passer par
+  `removeKeepingIndex` serait refusé pour toute entité de l'édition, dont l'index n'est pas dans la plage du jeu.
 - **Ce qui ne revient pas** : les paires `(R, E)` d'une autre entité vers l'entité détruite, tout ce que portait l'entité
   (composants, nom, `flecs::Parent`), et les enfants rangés par `ChildOf` (l'observateur d'un `onEnter`). Ces derniers ne
   sont pas réservés (ils reviendraient en entités vides que `isSceneEntity` compterait) : `Tombstones::lost` les
@@ -182,7 +186,8 @@ dit pourquoi un nom est refusé, `reasonOf` en donne la phrase pour le champ de 
 
 `uniqueNameAmong(world, parent, voulu)` rend le nom s'il est libre parmi les enfants de `parent` (0 : les racines), sinon
 « voulu 2 », « voulu 3 »… (le plus petit numéro libre) ; un nom déjà numéroté reprend après son numéro (« Cube 2 » pris
-donne « Cube 3 », « Lampe 10 » donne « Lampe 11 », jamais « Cube 2 2 »). La vérité est l'index de noms de flecs (`ecs_lookup_child`), celui que `lookup` interroge.
+donne « Cube 3 », « Lampe 10 » donne « Lampe 11 », jamais « Cube 2 2 »). La vérité est l'index de noms de flecs
+(`ecs_lookup_child`), celui que `lookup` interroge.
 
 ## Trois notions de flecs
 

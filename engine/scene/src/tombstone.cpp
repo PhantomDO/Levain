@@ -174,12 +174,14 @@ core::Result<Tombstones> removeKeepingIndex(flecs::world& world, flecs::entity_t
     {
         if (ecs_get_alive(world, indexOf(reserved.entity)) != 0)
         {
-            return core::makeError(
-                core::ErrorCode::InvalidData,
-                std::format("Supprimer : l'index {} a été repris pendant la destruction (un "
-                            "observateur a créé une entité) : la suppression est faite, aucune "
-                            "pierre posée, l'annulation est impossible",
-                            indexOf(reserved.entity)));
+            // Ni refus ni succès complet : la suppression est faite (voir `notUndoable`).
+            Tombstones done;
+            done.lost = std::move(tombstones.lost);
+            done.notUndoable =
+                std::format("l'index {} a été repris pendant la destruction (un observateur a "
+                            "créé une entité) : aucune pierre posée, l'annulation est impossible",
+                            indexOf(reserved.entity));
+            return done;
         }
     }
     // Toutes les pierres vivantes d'abord, l'étiquette ensuite.
@@ -196,6 +198,14 @@ core::Result<Tombstones> removeKeepingIndex(flecs::world& world, flecs::entity_t
 
 core::Result<void> checkTombstonesHold(const flecs::world& world, const Tombstones& tombstones)
 {
+    // Sans pierre (`reserved` vide), la boucle ci-dessous passerait : on le refuse ici.
+    if (!tombstones.notUndoable.empty())
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               std::format("Annuler : la suppression n'est pas annulable ({}), le "
+                                           "monde n'est pas touché",
+                                           tombstones.notUndoable));
+    }
     for (const ReservedIndex& reserved : tombstones.reserved)
     {
         if (!holds(world, reserved))
@@ -242,7 +252,10 @@ core::Result<void> reviveFromTombstones(flecs::world& world, const Tombstones& t
         return held;
     }
     // Toutes les pierres d'abord : `ecs_make_alive` refuse (Debug) un index vivant d'une autre
-    // génération.
+    // génération. Même fenêtre qu'à la suppression : détruire une pierre déclenche `OnRemove`
+    // avant le réveil, et un observateur qui créerait une entité y prendrait l'index. Aucun
+    // observateur n'écoute `Tombstone` aujourd'hui ; si l'un le fait, `checkTombstonesHold` ne
+    // suffit plus et il faut reprendre la garde de `removeKeepingIndex`.
     destroyStones(world, tombstones);
     for (const ReservedIndex& reserved : tombstones.reserved)
     {
