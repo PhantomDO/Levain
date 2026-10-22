@@ -210,6 +210,14 @@ bool sameValue(const flecs::world& world, flecs::entity_t type, const void* firs
                        static_cast<std::size_t>(ecs_get_type_info(world, type)->size)) == 0;
 }
 
+bool isComparableValue(const flecs::world& world, flecs::entity_t type)
+{
+    return ecs_get_type_info(world, type) == nullptr || ecs_has(world, type, EcsStruct) ||
+           ecs_has(world, type, EcsArray) || type == world.id<flecs::entity>() ||
+           ecs_has(world, type, EcsPrimitive) || ecs_has(world, type, EcsEnum) ||
+           ecs_has(world, type, EcsBitmask);
+}
+
 std::string_view stableKeyOf(const flecs::world& world, flecs::entity_t component)
 {
     const char* symbol = ecs_get_symbol(world, component);

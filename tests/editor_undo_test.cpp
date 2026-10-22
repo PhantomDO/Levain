@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <string>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -270,6 +271,57 @@ TEST_CASE("en jeu la pile est gelée, rien n'y entre, Stop la rend utilisable")
     CHECK(bench.kilograms() == 1.0F);
 }
 
+TEST_CASE("une demande faite en mode différé est refusée bruyamment et gardée")
+{
+    levain::core::LogCapture capture = levain::core::captureLog(16);
+    Bench bench;
+    REQUIRE(bench.setMass(4.0F));
+
+    bench.world.defer_begin();
+    bench.queue = {HistoryRequest::Undo};
+    const RequestsReport inside =
+        applyEditorRequests(bench.queue, bench.stack, bench.world, Mode::Edit);
+    bench.world.defer_end();
+
+    CHECK(inside.undone == 0);
+    CHECK(bench.queue.size() == 1); // gardée pour le point nommé
+    CHECK(bench.kilograms() == 4.0F);
+    const levain::core::LogSnapshot snapshot = levain::core::snapshotOf(*capture.ring);
+    REQUIRE_FALSE(snapshot.entries.empty());
+    CHECK(snapshot.entries.back().level == levain::core::LogLevel::Error);
+    CHECK(snapshot.entries.back().text.starts_with(
+        "Historique : ")); // pas « Annuler » pour un Rétablir
+    CHECK(applyEditorRequests(bench.queue, bench.stack, bench.world, Mode::Edit).undone == 1);
+    CHECK(bench.kilograms() == 0.0F);
+}
+
+TEST_CASE("une commande dont l'entité a disparu est abandonnée, la suivante s'annule")
+{
+    levain::core::LogCapture capture = levain::core::captureLog(16);
+    Bench bench;
+    const flecs::entity other = bench.world.entity("autre").set(Mass{});
+    const Mass value{.kilograms = 5.0F};
+    REQUIRE(editValue(bench.stack, bench.world, Mode::Edit, other, bench.mass(), &value).value());
+    REQUIRE(bench.setMass(8.0F));
+    REQUIRE(bench.setMass(9.0F)); // la plus récente est sur la cible
+
+    other.destruct(); // hors de la pile
+    CHECK(bench.undo().undone == 1);
+    const RequestsReport failed = bench.undo(2); // celle de la cible, puis celle de l'autre
+    CHECK(failed.undone == 1);
+    CHECK(failed.failed == 1);
+    CHECK(bench.stack.done.empty()); // abandonnée, pas bloquée
+    CHECK(bench.undo().refused == 1);
+    // Un seul préfixe de geste, la cause ensuite (pas « Annuler : … (Annuler : …) »).
+    bool said = false;
+    for (const auto& entry : levain::core::snapshotOf(*capture.ring).entries)
+    {
+        said = said || entry.text == "Annuler : commande abandonnée, l'entité n'existe plus, le "
+                                     "monde n'est pas touché";
+    }
+    CHECK(said);
+}
+
 TEST_CASE("charger une scène vide la pile et rend les épingles")
 {
     Bench bench;
@@ -291,6 +343,46 @@ TEST_CASE("charger une scène vide la pile et rend les épingles")
     CHECK(pinsOf(bench, fox) == 0);
     CHECK(pinsOf(bench, hen) == 0);
     CHECK_FALSE(isModified(bench.stack));
+}
+
+TEST_CASE("editValue refuse, nommé et le monde intact : entité morte, composant absent, différé")
+{
+    Bench bench;
+    const Mass value{.kilograms = 6.0F};
+    const flecs::entity_t dead = bench.world.entity().id();
+    bench.world.entity(dead).destruct();
+    const flecs::entity bare = bench.world.entity();
+
+    CHECK_FALSE(editValue(bench.stack, bench.world, Mode::Edit, dead, bench.mass(), &value));
+    CHECK_FALSE(editValue(bench.stack, bench.world, Mode::Edit, bare, bench.mass(), &value));
+    bench.world.defer_begin();
+    CHECK_FALSE(
+        editValue(bench.stack, bench.world, Mode::Edit, bench.entity, bench.mass(), &value));
+    bench.world.defer_end();
+    CHECK(bench.kilograms() == 0.0F);
+    CHECK(bench.stack.done.empty());
+}
+
+TEST_CASE(
+    "editValue refuse, nommé et avant d'écrire, un composant que sameValue ne sait pas comparer")
+{
+    struct Label // non décrit : sameValue s'arrêterait sur une assertion
+    {
+        float length = 0.0F;
+    };
+
+    Bench bench;
+    const flecs::entity_t label = bench.world.component<Label>().id();
+    bench.entity.set(Label{.length = 1.0F});
+    const Label value{.length = 2.0F};
+
+    const auto refused =
+        editValue(bench.stack, bench.world, Mode::Edit, bench.entity, label, &value);
+
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("ne se compare pas") != std::string::npos);
+    CHECK(bench.entity.get<Label>().length == 1.0F); // rien n'a été écrit
+    CHECK(bench.stack.done.empty());
 }
 
 namespace
