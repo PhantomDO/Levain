@@ -84,9 +84,54 @@ std::vector<AssetId> takeUnusedAssets(flecs::world& world)
     {
         return {};
     }
-    std::vector<AssetId> unused{usage.unused.begin(), usage.unused.end()};
-    usage.unused.clear();
+    // Un asset épinglé n'est pas rendu, et reste dans la liste : sa dernière épingle rendue, il
+    // sort à l'image suivante, qu'un compte soit tombé à zéro ou non (un `MeshCollider` n'est pas
+    // compté).
+    std::vector<AssetId> unused;
+    for (auto it = usage.unused.begin(); it != usage.unused.end();)
+    {
+        if (usage.pinned.contains(*it))
+        {
+            ++it;
+            continue;
+        }
+        unused.push_back(*it);
+        it = usage.unused.erase(it);
+    }
     return unused;
+}
+
+AssetPin pinAssets(AssetUsage& usage, std::span<const AssetId> assets)
+{
+    std::set<AssetId> distinct{assets.begin(), assets.end()};
+    distinct.erase(AssetId{});
+    AssetPin pin{.assets = {distinct.begin(), distinct.end()}};
+    for (const AssetId& asset : pin.assets)
+    {
+        ++usage.pinned[asset];
+    }
+    return pin;
+}
+
+void releasePin(AssetUsage& usage, AssetPin& pin)
+{
+    for (const AssetId& asset : pin.assets)
+    {
+        const auto count = usage.pinned.find(asset);
+        if (count == usage.pinned.end())
+        {
+            core::log("assets", core::LogLevel::Error,
+                      "releasePin : l'asset {} n'est pas épinglé, épingle rendue deux fois ou "
+                      "AssetUsage remis à zéro (ADR-0038)",
+                      toString(asset));
+            continue;
+        }
+        if (--count->second == 0)
+        {
+            usage.pinned.erase(count);
+        }
+    }
+    pin.assets.clear();
 }
 
 std::optional<std::string> holdAssetsInUse(AssetUsage& usage)

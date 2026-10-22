@@ -66,6 +66,14 @@ au chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou
    `releaseHeldAssets` n'est pas appelé, `takeUnusedAssets` ne rend rien, et la fin d'image du programme ne
    décharge donc aucun modèle. Un renard détruit en jeu doit se redessiner quand Stop le réveille ; au Stop, ce
    qui ne sert plus sort à l'image suivante.
+13. **Les commandes de l'éditeur épinglent les assets qu'elles désignent** (`pinAssets`, `releasePin`, ADR-0038) :
+   un asset épinglé n'est jamais rendu par `takeUnusedAssets`, même sans entité, pour que l'annulation d'une
+   suppression retrouve son modèle chargé. Les épingles se comptent par asset (plusieurs commandes, un même
+   asset : en rendre une garde les autres). Un asset épinglé reste dans la liste à décharger ; rendre sa dernière
+   épingle le laisse sortir au `takeUnusedAssets` suivant (même si rien n'est tombé à zéro : `MeshCollider` n'est
+   pas compté). `releasePin` vide l'épingle rendue : la rendre deux fois ne vole pas celle d'une autre commande. Les épingles et `holdAssetsInUse` sont **deux retenues
+   indépendantes** : le drapeau de Play retient tout ce qui tombe à zéro, les épingles retiennent ce que la pile
+   d'annulation peut réveiller ; un asset sort quand aucune des deux ne le retient.
 
 ## Points d'entrée
 
@@ -73,7 +81,7 @@ au chargement, glTF ou cuit, un modèle dont un indice, un matériau, un mesh ou
 |---|---|
 | [`include/levain/assets/image.hpp`](include/levain/assets/image.hpp) | `Image`, `loadImage`, `decodeImage`, `mipCountFor`, `buildMipChain`, `savePng` |
 | [`include/levain/assets/gltf.hpp`](include/levain/assets/gltf.hpp) | `Model`, `loadGltf`, `instantiateModel` |
-| [`include/levain/assets/asset_ref.hpp`](include/levain/assets/asset_ref.hpp) | `MeshRef`, `AssetsModule` (le comptage), `takeUnusedAssets`, `holdAssetsInUse`, `releaseHeldAssets`, `ModelCache`, `loadModel`, `loadTexture`, `loadTextureData` |
+| [`include/levain/assets/asset_ref.hpp`](include/levain/assets/asset_ref.hpp) | `MeshRef`, `AssetsModule` (le comptage), `takeUnusedAssets`, `holdAssetsInUse`, `releaseHeldAssets`, `pinAssets`, `releasePin`, `ModelCache`, `loadModel`, `loadTexture`, `loadTextureData` |
 | [`include/levain/assets/asset_id.hpp`](include/levain/assets/asset_id.hpp) | `AssetId`, `contentHash`, `readMeta`, `writeMeta` |
 | [`include/levain/assets/registry.hpp`](include/levain/assets/registry.hpp) | `AssetRegistry` (fichier, racine et hash de chaque asset), `scanAssets` (les cinq cas de l'ADR-0019), `pathOf`, `cookedPathOf` ; `watchAssets` et `takeChangedAssets`, le hot-reload (ADR-0021) |
 | [`include/levain/assets/collision.hpp`](include/levain/assets/collision.hpp) | `collisionMeshOf`, `loadCollision`, `CollisionMesh`, `DefaultCollisionError` : la collision du décor tirée du maillage affiché, sans le feuillage, soudée et simplifiée par meshoptimizer (ADR-0028) |
@@ -115,3 +123,4 @@ justifiera si des textures sont créées à l'exécution.
 | **Unity** | package glTFast | Import à l'exécution ou dans l'éditeur, les nœuds deviennent des GameObjects (**documenté** : manuel du package). |
 | **Godot** | `GLTFDocument` | Le format 3D recommandé ; un glTF s'importe comme une scène de nœuds (**documenté** : documentation officielle). C'est le plus proche d'ici : une entité par nœud. |
 | **Collision du décor** | Unreal : `UCX_` à l'import, ou « Use Complex Collision As Simple » ; Unity : `MeshCollider`, dont la forme est « cuite » au chargement ; Godot : les suffixes `-col` et `-colonly` à l'import | Levain simplifie le maillage affiché et cuit le résultat (**documenté** pour Unreal et Godot, ADR-0028 ; **déduit** pour Unity, de l'option `cookingOptions` du `MeshCollider`) |
+| **Ce qui garde un asset en vie sous une entrée d'annulation** | Unreal : le tampon de transactions (`UTransBuffer`) garde les `UObject` qu'une transaction a touchés, donc le ramasse-miettes ne les libère pas (**supposé** : à vérifier dans le code d'Epic) ; Unity : la pile d'annulation (`Undo`) garde l'objet détruit en mémoire pour le recréer (**supposé**) ; Godot : `add_undo_reference` garde le nœud retiré tant que l'historique le tient (**documenté** : class_undoredo), et le nœud garde ses `Resource` par comptage de références (**déduit**) ; la documentation déconseille `add_do_reference` pour les ressources (« Do not use for resources », **documenté**) | Levain n'a pas de ramasse-miettes : une commande épingle les identifiants d'assets, et la pile les rend en sortant (ADR-0038) |

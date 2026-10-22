@@ -4,6 +4,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -26,11 +27,15 @@ struct MeshRef
 };
 
 /// Combien d'entités utilisent chaque asset, tenu à jour par les hooks du module ; et ceux qui sont
-/// tombés à zéro depuis le dernier `takeUnusedAssets`.
+/// tombés à zéro depuis le dernier `takeUnusedAssets`, qu'une épingle ou la retenue de Play
+/// garde encore dans la liste.
 struct AssetUsage
 {
     std::map<AssetId, int> counts;
     std::set<AssetId> unused;
+    /// Combien de commandes de l'éditeur épinglent chaque asset (`pinAssets`, ADR-0038). Un compte
+    /// par asset : plusieurs commandes peuvent épingler le même, et en rendre une garde les autres.
+    std::map<AssetId, int> pinned;
     /// Vrai pendant le jeu de l'éditeur (`holdAssetsInUse`) : `takeUnusedAssets` ne rend rien.
     bool held = false;
 };
@@ -53,7 +58,8 @@ struct AssetsModule
 /// Les assets tombés à zéro depuis l'appel précédent, et qui y sont encore : à décharger. S'appelle
 /// en fin d'image, jamais au milieu d'un parcours (ADR-0019). Rend une liste vide tant que les
 /// assets sont retenus (`holdAssetsInUse`) ; ils attendent alors, et sortent à la première image
-/// après `releaseHeldAssets`.
+/// après `releaseHeldAssets`. Un asset épinglé (`pinAssets`) n'est pas rendu non plus, et reste
+/// dans la liste jusqu'à sa dernière épingle.
 [[nodiscard]] std::vector<AssetId> takeUnusedAssets(flecs::world& world);
 
 /// Retient les assets pendant le jeu de l'éditeur : un modèle dont la dernière entité meurt en jeu
@@ -68,6 +74,28 @@ struct AssetsModule
 /// `takeUnusedAssets` à l'image suivante (sauf ceux qu'une entité utilise de nouveau, que le
 /// comptage a déjà retirés de la liste).
 void releaseHeldAssets(AssetUsage& usage);
+
+/// Ce qu'une commande a épinglé : les assets qu'elle peut rendre en s'annulant ou en se refaisant.
+/// À rendre tel quel à `releasePin`, une seule fois.
+struct AssetPin
+{
+    std::vector<AssetId> assets;
+};
+
+/// Épingle `assets` : tant qu'ils le sont, `takeUnusedAssets` ne les rend pas, même sans aucune
+/// entité. Sans cela, supprimer la seule instance d'un modèle le ferait décharger en fin d'image,
+/// et l'annulation réveillerait une entité invisible (ADR-0038, décision 4). Les comptes sont
+/// indépendants de `holdAssetsInUse` (le drapeau de Play, tout retenu) : un asset sort quand ni
+/// l'un ni l'autre ne le retient. Un doublon dans `assets` compte une fois, et
+/// `AssetId{}` (rien, le « avant » d'un `MeshRef` posé) est ignoré, comme `addReference` le fait.
+[[nodiscard]] AssetPin pinAssets(AssetUsage& usage, std::span<const AssetId> assets);
+
+/// Rend une épingle, quand sa commande quitte la pile, et la vide : la rendre deux fois ne fait
+/// rien, au lieu de voler l'épingle d'une autre commande qui retient le même asset. Un asset
+/// rendu sans épingle est une erreur de l'appelant, écrite au journal. Un asset épinglé reste dans
+/// `AssetUsage::unused` : sa dernière épingle rendue, il sort au `takeUnusedAssets` suivant, sans
+/// qu'on ait à savoir s'il est passé à zéro pendant ce temps (ADR-0038, N5).
+void releasePin(AssetUsage& usage, AssetPin& pin);
 
 /// Les modèles chargés en mémoire, par GUID.
 struct ModelCache

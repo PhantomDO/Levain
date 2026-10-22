@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <flecs.h>
@@ -185,4 +186,165 @@ TEST_CASE("un modèle se charge par son GUID, et ses entités le référencent")
     CHECK_FALSE(
         levain::assets::loadModel(cache, registry, levain::assets::generateAssetId()).has_value());
     fs::remove_all(root);
+}
+
+// Les épingles des commandes (ADR-0038, décision 4) : l'asset d'une entité supprimée reste chargé
+// tant qu'une commande de la pile peut la réveiller.
+TEST_CASE("un asset épinglé sans aucune entité n'est pas déchargé")
+{
+    flecs::world world = assetWorld();
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    const AssetId fox = levain::assets::generateAssetId();
+    const flecs::entity entity = world.entity().set(meshOf(fox));
+    const std::vector<AssetId> designated{fox};
+    auto pin = levain::assets::pinAssets(usage, designated);
+
+    entity.destruct(); // la commande Supprimer
+    CHECK(takeUnusedAssets(world).empty());
+    CHECK(takeUnusedAssets(world).empty()); // une image de plus
+    levain::assets::releasePin(usage, pin);
+}
+
+TEST_CASE("deux commandes épinglent le même asset : en rendre une garde l'autre")
+{
+    flecs::world world = assetWorld();
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    const AssetId fox = levain::assets::generateAssetId();
+    world.entity().set(meshOf(fox)).destruct();
+    const std::vector<AssetId> designated{fox, fox}; // un doublon compte une fois
+    auto first = levain::assets::pinAssets(usage, designated);
+    CHECK(first.assets.size() == 1); // le doublon compte une fois
+    auto second = levain::assets::pinAssets(usage, designated);
+
+    levain::assets::releasePin(usage, first);
+    CHECK(takeUnusedAssets(world).empty());
+
+    levain::assets::releasePin(usage, second);
+    CHECK(takeUnusedAssets(world).size() == 1);
+}
+
+TEST_CASE("rendre la dernière épingle d'un asset sans entité le décharge à l'image suivante")
+{
+    flecs::world world = assetWorld();
+    levain::assets::ModelCache cache;
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    const AssetId fox = levain::assets::generateAssetId();
+    cache.models.emplace(fox, levain::assets::Model{});
+    const std::vector<AssetId> designated{fox};
+    auto pin = levain::assets::pinAssets(usage, designated);
+    world.entity().set(meshOf(fox)).destruct();
+    unloadUnused(world, cache); // la fin d'image le laisse, et le sort de la liste
+    CHECK(cache.models.contains(fox));
+
+    levain::assets::releasePin(usage, pin);
+    unloadUnused(world, cache);
+    CHECK_FALSE(cache.models.contains(fox));
+}
+
+TEST_CASE("une épingle rendue pendant qu'une entité utilise l'asset ne le décharge pas")
+{
+    flecs::world world = assetWorld();
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    const AssetId fox = levain::assets::generateAssetId();
+    world.entity().set(meshOf(fox));
+    const std::vector<AssetId> designated{fox};
+    auto pin = levain::assets::pinAssets(usage, designated);
+
+    levain::assets::releasePin(usage, pin);
+    CHECK(takeUnusedAssets(world).empty());
+}
+
+TEST_CASE(
+    "épingles et retenue de Play sont indépendantes : l'asset sort quand les deux sont rendues")
+{
+    flecs::world world = assetWorld();
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    const AssetId fox = levain::assets::generateAssetId();
+    const std::vector<AssetId> designated{fox};
+    auto pin = levain::assets::pinAssets(usage, designated);
+    REQUIRE_FALSE(levain::assets::holdAssetsInUse(usage).has_value());
+    world.entity().set(meshOf(fox)).destruct();
+
+    levain::assets::releasePin(usage, pin); // la pile se vide en jeu : Play retient encore
+    CHECK(takeUnusedAssets(world).empty());
+    levain::assets::releaseHeldAssets(usage);
+    CHECK(takeUnusedAssets(world).size() == 1);
+}
+
+TEST_CASE("la retenue de Play rendue ne décharge pas un asset encore épinglé")
+{
+    flecs::world world = assetWorld();
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    const AssetId fox = levain::assets::generateAssetId();
+    const std::vector<AssetId> designated{fox};
+    auto pin = levain::assets::pinAssets(usage, designated);
+    REQUIRE_FALSE(levain::assets::holdAssetsInUse(usage).has_value());
+    world.entity().set(meshOf(fox)).destruct();
+
+    levain::assets::releaseHeldAssets(usage);
+    CHECK(takeUnusedAssets(world).empty());
+    levain::assets::releasePin(usage, pin);
+    CHECK(takeUnusedAssets(world).size() == 1);
+}
+
+TEST_CASE("l'asset tombé à zéro sous épingle revient, puis repart avec sa dernière entité")
+{
+    flecs::world world = assetWorld();
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    const AssetId fox = levain::assets::generateAssetId();
+    const std::vector<AssetId> designated{fox};
+    auto pin = levain::assets::pinAssets(usage, designated);
+    world.entity().set(meshOf(fox)).destruct();
+    CHECK(takeUnusedAssets(world).empty());
+
+    const flecs::entity again = world.entity().set(meshOf(fox)); // l'annulation réveille l'entité
+    levain::assets::releasePin(usage, pin);
+    CHECK(takeUnusedAssets(world).empty()); // une entité l'utilise : rien à décharger
+
+    again.destruct();
+    CHECK(takeUnusedAssets(world).size() == 1);
+}
+
+TEST_CASE("un asset épinglé que rien ne compte sort quand sa dernière épingle est rendue")
+{
+    flecs::world world = assetWorld();
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    const AssetId collider = levain::assets::generateAssetId();
+    // Un MeshCollider n'est pas compté : l'asset est dans la liste sans être jamais passé par zéro.
+    usage.unused.insert(collider);
+    const std::vector<AssetId> designated{collider};
+    auto pin = levain::assets::pinAssets(usage, designated);
+    CHECK(takeUnusedAssets(world).empty());
+
+    levain::assets::releasePin(usage, pin);
+    CHECK(takeUnusedAssets(world).size() == 1);
+}
+
+TEST_CASE("rendre une épingle deux fois ne vole pas l'épingle d'une autre commande")
+{
+    flecs::world world = assetWorld();
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    const AssetId fox = levain::assets::generateAssetId();
+    world.entity().set(meshOf(fox)).destruct();
+    const std::vector<AssetId> designated{fox};
+    auto first = levain::assets::pinAssets(usage, designated);
+    auto second = levain::assets::pinAssets(usage, designated);
+
+    levain::assets::releasePin(usage, first);
+    CHECK(first.assets.empty());
+    levain::assets::releasePin(usage, first); // la seconde fois ne fait rien
+    CHECK(takeUnusedAssets(world).empty());
+
+    levain::assets::releasePin(usage, second);
+    CHECK(takeUnusedAssets(world).size() == 1);
+}
+
+TEST_CASE("épingler rien n'épingle rien")
+{
+    flecs::world world = assetWorld();
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    const std::vector<AssetId> designated{AssetId{}};
+    auto pin = levain::assets::pinAssets(usage, designated);
+    CHECK(pin.assets.empty());
+    CHECK(usage.pinned.empty());
 }
