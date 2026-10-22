@@ -509,6 +509,15 @@ target_compile_definitions(levain_app_loop PRIVATE
 add_test(NAME gpu.app-loop.vulkan COMMAND levain_app_loop vulkan)
 set_tests_properties(gpu.app-loop.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
+# Annuler et Rétablir (ADR-0038, morceau A4) : Ctrl+Z, Ctrl+Y et Ctrl+Maj+Z en QWERTY et en AZERTY, la pile gelée en
+# jeu, dans la vraie boucle hors écran.
+add_executable(levain_editor_undo editor_undo_gpu.cpp)
+target_link_libraries(levain_editor_undo PRIVATE levain::editor levain::app levain::platform levain::scene)
+target_compile_definitions(levain_editor_undo PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
+    LEVAIN_TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets-cache")
+add_test(NAME gpu.editor-undo.vulkan COMMAND levain_editor_undo vulkan)
+set_tests_properties(gpu.editor-undo.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
+
 # Les modes de l'éditeur (ADR-0036, morceau 5) : l'Édition ne joue rien et ne donne rien au jeu, Alt+P joue, la route
 # de l'input suit le mode, Échap revient et rend la souris, dans la vraie boucle hors écran.
 add_executable(levain_editor_modes editor_modes_gpu.cpp)
@@ -766,10 +775,11 @@ if(WIN32)
     add_test(NAME gpu.editor-gestures.d3d12-warp COMMAND levain_editor_gestures d3d12-warp)
     add_test(NAME gpu.editor-close.d3d12-warp COMMAND levain_editor_close d3d12-warp)
     add_test(NAME gpu.editor-menus.d3d12-warp COMMAND levain_editor_menus d3d12-warp)
+    add_test(NAME gpu.editor-undo.d3d12-warp COMMAND levain_editor_undo d3d12-warp)
     set_tests_properties(gpu.light-clusters.d3d12-warp gpu.environment.d3d12-warp gpu.ui.d3d12-warp
         gpu.app-script.d3d12-warp gpu.app-loop.d3d12-warp gpu.editor-modes.d3d12-warp gpu.editor-console.d3d12-warp
         gpu.editor-view.d3d12-warp gpu.scene-view.d3d12-warp gpu.editor-shortcuts.d3d12-warp gpu.editor-gestures.d3d12-warp
-        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp gpu.editor-play.d3d12-warp gpu.editor-pause.d3d12-warp gpu.editor-simulate.d3d12-warp ${editorPreferencesWarp} ${editorShortcutSettingsWarp} ${editorGridWarp}
+        gpu.editor-close.d3d12-warp gpu.editor-menus.d3d12-warp gpu.editor-undo.d3d12-warp gpu.editor-play.d3d12-warp gpu.editor-pause.d3d12-warp gpu.editor-simulate.d3d12-warp ${editorPreferencesWarp} ${editorShortcutSettingsWarp} ${editorGridWarp}
         PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
 endif()
 

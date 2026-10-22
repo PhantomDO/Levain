@@ -24,11 +24,25 @@ d'entité et d'asset. Il n'a pas encore :
   autres (Entité, M7.3) viennent avec leur milestone ;
 - **d'enregistrement** : rien n'écrit la scène (M7.3) ; fermer la fenêtre demande « Quitter l'éditeur ? », sans rien
   proposer d'enregistrer ;
-- **d'annulation** : `commitEdit` écrit la copie par `setComponentValue` sans garder l'ancienne valeur
-  (editor/src/inspector.cpp:543-552) ;
-- ni raccourci d'édition : Ctrl+S, Ctrl+Z et les outils sont grisés jusqu'à leur milestone (invariant 16 et le
-  paragraphe des menus ci-dessous) ; ceux de M7.7 jouent, arrêtent, règlent le temps réel, cadrent (F) et basculent
+- **d'annulation depuis l'inspecteur** : la pile existe (voir plus bas) mais `commitEdit` écrit encore la copie par
+  `setComponentValue` sans poser de commande (editor/src/inspector.cpp:543-552) ; M7.3, morceau A5 ;
+- ni raccourci d'édition, sauf Ctrl+Z, Ctrl+Y et Ctrl+Maj+Z (M7.3, A4) : Ctrl+S et les outils sont grisés jusqu'à leur
+  milestone (invariant 16 et le paragraphe des menus ci-dessous) ; ceux de M7.7 jouent, arrêtent, règlent le temps réel, cadrent (F) et basculent
   la vue de jeu (G).
+
+**La pile d'annulation est écrite** (M7.3, morceau A4, `undo.hpp`, ADR-0038 décisions 1 et 9) : 100 commandes, une
+101e fait sortir la plus ancienne en lui faisant rendre ce qu'elle retient (ses épingles d'assets ; plus tard ses
+pierres tombales), une commande nouvelle vide d'abord les refaisables, une commande dont l'avant égale l'après
+(`sameValue`) est jetée. Une commande de **valeur** garde l'entité, le composant et deux `ValueBox` ; `editValue` est
+la porte directe (l'inspecteur la prendra en A5), `recordValueChange` pose la commande d'une écriture déjà faite.
+**« Modifié » se lit dans la pile** (un numéro par commande, `isModified`) et le « * » est dans la barre de menus.
+**Annuler n'est actif qu'en Édition** : en jeu la pile est gelée, pas vidée, et rien de ce qu'on y fait n'y entre
+(Stop rend la scène identique, les commandes d'avant Jouer restent vraies). En Jouer la touche va au jeu (route
+*jeu*), en Simuler Ctrl+Z est atteint, grisé et dit ; le menu Édition dit pourquoi. Ctrl+Z pendant qu'un élément
+d'ImGui est actif (un glissé) est refusé. **`applyEditorRequests`** est le point nommé où l'historique s'exécute : les
+fenêtres dessinées dans le `defer` ne font que mettre une demande en file, qui part juste après `defer_end` ;
+raccourcis et menus, hors du `defer`, passent par le même point. Équivalents : `Undo` d'Unity, `FScopedTransaction`
+d'Unreal, `UndoRedo` de Godot. Tests : `tests/editor_undo_test.cpp` et, de bout en bout, `gpu.editor-undo.*`.
 
 **La console est écrite** (M7.7, morceau 14) : la fenêtre « Console » lit le journal du processus par un récepteur de
 `core::log` (`withEditor` le pose avant `runApp` : ce que la fenêtre et le device écrivent en s'ouvrant y est), dans un
