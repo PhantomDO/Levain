@@ -15,7 +15,8 @@ raccourcis qu'on change, une console, sa disposition gardée (les paragraphes qu
 et Arrêter**, qui rendent la scène en place et avec les mêmes identifiants (invariants 16 bis à 16 quater), puis
 Pause, Image suivante et Maj+F1 en jeu. Il a le branchement sur la
 boucle, l'option `--select`, le bilan que lit la CI, **la hiérarchie** : les entités placées (`Transform`), rangées par
-`flecs::Parent` (ADR-0015), et un nœud *Singletons*, qui sélectionne seulement ; et **l'inspecteur** : les
+`flecs::Parent` (ADR-0015), et un nœud *Singletons*, qui sélectionne (et, depuis M7.3, A6, crée, supprime et renomme :
+voir plus bas) ; et **l'inspecteur** : les
 composants de l'entité choisie, un widget par champ, lus dans la description de flecs, aux valeurs de l'image. Une
 donnée d'auteur (`Authored`) s'édite, le reste est grisé ; trois dessinateurs lui donnent des angles, des noms
 d'entité et d'asset. Il n'a pas encore :
@@ -62,6 +63,28 @@ entité, en annule 100 (la porte de Ctrl+Z) et compare le monde à celui d'aprè
 `tools/ci-programs.sh editor-undo` (Windows). C'est une API de commandes et non un script d'input : 150 glissés au pixel
 près ne tiennent pas d'une machine à l'autre. `tools/undo-cost.sh` mesure la suppression et l'annulation d'un sous-arbre de
 1 000 entités, et la session de 150 changements.
+
+**Créer, supprimer et renommer sont écrits** (M7.3, morceau A6, `structure.hpp`, `hierarchy.hpp`, ADR-0038 décisions 3,
+4, 6, 8, 9 et 10). Trois sortes de commandes de plus : `SubtreeCommand` (créer et supprimer, un seul objet vu des deux
+bouts : `readSubtree` et les pierres tombales de `removeKeepingIndex`, les assets du sous-arbre épinglés) et
+`RenameCommand`. **Supprimer puis annuler rend la même entité** (identifiant et génération, noms, parents, valeurs,
+ordre des frères, une racine à sa place d'index) ; créer, annuler, refaire donne le même identifiant. L'ordre est celui
+du contrat de la pile : les refus d'abord, les refaisables libérés, puis l'opération ; annuler passe les deux gardes
+(`checkTombstonesHold`, `checkSubtreeRestorable`) avant de réveiller. Un volume dont l'observateur `onEnter` est perdu
+revient sans lui, et la console le **nomme** (suppression et annulation). Un nœud `Generated` ne se supprime ni ne se
+renomme, et ne reçoit pas d'enfant fait à la main : refusé et nommé, le monde intact. **En Jouer et en Simuler,
+supprimer, créer et renommer sont des opérations simples, jamais des commandes** (Stop rend les identifiants et les
+noms). La **Hiérarchie** n'écrit pas dans le monde : son clic droit (« Créer une entité » sur le vide ; « Créer un
+enfant », « Renommer », « Supprimer » sur une ligne, qu'il choisit d'abord), F2 et Suppr (le contexte *Hiérarchie ou
+Vue*, par position, jamais dans un champ de texte ni en vol) mettent une demande dans la file, que `applyEditorRequests`
+exécute après `defer_end`. L'entité créée (Entité > Créer une entité, Ctrl+Maj+N, le menu contextuel) naît **avec un
+`Transform`** (la Hiérarchie ne montre que les entités placées ; Unity donne un `Transform` à tout `GameObject`),
+choisie et ouverte en renommage ; le champ de renommage valide à Entrée ou à un clic ailleurs, annule à Échap, et
+**refuse sans rien changer** un nom vide, avec « . » ou « :: », « #12 », « _ », « * » ou « $ » à la racine, ou celui
+d'un frère (la raison est dite sous le champ, `RenameField::refusal`). **Le double-clic sur une ligne cadre** (geste 25)
+et ne renomme pas. Tests : `tests/editor_structure_test.cpp` et, de bout en bout, `gpu.editor-hierarchy.*`. Équivalents
+: l'Outliner d'Unreal, la Hierarchy d'Unity (renommage en ligne à la création, documenté [U12]), l'arbre de scène de
+Godot.
 
 **La console est écrite** (M7.7, morceau 14) : la fenêtre « Console » lit le journal du processus par un récepteur de
 `core::log` (`withEditor` le pose avant `runApp` : ce que la fenêtre et le device écrivent en s'ouvrant y est), dans un

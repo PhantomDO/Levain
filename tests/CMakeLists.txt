@@ -542,8 +542,8 @@ target_compile_definitions(levain_editor_undo PRIVATE LEVAIN_DATA_DIR="${CMAKE_S
 add_test(NAME gpu.editor-undo.vulkan COMMAND levain_editor_undo vulkan)
 set_tests_properties(gpu.editor-undo.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
-# Créer dans la Hiérarchie (ADR-0038, morceau A6) : Entité > Créer une entité, le nom tapé, annulés et refaits au même
-# identifiant ; la suite du banc (le clic droit, F2, Suppr, Jouer, le modèle) arrive avec le morceau suivant.
+# Créer, supprimer et renommer dans la Hiérarchie (ADR-0038, morceau A6) : Entité > Créer une entité, le clic droit, F2, Suppr,
+# chacun annulé et refait au même identifiant, en jeu une suppression simple, un modèle supprimé puis annulé qui se dessine.
 add_executable(levain_editor_hierarchy editor_hierarchy_gpu.cpp)
 target_link_libraries(levain_editor_hierarchy PRIVATE levain::editor levain::app levain::assets levain::core
     levain::platform levain::scene)
