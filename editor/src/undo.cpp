@@ -17,11 +17,17 @@ namespace
 
 void dropRedo(UndoStack& stack)
 {
+    // Un point d'enregistrement parmi les refaisables ne revient jamais : les numéros ne sont pas
+    // réutilisés, `isModified` reste vrai sans rien tenir de plus.
     stack.undone.clear();
 }
 
 void pushOutOldest(UndoStack& stack)
 {
+    Command& oldest = stack.done.front();
+    // L'état d'après elle devient le fond de la pile : annuler tout y ramène, et si c'était l'état
+    // enregistré la scène y est propre (`topNumberOf`).
+    stack.bottomNumber = oldest.number;
     stack.done.erase(stack.done.begin());
 }
 
@@ -64,7 +70,17 @@ bool canRedo(const UndoStack& stack)
 
 std::uint64_t topNumberOf(const UndoStack& stack)
 {
-    return stack.done.empty() ? 0 : stack.done.back().number;
+    return stack.done.empty() ? stack.bottomNumber : stack.done.back().number;
+}
+
+bool isModified(const UndoStack& stack)
+{
+    return topNumberOf(stack) != stack.savedNumber;
+}
+
+void markSaved(UndoStack& stack)
+{
+    stack.savedNumber = topNumberOf(stack);
 }
 
 HistoryRefusal historyRefusalOf(const UndoStack& stack, Mode mode, bool redo)
