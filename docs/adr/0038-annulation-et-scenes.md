@@ -163,9 +163,13 @@ Trois choses du code d'aujourd'hui pèsent encore :
      La pile est **gelée, pas vidée** : Stop rend la scène identique (identifiants compris), donc les commandes d'avant
      Play restent valables. Ce qu'on change en jeu, valeur ou structure, **n'est pas enregistré** : c'est perdu à Stop
      (ADR-0037, décision 6), et il n'y a donc rien à jeter. Les opérations sont les mêmes fonctions libres dans tous les
-     modes ; seul l'historique décide de garder la commande. (Unreal : les transactions de PIE sont séparées, supposé ;
-     Unity : que l'historique serve aussi en jeu est supposé ; que ses changements soient perdus à la sortie est
-     documenté [3].)
+     modes ; seul l'historique décide de garder la commande. **Amendement du 2026-10-22** : « les mêmes
+     fonctions » ne vaut pas pour supprimer. `removeKeepingIndex` refuse en jeu toute entité de l'édition (son index n'est
+     pas dans la plage du jeu : Stop s'arrêterait ou donnerait l'identifiant de la pierre à une autre entité), donc en
+     Jouer et en Simuler **supprimer est un `ecs_delete` simple, jamais une commande** ; Stop réveille l'entité avec son
+     identifiant (`snapshot_test`, « l'index d'une caisse détruite en jeu revient »). (Unreal : les transactions de PIE
+     sont séparées, supposé ; Unity : que l'historique serve aussi en jeu est supposé ; que ses changements soient
+     perdus à la sortie est documenté [3].)
    - *Ctrl+Z pendant qu'un élément est actif* (un glissé en cours) est refusé : ImGui le laisse passer
      (`WantTextInput` à 0, `Shortcut(RouteGlobal)` vrai, essayé).
    - *« Modifié »* se lit dans la pile : chaque commande a un numéro, la sauvegarde note celui du sommet ; modifié si le

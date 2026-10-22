@@ -343,7 +343,8 @@ TEST_CASE("releaseTombstones rend les index à flecs et ne touche à rien d'autr
 
     // Une « pierre » qui n'en est plus une (son identifiant désigne le repreneur) n'est pas
     // détruite.
-    const Tombstones stale{.reserved = {{.entity = cube, .stone = taker.id()}}, .lost = {}};
+    const Tombstones stale{
+        .reserved = {{.entity = cube, .stone = taker.id()}}, .lost = {}, .notUndoable = {}};
     CHECK(releaseTombstones(world, stale).has_value());
     CHECK(ecs_is_alive(world, taker.id()));
 }
@@ -423,8 +424,18 @@ TEST_CASE("un observateur qui crée une entité pendant la destruction ne fait p
 
     const auto removed = removeKeepingIndex(world, root.id());
     REQUIRE_FALSE(born.empty());
-    REQUIRE_FALSE(removed.has_value());
-    CHECK(removed.error().message.find("repris pendant la destruction") != std::string::npos);
+    // Ni un refus (le monde n'est pas intact : l'entité est partie) ni un succès complet.
+    REQUIRE(removed.has_value());
+    CHECK_FALSE(ecs_is_alive(world, root.id()));
+    CHECK(removed->reserved.empty());
+    CHECK(removed->notUndoable.find("repris pendant la destruction") != std::string::npos);
+    const auto revival = reviveFromTombstones(world, *removed);
+    REQUIRE_FALSE(revival.has_value());
+    CHECK(revival.error().message.find("pas annulable") != std::string::npos);
+    // La garde de l'index passerait sans pierre (`reserved` vide) : elle refuse aussi.
+    const auto held = checkTombstonesHold(world, *removed);
+    REQUIRE_FALSE(held.has_value());
+    CHECK(held.error().message.find("pas annulable") != std::string::npos);
     for (const flecs::entity_t id : born)
     {
         CHECK_FALSE(
@@ -452,4 +463,26 @@ TEST_CASE("contrat de la pile : libérer les pierres d'une commande supplantée 
     const auto revival = reviveFromTombstones(world, *second);
     REQUIRE_FALSE(revival.has_value());
     CHECK(revival.error().message.find("pierre tombale") != std::string::npos);
+}
+
+TEST_CASE("les bornes de la plage : 2^24-1 se supprime en édition et pas en jeu, 2^24 en jeu")
+{
+    flecs::world world;
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    world.component<Marker>();
+    world.component<Tombstone>();
+    const flecs::entity_t editMax = (1U << 24U) - 1U;
+    ecs_make_alive(world, editMax);
+
+    usePlayIds(world, *ranges);
+    const auto inPlay = removeKeepingIndex(world, editMax);
+    REQUIRE_FALSE(inPlay.has_value());
+    CHECK(inPlay.error().message.find("plage d'identifiants") != std::string::npos);
+    const flecs::entity_t playMin = world.entity("premier du jeu").id();
+    REQUIRE(indexOf(playMin) == (1U << 24U));
+    CHECK(removeKeepingIndex(world, playMin).has_value());
+
+    useEditIds(world, *ranges);
+    CHECK(removeKeepingIndex(world, editMax).has_value());
 }
