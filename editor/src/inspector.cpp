@@ -272,6 +272,16 @@ bool isAuthored(const flecs::world& world, flecs::entity_t component)
     return flecs::entity(world, component).has<scene::Authored>();
 }
 
+/// Relève où cliquer pour saisir le premier cadre du widget qui vient d'être dessiné : ce que lit
+/// le banc (`Inspector::fieldCenters`), les coordonnées d'un champ ne se devinent pas.
+void noteCenter(Walk& walk, float frameWidth)
+{
+    const ImVec2 first = ImGui::GetItemRectMin();
+    const ImVec2 last = ImGui::GetItemRectMax();
+    walk.inspector.fieldCenters.push_back(
+        {first.x + (frameWidth * 0.5f), (first.y + last.y) * 0.5f});
+}
+
 /// Relève la largeur du cadre d'un des `count` nombres qui viennent d'être dessinés côte à côte :
 /// la largeur du champ (`CalcItemWidth`) est partagée entre eux par `DragScalarN`, moins l'espace
 /// entre eux. (Le rectangle de l'item comprendrait aussi le libellé.)
@@ -282,6 +292,7 @@ void noteFrames(Walk& walk, int count)
         std::floor((ImGui::CalcItemWidth() - (spacing * static_cast<float>(count - 1))) /
                    static_cast<float>(count));
     walk.inspector.narrowestFrame = std::min(walk.inspector.narrowestFrame, frame);
+    noteCenter(walk, frame);
 }
 
 /// Un tableau, en ligne (`float w[4]`, le `count` d'un membre) ou de flecs (`glm::mat4`) : autant
@@ -432,6 +443,7 @@ void drawValue(Walk& walk, const char* label, flecs::entity_t type, void* value,
     else if (ecs_has(world, type, EcsEnum))
     {
         walk.changed |= comboEnum(world, label, type, value);
+        noteCenter(walk, ImGui::CalcItemWidth());
     }
     else // un texte, un type opaque : le nom du type, jamais ses octets
     {
@@ -736,6 +748,7 @@ void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t se
     inspector.wrote = false;
     inspector.narrowestFrame = std::numeric_limits<float>::max();
     inspector.frames.clear();
+    inspector.fieldCenters.clear();
     const flecs::entity_t inspected = drawInspectorWindow(world, inspector, selected, dock, open);
     // **Même fenêtre fermée ou repliée** : un glissé dont l'élément n'est plus l'actif se ferme
     // à la fin de l'image, quoi que l'inspecteur ait dessiné.

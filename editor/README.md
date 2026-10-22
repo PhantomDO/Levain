@@ -53,7 +53,8 @@ l'activation, « 0.123 » pour 0.12345678f, et l'applique comme un changement : 
 un geste : deux commandes, rien de perdu ; une annulation
 vide `Inspector::typedAngles`. La machine (`settleGestures`, `closeOpenGesture`) est en fonctions libres, sans ImGui :
 chaque composant dessiné laisse un `ComponentFrame`, et tout se règle à la fin de l'image, quel que soit l'ordre de dessin.
-Tests : `tests/editor_edit_gesture_test.cpp` (image par image).
+Tests : `tests/editor_edit_gesture_test.cpp` (image par image), et le vrai inspecteur cliqué et glissé dans
+`gpu.editor-undo.*`, qui lit où cliquer dans `Inspector::fieldCenters`.
 
 **La console est écrite** (M7.7, morceau 14) : la fenêtre « Console » lit le journal du processus par un récepteur de
 `core::log` (`withEditor` le pose avant `runApp` : ce que la fenêtre et le device écrivent en s'ouvrant y est), dans un
