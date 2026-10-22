@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <string>
 
 #include <doctest/doctest.h>
 #include <flecs.h>
@@ -88,6 +89,74 @@ TEST_CASE("un asset tombé à zéro est à décharger, une seule fois, sauf s'il
     again.remove<MeshRef>();
     world.entity().set(meshOf(a));
     CHECK(takeUnusedAssets(world).empty());
+}
+
+namespace
+{
+
+/// La fin d'image du programme (app.cpp) : ce que plus aucune entité n'utilise se décharge.
+void unloadUnused(flecs::world& world, levain::assets::ModelCache& cache)
+{
+    for (const AssetId& unused : takeUnusedAssets(world))
+    {
+        cache.models.erase(unused);
+    }
+}
+
+} // namespace
+
+TEST_CASE("pendant le jeu, un modèle dont la dernière entité meurt reste chargé jusqu'au Stop")
+{
+    flecs::world world = assetWorld();
+    levain::assets::ModelCache cache;
+    const AssetId fox = levain::assets::generateAssetId();
+    cache.models.emplace(fox, levain::assets::Model{});
+    const flecs::entity entity = world.entity().set(meshOf(fox));
+
+    REQUIRE_FALSE(
+        levain::assets::holdAssetsInUse(world.get_mut<levain::assets::AssetUsage>()).has_value());
+    entity.destruct(); // ce que le jeu fait d'un renard
+    unloadUnused(world, cache);
+    unloadUnused(world, cache); // une image de plus
+    CHECK(cache.models.contains(fox));
+
+    // Stop : l'entité est réveillée avec son MeshRef, l'asset n'est plus à décharger.
+    world.entity().set(meshOf(fox));
+    levain::assets::releaseHeldAssets(world.get_mut<levain::assets::AssetUsage>());
+    unloadUnused(world, cache);
+    CHECK(cache.models.contains(fox));
+}
+
+TEST_CASE("l'asset retenu se décharge à la première image qui suit le Stop, s'il ne sert plus")
+{
+    flecs::world world = assetWorld();
+    levain::assets::ModelCache cache;
+    const AssetId tree = levain::assets::generateAssetId();
+    cache.models.emplace(tree, levain::assets::Model{});
+    // Né et mort pendant le jeu : le Stop ne le rend pas.
+    REQUIRE_FALSE(
+        levain::assets::holdAssetsInUse(world.get_mut<levain::assets::AssetUsage>()).has_value());
+    world.entity().set(meshOf(tree)).destruct();
+    unloadUnused(world, cache);
+    CHECK(cache.models.contains(tree));
+
+    levain::assets::releaseHeldAssets(world.get_mut<levain::assets::AssetUsage>());
+    unloadUnused(world, cache);
+    CHECK_FALSE(cache.models.contains(tree));
+}
+
+TEST_CASE("retenir deux fois les assets est refusé, et le Stop rend la main")
+{
+    flecs::world world = assetWorld();
+    auto& usage = world.get_mut<levain::assets::AssetUsage>();
+    REQUIRE_FALSE(levain::assets::holdAssetsInUse(usage).has_value());
+    const std::string reason = levain::assets::holdAssetsInUse(usage).value_or("");
+    CHECK(reason.find("holdAssetsInUse refusé") != std::string::npos);
+    CHECK(usage.held); // le premier hold tient toujours
+
+    levain::assets::releaseHeldAssets(usage);
+    CHECK_FALSE(usage.held);
+    CHECK_FALSE(levain::assets::holdAssetsInUse(usage).has_value()); // un Play suivant
 }
 
 TEST_CASE("un modèle se charge par son GUID, et ses entités le référencent")

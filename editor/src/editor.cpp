@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 #include <imgui.h>
@@ -119,9 +120,9 @@ app::ScreenRect gestureRegionOf(const app::App& app, const Editor& editor)
 void frameSelection(const app::App& app, Editor& editor)
 {
     // Jouer ne bouge pas la caméra de l'éditeur : un double-clic dans la hiérarchie, ouverte en
-    // jeu, la cadrerait pour le retour en Édition.
+    // jeu, la cadrerait pour le retour en Édition. Simuler, lui, la regarde : elle se cadre.
     const flecs::entity selected = selectedIfAlive(app.world, editor.selected);
-    if (editor.mode.current != Mode::Edit || !canFrameEntity(selected))
+    if (!editorOwnsViewIn(editor.mode.current) || !canFrameEntity(selected))
     {
         return;
     }
@@ -159,13 +160,15 @@ GestureContext gestureContextOf(const app::App& app, const Editor& editor)
             .textInput = ImGui::GetIO().WantTextInput};
 }
 
-/// **Les gestes de l'image**, en Édition, dans `frame` : avant `ui`, pour que la capture de la
-/// souris soit celle de la même image (`applyMouseCapture` suit `frame`). Hors Édition, rien ne
-/// se tient : un vol commencé ne survit pas au changement de mode, ni à la croix (`quit.hpp`).
+/// **Les gestes de l'image**, sous la caméra de l'éditeur (Édition, Simuler), dans `frame` : avant
+/// `ui`, pour que la capture de la souris soit celle de la même image (`applyMouseCapture` suit
+/// `frame`). En Jouer, rien ne se tient : un vol commencé ne survit pas au changement de mode, ni
+/// à la croix (`quit.hpp`). En Simuler, le `frame` du programme tourne après eux et repose
+/// `mouseCaptureWanted` (faux sous l'input vide) : `keepMouseFromGame` rend le vol à l'éditeur.
 void frameGestures(app::App& app, Editor& editor)
 {
-    editor.presses.clear(); // les touches de l'Édition seulement, hors de la modale
-    if (editor.mode.current != Mode::Edit)
+    editor.presses.clear(); // les touches de l'éditeur seulement, hors de la modale
+    if (!editorOwnsViewIn(editor.mode.current))
     {
         editor.gestures = idleGestures(editor.gestures);
         // Jouer : le clic droit est au jeu (le bac à sable regarde à la souris), pas de menu.
@@ -223,25 +226,147 @@ void recheckShortcutsAfterKeymap(const app::App& app, Editor& editor)
     logShortcutConflicts(editor.shortcuts, app.keyAtPosition, "disposition du clavier");
 }
 
+/// Arrête le jeu : Stop rend la scène (`stopPlay`) et la console dit ce qu'il a trouvé. `false` si
+/// Stop a été refusé : on reste en jeu, rien n'a changé. La sélection d'une entité née en jeu
+/// disparaît avec elle (`selectedIfAlive`), les autres survivent avec leur identifiant.
+bool stopEditorPlay(app::App& app, Editor& editor)
+{
+    if (!editor.play)
+    {
+        return true;
+    }
+    const StopReport report =
+        stopPlay(playTargetOf(app), *editor.play, modeTokenOf(editor.mode.current));
+    if (report.refused)
+    {
+        core::log("editor", core::LogLevel::Error, "{}",
+                  ui::trf("Stop refusé : {}", report.refusal));
+        return false;
+    }
+    logStop(report);
+    editor.play.reset();
+    editor.selected = selectedIfAlive(app.world, editor.selected);
+    app.recomposeAfterUi = true; // la scène rendue se voit dans cette image même
+    return true;
+}
+
+/// Ce que Jouer, Simuler et Arrêter font avant de changer de mode ; `false` si le changement n'a
+/// pas lieu (Play refusé : un composant qui ne se copie pas, Stop refusé : le monde est en mode
+/// différé). La console dit pourquoi, et le mode reste celui d'avant. **Clés sur la session, non
+/// sur `Mode::Play`** : quitter l'Édition ouvre une session, y revenir la ferme, quel que soit le
+/// mode de jeu : Simuler prend le même instantané que Jouer et Stop le rend de même.
+bool carryOutPlayTransition(app::App& app, Editor& editor, Mode to)
+{
+    if (!editor.play && to != Mode::Edit)
+    {
+        auto session = startPlay(playTargetOf(app));
+        if (!session)
+        {
+            core::log("editor", core::LogLevel::Error, "{}",
+                      ui::trf("{} refusé : {}", ui::tr(modeNameOf(to)), session.error().message));
+            return false;
+        }
+        editor.play = std::move(*session);
+        return true;
+    }
+    return !editor.play || to != Mode::Edit || stopEditorPlay(app, editor);
+}
+
+/// Alt+P est pressée, dans une image où les accords globaux valent. Hors de l'Édition elle est
+/// refusée, comptée et dite comme Alt+S (`runAction`), plutôt que muette : on ne joue que depuis
+/// l'Édition. Elle est lue ici et non par `shortcutsPressed`, qui la compterait deux fois
+/// (`playShortcutPressed`).
+bool readPlayChord(app::App& app, Editor& editor, bool allowed)
+{
+    if (!allowed || !playShortcutPressed(editor.shortcuts))
+    {
+        return false;
+    }
+    if (editor.mode.current != Mode::Edit)
+    {
+        std::ignore = runAction(Action::Play, editor.actions, app.realTime, editor.mode.current);
+        return false;
+    }
+    return true;
+}
+
+/// Atteint un contrôle de jeu (Pause, Image suivante, Rendre la souris) : compté, dit à la console
+/// s'il est refusé, fait sinon. Le clic d'un bouton et la touche passent par là.
+void reachPlayControl(app::App& app, Editor& editor, Action action)
+{
+    if (const auto control =
+            runPlayControl(action, editor.actions, editor.mode.current, editor.mode.paused))
+    {
+        applyPlayControl(*control, app, editor.mode);
+    }
+}
+
 /// Passe de mode. Jouer met la Vue en avant : le jeu reçoit le clavier sans qu'il faille cliquer
-/// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`).
-void changeMode(app::App& app, Editor& editor, Mode mode)
+/// dedans d'abord (la route *jeu* veut la Vue focalisée, `sceneFocusedIn`). **Jouer prend
+/// l'instantané et Arrêter rend la scène avant** `enterMode`, hors du mode différé : `frame` et la
+/// fin de `ui` y sont (ADR-0037, décision 3). `false` si le changement n'a pas eu lieu (Jouer ou
+/// Arrêter refusé : la console a dit pourquoi, le mode est celui d'avant).
+bool changeMode(app::App& app, Editor& editor, Mode mode)
 {
     const Mode from = editor.mode.current;
-    // Une saisie d'accord ne survit pas au changement de mode : hors de l'Édition les touches ne
-    // lui parviennent plus (`frameGestures`), et plus rien ne pourrait la finir.
+    if (!carryOutPlayTransition(app, editor, mode))
+    {
+        return false;
+    }
+    // Une saisie d'accord ne survit pas au changement de mode : elle n'est que de l'Édition
+    // (`drawShortcutWindow`, `editing`). En Simuler les touches arrivent, mais Échap, qui
+    // l'annulerait, arrêterait aussi la simulation ; et plus rien ne pourrait la finir.
     abandonCapture(editor.shortcutWindow);
     enterMode(app, editor.mode, mode);
     switchRealTime(from, mode, app.realTime, editor.realTimeEdit);
-    editor.view.focusRequested = mode == Mode::PlayWithoutReturn;
-    // Le jeu voit par sa caméra ; l'édition, par la sienne.
-    if (mode == Mode::Edit)
+    editor.view.focusRequested = mode == Mode::Play;
+    // Le jeu voit par sa caméra ; l'édition et Simuler, par celle de l'éditeur.
+    if (editorOwnsViewIn(mode))
     {
         imposeCamera(app, editor, true); // le jeu a pu tout déplacer
     }
     else
     {
         app.cameraOverride.reset();
+    }
+    return true;
+}
+
+/// Les touches du contexte *jeu* de cette image (`gameKeysPressed`), dans `frame` : Échap arrête
+/// d'abord (sortir du jeu ne se dispute pas), puis Pause, Image suivante et Rendre la souris, qui
+/// valent à la même image : `frame` précède le monde, un pas demandé ici est joué ici.
+void reachGameKeys(app::App& app, Editor& editor)
+{
+    // Sous la modale « Quitter ? », ou croix reçue (`frame` précède `ui`, qui l'ouvre) : Échap la
+    // ferme, et le jeu dessous n'arrête pas.
+    const bool blocked = ImGui::GetIO().WantTextInput || !cameraGesturesAllowed(editor.quit);
+    const GameKeys keys =
+        gameKeysPressed(editor.mode, app.rawFrameEvents, editor.shortcuts, blocked);
+    if (const auto requested = modeRequested(editor.mode.current, {.stop = keys.stop}))
+    {
+        changeMode(app, editor, *requested);
+    }
+    for (const Action action : keys.actions)
+    {
+        if (editor.mode.current != Mode::Edit) // Échap vient de nous y ramener, Pause ne vaut plus
+        {
+            reachPlayControl(app, editor, action);
+        }
+    }
+}
+
+/// **Le clic qui rend la souris au jeu** (Maj+F1) : un bouton enfoncé cette image, la souris sur la
+/// scène telle qu'ImGui l'a dite à l'image d'avant (`sceneHoveredIn`). Ce clic n'atteint pas le jeu
+/// : la route de l'image qui s'ouvre était *éditeur*, et les événements sont déjà filtrés ; celle
+/// de la suivante est *jeu*. **Lu dans `frame`, non dans `ui`** : une fois le bouton enfoncé, ImGui
+/// prend la fenêtre de la Vue pour la déplacer, et son image n'est plus « survolée » à l'image
+/// même du clic.
+void giveMouseBackOnClick(app::App& app, Editor& editor)
+{
+    if (editor.mode.mouseFreed && mousePressedIn(app.rawFrameEvents) && sceneHoveredIn(app, editor))
+    {
+        editor.mode.mouseFreed = false;
+        editor.view.focusRequested = true; // la Vue a le focus tout de suite (`viewHasFocus`)
     }
 }
 
@@ -254,8 +379,8 @@ std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>&
     const MenuBarInputs inputs{
         .table = editor.shortcuts, .keyAtPosition = app.keyAtPosition, .windows = windows};
     MenuRequests menus = drawMenuBar(inputs, editor.menu, editor.bar, editor.help);
-    const ToolbarResult toolbar =
-        drawToolbar(editor.mode.current, editor.camera.flySpeed, app.realTime, editor.toolbar);
+    const ToolbarResult toolbar = drawToolbar(editor.mode.current, editor.mode.paused,
+                                              editor.camera.flySpeed, app.realTime, editor.toolbar);
     editor.status = statusOf(*editor.log->ring);
     drawStatusBar(editor.status);
     drawHelp(editor.help, inputs);
@@ -292,7 +417,7 @@ void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reache
     editor.lastShortcuts =
         shortcutsPressed({.table = editor.shortcuts,
                           .presses = editor.presses,
-                          .editing = editor.mode.current == Mode::Edit,
+                          .editing = editorOwnsViewIn(editor.mode.current),
                           .globalAllowed = globalChordsAllowed(editor.quit) && !capturing,
                           .viewActive = viewActiveOf(app, editor),
                           .flight = inFlight(editor.gestures),
@@ -300,12 +425,18 @@ void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reache
     reached.insert(reached.end(), editor.lastShortcuts.begin(), editor.lastShortcuts.end());
     for (const Action action : reached)
     {
+        if (playControlOf(action)) // Pause et Image suivante, de la barre d'outils
+        {
+            reachPlayControl(app, editor, action);
+            continue;
+        }
         // **« Vue de jeu » ne bascule que si `runAction` l'a faite** (comptée) : une action refusée
         // (grisée, annoncée à la console) ne change rien.
         const int before = editor.actions.performed.at(indexOf(action));
-        if (const auto next = runAction(action, editor.actions, app.realTime, editor.mode.current))
+        if (const auto next = runAction(action, editor.actions, app.realTime, editor.mode.current);
+            next && !changeMode(app, editor, *next))
         {
-            changeMode(app, editor, *next);
+            countRefusedTransition(editor.actions, action); // « faite » ne dit que ce qui a eu lieu
         }
         if (editor.actions.performed.at(indexOf(action)) > before)
         {
@@ -425,6 +556,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .hierarchy = createHierarchy(app.world),
                    .inspector = createInspector(app.world, &app.registry),
                    .mode = {},
+                   .play = {},
                    .log = capture,
                    .console = {},
                    .windows = {},
@@ -486,20 +618,27 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 resetLayout(app, *editor);
                 editor->savePreferencesNext = true;
             }
-            // Échap ramène à l'Édition ; le `frame` du programme ne tourne qu'en jeu.
-            if (const auto requested = modeRequested(
-                    editor->mode.current,
-                    {.stop = stopPressed(editor->mode, app.input.raw, editor->shortcuts)}))
-            {
-                changeMode(app, *editor, *requested);
-            }
+            // Échap ramène à l'Édition, Pause, Image suivante et Maj+F1 sont lues ici aussi ; le
+            // `frame` du programme ne tourne qu'en jeu, et pas en pause, sauf pour un pas.
+            reachGameKeys(app, *editor);
+            giveMouseBackOnClick(app, *editor);
             frameGestures(app, *editor);
-            if (programFrameRunsIn(editor->mode.current) && frame)
+            // `app.singleStep` : Image suivante (touche, posée plus haut ; barre d'outils, posée
+            // par `ui` à l'image d'avant) joue un pas, dont `frame` pose l'input : vide, en pause.
+            if (programFrameRunsIn(editor->mode.current, editor->mode.paused, app.singleStep) &&
+                frame)
             {
+                // Après les gestes, qui lisent le temps mesuré : le programme voit le temps du pas.
+                app.frameSeconds =
+                    programFrameSecondsOf(editor->mode.paused, app.singleStep, app.frameSeconds,
+                                          app.fixedStep.stepSeconds);
                 frame(app);
+                // Le jeu a pu reposer la capture : la souris reste à l'éditeur quand il ne l'a pas.
+                keepMouseFromGame(app, editor->mode, capturesMouse(editor->gestures));
             }
         };
-        hooks->ui = [ui = std::move(hooks->ui), editor, afterUi = options.afterUi](app::App& app)
+        hooks->ui = [ui = std::move(hooks->ui), editor, afterUi = options.afterUi,
+                     afterUiMutable = options.afterUiMutable](app::App& app)
         {
             if (ui)
             {
@@ -544,7 +683,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 editor->view.gameViewShortcut = shortcutTextOf(*editor, app, Action::GameView);
                 editor->view.modeHint =
                     modeHintOf(editor->mode.current, editor->shortcuts, app.keyAtPosition);
-                if (const auto fromView = drawView(editor->view, app, editor->mode.current))
+                if (const auto fromView = drawView(editor->view, app, editor->mode))
                 {
                     requested = fromView; // le bouton de la Vue, avant celui de la barre d'outils
                 }
@@ -560,6 +699,12 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             // Avant les raccourcis et la route, qui lisent si elle est ouverte.
             if (drawQuitModal(editor->quit) == QuitAnswer::Quit)
             {
+                // Quitter en jeu rend la scène d'abord (ADR-0037) : une exécution scriptée qui
+                // s'arrête avant son terme ne passe pas par `finish`.
+                if (editor->play)
+                {
+                    changeMode(app, *editor, Mode::Edit);
+                }
                 app.quitRequested = true;
             }
             runReachedActions(app, *editor, std::move(reached), capturing);
@@ -568,32 +713,32 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             // `modeRequested` décide, avec Alt+P, qui ne joue pas sous la modale.
             if (!app.ui.panelsOpen)
             {
-                drawModeBar(editor->mode.current, app.sceneRect,
+                drawModeBar(editor->mode, app.sceneRect,
                             modeHintOf(editor->mode.current, editor->shortcuts, app.keyAtPosition));
             }
             if (const auto next = modeRequested(
                     editor->mode.current,
                     {.toolbar = requested,
-                     .playShortcut = globalChordsAllowed(editor->quit) && !capturing &&
-                                     playShortcutPressed(editor->shortcuts)}))
+                     .playShortcut = readPlayChord(
+                         app, *editor, globalChordsAllowed(editor->quit) && !capturing)}))
             {
                 changeMode(app, *editor, *next);
             }
-            if (editor->mode.current == Mode::Edit)
+            if (editorOwnsViewIn(editor->mode.current))
             {
                 // Après les gestes, le cadrage et les écritures de l'image.
                 imposeCamera(app, *editor, wroteWorld);
             }
-            // Les aides se voient en Édition hors vue de jeu : la grille et le contour du
-            // programme.
+            // Les aides se voient sous la caméra de l'éditeur (Édition, Simuler) hors vue de jeu :
+            // la grille et le contour du programme.
             app.editorHelpersVisible =
                 helpersVisibleIn(editor->mode.current, editor->view.show.gameView);
             // La route de l'image suivante : le focus ne se sait que maintenant (ADR-0036, 4).
             app.inputRoute = inputRouteWhileQuit(
                 editor->quit,
-                inputRouteFor(editor->mode.current,
-                              sceneFocusedIn(app.ui.panelsOpen, viewHasFocus(editor->view),
-                                             !sceneHasFocus(), editor->view.barHovered)));
+                inputRouteOf(editor->mode,
+                             sceneFocusedIn(app.ui.panelsOpen, viewHasFocus(editor->view),
+                                            !sceneHasFocus(), editor->view.barHovered)));
             app.ui.panelsKeyBlocked = shortcutCaptureActive(*editor); // F1 est refusée, pas obéie
             if (std::exchange(editor->savePreferencesNext, false))
             {
@@ -602,6 +747,10 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             if (afterUi)
             {
                 afterUi(*editor);
+            }
+            if (afterUiMutable)
+            {
+                afterUiMutable(*editor);
             }
         };
         // La croix : on demande d'abord (la modale s'ouvre dans `ui`). **Remplace** le
@@ -618,7 +767,16 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
             logEditor(app.world, *editor);
             logMode(app, *editor);
             logView(editor->view);
-            return !finish || finish(app);
+            // Le programme rend compte de ce qu'il a vu en jeu (le sandbox dit ses corps) AVANT
+            // que Stop ne rende la scène, puis quitter ou finir une exécution scriptée en jeu passe
+            // par Stop (ADR-0037). Une capture (`--capture`) est prise après ce point : elle voit
+            // la scène rendue.
+            const bool programOk = !finish || finish(app);
+            if (editor->play)
+            {
+                changeMode(app, *editor, Mode::Edit);
+            }
+            return programOk;
         };
         return hooks;
     };

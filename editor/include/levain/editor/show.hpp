@@ -40,10 +40,11 @@ struct ShowMenuLayout
     app::ScreenRect bar{};
 };
 
-/// Les aides de l'éditeur se voient : en Édition, hors vue de jeu. Jouer est la vue de jeu.
+/// Les aides de l'éditeur se voient : sous la caméra de l'éditeur (Édition, Simuler), hors vue de
+/// jeu. Jouer est la vue de jeu.
 [[nodiscard]] constexpr bool helpersVisibleIn(Mode mode, bool gameView)
 {
-    return mode == Mode::Edit && !gameView;
+    return editorOwnsViewIn(mode) && !gameView;
 }
 
 /// La grille se dessine : elle est demandée, et les aides se voient.

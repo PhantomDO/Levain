@@ -97,6 +97,21 @@ std::optional<platform::Events> uiEventsOf(InputRoute route, const platform::Eve
     return kept;
 }
 
+float averageFrameMs(const FrameHistory& history)
+{
+    float total = 0.0f;
+    std::size_t measured = 0;
+    for (const float frameMs : history.frameMs)
+    {
+        if (frameMs > 0.0f) // une case jamais remplie
+        {
+            total += frameMs;
+            ++measured;
+        }
+    }
+    return measured > 0 ? total / static_cast<float>(measured) : 0.0f;
+}
+
 void recordHistory(FrameHistory& history, float frameMs, std::optional<float> gpuMs)
 {
     const std::size_t previous = (history.next + HistoryLength - 1) % HistoryLength;

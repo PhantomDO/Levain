@@ -1,6 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
+#include <optional>
+#include <string>
 #include <vector>
 
 #include <flecs.h>
@@ -32,6 +35,12 @@ struct CharacterDirty
 /// `player.has<InsideOf>(lake)`. La relation appartient au module : la retirer à la main le
 /// désaccorde, et il ne la reposera pas tant que le corps reste dans le volume.
 struct InsideOf
+{
+};
+
+/// L'étiquette que `onEnter` et `onExit` posent sur leur observateur : ce sont les rappels du jeu,
+/// que `endPlay` fait taire le temps de vider les relations `InsideOf`.
+struct TriggerCallback
 {
 };
 
@@ -80,6 +89,46 @@ flecs::observer onEnter(flecs::world& world, flecs::entity volume,
 ///     levain::physics::onExit(world, lake, [](flecs::entity body) { body.remove<Swimming>(); });
 flecs::observer onExit(flecs::world& world, flecs::entity volume,
                        std::function<void(flecs::entity body)> react);
+
+/// Le comparateur de flecs (`order_by`) qui range les entités dans l'ordre de leur **index**, les
+/// 32 bits bas de l'identifiant. Jamais l'identifiant entier : la génération est dans les bits
+/// hauts, et une entité réveillée (`ecs_make_alive`) passerait avant toutes les autres.
+///
+/// Les corps et les personnages se construisent, et les personnages avancent, dans cet ordre, non
+/// dans celui des tables de flecs : l'ordre des tables dépend de l'histoire de chaque entité (une
+/// étiquette posée puis retirée la renvoie en fin de table), celui des index non. Jolt n'est
+/// déterministe que pour une même suite d'appels (ADR-0026, ADR-0037, décision 4) :
+/// https://jrouwe.github.io/JoltPhysics/#deterministic-simulation
+[[nodiscard]] int inIdOrder(flecs::entity_t first, const void* firstValue, flecs::entity_t second,
+                            const void* secondValue);
+
+/// L'index d'une entité : les 32 bits bas de son identifiant, sans la génération.
+[[nodiscard]] std::uint32_t indexOfEntity(flecs::entity_t id);
+
+/// Remplace le monde Jolt par un neuf : les identifiants de corps repartent de zéro, `OverlapState`
+/// est vide. Le Play de l'éditeur l'appelle, pour que deux jeux d'une même scène partent d'un état
+/// identique (ADR-0037, décision 4). Refusé, avec la raison au journal et en retour, si une entité
+/// porte encore un `BodyHandle` ou un `CharacterHandle` : il désignerait un corps du monde qu'on
+/// détruit. Rien n'a changé alors.
+///
+/// **Ce que l'appelant doit faire avant** : retirer ces handles (`scene::Transient` à Stop). Le
+/// retrait suffit pour reconstruire : les observateurs `RecheckRefusedBody` et
+/// `RecheckRefusedCharacter` ont un terme `without<Handle>`, que flecs rejoue en `OnRemove`, et
+/// ils remettent `BodyDirty` et `CharacterDirty` ; le premier pas du jeu bâtit les corps dans le
+/// monde neuf. Tester `has<BodyDirty>()` après le retrait (tests/physics_replay_test.cpp).
+[[nodiscard]] std::optional<std::string> freshPhysicsWorld(flecs::world& world);
+
+/// La fin du jeu, **en silence** : retire toutes les paires `(InsideOf, *)` et vide `OverlapState`
+/// sans qu'aucun `onExit` du gameplay ne parte, et sans qu'aucun ne parte non plus pendant les
+/// destructions qui suivent, puisqu'il ne reste plus de paire. Le Stop de l'éditeur l'appelle
+/// d'abord, hors du mode différé (ADR-0037, décision 3). Seuls les rappels de `onEnter` et
+/// `onExit` sont tus : un observateur que le gameplay poserait lui-même sur `InsideOf` entendrait
+/// les retraits.
+///
+/// Refusé, avec la raison au journal et en retour, dans le mode différé, dans tous les builds :
+/// flecs y mettrait la désactivation, les retraits et la réactivation en file, puis les rejouerait
+/// ensemble, et les `onExit` partiraient. Rien n'a changé alors.
+[[nodiscard]] std::optional<std::string> endPlay(flecs::world& world);
 
 /// Les corps qui sont dans `volume` maintenant, à la fin du dernier pas.
 ///

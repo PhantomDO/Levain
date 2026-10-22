@@ -59,8 +59,60 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/transform.hpp`](include/levain/scene/transform.hpp) | `localMatrix`, `worldMatrix` (l'ordre du produit), `interpolate`, `nlerpShortestPath`, `worldPosition`, `worldRotation` (l'échelle retirée d'abord) — sans flecs non plus |
 | [`include/levain/scene/fixed_step.hpp`](include/levain/scene/fixed_step.hpp) | `FixedStep`, `planSteps`, `pausedPlan` et `planFrame` — l'accumulateur et son plafond, et l'image à l'arrêt, testables sans monde |
 | [`include/levain/scene/camera_control.hpp`](include/levain/scene/camera_control.hpp) | La caméra libre : `FpsController`, `FpsInput`, `applyFpsInput`, et les pièges nommés `normalizeOrZero`, `clampPitch` (des bornes inversées sont remises dans l'ordre), `horizontalBasisFrom` |
-| [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` ; `advanceWorld` (avec l'arrêt) et `composeWorldTransforms` |
+| [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` ; `advanceWorld` (avec l'arrêt, et le pas unique d'« Image suivante » : `planFrame`, `singleStepPlan`) et `composeWorldTransforms` |
 | [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf`, `componentOfKey`, puis `setComponentValue` et `sameValue` |
+| [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient`, `takeSnapshot`, `differencesFrom`, `compareWithSnapshot` et sa `Comparison` (le compte des vraies différences, sans plafond, et les enfants internes perdus à part), `entityIndexOf` et `byEntityIndex` (l’ordre par index, partagé avec la physique et la Hiérarchie), `createIdRanges`, `useEditIds`/`usePlayIds`, `bornInPlay`, `restoreSnapshot` et son `RestoreReport` |
+
+## L'instantané de la scène
+
+Play garde la scène, Stop la rend **en place**, avec les mêmes identifiants ([ADR-0037](../../docs/adr/0037-play-stop-restauration-en-place.md)).
+`snapshot.hpp`, sans éditeur ni GPU :
+
+- **Une entité de la scène** (`isSceneEntity`) est ce que la Hiérarchie pourrait montrer : vivante, ni flecs lui-même,
+  ni module, système, observateur, requête, composant ou prefab (`isEngineInternal`), ni rangée sous un module.
+  La scène n'emploie que `flecs::Parent` (ADR-0015) : une entité sous `ChildOf` n'en est pas une. On lit la **table**
+  (`(ChildOf, *)`), car un enfant de `flecs::Parent` répond oui à `entity.has(ChildOf, *)`.
+- **`takeSnapshot`** copie, pour chaque entité de la scène, son identifiant avec sa génération, son type complet, la
+  valeur de chaque composant **par les crochets du type** (`ecs_value_copy`), son nom, son parent, l'ordre de ses
+  enfants et ses enfants internes (l'observateur d'un `onEnter`). Play **ne part pas**, en nommant l'entité et la
+  cause, pour : un composant qui ne se copie pas (`COPY_ILLEGAL`) ou sans constructeur par défaut (`CTOR_ILLEGAL`) ;
+  une instance de prefab `(IsA, *)` ; deux frères du même nom (`lookup` n'en rend qu'un) ; une entité à `Transform`
+  rangée par `ChildOf` sous autre chose qu'un module, que la Hiérarchie montre mais que l'instantané ne garde pas.
+  Un type à copie supprimée mais à déplacement défini par défaut compte pour trivialement copiable pour flecs : il est
+  copié par `memcpy`, sans risque puisque son destructeur est trivial ; ce qui pend, ce sont les handles, d'où `Transient`.
+- **`Transient`**, une étiquette sur un composant comme `Authored`, posée à l'import de `SceneModule` : un module
+  marque ce qui n'est pas la scène (les handles de Jolt). Jamais copié, jamais refusé, retiré des entités à Stop.
+- **`differencesFrom`** : une ligne par différence (identifiants et générations, entités en trop ou manquantes, noms,
+  `lookup(chemin) == id`, parents, types, valeurs, ordre des enfants, enfant interne manquant, entité née en jeu sous
+  une entité de la scène par `ChildOf`), les vingt premières puis le compte des autres. Vide si la scène est
+  identique : c'est le critère de Stop.
+- **Les plages d'identifiants** (`createIdRanges`, appelée par `createApp` juste après le monde) : l'édition prend
+  [1, 2^24 − 1], le jeu au-dessus (`useEditIds`, `usePlayIds`). Chaque plage a sa liste d'index à réutiliser : l'index
+  d'une caisse détruite en jeu ne peut pas être repris par un observateur ou une requête créés ensuite, qui restent
+  après Stop. *Né en jeu* (`bornInPlay`) : une entité de la scène d'index au moins 2^24.
+- **`restoreSnapshot`** rend la scène en place (ADR-0037, décision 3). Refusée en mode différé et si un index est pris
+  par une autre génération, le monde intact, dans tous les builds. Puis : 1. détruire les entités nées en jeu ;
+  2. revenir à la plage de l'édition, **avant** le réveil ; 3. réveiller les entités détruites avec leur génération
+  (`ecs_make_alive`) ; 4. rendre les parents (par profondeur croissante, ce qui évite tout cycle), les composants
+  (ceux de trop retirés, `Transient` compris), les valeurs (réécrites si elles ont changé, toujours si on ne sait pas
+  les comparer) et les noms (tous reposés, même inchangés : l'index des noms range un nom sous son parent au moment
+  où il est posé) ; 5. rendre l'ordre des enfants, la liste vérifiée en n log n ; 6. vérifier par `differencesFrom`.
+  Un volume détruit en jeu revient sans l'observateur rangé dessous : `RestoreReport` le nomme. flecs ne vérifie qu'en
+  Debug (`ecs_check`) un réveil sur un index vivant, une plage créée après une destruction et la taille de la liste
+  d'enfants : Levain les vérifie lui-même.
+
+| Piège | Son nom |
+|---|---|
+| Une entité qui perd son `flecs::Parent` (un enfant devenu racine) sort de l'index des noms sans être rangée à la racine : un parent et son enfant inversés puis remis en place perdent leur `lookup` | `restoreNames` (tous reposés après les parents) et le `lookup` de `differencesFrom` |
+| Un frère prend le nom d'un autre, puis est détruit : il emporte l'entrée du nom, et l'autre ne se trouve plus par `lookup` | les mêmes |
+| `ecs_get_ordered_children` s'arrête sur une assertion pour un parent sans enfant `flecs::Parent` (vérifié sur la 4.1.6) | `orderedChildrenOf` ne l'appelle qu'avec un enfant `Parent` |
+| Le nom et `flecs::Parent` sont tenus par flecs : les recopier dans le type le casserait | `isKeptByFlecs`, `sceneTypeOf` |
+| Une valeur qu'on ne sait pas comparer (ni décrite, ni crochet `cmp`) ne se voit pas dans `differencesFrom`, et Stop la réécrit toujours | `isComparable` |
+
+Un instantané garde le monde pour libérer ses valeurs : il ne lui survit pas.
+
+Ailleurs : Unity ne relit que « le contenu modifié de la scène » au retour de Play quand il ne la recharge pas
+(**documenté**) ; Unreal joue dans une copie du monde (**supposé**) ; Godot dans un autre processus (**documenté**).
 
 ## Trois notions de flecs
 
@@ -166,6 +218,8 @@ C# par la réflexion du langage, et `[Range]` borne l'inspecteur ; Godot les dé
 | Une requête dont le **singleton manque** ne correspond à rien, et son système se tait au lieu d'échouer | poser le singleton à l'import du module (`RenderAlpha`), et un test qui vérifie qu'un `progress` seul compose quand même les matrices |
 | Les *tick sources* (`interval(1/60)`) **ne rattrapent pas** le retard : à 30 images/s, le système tourne 30 fois par seconde, pas 60 | l'accumulateur de `fixed_step.hpp` et un pipeline exécuté N fois ([ADR-0016](../../docs/adr/0016-boucle-a-pas-fixe.md)) |
 | Sans `ipaddr`, le serveur REST écoute sur **toutes les interfaces**, et son API sait supprimer des entités et exécuter des scripts | toujours `127.0.0.1` ; `tools/explorer-check.sh` échoue sinon |
+| `ecs_get_ordered_children` s'arrête sur une assertion pour un parent sans enfant `flecs::Parent` (un volume dont les seuls enfants sont ses observateurs `ChildOf`) | `orderedChildrenOf` ne l'appelle qu'avec un enfant `Parent` ([GOTCHA](../../.agents/skills/build/GOTCHA.md)) |
+| Une struct à copie supprimée et déplacement `= default` compte pour trivialement copiable : pas de `COPY_ILLEGAL`, `ecs_value_copy` la copie par `memcpy` | un type de test pour un refus porte un `std::unique_ptr` ; ce qui pend, ce sont les handles, d'où `Transient` |
 
 ## Ce que coûte un tour (Release, 100 000 entités)
 

@@ -20,7 +20,7 @@ namespace
 // par la disposition du banc d'essai.
 constexpr std::uint16_t ScanA = 4, ScanD = 7, ScanE = 8, ScanF = 9, ScanG = 10, ScanQ = 20,
                         ScanR = 21, ScanS = 22, ScanW = 26, ScanEscape = 41, ScanSpace = 44,
-                        ScanF1 = 58, ScanF12 = 69;
+                        ScanF1 = 58, ScanF12 = 69, ScanPause = 72;
 // Left Ctrl à Right GUI : les modificateurs seuls, que ni Ctrl ni Maj ne lient (USB HID 0xE0-0xE7).
 constexpr std::uint32_t FirstModifierScancode = 224, LastModifierScancode = 231;
 constexpr std::uint32_t ScancodeMask = 1U
@@ -68,6 +68,8 @@ const char* namedKeyOf(std::uint32_t keycode)
         return "Bas";
     case ScancodeMask | ScanUp:
         return "Haut";
+    case ScancodeMask | ScanPause:
+        return "Pause";
     default:
         return nullptr;
     }
@@ -137,6 +139,10 @@ const char* nameOf(Action action)
         return "Simuler";
     case Action::Stop:
         return "Arrêter";
+    case Action::Pause:
+        return "Pause";
+    case Action::NextFrame:
+        return "Image suivante";
     case Action::GiveMouseBack:
         return "Rendre la souris";
     case Action::Count:
@@ -174,8 +180,11 @@ ShortcutTable defaultShortcuts()
             bind(Redo, Global, letterChord('y', Ctrl), letterChord('z', CtrlShift)),
             bind(Play, Global, letterChord('p', Alt)),
             bind(Simulate, Global, letterChord('s', Alt)),
-            // Le jeu : Échap arrête, Maj+F1 rend la souris (F1 seule ouvre les panneaux).
+            // Le jeu : Échap arrête, la touche Pause met en pause, Maj+F1 rend la souris (F1 seule
+            // ouvre les panneaux). « Image suivante » n'a pas d'accord (voir `defaultShortcuts`).
             bind(Stop, Game, positionChord(ScanEscape)),
+            bind(Pause, Game, positionChord(ScanPause)),
+            bind(NextFrame, Game, Chord{}),
             bind(GiveMouseBack, Game, positionChord(ScanF1, Shift)),
         }};
 }
@@ -316,6 +325,13 @@ std::optional<Action> actionFor(const ShortcutTable& table, const KeyPress& pres
         }
     }
     return std::nullopt;
+}
+
+bool positionIs(const Binding& binding, std::uint16_t scancode)
+{
+    return std::ranges::any_of(
+        binding.chords, [scancode](const Chord& chord)
+        { return chord.kind == ChordKind::Position && isBound(chord) && chord.key == scancode; });
 }
 
 bool positionHeld(const Binding& binding, const std::bitset<platform::KeyCodeCount>& keys)

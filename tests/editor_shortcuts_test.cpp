@@ -65,9 +65,16 @@ TEST_CASE("les défauts : chaque action une fois, au plus deux accords, le conte
         const auto action = static_cast<Action>(i);
         const Binding* binding = bindingOf(table, action);
         REQUIRE_MESSAGE(binding != nullptr, nameOf(action));
-        CHECK(isBound(binding->chords[0])); // la première place est toujours prise
+        // La première place est toujours prise, sauf « Image suivante » : Unreal n'en documente
+        // pas, et Ctrl+Alt+P d'Unity est AltGr+P en AZERTY (ADR-0037, décision 6).
+        CHECK(isBound(binding->chords[0]) == (action != Action::NextFrame));
         CHECK(std::string{nameOf(action)}.size() > 2);
     }
+    // Pause : la touche Pause (USB 72), du contexte jeu comme Échap ; Image suivante sans accord.
+    CHECK(bindingOf(table, Action::Pause)->context == Context::Game);
+    CHECK(bindingOf(table, Action::Pause)->chords[0] == positionChord(72));
+    CHECK(bindingOf(table, Action::NextFrame)->context == Context::Game);
+    CHECK_FALSE(isBound(bindingOf(table, Action::NextFrame)->chords[1]));
     CHECK(bindingOf(table, Action::MoveForward)->context == Context::Flight);
     CHECK(bindingOf(table, Action::FrameSelection)->context == Context::View);
     CHECK(bindingOf(table, Action::Save)->context == Context::Global);

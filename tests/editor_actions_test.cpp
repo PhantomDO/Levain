@@ -63,8 +63,8 @@ TEST_CASE("une action grisée dit son milestone, les autres sont là")
         CHECK(std::string{availabilityOf(tool).milestone} == "M7.4");
         CHECK(isToolAction(tool));
     }
-    CHECK(std::string{availabilityOf(Action::Simulate).milestone} == "M7.5");
-    for (const Action here : {Action::Play, Action::Stop, Action::RealTime, Action::MoveForward})
+    for (const Action here :
+         {Action::Play, Action::Simulate, Action::Stop, Action::RealTime, Action::MoveForward})
     {
         CHECK(availabilityOf(here).available);
         CHECK(std::string{availabilityOf(here).milestone}.empty());
@@ -102,10 +102,53 @@ TEST_CASE("les actions qui sont là : le temps réel bascule, jouer et arrêter 
     CHECK_FALSE(runAction(Action::RealTime, counters, realTime, Mode::Edit).has_value());
     CHECK(realTime);
     CHECK(counters.performed.at(indexOf(Action::RealTime)) == 2);
-    CHECK(runAction(Action::Play, counters, realTime, Mode::Edit) == Mode::PlayWithoutReturn);
-    CHECK_FALSE(runAction(Action::Play, counters, realTime, Mode::PlayWithoutReturn).has_value());
-    CHECK(runAction(Action::Stop, counters, realTime, Mode::PlayWithoutReturn) == Mode::Edit);
+    CHECK(runAction(Action::Play, counters, realTime, Mode::Edit) == Mode::Play);
+    CHECK(runAction(Action::Stop, counters, realTime, Mode::Play) == Mode::Edit);
+    // Simuler depuis l'Édition, et Échap en revient comme de Jouer.
+    CHECK(runAction(Action::Simulate, counters, realTime, Mode::Edit) == Mode::Simulate);
+    CHECK(runAction(Action::Stop, counters, realTime, Mode::Simulate) == Mode::Edit);
+    CHECK(counters.performed.at(indexOf(Action::Simulate)) == 1);
     CHECK(levain::core::snapshotOf(*capture.ring).entries.empty()); // rien de grisé, rien de dit
+}
+
+TEST_CASE(
+    "un changement de mode refusé par startPlay n'est pas une action faite : le compte passe à "
+    "refusé")
+{
+    ActionCounters counters;
+    bool realTime = true;
+    REQUIRE(runAction(Action::Simulate, counters, realTime, Mode::Edit) == Mode::Simulate);
+    CHECK(counters.performed.at(indexOf(Action::Simulate)) == 1);
+
+    countRefusedTransition(counters, Action::Simulate);
+
+    CHECK(counters.performed.at(indexOf(Action::Simulate)) == 0);
+    CHECK(counters.declined.at(indexOf(Action::Simulate)) == 1);
+    // Une autre action n'est pas touchée.
+    CHECK(counters.performed.at(indexOf(Action::Stop)) == 0);
+    CHECK(counters.declined.at(indexOf(Action::Stop)) == 0);
+}
+
+TEST_CASE("Jouer et Simuler ne partent que de l'Édition : en jeu elles sont refusées, comptées et "
+          "dites")
+{
+    levain::core::LogCapture capture = levain::core::captureLog(16);
+    ActionCounters counters;
+    bool realTime = true;
+    for (const Mode mode : {Mode::Play, Mode::Simulate})
+    {
+        CHECK_FALSE(runAction(Action::Simulate, counters, realTime, mode).has_value());
+        // Alt+P en Simuler était muette quand Alt+S en Jouer était refusée : les deux se disent.
+        CHECK_FALSE(runAction(Action::Play, counters, realTime, mode).has_value());
+    }
+    CHECK(counters.declined.at(indexOf(Action::Simulate)) == 2);
+    CHECK(counters.performed.at(indexOf(Action::Simulate)) == 0);
+    CHECK(counters.declined.at(indexOf(Action::Play)) == 2);
+    CHECK(counters.performed.at(indexOf(Action::Play)) == 0);
+    const levain::core::LogSnapshot snapshot = levain::core::snapshotOf(*capture.ring);
+    REQUIRE(snapshot.entries.size() == 4);
+    CHECK(snapshot.entries.at(0).text == "Simuler : seulement en Édition");
+    CHECK(snapshot.entries.at(1).text == "Jouer : seulement en Édition");
 }
 
 TEST_CASE("une touche d'outil dans la Vue prend l'outil : en vol aucune (W vole, R et Espace se "
@@ -300,19 +343,18 @@ TEST_CASE("le temps réel ne se règle qu'en Édition : jouer le force, revenir 
     ActionCounters counters;
     bool realTime = false; // décoché en Édition
     bool editChoice = true;
-    switchRealTime(Mode::Edit, Mode::PlayWithoutReturn, realTime, editChoice);
+    switchRealTime(Mode::Edit, Mode::Play, realTime, editChoice);
     CHECK(realTime); // on joue : le monde bouge
     CHECK_FALSE(editChoice);
     // Ctrl+R ou la case en jeu : rien ne bascule, la console le dit.
-    CHECK_FALSE(
-        runAction(Action::RealTime, counters, realTime, Mode::PlayWithoutReturn).has_value());
+    CHECK_FALSE(runAction(Action::RealTime, counters, realTime, Mode::Play).has_value());
     CHECK(realTime);
     CHECK(counters.declined.at(indexOf(Action::RealTime)) == 1);
     CHECK(counters.performed.at(indexOf(Action::RealTime)) == 0);
     const auto snapshot = levain::core::snapshotOf(*capture.ring);
     REQUIRE(snapshot.entries.size() == 1);
     CHECK(snapshot.entries.front().text == "Temps réel : seulement en Édition");
-    switchRealTime(Mode::PlayWithoutReturn, Mode::Edit, realTime, editChoice);
+    switchRealTime(Mode::Play, Mode::Edit, realTime, editChoice);
     CHECK_FALSE(realTime); // le choix de l'Édition est revenu
     // Un choix coché reste coché au retour, et rester du même côté ne touche à rien.
     realTime = true;
@@ -375,6 +417,98 @@ TEST_CASE("les touches d'outil lues dans les événements bruts : par position, 
     io.AddKeyEvent(ImGuiMod_Ctrl, false);
     bench.settle(2);
     CHECK(bench.reached == std::vector<Action>{Action::Undo});
+}
+
+TEST_CASE("heldKeysAfter range les événements de l'image : un appui et un relâchement ne laissent "
+          "rien, la fenêtre qui perd le focus oublie tout")
+{
+    std::bitset<levain::platform::KeyCodeCount> held;
+    held.set(ScanR);
+    levain::platform::Events events;
+    events.ui = {keyEvent(ScanW, 'w', true),
+                 keyEvent(ScanSpace, ' ', true),
+                 keyEvent(ScanSpace, ' ', false),
+                 keyEvent(ScanR, 'r', false),
+                 {.type = UiEventType::MouseMoved, .x = 3.0f, .y = 4.0f}};
+    const auto after = heldKeysAfter(events, held);
+    CHECK(after.test(ScanW));
+    CHECK_FALSE(after.test(ScanSpace)); // appuyée et relâchée dans l'image
+    CHECK_FALSE(after.test(ScanR));     // relâchée
+    CHECK(after.count() == 1);
+    events.ui.insert(events.ui.begin() + 1, UiEvent{.type = UiEventType::FocusLost});
+    const auto lost = heldKeysAfter(events, held); // tout oublié avant l'appui de l'espace
+    CHECK_FALSE(lost.test(ScanR));
+    CHECK(lost.none()); // le W d'avant le focus perdu aussi, l'espace relâché
+    CHECK(heldKeysAfter({}, held) == held);
+}
+
+TEST_CASE("Pause, Image suivante et Rendre la souris : le contrôle que chaque action est")
+{
+    CHECK(playControlOf(Action::Pause) == PlayControl::TogglePause);
+    CHECK(playControlOf(Action::NextFrame) == PlayControl::StepFrame);
+    CHECK(playControlOf(Action::GiveMouseBack) == PlayControl::FreeMouse);
+    for (const Action other : {Action::Play, Action::Stop, Action::RealTime, Action::Simulate})
+    {
+        CHECK_FALSE(playControlOf(other).has_value());
+    }
+    // Hors du jeu, aucun ne vaut ; en jeu, Image suivante veut la pause et les autres non.
+    for (const PlayControl control :
+         {PlayControl::TogglePause, PlayControl::StepFrame, PlayControl::FreeMouse})
+    {
+        CHECK(playControlRefusal(control, Mode::Edit, false) == PlayRefusal::NotPlaying);
+        CHECK(playControlRefusal(control, Mode::Edit, true) == PlayRefusal::NotPlaying);
+    }
+    CHECK(playControlRefusal(PlayControl::StepFrame, Mode::Play, false) == PlayRefusal::NotPaused);
+    CHECK(playControlRefusal(PlayControl::StepFrame, Mode::Play, true) == PlayRefusal::None);
+    CHECK(playControlRefusal(PlayControl::TogglePause, Mode::Play, false) == PlayRefusal::None);
+    CHECK(playControlRefusal(PlayControl::TogglePause, Mode::Play, true) == PlayRefusal::None);
+    CHECK(playControlRefusal(PlayControl::FreeMouse, Mode::Play, false) == PlayRefusal::None);
+    // Simuler : la pause et le pas comme en Jouer ; Maj+F1 n'a rien à rendre, la souris étant à
+    // l'éditeur.
+    CHECK(playControlRefusal(PlayControl::StepFrame, Mode::Simulate, false) ==
+          PlayRefusal::NotPaused);
+    CHECK(playControlRefusal(PlayControl::StepFrame, Mode::Simulate, true) == PlayRefusal::None);
+    CHECK(playControlRefusal(PlayControl::TogglePause, Mode::Simulate, false) == PlayRefusal::None);
+    CHECK(playControlRefusal(PlayControl::FreeMouse, Mode::Simulate, false) ==
+          PlayRefusal::NotInPlay);
+    CHECK(playControlRefusal(PlayControl::FreeMouse, Mode::Simulate, true) ==
+          PlayRefusal::NotInPlay);
+}
+
+TEST_CASE(
+    "atteindre un contrôle de jeu le compte s'il est fait, le dit à la console s'il est refusé")
+{
+    levain::core::LogCapture capture = levain::core::captureLog(16);
+    ActionCounters counters;
+    CHECK(runPlayControl(Action::Pause, counters, Mode::Play, false) == PlayControl::TogglePause);
+    CHECK(runPlayControl(Action::Pause, counters, Mode::Play, true) == PlayControl::TogglePause);
+    CHECK(runPlayControl(Action::NextFrame, counters, Mode::Play, true) == PlayControl::StepFrame);
+    CHECK(runPlayControl(Action::GiveMouseBack, counters, Mode::Play, false) ==
+          PlayControl::FreeMouse);
+    CHECK(counters.performed.at(indexOf(Action::Pause)) == 2);
+    CHECK(counters.performed.at(indexOf(Action::NextFrame)) == 1);
+    CHECK(levain::core::snapshotOf(*capture.ring).entries.empty()); // rien de refusé, rien de dit
+
+    // Image suivante en marche : refusée, comptée, dite.
+    CHECK_FALSE(runPlayControl(Action::NextFrame, counters, Mode::Play, false).has_value());
+    CHECK(counters.declined.at(indexOf(Action::NextFrame)) == 1);
+    CHECK(counters.performed.at(indexOf(Action::NextFrame)) == 1);
+    // Pause en Édition : refusée aussi.
+    CHECK_FALSE(runPlayControl(Action::Pause, counters, Mode::Edit, false).has_value());
+    CHECK(counters.declined.at(indexOf(Action::Pause)) == 1);
+    // Maj+F1 en Simuler : refusée (la souris est déjà à l'éditeur), comptée, dite.
+    CHECK_FALSE(runPlayControl(Action::GiveMouseBack, counters, Mode::Simulate, false).has_value());
+    CHECK(counters.declined.at(indexOf(Action::GiveMouseBack)) == 1);
+    CHECK(counters.performed.at(indexOf(Action::GiveMouseBack)) == 1);
+    const levain::core::LogSnapshot snapshot = levain::core::snapshotOf(*capture.ring);
+    REQUIRE(snapshot.entries.size() == 3);
+    CHECK(snapshot.entries.at(0).text == "Image suivante : seulement en pause");
+    CHECK(snapshot.entries.at(1).text == "Pause : seulement en jeu");
+    CHECK(snapshot.entries.at(2).text == "Rendre la souris : seulement en Jouer");
+    // Une action qui n'est pas un contrôle de jeu n'est ni comptée ni dite.
+    CHECK_FALSE(runPlayControl(Action::Play, counters, Mode::Edit, false).has_value());
+    CHECK(counters.performed.at(indexOf(Action::Play)) == 0);
+    CHECK(counters.declined.at(indexOf(Action::Play)) == 0);
 }
 
 TEST_CASE("keyPressesOf rend la position, la lettre de la disposition et les modificateurs, et une "

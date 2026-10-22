@@ -1,5 +1,6 @@
 #include "levain/editor/actions.hpp"
 
+#include "levain/core/assert.hpp"
 #include "levain/core/log.hpp"
 #include "levain/ui/tr.hpp"
 
@@ -41,9 +42,12 @@ std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& rea
                   ui::trf("{} : arrive en {}", ui::tr(nameOf(action)), availability.milestone));
         return std::nullopt;
     }
-    if (action == Action::RealTime && current != Mode::Edit)
+    if ((action == Action::RealTime || action == Action::Simulate || action == Action::Play) &&
+        current != Mode::Edit)
     {
-        // Grisé hors de l'Édition (`switchRealTime`) : Ctrl+R le dit, il ne bascule rien.
+        // Grisé hors de l'Édition (`switchRealTime`) : Ctrl+R le dit, il ne bascule rien. Alt+S et
+        // Alt+P aussi : on joue et on simule depuis l'Édition, la scène rendue ; en jeu, elles
+        // compteraient un appui sans effet.
         ++counters.declined.at(indexOf(action));
         core::log("editor", core::LogLevel::Info, "{}",
                   ui::trf("{} : seulement en Édition", ui::tr(nameOf(action))));
@@ -57,11 +61,51 @@ std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& rea
         return std::nullopt;
     case Action::Play:
         return modeRequested(current, {.playShortcut = true});
+    case Action::Simulate:
+        return modeRequested(current, {.simulate = true});
     case Action::Stop:
         return modeRequested(current, {.stop = true});
     default:
         return std::nullopt;
     }
+}
+
+void countRefusedTransition(ActionCounters& counters, Action action)
+{
+    int& performed = counters.performed.at(indexOf(action));
+    LEVAIN_ASSERT(performed > 0, "countRefusedTransition : l'action n'avait pas été comptée faite");
+    --performed;
+    ++counters.declined.at(indexOf(action));
+}
+
+std::optional<PlayControl> runPlayControl(Action action, ActionCounters& counters, Mode current,
+                                          bool paused)
+{
+    const auto control = playControlOf(action);
+    if (!control)
+    {
+        return std::nullopt;
+    }
+    const std::string name = ui::tr(nameOf(action));
+    switch (playControlRefusal(*control, current, paused))
+    {
+    case PlayRefusal::None:
+        break;
+    case PlayRefusal::NotPlaying:
+        ++counters.declined.at(indexOf(action));
+        core::log("editor", core::LogLevel::Info, "{}", ui::trf("{} : seulement en jeu", name));
+        return std::nullopt;
+    case PlayRefusal::NotPaused:
+        ++counters.declined.at(indexOf(action));
+        core::log("editor", core::LogLevel::Info, "{}", ui::trf("{} : seulement en pause", name));
+        return std::nullopt;
+    case PlayRefusal::NotInPlay:
+        ++counters.declined.at(indexOf(action));
+        core::log("editor", core::LogLevel::Info, "{}", ui::trf("{} : seulement en Jouer", name));
+        return std::nullopt;
+    }
+    ++counters.performed.at(indexOf(action));
+    return control;
 }
 
 std::optional<Action> toolActionOf(const ShortcutTable& table, const KeyPress& press,
@@ -76,6 +120,23 @@ std::optional<Action> viewKeyActionOf(const ShortcutTable& table, const KeyPress
 {
     const auto action = actionFor(table, press, active);
     return action && (isToolAction(*action) || *action == Action::GameView) ? action : std::nullopt;
+}
+
+std::bitset<platform::KeyCodeCount> heldKeysAfter(const platform::Events& events,
+                                                  std::bitset<platform::KeyCodeCount> held)
+{
+    for (const platform::UiEvent& event : events.ui)
+    {
+        if (event.type == platform::UiEventType::FocusLost)
+        {
+            held.reset();
+        }
+        else if (event.type == platform::UiEventType::Key && event.scancode < held.size())
+        {
+            held.set(event.scancode, event.down);
+        }
+    }
+    return held;
 }
 
 std::vector<KeyPress> keyPressesOf(const platform::Events& events,

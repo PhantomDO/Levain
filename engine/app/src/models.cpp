@@ -289,6 +289,36 @@ double advanceAnimationClock(AnimationClock& clock, double sceneSeconds, bool si
     return sceneSeconds - clock.pausedSeconds;
 }
 
+AnimationMemo rememberAnimation(const std::map<assets::AssetId, ModelGpu>& models,
+                                const AnimationClock& clock)
+{
+    AnimationMemo memo{.clock = clock, .models = {}};
+    for (const auto& [id, model] : models)
+    {
+        if (model.animation)
+        {
+            memo.models.emplace(id, AnimationMemo::Model{.animator = model.animator,
+                                                         .lastSeconds = model.lastSeconds});
+        }
+    }
+    return memo;
+}
+
+void restoreAnimation(std::map<assets::AssetId, ModelGpu>& models, AnimationClock& clock,
+                      const AnimationMemo& memo)
+{
+    clock = memo.clock;
+    for (const auto& [id, saved] : memo.models)
+    {
+        const auto found = models.find(id);
+        if (found != models.end())
+        {
+            found->second.animator = saved.animator;
+            found->second.lastSeconds = saved.lastSeconds;
+        }
+    }
+}
+
 void animateModels(nvrhi::IDevice& device, nvrhi::ICommandList& commandList,
                    std::map<assets::AssetId, ModelGpu>& models,
                    const render::SkinningPass& skinning, SkinningState& state,

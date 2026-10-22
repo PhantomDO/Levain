@@ -15,6 +15,8 @@ namespace levain::ui::icon
 
 inline constexpr const char* Play = "\uE037";    // play_arrow
 inline constexpr const char* Stop = "\uE047";    // stop
+inline constexpr const char* Pause = "\uE034";   // pause
+inline constexpr const char* Step = "\uE044";    // skip_next
 inline constexpr const char* Move = "\uE89F";    // open_with
 inline constexpr const char* Rotate = "\uE41A";  // rotate_right
 inline constexpr const char* Scale = "\uE85B";   // aspect_ratio
@@ -24,8 +26,8 @@ inline constexpr const char* Console = "\uEB8E"; // terminal
 inline constexpr const char* Frame = "\uE3C2";   // crop_free
 
 /// Toutes les icônes : le test des polices vérifie que chacune est dans la police des icônes.
-inline constexpr auto All =
-    std::to_array<const char*>({Play, Stop, Move, Rotate, Scale, Save, Help, Console, Frame});
+inline constexpr auto All = std::to_array<const char*>(
+    {Play, Stop, Pause, Step, Move, Rotate, Scale, Save, Help, Console, Frame});
 
 /// L'icône devant un libellé de bouton ou de menu. Le préfixe ne change pas l'identifiant d'ImGui,
 /// que `labelOf` écrit après « ### ».

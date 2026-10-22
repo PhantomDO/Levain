@@ -8,6 +8,7 @@
 #include "levain/scene/components.hpp"
 #include "levain/scene/motion.hpp"
 #include "levain/scene/reflection.hpp"
+#include "levain/scene/snapshot.hpp"
 #include "levain/scene/transform.hpp"
 
 namespace levain::scene
@@ -137,6 +138,10 @@ SceneModule::SceneModule(flecs::world& world)
     // dans l'ordre de leur déclaration : un plugin gameplay, qui importe la physique avant de
     // déclarer ses systèmes, tourne quand même avant le pas
     // (https://www.flecs.dev/flecs/md_docs_2Systems.html, section « Custom pipeline »).
+    // L'étiquette que les modules posent sur leurs composants hors scène (snapshot.hpp) : connue
+    // dès l'import, avant la première liste d'entités de l'instantané.
+    world.component<Transient>();
+
     world.component<Simulation>().add<SimulationPhase>();
     world.component<Physics>().add<SimulationPhase>().depends_on(world.component<Simulation>());
     world.component<PostPhysics>().add<SimulationPhase>().depends_on(world.component<Physics>());
@@ -202,9 +207,10 @@ SceneModule::SceneModule(flecs::world& world)
     world.set<WorldTransformSystem>({.system = computeWorldTransforms.id()});
 }
 
-int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds, bool simulationPaused)
+int advanceWorld(flecs::world& world, FixedStep& step, float frameSeconds, bool simulationPaused,
+                 bool singleStep)
 {
-    const StepPlan plan = planFrame(step, frameSeconds, simulationPaused);
+    const StepPlan plan = planFrame(step, frameSeconds, simulationPaused, singleStep);
     const flecs::entity_t simulation = world.get<SimulationPipeline>().pipeline;
     for (int i = 0; i < plan.steps; ++i)
     {

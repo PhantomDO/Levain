@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
@@ -422,6 +423,119 @@ int playSkeletonFrozenTime(const levain::tests::TestBackend& backend, const Temp
                   "--time fige les squelettes à T, même démarrée à l'arrêt (non à 0)");
 }
 
+/// « Image suivante » (`App::singleStep`, ADR-0037, décision 6) : à l'arrêt, une demande joue
+/// exactement un pas, le même qu'en marche, sans toucher à l'accumulateur ; la boucle la remet à
+/// faux. Posée par `ui` elle vaut à l'image suivante, par `frame` à la même image.
+int playSingleStep(const levain::tests::TestBackend& backend)
+{
+    const float step = levain::scene::FixedStep{}.stepSeconds;
+    constexpr int Frames = 14;
+    Scenario scenario;
+    scenario.paused =
+        true; // l'accumulateur y reçoit 0,4 pas, que le pas demandé ne doit pas toucher
+    // **Posée seulement** : la remettre à faux est l'affaire de la boucle, que ce test vérifie.
+    scenario.onUi = [](App& app, int frame)
+    {
+        if (frame == 3 || frame == 8)
+        {
+            app.singleStep = true;
+        }
+    };
+    scenario.onFrame = [](App& app, int frame)
+    {
+        if (frame == 11)
+        {
+            app.singleStep = true;
+        }
+    };
+    const Run run = play(backend, scenario, Frames);
+    if (expect(run.exitCode == 0 && run.seen.size() == Frames,
+               "Image suivante : la boucle va au bout") != 0)
+    {
+        return 1;
+    }
+    // Le mover avance d'un pas aux images 4 (demande de ui à l'image 3), 9 (ui, 8) et 11 (frame,
+    // la même image) : rien d'autre, et la demande n'est pas gardée.
+    const auto stepsAt = [&run, step](int frame)
+    { return std::lround(run.seen.at(static_cast<std::size_t>(frame)).moverX / step); };
+    bool exactlyThree = true;
+    for (int frame = 0; frame < Frames; ++frame)
+    {
+        const long expected = (frame >= 4) + (frame >= 9) + (frame >= 11);
+        exactlyThree = exactlyThree && stepsAt(frame) == expected;
+    }
+    const bool frozenBetween =
+        std::ranges::all_of(run.seen, [step](const Seen& seen)
+                            { return seen.alpha == 1.0f && seen.accumulator == 0.4f * step; });
+    return expect(exactlyThree, "Image suivante : un pas par demande, ui à l'image d'après, frame "
+                                "à la même, et la demande n'est pas gardée") +
+           expect(frozenBetween, "Image suivante : alpha 1 et l'accumulateur intact, pas compris");
+}
+
+/// Une demande de pas posée **en marche** ne vaut rien, et n'est pas gardée pour l'arrêt suivant :
+/// la boucle la remet à faux à chaque image, arrêtée ou non.
+int playSingleStepWhileRunning(const levain::tests::TestBackend& backend)
+{
+    Scenario scenario;
+    scenario.onUi = [](App& app, int frame)
+    {
+        if (frame == 3)
+        {
+            app.singleStep = true; // en marche
+        }
+        if (frame == 6)
+        {
+            app.simulationPaused = true; // à l'image 7 et après : aucun pas
+        }
+    };
+    const Run run = play(backend, scenario, 12);
+    if (expect(run.exitCode == 0 && run.seen.size() == 12,
+               "pas demandé en marche : la boucle va au bout") != 0)
+    {
+        return 1;
+    }
+    const float step = levain::scene::FixedStep{}.stepSeconds;
+    const auto stepsAt = [&run, step](int frame)
+    { return std::lround(run.seen.at(static_cast<std::size_t>(frame)).moverX / step); };
+    return expect(stepsAt(6) == 7 && stepsAt(7) == 7 && stepsAt(11) == 7,
+                  "pas demandé en marche : un pas par image jusqu'à l'arrêt (7 images), puis "
+                  "aucun : la demande n'a pas été gardée pour l'arrêt");
+}
+
+/// Les squelettes avancent d'une image avec « Image suivante », puis s'arrêtent de nouveau.
+int playSingleStepSkeleton(const levain::tests::TestBackend& backend, const TempDir& dir)
+{
+    Scenario scenario = skeletonScenario(dir);
+    scenario.paused = true;
+    scenario.onUi = [](App& app, int frame)
+    {
+        if (frame == 5)
+        {
+            app.singleStep = true;
+        }
+    };
+    const Run run = play(backend, scenario, 10);
+    if (expect(run.exitCode == 0 && run.seen.size() == 10 && !poseAt(run, 0).empty(),
+               "Image suivante, squelette : la boucle va au bout") != 0)
+    {
+        return 1;
+    }
+    bool frozenBefore = true;
+    bool frozenAfter = true;
+    for (int frame = 1; frame <= 5; ++frame)
+    {
+        frozenBefore = frozenBefore && poseAt(run, frame) == poseAt(run, 0);
+    }
+    for (int frame = 7; frame < 10; ++frame)
+    {
+        frozenAfter = frozenAfter && poseAt(run, frame) == poseAt(run, 6);
+    }
+    return expect(frozenBefore, "Image suivante : le squelette est figé avant la demande") +
+           expect(poseAt(run, 6) != poseAt(run, 5),
+                  "Image suivante : le squelette avance à l'image du pas") +
+           expect(frozenAfter, "Image suivante : puis il s'arrête de nouveau");
+}
+
 /// La caméra imposée : zéro ou plusieurs `CameraLens` ne la dérangent pas, `startApp` la respecte,
 /// et ce que `ui` en change est dans le rendu de la même image.
 int playCameraOverride(const levain::tests::TestBackend& backend)
@@ -532,7 +646,9 @@ int main(int argc, char** argv)
         const int failures =
             playRecompose(*backend) + playPaused(*backend) + playSkeleton(*backend, modelDir) +
             playPauseFromUi(*backend, modelDir) + playSkeletonFrozenTime(*backend, modelDir) +
-            playCameraOverride(*backend) + playNoCamera(*backend);
+            playSingleStep(*backend) + playSingleStepWhileRunning(*backend) +
+            playSingleStepSkeleton(*backend, modelDir) + playCameraOverride(*backend) +
+            playNoCamera(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)

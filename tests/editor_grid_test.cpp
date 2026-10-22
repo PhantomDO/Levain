@@ -625,8 +625,8 @@ TEST_CASE("la vue de jeu et Jouer cachent les aides, la grille suit")
 {
     CHECK(helpersVisibleIn(Mode::Edit, false));
     CHECK_FALSE(helpersVisibleIn(Mode::Edit, true));
-    CHECK_FALSE(helpersVisibleIn(Mode::PlayWithoutReturn, false));
-    CHECK_FALSE(helpersVisibleIn(Mode::PlayWithoutReturn, true));
+    CHECK_FALSE(helpersVisibleIn(Mode::Play, false));
+    CHECK_FALSE(helpersVisibleIn(Mode::Play, true));
 
     ShowState show;
     CHECK(gridVisibleIn(show, true));

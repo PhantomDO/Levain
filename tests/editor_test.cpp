@@ -145,6 +145,39 @@ TEST_CASE("la hiérarchie liste les racines, et les enfants des seuls nœuds ouv
     CHECK_FALSE(levain::editor::hasShownChildren(world, world.lookup("a::b")));
 }
 
+namespace
+{
+struct Detour
+{
+};
+} // namespace
+
+TEST_CASE(
+    "la hiérarchie range ses racines par index, non par tables, et une réveillée reprend sa place")
+{
+    flecs::world world;
+    const flecs::entity first = world.entity("première").set(Transform{});
+    const flecs::entity second = world.entity("seconde").set(Transform{});
+    world.entity("troisième").set(Transform{});
+    const levain::editor::Hierarchy hierarchy = levain::editor::createHierarchy(world);
+    REQUIRE(rowsOf(world, hierarchy) ==
+            std::vector<std::string>{"première", "seconde", "troisième"});
+
+    // Un détour par une autre table renvoie « seconde » en fin de sa table d'origine : l'ordre des
+    // tables n'est plus celui de la création, celui des index l'est toujours.
+    second.add<Detour>();
+    second.remove<Detour>();
+    CHECK(rowsOf(world, hierarchy) == std::vector<std::string>{"première", "seconde", "troisième"});
+
+    // Détruite puis réveillée avec sa génération (ce que fait Stop) : son identifiant entier est
+    // plus grand que tous les autres, son index non.
+    const flecs::entity_t id = first.id();
+    first.destruct();
+    ecs_make_alive(world, id);
+    world.entity(id).set_name("première").set(Transform{});
+    CHECK(rowsOf(world, hierarchy) == std::vector<std::string>{"première", "seconde", "troisième"});
+}
+
 TEST_CASE("la hiérarchie tait les entités de flecs, et un singleton va dans « Singletons »")
 {
     flecs::world world;
@@ -152,7 +185,7 @@ TEST_CASE("la hiérarchie tait les entités de flecs, et un singleton va dans «
     // lui-même : deux composants qui portent leur valeur, sans être des singletons de la scène.
     const flecs::entity scene = world.import<levain::scene::SceneModule>();
     world.entity("placée").set(Transform{});
-    // Un singleton est rangé sur l'entité de son composant : sans `isEngineInternal`, le
+    // Un singleton est rangé sur l'entité de son composant : sans `scene::isEngineInternal`, le
     // composant Transform passerait pour une racine de la scène, comme un système placé.
     world.set(Transform{});
     world.system("système").run([](flecs::iter&) {}).set(Transform{});
@@ -953,58 +986,301 @@ TEST_CASE(
 {
     using levain::app::InputRoute;
     using levain::editor::Mode;
-    CHECK(levain::editor::simulationPausedIn(Mode::Edit));
-    CHECK_FALSE(levain::editor::simulationPausedIn(Mode::PlayWithoutReturn));
-    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Edit));
-    CHECK(levain::editor::programFrameRunsIn(Mode::PlayWithoutReturn));
+    CHECK_FALSE(levain::editor::simulationRunsIn(Mode::Edit, false));
+    CHECK(levain::editor::simulationRunsIn(Mode::Play, false));
+    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Edit, false, false));
+    CHECK(levain::editor::programFrameRunsIn(Mode::Play, false, false));
     // Édition : rien au jeu, que la scène ait le focus ou non.
     CHECK(levain::editor::inputRouteFor(Mode::Edit, true) == InputRoute::Editor);
     CHECK(levain::editor::inputRouteFor(Mode::Edit, false) == InputRoute::Editor);
     // Jeu : au jeu si la scène a le focus ; sinon à l'UI, qu'un champ de texte actif ne soit pas
     // une touche de vol.
-    CHECK(levain::editor::inputRouteFor(Mode::PlayWithoutReturn, true) == InputRoute::Game);
-    CHECK(levain::editor::inputRouteFor(Mode::PlayWithoutReturn, false) == InputRoute::Ui);
-    CHECK(levain::editor::otherMode(Mode::Edit) == Mode::PlayWithoutReturn);
-    CHECK(levain::editor::otherMode(Mode::PlayWithoutReturn) == Mode::Edit);
+    CHECK(levain::editor::inputRouteFor(Mode::Play, true) == InputRoute::Game);
+    CHECK(levain::editor::inputRouteFor(Mode::Play, false) == InputRoute::Ui);
+    CHECK(levain::editor::otherMode(Mode::Edit) == Mode::Play);
+    CHECK(levain::editor::otherMode(Mode::Play) == Mode::Edit);
 }
 
 namespace
 {
 
-constexpr std::uint16_t ScanEscape = 41, ScanF5 = 62; // USB HID, vérifiés contre SDL par `platform`
+/// L'état des modes, chaque champ nommé : le dernier (`keys`) est un défaut, et les initialiseurs
+/// désignés les veulent tous.
+levain::editor::ModeState modeIn(levain::editor::Mode mode, bool paused = false,
+                                 bool mouseFreed = false)
+{
+    levain::editor::ModeState state;
+    state.current = mode;
+    state.paused = paused;
+    state.mouseFreed = mouseFreed;
+    return state;
+}
 
 } // namespace
 
-TEST_CASE("Échap ramène à l'Édition à son appui, pas tant qu'elle est tenue")
+TEST_CASE("la pause arrête la simulation et le frame du programme, et le jeu ne reçoit plus rien")
 {
-    levain::editor::ModeState state{.current = levain::editor::Mode::PlayWithoutReturn};
-    levain::input::RawInput raw;
-    const auto table = levain::editor::defaultShortcuts();
-    CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
-    raw.keys.set(ScanEscape);
-    CHECK(levain::editor::stopPressed(state, raw, table));
-    CHECK_FALSE(
-        levain::editor::stopPressed(state, raw, table)); // toujours tenue : le front est passé
-    raw.keys.reset(ScanEscape);
-    CHECK_FALSE(levain::editor::stopPressed(state, raw, table));
-    raw.keys.set(ScanEscape);
-    CHECK(levain::editor::stopPressed(state, raw, table)); // un nouvel appui
+    using levain::app::InputRoute;
+    using levain::editor::Mode;
+    using levain::editor::ModeState;
+    // En pause : ni pas ni frame du programme. Une pause n'existe pas en Édition, où rien ne
+    // tourne de toute façon.
+    CHECK_FALSE(levain::editor::simulationRunsIn(Mode::Play, true));
+    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Play, true, false));
+    // Un pas en pause fait tourner `frame` : ce qu'il pose (l'input, vide en pause) est ce que le
+    // pas lit, non l'input d'avant la pause. Pas en Édition, où un pas est refusé.
+    CHECK(levain::editor::programFrameRunsIn(Mode::Play, true, true));
+    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Edit, false, true));
+    CHECK_FALSE(levain::editor::simulationRunsIn(Mode::Edit, true));
+    // La route : la pause comme la souris rendue (Maj+F1) ôtent le jeu de l'input, la scène
+    // focalisée ou non ; sinon la route du mode.
+    const ModeState playing = modeIn(Mode::Play);
+    const ModeState paused = modeIn(Mode::Play, true);
+    const ModeState freed = modeIn(Mode::Play, false, true);
+    CHECK(levain::editor::inputRouteOf(playing, true) == InputRoute::Game);
+    CHECK(levain::editor::inputRouteOf(playing, false) == InputRoute::Ui);
+    CHECK(levain::editor::inputRouteOf(paused, true) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteOf(freed, true) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteOf(modeIn(Mode::Edit), true) == InputRoute::Editor);
 }
 
-TEST_CASE("l'arrêt lit la position que la table donne à « Arrêter », non Échap en dur")
+TEST_CASE("Simuler : la simulation et le frame du programme tournent, sous l'input vide de "
+          "l'éditeur et sa caméra, tant que la pause ne les arrête pas")
 {
-    levain::editor::ModeState state{.current = levain::editor::Mode::PlayWithoutReturn};
-    levain::input::RawInput raw;
+    using levain::app::InputRoute;
+    using levain::editor::editorOwnsViewIn;
+    using levain::editor::Mode;
+    // La simulation et le `frame` : comme Jouer, pause et pas compris. Le `frame` y tourne pour
+    // lire un input vide (route *éditeur*), sans quoi le dernier input de Jouer serait rejoué.
+    CHECK(levain::editor::simulationRunsIn(Mode::Simulate, false));
+    CHECK_FALSE(levain::editor::simulationRunsIn(Mode::Simulate, true));
+    CHECK(levain::editor::programFrameRunsIn(Mode::Simulate, false, false));
+    CHECK_FALSE(levain::editor::programFrameRunsIn(Mode::Simulate, true, false));
+    CHECK(levain::editor::programFrameRunsIn(Mode::Simulate, true, true));
+    // Le jeu ne reçoit rien, la scène focalisée ou non ; la pause n'y change rien.
+    CHECK(levain::editor::inputRouteFor(Mode::Simulate, true) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteFor(Mode::Simulate, false) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteOf(modeIn(Mode::Simulate), true) == InputRoute::Editor);
+    CHECK(levain::editor::inputRouteOf(modeIn(Mode::Simulate, true), true) == InputRoute::Editor);
+    CHECK(levain::editor::otherMode(Mode::Simulate) == Mode::Edit);
+    // La caméra et les gestes sont ceux de l'éditeur en Édition et en Simuler, ceux du jeu en
+    // Jouer.
+    CHECK(editorOwnsViewIn(Mode::Edit));
+    CHECK(editorOwnsViewIn(Mode::Simulate));
+    CHECK_FALSE(editorOwnsViewIn(Mode::Play));
+    CHECK(levain::editor::helpersVisibleIn(Mode::Simulate, false));
+    CHECK_FALSE(levain::editor::helpersVisibleIn(Mode::Simulate, true));
+    CHECK_FALSE(levain::editor::helpersVisibleIn(Mode::Play, false));
+    // Le mot de la ligne `editor.mode` que lit la CI, et le nom traduit du mode.
+    CHECK(std::string_view{levain::editor::modeTokenOf(Mode::Simulate)} == "simulate");
+    CHECK(std::string_view{levain::editor::modeNameOf(Mode::Simulate)} == "Simuler");
+}
+
+TEST_CASE("le frame du programme voit la durée d'un pas sur un pas en pause, le temps mesuré sinon")
+{
+    using levain::editor::programFrameSecondsOf;
+    constexpr float Measured = 0.5f;
+    constexpr float Step = 1.0f / 60.0f;
+    // Un pas en pause : le monde avance d'un pas fixe, le programme le voit.
+    CHECK(programFrameSecondsOf(true, true, Measured, Step) == Step);
+    // En marche (pas demandé ou non : `planFrame` l'ignore), ou en pause sans pas : le temps
+    // mesuré.
+    CHECK(programFrameSecondsOf(false, false, Measured, Step) == Measured);
+    CHECK(programFrameSecondsOf(false, true, Measured, Step) == Measured);
+    CHECK(programFrameSecondsOf(true, false, Measured, Step) == Measured);
+}
+
+TEST_CASE("la teinte du jeu : rien en Édition, une teinte qui joue, une autre en pause")
+{
+    using levain::editor::Mode;
+    using levain::editor::playTintOf;
+    CHECK_FALSE(playTintOf(Mode::Edit, false).has_value());
+    CHECK_FALSE(playTintOf(Mode::Edit, true).has_value()); // une pause d'Édition n'existe pas
+    // `value_or` : clang-tidy ne suit pas `REQUIRE`, et lit `.value()` comme un accès non gardé
+    // (build/GOTCHA.md). Les deux teintes existent, les `CHECK` suivants le disent par leurs
+    // couleurs.
+    CHECK(playTintOf(Mode::Play, false).has_value());
+    CHECK(playTintOf(Mode::Play, true).has_value());
+    const ImVec4 playing = playTintOf(Mode::Play, false).value_or(ImVec4{});
+    const ImVec4 paused = playTintOf(Mode::Play, true).value_or(ImVec4{});
+    // Les couleurs du style, non des littéraux d'ici ; et deux teintes qu'on distingue d'un coup
+    // d'œil : une autre couleur, pas une nuance de la première (la teinte du jeu est chaude, celle
+    // de la pause froide).
+    CHECK(playing.x == levain::ui::PlayTint.x);
+    CHECK(paused.x == levain::ui::PausedTint.x);
+    CHECK(playing.x > playing.z); // plus de rouge que de bleu
+    CHECK(paused.z > paused.x);   // plus de bleu que de rouge
+}
+
+TEST_CASE("Simuler a la teinte de Jouer, et celle de la pause en pause : le choix est celui-là")
+{
+    using levain::editor::Mode;
+    using levain::editor::playTintOf;
+    // Une couleur de plus voudrait son contraste mesuré contre le ciel, le sol et les panneaux :
+    // Simuler dit déjà qui il est par son bandeau, et la teinte dit que le monde bouge.
+    for (const bool paused : {false, true})
+    {
+        const ImVec4 play = playTintOf(Mode::Play, paused).value_or(ImVec4{});
+        const ImVec4 simulate = playTintOf(Mode::Simulate, paused).value_or(ImVec4{});
+        CHECK(play.w > 0.0f); // le test n'est pas vide : la teinte de Jouer existe
+        CHECK(simulate.x == play.x);
+        CHECK(simulate.y == play.y);
+        CHECK(simulate.z == play.z);
+        CHECK(simulate.w == play.w);
+    }
+}
+
+namespace
+{
+
+constexpr std::uint16_t ScanEscape = 41, ScanF5 = 62, ScanF1 = 58, ScanPause = 72, ScanW = 26,
+                        ScanQ = 20, ScanZ = 29;
+
+/// Une touche pressée ou relâchée telle que la fenêtre la rend (`UiEventType::Key`).
+levain::platform::UiEvent keyEvent(std::uint16_t scancode, bool down,
+                                   levain::platform::KeyModifiers modifiers = {})
+{
+    return {.type = levain::platform::UiEventType::Key,
+            .keycode = scancode | (1U << 30U),
+            .scancode = scancode,
+            .down = down,
+            .modifiers = modifiers};
+}
+
+levain::platform::Events eventsOf(std::vector<levain::platform::UiEvent> keys)
+{
+    levain::platform::Events events;
+    events.ui = std::move(keys);
+    return events;
+}
+
+} // namespace
+
+TEST_CASE("Échap arrête à son appui, pas tant qu'elle est tenue, Maj tenu ou non")
+{
+    levain::editor::ModeState state = modeIn(levain::editor::Mode::Play);
+    const auto table = levain::editor::defaultShortcuts();
+    using levain::editor::gameKeysPressed;
+    CHECK_FALSE(gameKeysPressed(state, eventsOf({}), table, false).stop);
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanEscape, true)}), table, false).stop);
+    // Tenue, elle se répète (SDL) : le front est passé, Échap n'arrête pas de nouveau.
+    CHECK_FALSE(gameKeysPressed(state, eventsOf({keyEvent(ScanEscape, true)}), table, false).stop);
+    CHECK_FALSE(gameKeysPressed(state, eventsOf({}), table, false).stop);
+    CHECK_FALSE(gameKeysPressed(state, eventsOf({keyEvent(ScanEscape, false)}), table, false).stop);
+    // Un nouvel appui, un modificateur tenu : Échap ne lit aucun modificateur (`isHeldAction`).
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanEscape, true, {.shift = true})}), table,
+                          false)
+              .stop);
+    // Appuyée et relâchée dans la même image : le front y est (l'ancien état « tenu » le perdait).
+    CHECK(gameKeysPressed(state,
+                          eventsOf({keyEvent(ScanF5, true), keyEvent(ScanEscape, false),
+                                    keyEvent(ScanEscape, true), keyEvent(ScanEscape, false)}),
+                          table, false)
+              .stop);
+}
+
+TEST_CASE("les touches du jeu se lisent à la place que la table leur donne, non en dur")
+{
+    using levain::editor::Action;
+    using levain::editor::gameKeysPressed;
+    levain::editor::ModeState state = modeIn(levain::editor::Mode::Play);
     levain::editor::ShortcutTable table;
-    table.bindings.push_back({.action = levain::editor::Action::Stop,
-                              .context = levain::editor::Context::Game,
-                              .chords = {levain::editor::positionChord(20), {}}});
-    raw.keys.set(ScanEscape);
-    CHECK_FALSE(levain::editor::stopPressed(state, raw, table)); // Échap n'est plus l'arrêt
-    raw.keys.set(20);
-    CHECK(levain::editor::stopPressed(state, raw, table));
-    // Sans aucune action « Arrêter », jamais.
-    CHECK_FALSE(levain::editor::stopPressed(state, raw, levain::editor::ShortcutTable{}));
+    table.bindings = {{.action = Action::Stop,
+                       .context = levain::editor::Context::Game,
+                       .chords = {levain::editor::positionChord(ScanQ), {}}},
+                      {.action = Action::Pause,
+                       .context = levain::editor::Context::Game,
+                       .chords = {levain::editor::positionChord(ScanW), {}}},
+                      {.action = Action::NextFrame,
+                       .context = levain::editor::Context::Game,
+                       .chords = {levain::editor::letterChord('n'), {}}}};
+    // Échap n'est plus l'arrêt, la touche à la position de Q l'est.
+    CHECK_FALSE(gameKeysPressed(state, eventsOf({keyEvent(ScanEscape, true)}), table, false).stop);
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanQ, true)}), table, false).stop);
+    // Pause est une position : celle du W d'un QWERTY, que la lettre marquée dessus soit « w » ou
+    // « z » (AZERTY) ; la touche qui tape « w » ailleurs (la position de Z) ne pause pas.
+    auto atW = keyEvent(ScanW, true);
+    atW.keycode = 'z'; // AZERTY : la touche à la place du W porte un Z
+    CHECK(gameKeysPressed(state, eventsOf({atW}), table, false).actions ==
+          std::vector<Action>{Action::Pause});
+    atW.down = false;
+    static_cast<void>(gameKeysPressed(state, eventsOf({atW}), table, false));
+    auto atZ = keyEvent(ScanZ, true);
+    atZ.keycode = 'w'; // AZERTY : la touche à la place du Z porte un W
+    CHECK(gameKeysPressed(state, eventsOf({atZ}), table, false).actions.empty());
+    // Image suivante, ici sur une lettre : la lettre de la disposition, quelle que soit la
+    // position.
+    auto typedN = keyEvent(ScanF5, true);
+    typedN.keycode = 'n';
+    CHECK(gameKeysPressed(state, eventsOf({typedN}), table, false).actions ==
+          std::vector<Action>{Action::NextFrame});
+}
+
+TEST_CASE("un clic est un bouton de la souris enfoncé : ni relâchement, ni mouvement, ni molette")
+{
+    using levain::editor::mousePressedIn;
+    using levain::platform::UiEvent;
+    using levain::platform::UiEventType;
+    CHECK_FALSE(mousePressedIn(eventsOf({})));
+    CHECK_FALSE(mousePressedIn(eventsOf({{.type = UiEventType::MouseMoved, .x = 3.0f, .y = 4.0f},
+                                         {.type = UiEventType::MouseWheel},
+                                         {.type = UiEventType::MouseButton, .down = false},
+                                         keyEvent(ScanW, true)})));
+    CHECK(
+        mousePressedIn(eventsOf({{.type = UiEventType::MouseMoved},
+                                 {.type = UiEventType::MouseButton, .button = 3, .down = true}})));
+}
+
+TEST_CASE("Maj+F1 rend la souris, F1 seule non, et les modificateurs sont exacts")
+{
+    using levain::editor::Action;
+    using levain::editor::gameKeysPressed;
+    levain::editor::ModeState state = modeIn(levain::editor::Mode::Play);
+    const auto table = levain::editor::defaultShortcuts();
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanF1, true, {.shift = true})}), table, false)
+              .actions == std::vector<Action>{Action::GiveMouseBack});
+    CHECK(
+        gameKeysPressed(state, eventsOf({keyEvent(ScanF1, false)}), table, false).actions.empty());
+    // F1 seule ouvre les panneaux (`togglesPanels`) : elle ne rend pas la souris. Ctrl+Maj+F1 non
+    // plus.
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanF1, true)}), table, false).actions.empty());
+    CHECK(
+        gameKeysPressed(state, eventsOf({keyEvent(ScanF1, false)}), table, false).actions.empty());
+    CHECK(gameKeysPressed(state, eventsOf({keyEvent(ScanF1, true, {.ctrl = true, .shift = true})}),
+                          table, false)
+              .actions.empty());
+    static_cast<void>(gameKeysPressed(state, eventsOf({keyEvent(ScanF1, false)}), table, false));
+    // La touche Pause, et l'ordre des appuis d'une image.
+    CHECK(gameKeysPressed(state,
+                          eventsOf({keyEvent(ScanPause, true), keyEvent(ScanPause, false),
+                                    keyEvent(ScanF1, true, {.shift = true})}),
+                          table, false)
+              .actions == std::vector<Action>{Action::Pause, Action::GiveMouseBack});
+}
+
+TEST_CASE(
+    "les touches du jeu ne partent ni en Édition, ni dans un champ de texte, mais sont suivies")
+{
+    using levain::editor::gameKeysPressed;
+    using levain::editor::Mode;
+    const auto table = levain::editor::defaultShortcuts();
+    levain::editor::ModeState edit = modeIn(Mode::Edit);
+    const auto pressed = eventsOf({keyEvent(ScanEscape, true), keyEvent(ScanPause, true)});
+    const auto none = gameKeysPressed(edit, pressed, table, false);
+    CHECK_FALSE(none.stop);
+    CHECK(none.actions.empty());
+    // Échap tenue depuis l'Édition : le front a eu lieu, le jeu qui commence ne le revoit pas.
+    CHECK(edit.keys.test(ScanEscape));
+    levain::editor::ModeState play = modeIn(Mode::Play);
+    play.keys = edit.keys;
+    CHECK_FALSE(gameKeysPressed(play, eventsOf({keyEvent(ScanEscape, true)}), table, false).stop);
+
+    // Un champ de texte actif garde Échap (elle y annule la frappe) et les autres touches.
+    levain::editor::ModeState typing = modeIn(Mode::Play);
+    const auto inField = gameKeysPressed(typing, pressed, table, true);
+    CHECK_FALSE(inField.stop);
+    CHECK(inField.actions.empty());
+    CHECK(typing.keys.test(ScanEscape)); // suivie quand même
 }
 
 TEST_CASE("Alt+P joue, Échap arrête, seul le bouton va dans les deux sens")
@@ -1013,7 +1289,7 @@ TEST_CASE("Alt+P joue, Échap arrête, seul le bouton va dans les deux sens")
     using levain::editor::modeRequested;
     using levain::editor::ModeRequests;
     constexpr Mode Edit = Mode::Edit;
-    constexpr Mode Play = Mode::PlayWithoutReturn;
+    constexpr Mode Play = Mode::Play;
     // Alt+P : de l'Édition au jeu, jamais l'inverse (sous la route jeu, ImGui ne la reçoit pas :
     // un retour par Alt+P ne marcherait qu'à certaines images).
     CHECK(modeRequested(Edit, {.playShortcut = true}) == Play);
@@ -1026,6 +1302,13 @@ TEST_CASE("Alt+P joue, Échap arrête, seul le bouton va dans les deux sens")
     CHECK(modeRequested(Play, {.toolbar = Edit}) == Edit);
     CHECK_FALSE(modeRequested(Play, {.toolbar = Play}).has_value());
     CHECK_FALSE(modeRequested(Edit, ModeRequests{}).has_value());
+    // Alt+S, comme Alt+P, ne part que de l'Édition ; Échap en revient.
+    CHECK(modeRequested(Edit, {.simulate = true}) == Mode::Simulate);
+    CHECK_FALSE(modeRequested(Play, {.simulate = true}).has_value());
+    CHECK_FALSE(modeRequested(Mode::Simulate, {.simulate = true}).has_value());
+    CHECK_FALSE(modeRequested(Mode::Simulate, {.playShortcut = true}).has_value());
+    CHECK(modeRequested(Mode::Simulate, {.stop = true}) == Edit);
+    CHECK(modeRequested(Mode::Simulate, {.toolbar = Edit}) == Edit);
     // Échap l'emporte sur le reste : sortir du jeu ne se dispute pas.
     CHECK(modeRequested(Play, {.playShortcut = true, .stop = true}) == Edit);
     CHECK(modeRequested(Play, {.toolbar = Play, .stop = true}) == Edit);
@@ -1038,17 +1321,17 @@ TEST_CASE("le rappel de la barre de mode suit la table, et ne promet pas d'Alt+P
     levain::editor::ShortcutTable table = levain::editor::defaultShortcuts();
     CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty) == "Alt+P : jouer");
     // En jeu, seule Échap ramène : Alt+P n'y fait rien (`modeRequested`).
-    const std::string inPlay = levain::editor::modeHintOf(Mode::PlayWithoutReturn, table, qwerty);
-    CHECK(inPlay == "Échap : revenir à l'édition");
+    const std::string inPlay = levain::editor::modeHintOf(Mode::Play, table, qwerty);
+    CHECK(inPlay == "Échap : arrêter");
     CHECK_FALSE(inPlay.contains("Alt+P"));
+    CHECK(levain::editor::modeHintOf(Mode::Simulate, table, qwerty) == inPlay); // sortir : Échap
     // Un accord changé change le rappel : jouer sur Ctrl+K, arrêter sur la position du F5 (62).
     levain::editor::replaceChord(table, levain::editor::Action::Play, 0,
                                  levain::editor::letterChord('k', {.ctrl = true}), qwerty);
     levain::editor::replaceChord(table, levain::editor::Action::Stop, 0,
                                  levain::editor::positionChord(ScanF5), qwerty);
     CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty) == "Ctrl+K : jouer");
-    CHECK(levain::editor::modeHintOf(Mode::PlayWithoutReturn, table, qwerty) ==
-          "F5 : revenir à l'édition");
+    CHECK(levain::editor::modeHintOf(Mode::Play, table, qwerty) == "F5 : arrêter");
     // Sans accord, rien n'est promis.
     levain::editor::replaceChord(table, levain::editor::Action::Play, 0, {}, qwerty);
     CHECK(levain::editor::modeHintOf(Mode::Edit, table, qwerty).empty());

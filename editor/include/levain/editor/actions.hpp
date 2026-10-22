@@ -34,8 +34,8 @@ struct Availability
 };
 
 /// **La disponibilité des actions** (décision 12) : Enregistrer, Annuler et Rétablir arrivent en
-/// M7.3 (la scène sur disque et l'historique), les outils en M7.4, Simuler en M7.5. Le reste est
-/// là : jouer, arrêter, le temps réel, et les actions de navigation (le morceau 11).
+/// M7.3 (la scène sur disque et l'historique), les outils en M7.4. Le reste est là : jouer,
+/// simuler, arrêter, le temps réel, et les actions de navigation (le morceau 11).
 [[nodiscard]] constexpr Availability availabilityOf(Action action)
 {
     switch (action)
@@ -49,25 +49,6 @@ struct Availability
     case Action::ToolScale:
     case Action::NextTool:
         return {.available = false, .milestone = "M7.4"};
-    case Action::Simulate:
-        return {.available = false, .milestone = "M7.5"};
-    default:
-        return {};
-    }
-}
-
-/// **Une action que rien ne lit encore** : sa touche ne se change pas, la fenêtre « Raccourcis » la
-/// grise avec son « Arrive en M7.5 », comme les menus grisent leurs entrées (`availabilityOf`).
-/// « Simuler » (Alt+S) arrive avec Play et Stop en M7.5 ; « Rendre la souris » (Maj+F1 en jeu) n'a
-/// pas de lecteur avant : un accord qu'on y poserait ne ferait rien, sans que rien ne le dise.
-[[nodiscard]] constexpr Availability rebindableFrom(Action action)
-{
-    switch (action)
-    {
-    case Action::Simulate:
-        return availabilityOf(action);
-    case Action::GiveMouseBack:
-        return {.available = false, .milestone = "M7.5"};
     default:
         return {};
     }
@@ -105,11 +86,19 @@ void switchRealTime(Mode from, Mode to, bool& appRealTime, bool& editChoice);
 /// Atteint une action. **Grisée** : le compteur `declined` monte et la console dit « {action} :
 /// arrive en {milestone} » ; rien d'autre ne change. **Là** : `performed` monte et l'effet part :
 /// « Temps réel » bascule `realTime` (`App::realTime`) **en Édition** ; ailleurs il est grisé
-/// (`declined`, dit à la console « seulement en Édition »), Jouer et Arrêter rendent le mode où
-/// passer (Jouer ne fait que jouer, Arrêter que revenir : `modeRequested`). Les autres actions (la
-/// navigation) sont comptées et n'ont pas d'effet ici.
+/// (`declined`, dit à la console « seulement en Édition »), de même que Jouer et Simuler. Jouer,
+/// Simuler et Arrêter rendent le mode où passer (Jouer ne fait que jouer, Simuler que simuler,
+/// Arrêter que revenir : `modeRequested`). Les autres actions (la navigation) sont comptées et
+/// n'ont pas d'effet ici.
 [[nodiscard]] std::optional<Mode> runAction(Action action, ActionCounters& counters, bool& realTime,
                                             Mode current);
+
+/// **Un changement de mode que `startPlay` ou `stopPlay` a refusé** (un composant qui ne se copie
+/// pas, un monde en mode différé) : `runAction` avait compté l'action faite avant qu'il soit tenté.
+/// `performed` ne dit que ce qui a eu lieu : le compte passe à `declined`, et la console a déjà dit
+/// pourquoi (`carryOutPlayTransition`). À appeler une fois, juste après un `runAction` qui a rendu
+/// un mode, quand le changement n'a pas eu lieu.
+void countRefusedTransition(ActionCounters& counters, Action action);
 
 /// Une touche d'outil (`isToolAction`) appuyée dans la Vue : l'action de l'outil, ou rien.
 /// **En vol (clic droit tenu), aucune** : `actionFor` rend Avancer pour W et ne laisse rien à la
@@ -124,6 +113,20 @@ void switchRealTime(Mode from, Mode to, bool& appRealTime, bool& editChoice);
 /// garde-fous : ni en vol, ni avec un modificateur, ni dans un champ de texte.
 [[nodiscard]] std::optional<Action>
 viewKeyActionOf(const ShortcutTable& table, const KeyPress& press, const ActiveContexts& active);
+
+/// Les touches tenues une fois les événements de l'image rangés, depuis `held` (celles du début de
+/// l'image) : le complément de `keyPressesOf`, qui ne rend que les fronts. Un appui et un
+/// relâchement dans la même image ne laissent rien ; **la fenêtre qui perd le focus oublie tout** :
+/// les relâchements ne viendront pas.
+[[nodiscard]] std::bitset<platform::KeyCodeCount>
+heldKeysAfter(const platform::Events& events, std::bitset<platform::KeyCodeCount> held);
+
+/// Atteint Pause, Image suivante ou Rendre la souris (`playControlOf`) : le contrôle à faire
+/// (`applyPlayControl`), ou rien. **Refusé** (`playControlRefusal`), `declined` monte et la console
+/// dit « {action} : seulement en pause » (ou « en Jouer ») ; **permis**, `performed` monte. Rien
+/// non plus, sans compter, pour une action qui n'est pas un contrôle de jeu.
+[[nodiscard]] std::optional<PlayControl> runPlayControl(Action action, ActionCounters& counters,
+                                                        Mode current, bool paused);
 
 /// **Les touches appuyées à cette image**, lues dans ses événements bruts (`App::rawFrameEvents`,
 /// avant la route et la capture), dans leur ordre : la position (le scancode), la lettre que la

@@ -97,7 +97,13 @@ l'éditeur demande à la boucle (ADR-0036 ; les invariants 6, 8, 9, 12 à 16 et 
    N au moins la longueur du script : sans lui, le monde avance du temps réel de chaque image. `inputScriptOf` lit le
    fichier avant la fenêtre ; un script illisible, refusé ou vide arrête `runApp`. Sans option, rien n'est touché.
    `tests/app_script_gpu.cpp` est le banc : un appui atteint `PlayerInput` par sa position, ImGui par sa lettre, du
-   fichier comme de l'API.
+   fichier comme de l'API. **ImGui compte le temps d'une exécution scriptée en pas fixes** (`uiFrameSecondsFor` : le 1/60 s
+   que `--steps` donne déjà au monde, non le temps mesuré) : un double-clic (0,30 s), la répétition d'une touche et les délais
+   de survol se jugent sur l'horloge d'ImGui, qui avance de `DeltaTime`, et sous charge (ASan) deux clics scriptés sur des
+   images voisines tombaient à plus de 0,30 s l'un de l'autre (`gpu.editor-gestures.vulkan`). `tests/app_script_gpu.cpp` joue
+   des images de 350 ms : un double-clic quand même. Interactif, le temps mesuré. **Le panneau « Image » ne lit donc plus `io.Framerate`**
+   (toujours 60 sous un script) : il montre la moyenne des images mesurées de l'historique (`averageFrameMs`). Pour un script, un
+   double-clic veut deux appuis à moins de 18 images l'un de l'autre, la répétition d'une touche tenue commence après 17 images.
 
 13. **La simulation s'arrête par `App::simulationPaused`** (ADR-0036), lu une fois par image, avant `advanceWorld`
    (un arrêt posé dans `ui` vaut pour l'image suivante, simulation et squelettes), `startApp` compris : aucun pas,
@@ -109,7 +115,11 @@ l'éditeur demande à la boucle (ADR-0036 ; les invariants 6, 8, 9, 12 à 16 et 
    matériaux et `record` gardent le temps de la scène, **sauf `App::realTime` décoché** (« Temps réel » de l'éditeur,
    décision 9) : une seconde `AnimationClock` (`Loop::realTimeClock`) fige alors ce temps pour tous, squelettes compris,
    et le rend sans saut (`gpu.editor-menus.*`). `tests/app_loop_gpu.cpp` joue l'arrêt, l'horloge, la
-   recomposition et la caméra imposée dans la vraie boucle.
+   recomposition et la caméra imposée dans la vraie boucle. **`App::singleStep`** (« Image suivante », ADR-0037) joue
+   exactement un pas alors que `simulationPaused` tient la simulation arrêtée : le même pas que `--steps` compte
+   (`planFrame`, `singleStepPlan`), l'accumulateur intact, `RenderAlpha` à 1, les squelettes avancent d'une image.
+   **La boucle le remet à faux à chaque image** (`std::exchange`) : posé en marche il ne vaut rien et ne se garde pas pour
+   l'arrêt suivant ; posé par `frame` il joue à la même image, par `ui` à la suivante.
 
 14. **L'input a une route** (`App::inputRoute`, ADR-0036, décision 4), lue au début de chaque image par
    `devicesTakenBy` (les appareils que l'UI prend, donc que `gameInputOf` retire au jeu) et `uiEventsOf` (ce qu'ImGui
@@ -167,6 +177,14 @@ l'éditeur demande à la boucle (ADR-0036 ; les invariants 6, 8, 9, 12 à 16 et 
    jamais et garde ses aides. Équivalent : le *Game View* d'Unreal (touche G), qui cache de même ce que le jeu ne
    montre pas.
 
+17. **Deux plages d'identifiants, créées par `createApp`** (ADR-0037, décision 2 ; `App::idRanges`) : l'édition,
+   [1, 2^24 − 1], et le jeu, au-dessus. `createApp` les crée juste après le monde, avant toute entité détruite : flecs
+   refuse en Debug une plage créée après une destruction, et `scene::createIdRanges` le vérifie dans tous les builds
+   (`createApp` échoue sinon). Un programme sans éditeur reste dans la plage de l'édition et n'en voit rien ; l'éditeur
+   passe dans celle du jeu à Play (`scene::usePlayIds`) et revient à celle de l'édition à Stop (`useEditIds`), ce qui
+   rend à une entité détruite en jeu son index (`restoreSnapshot`). Une scène tient en 16 millions d'identifiants, jeu
+   livré compris.
+
 ## Fermer, et `isScriptedRun` (ADR-0036, décisions 10 et 11)
 
 `isScriptedRun(settings)` est vrai sous `--seconds`, `--steps`, `--time`, `--capture` ou `--input-script` : ni préférences
@@ -219,13 +237,13 @@ attend le code 1.
 
 | Fichier | Contenu |
 |---|---|
-| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `realTime`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `editorHelpersVisible`, `inputRoute`, `sceneRect`, `cursor`, `rawFrameEvents`, `frameSeconds`, `mouseCaptureOverPanels`, `mouseReturnTo`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `setUiStyle`, `runApp` |
+| [`include/levain/app/app.hpp`](include/levain/app/app.hpp) | `App::simulationPaused`, `singleStep`, `realTime`, `stepsPlayed`, `recomposeAfterUi`, `cameraOverride`, `editorHelpersVisible`, `inputRoute`, `sceneRect`, `cursor`, `rawFrameEvents`, `frameSeconds`, `mouseCaptureOverPanels`, `mouseReturnTo`, `sceneView`, `requestScene`, `keyAtPosition`, `keymapChanges` (ADR-0036) ; `AppSettings`, `ShaderBuild`, `ExeSystem`, `WslBuild`, `shaderReloadCommand`, `parseCommonOption`, `OptionUse`, `parsePositive`, `parseVector` ; `DrawCount`, `App` (dont l'étape « modèles » et ses compteurs), `FrameHooks` (dont `motionOf` et `ui`), `StartFunction`, `setUiStyle`, `runApp` |
 | [`include/levain/app/camera.hpp`](include/levain/app/camera.hpp) | `CameraLens`, `cameraFrom`, `renderCameraOf`, `renderCameraOr` (la caméra imposée d'abord) : la caméra du rendu |
 | [`include/levain/app/player_input.hpp`](include/levain/app/player_input.hpp) | `PlayerInput`, `takeFrameInput`, `forgetPresses`, `forgetPressesAtEachStep`, `pressedSinceLastStep` : l'input en singleton |
 | [`include/levain/app/load_model.hpp`](include/levain/app/load_model.hpp) | `ModelLoad`, `LocomotionClips`, `LoadedModel`, `loadModel` : un glTF dans le monde et sur le GPU, en un appel |
-| [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `AnimationClock`, `advanceAnimationClock`, `SkinningState`, `createSkinningState`, `animateModels` |
+| [`include/levain/app/models.hpp`](include/levain/app/models.hpp) | `TextureKey`, `ModelPrimitiveGpu`, `ModelGpu` ; `textureLevelsOf`, `uploadModel`, `submitAbandonedUpload`, `bindModelMaterials` ; `isSkinned`, `clipIndexOf` ; `SkinningCost`, `maxJointSpeedOf`, `MotionOf`, `AnimationClock`, `advanceAnimationClock`, `AnimationMemo`, `rememberAnimation`, `restoreAnimation` (Play les garde, Stop les rend : ADR-0037), `SkinningState`, `createSkinningState`, `animateModels` |
 | [`include/levain/app/scene_view.hpp`](include/levain/app/scene_view.hpp) | `SceneSize`, `SceneOutput`, `StableFramesBeforeResize`, `SizeSettling`, `shouldRecreateScene`, `sceneOutputFor`, `dockspaceFlagsFor`, `ScenePixel`, `scenePixelAt`, `SceneExtent`, `sceneExtentOf`, `SceneView` ; `createSceneTexture`, `requestSceneTexture`, `beginSceneRequest`, `settleSceneOutput`, `releaseRetiredScenes`, `clearSwapchain` : la scène dans la texture de la Vue |
-| [`include/levain/app/ui_layer.hpp`](include/levain/app/ui_layer.hpp) | `UiLayer`, `UiStyleFunction`, `UiCost`, `FrameHistory`, `PanelsKey`, `InputRoute`, `ScreenRect`, `rectContains`, `DevicesTaken`, `RouteFacts`, `devicesTakenBy`, `gameInputOf`, `uiEventsOf`, `mouseTakenByCapture`, `togglesPanels`, `mouseShouldBeCaptured`, `recordHistory`, `recordUiCpu` : l'interface dans la boucle |
+| [`include/levain/app/ui_layer.hpp`](include/levain/app/ui_layer.hpp) | `UiLayer`, `UiStyleFunction`, `UiCost`, `FrameHistory`, `PanelsKey`, `InputRoute`, `ScreenRect`, `rectContains`, `DevicesTaken`, `RouteFacts`, `devicesTakenBy`, `gameInputOf`, `uiEventsOf`, `mouseTakenByCapture`, `togglesPanels`, `mouseShouldBeCaptured`, `uiFrameSecondsFor`, `averageFrameMs`, `recordHistory`, `recordUiCpu` : l'interface dans la boucle |
 | [`src/panels.hpp`](src/panels.hpp) | `drawEnginePanels` : les panneaux de debug du moteur, ancrés ; `buildLayout` et les clés de leurs fenêtres (`ImageWindow`…) pour `ui_i18n_test.cpp` ; interne |
 | [`include/levain/app/texture_reload.hpp`](include/levain/app/texture_reload.hpp) | `TextureReload`, `startTextureReload`, `reloadChangedTextures` : le hot-reload des textures |
 | [`src/model_textures.hpp`](src/model_textures.hpp) | `textureTargetOf`, `UploadedTexture`, `uploadTexture` : une texture au format que le GPU échantillonne ; interne, partagé par l'envoi et le hot-reload |
@@ -242,6 +260,6 @@ attend le code 1.
 | **Unity** | `PlayerLoop` ; `MeshRenderer`, `SkinnedMeshRenderer` | La boucle du *Player*, que les scripts modifient (**documenté**, ADR-0029) ; un modèle se dessine par son renderer, skinné ou non. |
 | **Godot** | `MainLoop`, `SceneTree` ; `MeshInstance3D`, `Skeleton3D` | La boucle par défaut d'un projet (**documenté**, ADR-0029) ; un modèle est un nœud, son squelette un autre. |
 | **La caméra** | `CameraComponent` actif (Unreal), `Camera.main` (Unity), `Camera3D.current` (Godot) | Une caméra parmi d'autres est celle du rendu ; ici, il n'y en a qu'une, et deux sont une erreur. |
-| **L'arrêt** | `SetGamePaused` (Unreal), `Time.timeScale = 0` (Unity), `SceneTree.paused` (Godot) | Arrêter la simulation sans arrêter le rendu (**documenté**) ; ici un drapeau d'`App`, et les squelettes suivent la simulation, l'eau non. La caméra de l'éditeur, hors de la scène, est celle de la vue de niveau chez Unreal (**supposé**). |
+| **L'arrêt** | `SetGamePaused` (Unreal), `Time.timeScale = 0` (Unity), `SceneTree.paused` (Godot) | Arrêter la simulation sans arrêter le rendu (**documenté**) ; ici un drapeau d'`App`, et les squelettes suivent la simulation, l'eau non. La caméra de l'éditeur, hors de la scène, est celle de la vue de niveau chez Unreal (**supposé**). **Image suivante** (`App::singleStep`) : le *Frame Skip* d'Unreal (**documenté**, `editor/GESTES.md` [E5]) et le *Step* d'Unity, Ctrl+Alt+P (**documenté**, [U6]) jouent exactement une image pendant la pause ; ici un pas de simulation, le même que `--steps` compte. |
 | **La scène dans une texture** | `USceneCaptureComponent2D` et `UTextureRenderTarget2D` (Unreal), `Camera.targetTexture` (Unity), `SubViewport` et `ViewportTexture` (Godot) | Rendre une caméra dans une texture que l'UI affiche (**documenté** pour chacun). Les vues de l'éditeur d'Unreal et d'Unity ne passent pas par ces API publiques : ce qu'elles font à la taille d'une fenêtre qu'on glisse, **non vérifié**. Ici, la taille ne se reprend qu'une fois stable. |
 | **L'input** | `Input.GetKeyDown` (Unity), `Input.is_action_just_pressed` (Godot) | Un appui ne vaut que pour l'image : Unity dit de le lire dans `Update`, pas dans `FixedUpdate` (**documenté**, `Input.GetKeyDown`). `PlayerInput` le garde jusqu'au pas suivant. |

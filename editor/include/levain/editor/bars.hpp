@@ -2,8 +2,9 @@
 
 // La barre d'outils et la barre d'état de l'éditeur (ADR-0036, décision 12), deux bandes qui
 // retirent leur hauteur à l'espace d'ancrage, sous la barre de menus et au bas de la fenêtre.
-// **La barre d'outils** : le mode (Jouer, ou revenir à l'édition), les outils (grisés jusqu'à M7.4)
-// et Simuler (grisé jusqu'à M7.5), la vitesse de la caméra de l'éditeur et « Temps réel ».
+// **La barre d'outils** : le mode (Jouer, ou arrêter), puis Simuler en Édition, Pause et Image
+// suivante en jeu (Jouer ou Simuler), les outils (grisés jusqu'à M7.4), la vitesse de la caméra de
+// l'éditeur et « Temps réel ». Son fond prend la teinte du jeu.
 // **La barre d'état** : le dernier message du journal et les compteurs d'avertissements et
 // d'erreurs, ceux de la console (`core::LogRing`). La logique est en fonctions libres dont toutes
 // les dépendances sont des paramètres (ADR-0011). Équivalents : la barre d'outils d'Unity (Play,
@@ -27,9 +28,11 @@ namespace levain::editor
 /// Où la barre d'outils a été dessinée (le centre de chaque contrôle, en pixels de l'écran).
 struct ToolbarLayout
 {
-    ImVec2 mode{};
+    ImVec2 mode{};     ///< Jouer en Édition, Arrêter en jeu : toujours à la même place.
     ImVec2 tool{};     ///< Le premier outil (grisé).
-    ImVec2 simulate{}; ///< Simuler (grisé).
+    ImVec2 simulate{}; ///< Simuler, en Édition.
+    ImVec2 pause{};    ///< Pause, ou Reprendre en pause, en jeu.
+    ImVec2 step{};     ///< Image suivante, en jeu : éteinte tant que le jeu tourne.
     ImVec2 speed{};    ///< Le curseur de la vitesse de la caméra.
     ImVec2 realTime{}; ///< La case « Temps réel ».
     float speedWidth = 0.0f;
@@ -38,15 +41,18 @@ struct ToolbarLayout
 /// Ce que la barre d'outils a décidé à cette image.
 struct ToolbarResult
 {
-    std::optional<Mode> mode;    ///< Le bouton de mode : le mode qu'il propose.
-    std::vector<Action> actions; ///< Les actions cliquées qui sont là (Temps réel).
+    std::optional<Mode> mode; ///< Le bouton de mode : le mode qu'il propose.
+    std::vector<Action>
+        actions; ///< Les actions cliquées (Temps réel, Simuler, Pause, Image suivante).
     std::optional<float>
         flySpeed; ///< La nouvelle vitesse de la caméra, **bornée** (`clampFlySpeed`).
 };
 
 /// Dessine la barre d'outils sous la barre de menus. `flySpeed` est la vitesse de vol de la caméra
-/// de l'éditeur, `realTime` l'état de la case. Panneaux ouverts seulement.
-[[nodiscard]] ToolbarResult drawToolbar(Mode mode, float flySpeed, bool realTime,
+/// de l'éditeur, `realTime` l'état de la case. **Le mode d'abord, à sa place** (Jouer ou Arrêter),
+/// puis en Édition Simuler, en jeu Pause (ou Reprendre) et Image suivante, qui ne marche qu'en
+/// pause ; **le fond prend la teinte du jeu** (`playTintOf`). Panneaux ouverts seulement.
+[[nodiscard]] ToolbarResult drawToolbar(Mode mode, bool paused, float flySpeed, bool realTime,
                                         ToolbarLayout& layout);
 
 /// Ce que la barre d'état dit : le dernier message de l'anneau (vide s'il est vide) et les comptes

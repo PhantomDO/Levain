@@ -1,7 +1,9 @@
 #include "levain/editor/view.hpp"
 
+#include <cmath>
 #include <optional>
 #include <tuple>
+#include <utility>
 
 #include <imgui.h>
 
@@ -18,6 +20,20 @@ int viewFlags()
 {
     return static_cast<int>(static_cast<unsigned>(ImGuiWindowFlags_NoScrollbar) |
                             static_cast<unsigned>(ImGuiWindowFlags_NoScrollWithMouse));
+}
+
+/// Le pourtour de l'image, de l'épaisseur de trois pixels de l'écran (deux se perdaient sur un ciel
+/// clair), tracé **à l'intérieur** :
+/// `AddRect` centre son trait sur le chemin, d'où le demi-trait de retrait (sans lui, la moitié
+/// du bord sortirait de la fenêtre et serait rognée).
+void drawTintBorder(ImDrawList* drawList, const std::pair<ImVec2, ImVec2>& image,
+                    const ImVec4& tint)
+{
+    const float thickness = std::round(3.0f * ImGui::GetStyle().FontScaleDpi);
+    const float inset = thickness / 2.0f;
+    drawList->AddRect({image.first.x + inset, image.first.y + inset},
+                      {image.second.x - inset, image.second.y - inset},
+                      ImGui::ColorConvertFloat4ToU32(tint), 0.0f, 0, thickness);
 }
 
 /// Le menu du clic droit, ouvert au relâchement d'un clic droit sur l'image **qui n'a pas volé**
@@ -45,7 +61,7 @@ void drawContextMenu(View& view)
 
 } // namespace
 
-std::optional<Mode> drawView(View& view, app::App& app, Mode mode)
+std::optional<Mode> drawView(View& view, app::App& app, const ModeState& mode)
 {
     std::optional<Mode> requestedMode;
     view.shown = false;
@@ -97,14 +113,20 @@ std::optional<Mode> drawView(View& view, app::App& app, Mode mode)
                 const ImVec2 max = ImGui::GetItemRectMax();
                 view.image = {min.x, min.y, max.x - min.x, max.y - min.y};
                 app.sceneRect = view.image;
+                // **Le bord teinté** du jeu (`playTintOf`), dans l'image, sur son pourtour : la Vue
+                // n'a pas de marge, un bord dehors serait dans la fenêtre voisine.
+                if (const auto tint = playTintOf(mode.current, mode.paused))
+                {
+                    drawTintBorder(ImGui::GetWindowDrawList(), {min, max}, *tint);
+                }
                 const ModeBarOverlay overlay = drawModeBarOverlay(mode, min, view.modeHint);
                 requestedMode = overlay.requested;
                 view.barHovered = overlay.hovered;
                 view.modeBarRect = overlay.bar;
                 view.modeBarButton = overlay.button;
-                // Le menu « Afficher » à côté de la barre de mode, en Édition : jouer, c'est déjà
-                // la vue de jeu. Cliquer sa barre n'est pas cliquer la scène.
-                if (mode == Mode::Edit)
+                // Le menu « Afficher » à côté de la barre de mode, sous la caméra de l'éditeur :
+                // jouer, c'est déjà la vue de jeu. Cliquer sa barre n'est pas cliquer la scène.
+                if (editorOwnsViewIn(mode.current))
                 {
                     const ImVec2 afterBar{overlay.bar.x + overlay.bar.width + 6.0f, overlay.bar.y};
                     view.gameViewRequested =

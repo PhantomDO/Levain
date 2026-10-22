@@ -5,6 +5,11 @@
 // ce que `pollEvents` rend, `Events` : toute la chaîne qui suit (ImGui, `gameInputOf`, les actions)
 // est celle du vrai programme. À une différence près : pas de répétition de touche, pas de texte,
 // et la lettre d'une ponctuation sans `as` est son scancode au lieu du caractère que SDL donnerait.
+// **Le temps de l'interface compte en images**, non en secondes : sous un script, la boucle donne à
+// ImGui le pas fixe de 1/60 s à chaque image (`app::uiFrameSecondsFor`), quelle que soit la
+// lenteur de la machine. Un double-clic (0,30 s, `io.MouseDoubleClickTime`) veut donc deux appuis
+// à moins de 18 images l'un de l'autre, la répétition d'une touche tenue (0,275 s,
+// `io.KeyRepeatDelay`) ne commence qu'après 17 images, et un délai de survol se compte de même.
 
 #include <cstdint>
 #include <filesystem>
