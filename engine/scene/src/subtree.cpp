@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <format>
+#include <iterator>
 #include <utility>
 
 #include "entity_record.hpp"
@@ -43,6 +44,31 @@ std::vector<flecs::entity_t> withoutGenerated(const flecs::world& world,
     return children;
 }
 
+/// La racine reprend sa place parmi ses frères : juste après le plus proche prédécesseur de la
+/// liste enregistrée qui est encore là, au début s'il n'en reste aucun. Les frères qui sont
+/// apparus depuis (hors de la pile) gardent leur place relative, au lieu d'être poussés à la fin.
+/// Les nœuds `Generated` sont dans la liste : ils restent vivants, ce sont des repères.
+std::vector<flecs::entity_t> orderWithRootBack(const flecs::world& world,
+                                               const SubtreeRecord& record)
+{
+    const flecs::entity_t root = record.entities.front().id;
+    std::vector<flecs::entity_t> order = sceneChildrenOf(world, record.parent);
+    std::erase(order, root);
+    auto insertAt = order.begin();
+    const auto rootPlace = std::ranges::find(record.parentChildren, root);
+    for (auto before = std::reverse_iterator{rootPlace}; before != record.parentChildren.rend();
+         ++before)
+    {
+        if (const auto found = std::ranges::find(order, *before); found != order.end())
+        {
+            insertAt = found + 1;
+            break;
+        }
+    }
+    order.insert(insertAt, root);
+    return order;
+}
+
 } // namespace
 
 core::Result<SubtreeRecord> readSubtree(const flecs::world& world, flecs::entity_t root)
@@ -76,7 +102,50 @@ core::Result<SubtreeRecord> readSubtree(const flecs::world& world, flecs::entity
         }
         subtree.entities.push_back(std::move(record));
     }
+    subtree.parent = subtree.entities.front().parent;
+    if (subtree.parent != 0)
+    {
+        // Les nœuds `Generated` y sont : ils restent vivants et servent de repères.
+        subtree.parentChildren = sceneChildrenOf(world, subtree.parent);
+    }
     return subtree;
+}
+
+core::Result<void> restoreSubtree(flecs::world& world, const SubtreeRecord& record)
+{
+    if (auto deferred = refuseDeferred(world, "Annuler"); !deferred)
+    {
+        return deferred;
+    }
+    for (const EntityRecord& entity : record.entities)
+    {
+        if (ecs_get_alive(world, entityIndexOf(entity.id)) != entity.id)
+        {
+            return core::makeError(
+                core::ErrorCode::InvalidData,
+                std::format("Annuler : l'entité {} n'est pas vivante sous son identifiant "
+                            "(réveil manquant), le monde n'est pas touché",
+                            entityIndexOf(entity.id)));
+        }
+    }
+    if (record.parent != 0 && !ecs_is_alive(world, record.parent))
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               std::format("Annuler : le parent {} est mort, le monde n'est pas "
+                                           "touché",
+                                           entityIndexOf(record.parent)));
+    }
+    if (auto restored = restoreRecords(world, record.entities, "Annuler", "l'enregistrement");
+        !restored)
+    {
+        return restored;
+    }
+    if (record.parent == 0)
+    {
+        return {};
+    }
+    const std::vector<flecs::entity_t> order = orderWithRootBack(world, record);
+    return setSceneChildOrder(world, record.parent, order, "Annuler", "l'enregistrement");
 }
 
 } // namespace levain::scene

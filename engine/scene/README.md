@@ -62,6 +62,7 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` ; `advanceWorld` (avec l'arrêt, et le pas unique d'« Image suivante » : `planFrame`, `singleStepPlan`) et `composeWorldTransforms` |
 | [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf`, `componentOfKey`, puis `setComponentValue` et `sameValue` |
 | [`include/levain/scene/tombstone.hpp`](include/levain/scene/tombstone.hpp) | La pierre tombale (ADR-0038) : `Tombstone`, `removeKeepingIndex`, `checkTombstonesHold`, `reviveFromTombstones`, `releaseTombstones` |
+| [`include/levain/scene/subtree.hpp`](include/levain/scene/subtree.hpp) | Le sous-arbre d'une commande (ADR-0038) : `SubtreeRecord`, `readSubtree`, `restoreSubtree` (les étapes de `restoreSnapshot`, un seul chemin dans `src/entity_record.cpp`) |
 | [`include/levain/scene/entity_name.hpp`](include/levain/scene/entity_name.hpp) | Les noms d'entités : `refusalOfName` et `reasonOf`, `isValidEntityName`, `uniqueNameAmong` |
 | [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient`, `Generated`, `Derived`, `orderedChildrenOf` (public), `takeSnapshot`, `differencesFrom`, `compareWithSnapshot` et sa `Comparison` (le compte des vraies différences, sans plafond, et les enfants internes perdus à part), `entityIndexOf` et `byEntityIndex` (l’ordre par index, partagé avec la physique et la Hiérarchie), `createIdRanges`, `useEditIds`/`usePlayIds`, `bornInPlay`, `restoreSnapshot` et son `RestoreReport` |
 
@@ -162,7 +163,18 @@ Supprimer une entité pour de bon, et pouvoir la rendre avec **le même identifi
   libérant, **avant** d'exécuter une nouvelle commande.
 - **`Tombstone` est enregistré avant la destruction** : passés les 256 identifiants bas que flecs réserve aux composants,
   un composant enregistré après une destruction prend l'index libéré et devient sa propre pierre.
-- **Pas encore fait** (morceau A2) : le sous-arbre se lit (`readSubtree`, `subtree.hpp`), mais ne se rend pas.
+- **Le sous-arbre** (`subtree.hpp`, morceau A2). `readSubtree` garde, avant la suppression, un `EntityRecord` par
+  entité de la scène du sous-arbre (la racine d'abord, un parent avant ses enfants, les frères dans leur ordre), plus la
+  liste des enfants du parent de la racine : sans elle l'entité reviendrait en dernier. `restoreSubtree` rend, aux
+  entités que `reviveFromTombstones` a réveillées vides, parents, types, valeurs, noms et ordre des enfants : ce sont
+  les étapes 4 et 5 de `restoreSnapshot`, **un seul chemin** (`src/entity_record.cpp`). Les nœuds `Generated` n'y sont
+  pas (ils se refont depuis leur racine) et n'ont pas de pierre ; les enfants `ChildOf` sont rapportés par `lost`.
+  `isSceneEntity` écarte les pierres. Une seule règle (`subtreeMembersOf`) dit ce qui reçoit une pierre et un
+  enregistrement : un préfab sous `flecs::Parent` n'en reçoit pas, il est rapporté par `lost`. Une entité faite à la main
+  sous un nœud `Generated` est refusée, nommée. La racine se replace après son plus proche prédécesseur encore là. Unity
+  range l'objet supprimé dans l'`Undo` (documenté [1]), Unreal dans la transaction (documenté [8] pour la transaction,
+  supposé pour le sort de l'acteur), Godot garde l'objet dans l'action (documenté [4]) ; qu'aucun ne rende des enfants
+  *générés* par un composant est supposé.
 
 Les comportements de flecs dont tout cela dépend sont **épinglés** dans `tests/flecs_tombstone_pins_test.cpp`, en Debug
 et en Release (a : l'index recyclé sans pierre ; b : rien ne le prend avec ; c : réveil de la génération d'avant ;
