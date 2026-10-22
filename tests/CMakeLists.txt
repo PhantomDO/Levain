@@ -17,6 +17,7 @@ set(cpuTests
     environment_variable_test.cpp
     error_test.cpp
     file_test.cpp
+    flecs_tombstone_pins_test.cpp
     frame_time_test.cpp
     gltf_test.cpp
     i18n_test.cpp
