@@ -410,8 +410,8 @@ pourquoi c'est presque toujours une bibliothèque.
 | M7.1 ImGui et panneaux de debug | 1,0 (réel, 1,1 estimées) | 1 | fini le 07/10/2026 |
 | M7.2 Réflexion et inspecteur | 0,75 (réel, 1,25 estimées) | 1 | fini le 10/10/2026 |
 | M7.7 L'atelier (ajouté en v0.16) | 4,5 (réel, 1,0 estimée) | 2 | fini le 14/10/2026 |
-| M7.5 Play/Stop dans l'éditeur | 0,25 (réel à ce jour, 0,75 estimée) | 1 | fini le 16/10/2026 |
-| M7.3 Sérialisation et undo/redo | 1,5 | 2 | 04/04/2027 |
+| M7.5 Play/Stop dans l'éditeur | 1,0 (réel, 0,75 estimée) | 1 | fini le 22/10/2026 |
+| M7.3 Sérialisation et undo/redo (en cours) | 1,5 | 2 | 04/04/2027 |
 | M7.4 Gizmos et picking | 1,5 | 2 | 11/04/2027 |
 | M7.6 Outils de terrain | 2,25 | 2 | 18/04/2027 |
 | M7.8 L'éditeur en anglais (ajouté en v0.16) | 0,5 | 1 | 18/04/2027 |
@@ -445,13 +445,13 @@ déclarées le 15/10), chaque critère prouvé par un test (journal, clôture de
 
 **M7.5 — Play/Stop.** Sauvegarde de la scène, simulation, restauration. Remonté après M7.7 (v0.16) : Stop doit
 restaurer la scène en place, sans relire de fichier ([ADR-0037](adr/0037-play-stop-restauration-en-place.md)).
-*Critère* : après Stop, la scène est identique à l'état d'avant Play (test). *Fini le 16/10/2026* : 0,25 h à ce jour pour
-0,75 estimée (la lecture de la synthèse de Donnovan s'y ajoutera), le critère prouvé par des tests, de la scène seule
-jusqu'à l'éditeur lancé (journal, clôture de M7.5) ; M7.3 suit.
+*Critère* : après Stop, la scène est identique à l'état d'avant Play (test). *Fini le 22/10/2026* (code prêt le
+16/10, fusion dans `main` le 22) : 1,0 h pour 0,75 estimée, ratio 1,33 (sondage du 22/10, « ≈ 1 h »), le critère prouvé
+par des tests, de la scène seule jusqu'à l'éditeur lancé (journal, clôture de M7.5) ; M7.3 suit.
 
 **M7.3 — Sérialisation et undo/redo.** Scènes en JSON : les valeurs par le JSON de flecs, l'enveloppe et le
 chargeur à nous (ADR-0034) ; pattern Command. Deux fonctionnalités, donc deux PR vers `main` : l'annulation, puis
-les scènes.
+les scènes. **En cours** : l'[ADR-0038](adr/0038-annulation-et-scenes.md), accepté le 22/10, couvre les deux.
 *Critères* : sauvegarde puis chargement donnent une scène identique (test) ; 100 niveaux d'annulation.
 
 **M7.4 — Gizmos et picking.** ImGuizmo, sélection à la souris par buffer d'identifiants.
@@ -531,6 +531,7 @@ procédural · rivière · réflexions sur l'eau · inventaire et cuisine · vra
 | 0035 | Windows revient, compilé depuis Linux par clang-cl ; Vulkan d'abord, puis D3D12 ; la CI compile sous Linux et teste sous Windows | M1.4 |
 | 0036 | L'atelier : le mode Édition, l'input de l'éditeur, la Vue et sa caméra, les raccourcis d'Unreal, un catalogue de chaînes, les polices sous OFL | M7.7 |
 | 0037 | Play/Stop : jouer dans la Vue, puis rendre la scène en place (l'instantané, les plages d'identifiants, Simuler) | M7.5 |
+| 0038 | L'annulation et les scènes : les commandes, la suppression qui réserve son index, `Generated`, le fichier de scène (accepté) | M7.3 |
 
 ## Numérotation des ADR
 
