@@ -5,8 +5,12 @@
 //     un AZERTY (l'accord est une lettre : la touche à la place du W y tape « z ») ; la touche Z
 //     d'un AZERTY, qui tape « w », ne défait rien ;
 //   - en Jouer, la Vue focalisée donne Ctrl+Z au jeu (route *jeu*, ADR-0036 décision 4) : rien
-//     n'est atteint ; la valeur changée en jeu n'entre pas dans la pile ; après Stop, Ctrl+Z défait
-//     la commande d'avant Jouer ; en Simuler il est refusé et dit.
+//     n'est atteint ; un panneau cliqué le reçoit, et il est refusé et dit ; la valeur changée en
+//     jeu n'entre pas dans la pile ; après Stop, Ctrl+Z défait la commande d'avant Jouer ; en
+//     Simuler il est refusé et dit ;
+//   - le menu Édition, ouvert en Jouer, montre Annuler grisé et sa raison au survol ; ouvert en
+//     Édition, actif, et un clic sur « Annuler » défait ;
+//   - Ctrl+Z pendant qu'un élément d'ImGui est actif (un glissé) est refusé.
 // Il faut un device, comme `levain_app_script`.
 //   levain_editor_undo [vulkan|d3d12|d3d12-warp]
 
@@ -20,6 +24,9 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <imgui.h>
+#include <imgui_internal.h> // la bulle d'ImGui, retrouvée par son nom
 
 #include "gpu_test_backend.hpp"
 
@@ -57,6 +64,9 @@ struct Seen
     std::size_t done = 0;   ///< la taille de la pile
     std::size_t undone = 0; ///< les refaisables
     bool modified = false;
+    bool itemActive = false; ///< un élément d'ImGui est actif (le glissé)
+    bool tooltip = false;    ///< une bulle est montrée (le survol d'une entrée grisée)
+    std::string status;      ///< le dernier message de la barre d'état
 };
 
 struct Run
@@ -64,6 +74,13 @@ struct Run
     int exitCode = 0;
     std::vector<Seen> seen;
 };
+
+/// Une bulle d'ImGui est montrée à cette image (`SetTooltip` : la fenêtre « ##Tooltip_00 »).
+bool tooltipShown()
+{
+    const ImGuiWindow* window = ImGui::FindWindowByName("##Tooltip_00");
+    return window != nullptr && window->WasActive;
+}
 
 std::uint32_t azertyAt(std::uint16_t scancode)
 {
@@ -87,6 +104,7 @@ struct Options
 {
     std::vector<Change> changes;
     bool azerty = false;
+    bool dragField = false; ///< une fenêtre avec un champ qu'on peut glisser, en (400, 150)
 };
 
 /// Le programme sous `withEditor`, panneaux ouverts, hors écran, une image par pas de temps.
@@ -111,6 +129,7 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, std
     Run run;
     App* appPointer = nullptr;
     flecs::entity target;
+    float dragged = 0.0F;
     const auto program = [&](App& app) -> levain::core::Result<levain::app::FrameHooks>
     {
         appPointer = &app;
@@ -121,7 +140,25 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, std
         app.keyAtPosition =
             wanted.azerty ? levain::platform::KeyAtPosition{azertyAt}
                           : levain::platform::KeyAtPosition{levain::platform::qwertyKeyAtPosition};
-        return levain::app::FrameHooks{};
+        levain::app::FrameHooks hooks;
+        hooks.ui = [&wanted, &dragged](App&)
+        {
+            if (!wanted.dragField)
+            {
+                return;
+            }
+            ImGui::SetNextWindowPos({400.0f, 150.0f});
+            ImGui::SetNextWindowSize({200.0f, 80.0f});
+            constexpr auto Flags = static_cast<ImGuiWindowFlags>(
+                static_cast<unsigned>(ImGuiWindowFlags_NoDecoration) |
+                static_cast<unsigned>(ImGuiWindowFlags_NoMove) |
+                static_cast<unsigned>(ImGuiWindowFlags_NoSavedSettings));
+            ImGui::Begin("###glisse", nullptr, Flags);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::DragFloat("##champ", &dragged);
+            ImGui::End();
+        };
+        return hooks;
     };
     levain::editor::EditorOptions options;
     options.fontRoots = {{LEVAIN_TEST_ASSETS_DIR}};
@@ -133,7 +170,10 @@ Run play(const levain::tests::TestBackend& backend, std::string_view script, std
                             .kilograms = target.get<Mass>().kilograms,
                             .done = editor.undo.done.size(),
                             .undone = editor.undo.undone.size(),
-                            .modified = levain::editor::isModified(editor.undo)});
+                            .modified = levain::editor::isModified(editor.undo),
+                            .itemActive = ImGui::IsAnyItemActive(),
+                            .tooltip = tooltipShown(),
+                            .status = editor.status.text});
     };
     options.afterUiMutable = [&](levain::editor::Editor& editor)
     {
@@ -183,6 +223,14 @@ std::string chord(int frame, std::initializer_list<std::string_view> modifiers,
     }
     return script;
 }
+
+std::string clickScript(int frame, ImVec2 at)
+{
+    return std::format("{} mouse move {} {}\n{} button down left\n{} button up left\n", frame, at.x,
+                       at.y, frame + 2, frame + 3);
+}
+
+constexpr const char* NoInput = "0 mouse move 1 1\n"; // un script vide est refusé (règle n°7)
 
 /// Alt+P : le jeu dès l'image 5. Une fonction : une `std::string` globale peut lever à
 /// l'initialisation.
@@ -283,6 +331,102 @@ int playSimulate(const levain::tests::TestBackend& backend)
                   "Simuler : Ctrl+Z est grisé et dit, rien n'entre dans la pile, rien ne sort");
 }
 
+/// En Jouer, un panneau cliqué reçoit le clavier : Ctrl+Z est refusé et dit, la pile gelée. La
+/// fenêtre du champ glissable fait le panneau ; on clique sous le champ, jamais sur lui.
+int playPanelInPlay(const levain::tests::TestBackend& backend)
+{
+    const std::string script =
+        playChord() + clickScript(7, {500.0f, 215.0f}) + chord(13, {"Left Ctrl"}, "Z");
+    const Run run = play(backend, script, 20, {.changes = {{3, 5.0F}}, .dragField = true});
+    if (run.exitCode != 0 || run.seen.size() != 20)
+    {
+        return expect(false, "Jouer, panneau : code 0 et une image relevée par image");
+    }
+    const Seen& last = run.seen.back();
+    return expect(last.mode == levain::editor::Mode::Play && last.kilograms == 5.0F,
+                  "Jouer, panneau : on joue encore") +
+           expect(last.actions.declined.at(indexOf(Action::Undo)) == 1 &&
+                      last.actions.performed.at(indexOf(Action::Undo)) == 0 && last.done == 1 &&
+                      last.undone == 0,
+                  "Jouer, un panneau cliqué : Ctrl+Z est refusé, compté, la pile gelée") +
+           expect(last.status == "Annuler : seulement en Édition",
+                  "Jouer, un panneau cliqué : Ctrl+Z le dit à la console et à la barre d'état");
+}
+
+/// Le menu Édition : Annuler grisé en Jouer (la pile gelée), actif en Édition.
+int playMenu(const levain::tests::TestBackend& backend)
+{
+    const Run probe = play(backend, NoInput, 8);
+    if (probe.seen.size() != 8 || probe.seen.back().bar.edit.x <= 0.0f)
+    {
+        return expect(false, "le menu : le passage qui lit la barre a relevé une image par image");
+    }
+    const ImVec2 edit = probe.seen.back().bar.edit;
+    const Run inEdit = play(backend, clickScript(6, edit), 14, {.changes = {{3, 5.0F}}});
+    const Run inPlay =
+        play(backend, playChord() + clickScript(8, edit), 16, {.changes = {{3, 5.0F}}});
+    if (inEdit.seen.size() != 14 || inPlay.seen.size() != 16)
+    {
+        return expect(false, "le menu : une image relevée par image");
+    }
+    const Seen& editing = inEdit.seen.back();
+    const Seen& playing = inPlay.seen.back();
+    // Le clic sur l'entrée « Annuler » du menu ouvert défait, comme le raccourci ; le survol de
+    // l'entrée grisée, en Jouer, montre une bulle.
+    const Run clicked = play(backend, clickScript(6, edit) + clickScript(12, editing.bar.undo), 20,
+                             {.changes = {{3, 5.0F}}});
+    const Run hovered =
+        play(backend,
+             playChord() + clickScript(8, edit) + "13 mouse move 1 1\n" +
+                 std::format("14 mouse move {} {}\n", playing.bar.undo.x, playing.bar.undo.y),
+             20, {.changes = {{3, 5.0F}}});
+    if (clicked.seen.size() != 20 || hovered.seen.size() != 20)
+    {
+        return expect(false, "le menu : une image relevée par image (clic, survol)");
+    }
+    const Seen& undone = clicked.seen.back();
+    return expect(editing.bar.editOpen && editing.bar.undoEnabled && !editing.bar.redoEnabled,
+                  "Édition : le menu est ouvert, Annuler actif, Rétablir grisé (rien à refaire)") +
+           expect(editing.bar.modifiedShown, "Édition : le « * » de la scène modifiée est là") +
+           expect(playing.mode == levain::editor::Mode::Play && playing.bar.editOpen &&
+                      !playing.bar.undoEnabled && !playing.bar.redoEnabled,
+                  "Jouer : le menu est ouvert, Annuler grisé malgré la commande") +
+           expect(undone.actions.performed.at(indexOf(Action::Undo)) == 1 &&
+                      undone.kilograms == 0.0F && undone.done == 0 && undone.undone == 1,
+                  "Édition : un clic sur l'entrée « Annuler » défait la commande") +
+           expect(
+               hovered.seen.at(10).mode == levain::editor::Mode::Play &&
+                   !hovered.seen.at(12).tooltip && hovered.seen.back().tooltip &&
+                   hovered.seen.back().actions.performed.at(indexOf(Action::Undo)) == 0,
+               "Jouer : le survol d'Annuler grisé montre une bulle (la raison), et rien ne part");
+}
+
+/// Ctrl+Z pendant un glissé (un élément actif) est refusé ; le champ relâché, il passe.
+int playDrag(const levain::tests::TestBackend& backend)
+{
+    const std::string script = "5 mouse move 480 170\n7 button down left\n" +
+                               chord(10, {"Left Ctrl"}, "Z") + "15 button up left\n" +
+                               chord(18, {"Left Ctrl"}, "Z");
+    const Run run = play(backend, script, 24, {.changes = {{3, 5.0F}}, .dragField = true});
+    if (run.exitCode != 0 || run.seen.size() != 24)
+    {
+        return expect(false, "le glissé : code 0 et une image relevée par image");
+    }
+    const auto at = [&run](std::size_t frame) -> const Seen& { return run.seen.at(frame); };
+    const auto undo = [&at](std::size_t frame, bool performed)
+    {
+        const auto& counters = at(frame).actions;
+        return (performed ? counters.performed : counters.declined).at(indexOf(Action::Undo));
+    };
+    return expect(at(9).itemActive && at(14).itemActive,
+                  "le glissé : le champ est actif tant que le bouton est tenu") +
+           expect(undo(14, false) == 1 && undo(14, true) == 0 && at(14).kilograms == 5.0F &&
+                      at(14).done == 1,
+                  "le glissé : Ctrl+Z est refusé, compté et dit, la pile ne bouge pas") +
+           expect(undo(23, true) == 1 && at(23).kilograms == 0.0F,
+                  "le champ relâché : Ctrl+Z défait");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -298,7 +442,8 @@ int main(int argc, char** argv)
             return 2;
         }
         const int failures = playEdit(*backend, false) + playEdit(*backend, true) +
-                             playPlayThenStop(*backend) + playSimulate(*backend);
+                             playPlayThenStop(*backend) + playSimulate(*backend) +
+                             playPanelInPlay(*backend) + playMenu(*backend) + playDrag(*backend);
         return failures == 0 ? 0 : 1;
     }
     catch (const std::exception& e)
