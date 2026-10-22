@@ -56,13 +56,28 @@ struct UndoStack
     std::vector<Command> done;   ///< Les commandes faites, la plus ancienne d'abord.
     std::vector<Command> undone; ///< Les refaisables, la prochaine à refaire en dernier.
     std::uint64_t nextNumber = 1;
+    /// Le numéro du sommet quand la scène a été enregistrée (0 : la pile vide, l'état d'ouverture).
+    std::uint64_t savedNumber = 0;
+    /// Le numéro de la dernière commande sortie de la pile par le bas (0 : aucune). L'état d'après
+    /// elle est le fond de la pile : on y revient en tout annulant, et `topNumberOf` le rend quand
+    /// `done` est vide. Les numéros ne sont jamais réutilisés : un point d'enregistrement parmi des
+    /// refaisables vidés ne revient jamais, sans drapeau à tenir.
+    std::uint64_t bottomNumber = 0;
 };
 
 [[nodiscard]] bool canUndo(const UndoStack& stack);
 [[nodiscard]] bool canRedo(const UndoStack& stack);
 
-/// Le numéro du sommet de la pile (0 quand elle est vide).
+/// Le numéro du sommet de la pile ; vide, celui du fond (`bottomNumber`).
 [[nodiscard]] std::uint64_t topNumberOf(const UndoStack& stack);
+
+/// **« Modifié »** se lit dans la pile (décision 9) : le sommet n'est plus le numéro noté à
+/// l'enregistrement. Un « modifié » tenu à la main oublierait
+/// qu'annuler jusqu'au point d'enregistrement rend la scène propre (la leçon de Godot, [6]).
+[[nodiscard]] bool isModified(const UndoStack& stack);
+
+/// Note le sommet comme l'état enregistré.
+void markSaved(UndoStack& stack);
 
 /// Pourquoi Annuler ou Rétablir ne part pas maintenant.
 enum class HistoryRefusal : std::uint8_t

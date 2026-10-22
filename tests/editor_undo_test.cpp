@@ -10,7 +10,7 @@
 #include "levain/scene/scene.hpp"
 
 // La pile d'annulation (ADR-0038, décisions 1 et 9, morceau A4) : 100 niveaux par les valeurs,
-// la pile gelée en jeu.
+// « modifié » lu dans la pile, la pile gelée en jeu.
 
 using namespace levain::editor;
 using levain::scene::ValueBox;
@@ -107,9 +107,76 @@ TEST_CASE("une commande dont l'avant égale l'après est jetée, la pile ne boug
     REQUIRE(bench.setMass(3.0F));
     CHECK_FALSE(bench.setMass(3.0F)); // retaper la même valeur
     CHECK(bench.stack.done.size() == 1);
+    CHECK(isModified(bench.stack)); // la première commande suffit à modifier
     const std::uint64_t top = topNumberOf(bench.stack);
     CHECK_FALSE(bench.setMass(3.0F));
     CHECK(topNumberOf(bench.stack) == top);
+}
+
+TEST_CASE("« modifié » se lit dans la pile : annuler jusqu'à l'enregistrement rend la scène propre")
+{
+    Bench bench;
+    CHECK_FALSE(isModified(bench.stack));
+    REQUIRE(bench.setMass(1.0F));
+    REQUIRE(bench.setMass(2.0F));
+    CHECK(isModified(bench.stack));
+    markSaved(bench.stack);
+    CHECK_FALSE(isModified(bench.stack));
+
+    REQUIRE(bench.setMass(3.0F));
+    CHECK(isModified(bench.stack));
+    REQUIRE(bench.undo().undone == 1);
+    CHECK_FALSE(isModified(bench.stack)); // revenue au point d'enregistrement
+    REQUIRE(bench.undo().undone == 1);
+    CHECK(isModified(bench.stack));
+    REQUIRE(bench.redo().redone == 1);
+    CHECK_FALSE(isModified(bench.stack));
+}
+
+TEST_CASE(
+    "l'enregistrement sorti de la pile par le bas : tout annuler y ramène, la scène est propre")
+{
+    Bench bench;
+    REQUIRE(bench.setMass(1.0F));
+    markSaved(bench.stack); // l'état enregistré est celui d'après la commande 1
+    for (int i = 2; i <= static_cast<int>(UndoDepth) + 1; ++i)
+    {
+        REQUIRE(bench.setMass(static_cast<float>(i)));
+    }
+    CHECK(bench.stack.done.size() == UndoDepth); // la commande 1 est sortie : son état est le fond
+    CHECK(isModified(bench.stack));
+    REQUIRE(bench.undo(static_cast<int>(UndoDepth) - 1).undone == static_cast<int>(UndoDepth) - 1);
+    CHECK(isModified(bench.stack)); // il reste une commande à défaire
+    REQUIRE(bench.undo().undone == 1);
+    CHECK(bench.kilograms() == 1.0F); // l'état enregistré
+    CHECK_FALSE(isModified(bench.stack));
+}
+
+TEST_CASE("l'état d'ouverture sorti de la pile : plus de retour à propre sans enregistrer")
+{
+    Bench bench;
+    for (int i = 1; i <= static_cast<int>(UndoDepth) + 1; ++i)
+    {
+        REQUIRE(bench.setMass(static_cast<float>(i)));
+    }
+    REQUIRE(bench.undo(static_cast<int>(UndoDepth)).undone == static_cast<int>(UndoDepth));
+    CHECK(bench.kilograms() == 1.0F);
+    CHECK(isModified(bench.stack)); // l'état d'ouverture (0) n'est plus atteignable
+    markSaved(bench.stack);
+    CHECK_FALSE(isModified(bench.stack));
+}
+
+TEST_CASE("le point d'enregistrement parmi les refaisables vidés : modifié pour de bon")
+{
+    Bench bench;
+    REQUIRE(bench.setMass(1.0F));
+    REQUIRE(bench.setMass(2.0F));
+    markSaved(bench.stack);
+    REQUIRE(bench.undo().undone == 1);
+    REQUIRE(bench.setMass(9.0F)); // la commande 2, enregistrée, est vidée
+    REQUIRE(bench.undo().undone == 1);
+    CHECK(topNumberOf(bench.stack) == 1);
+    CHECK(isModified(bench.stack));
 }
 
 TEST_CASE("en jeu la pile est gelée, rien n'y entre, Stop la rend utilisable")
