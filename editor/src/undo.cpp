@@ -15,19 +15,59 @@ namespace levain::editor
 namespace
 {
 
-void dropRedo(UndoStack& stack)
+/// Les assets que les deux valeurs d'un `MeshRef` désignent, ceux à épingler. Un autre composant
+/// ne désigne rien en A4 (`ModelInstance` et `MeshCollider` viennent avec leurs gestes).
+std::vector<assets::AssetId> assetsDesignatedBy(const flecs::world& world,
+                                                flecs::entity_t component,
+                                                const scene::ValueBox& before,
+                                                const scene::ValueBox& after)
+{
+    if (component != world.id<assets::MeshRef>())
+    {
+        return {};
+    }
+    return {static_cast<const assets::MeshRef*>(before.data())->mesh.asset,
+            static_cast<const assets::MeshRef*>(after.data())->mesh.asset};
+}
+
+/// Le décompte d'épingles du monde, absent d'un monde sans le module des assets (un test).
+assets::AssetUsage* usageOf(flecs::world& world)
+{
+    return world.try_get_mut<assets::AssetUsage>();
+}
+
+/// La commande sort de la pile : elle rend ce qu'elle retient.
+struct Releaser
+{
+    flecs::world& world;
+
+    void operator()(ValueCommand& command) const
+    {
+        if (assets::AssetUsage* usage = usageOf(world))
+        {
+            assets::releasePin(*usage, command.pin);
+        }
+    }
+};
+
+void dropRedo(UndoStack& stack, flecs::world& world)
 {
     // Un point d'enregistrement parmi les refaisables ne revient jamais : les numéros ne sont pas
     // réutilisés, `isModified` reste vrai sans rien tenir de plus.
+    for (Command& command : stack.undone)
+    {
+        releaseCommand(world, command);
+    }
     stack.undone.clear();
 }
 
-void pushOutOldest(UndoStack& stack)
+void pushOutOldest(UndoStack& stack, flecs::world& world)
 {
     Command& oldest = stack.done.front();
     // L'état d'après elle devient le fond de la pile : annuler tout y ramène, et si c'était l'état
     // enregistré la scène y est propre (`topNumberOf`).
     stack.bottomNumber = oldest.number;
+    releaseCommand(world, oldest);
     stack.done.erase(stack.done.begin());
 }
 
@@ -83,6 +123,27 @@ void markSaved(UndoStack& stack)
     stack.savedNumber = topNumberOf(stack);
 }
 
+void releaseCommand(flecs::world& world, Command& command)
+{
+    std::visit(Releaser{world}, command.kind);
+}
+
+void clearUndoStack(UndoStack& stack, flecs::world& world)
+{
+    for (Command& command : stack.done)
+    {
+        releaseCommand(world, command);
+    }
+    for (Command& command : stack.undone)
+    {
+        releaseCommand(world, command);
+    }
+    stack.done.clear();
+    stack.undone.clear();
+    stack.savedNumber = 0;
+    stack.bottomNumber = 0;
+}
+
 HistoryRefusal historyRefusalOf(const UndoStack& stack, Mode mode, bool redo)
 {
     if (mode != Mode::Edit)
@@ -100,15 +161,23 @@ bool recordValueChange(UndoStack& stack, flecs::world& world, Mode mode, flecs::
     {
         return false;
     }
-    dropRedo(stack);
+    // D'abord les refaisables, libérés : une commande qui s'exécute avec des pierres ou des
+    // épingles de commandes supplantées encore en main volerait les siennes (tombstone.hpp).
+    dropRedo(stack, world);
+    assets::AssetPin pin;
+    if (assets::AssetUsage* usage = usageOf(world))
+    {
+        pin = assets::pinAssets(*usage, assetsDesignatedBy(world, component, before, after));
+    }
     stack.done.push_back({.number = stack.nextNumber++,
                           .kind = ValueCommand{.entity = entity,
                                                .component = component,
                                                .before = std::move(before),
-                                               .after = std::move(after)}});
+                                               .after = std::move(after),
+                                               .pin = std::move(pin)}});
     if (stack.done.size() > UndoDepth)
     {
-        pushOutOldest(stack);
+        pushOutOldest(stack, world);
     }
     return true;
 }
