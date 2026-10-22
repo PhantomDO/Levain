@@ -370,14 +370,38 @@ void giveMouseBackOnClick(app::App& app, Editor& editor)
     }
 }
 
+/// Ce que la pile dit aux menus : pourquoi Annuler et Rétablir sont grisés, si la scène est
+/// modifiée.
+HistoryState historyStateOf(const Editor& editor)
+{
+    return {.undo = historyRefusalOf(editor.undo, editor.mode.current, false),
+            .redo = historyRefusalOf(editor.undo, editor.mode.current, true),
+            .modified = isModified(editor.undo)};
+}
+
+/// **Le point nommé des demandes d'historique** (ADR-0038, décision 9) : juste après `defer_end`
+/// pour ce que les fenêtres ont demandé, et après les raccourcis et les menus pour les leurs. Ce
+/// qui a changé se voit dans l'image même. Vrai si le monde a changé (comme `wroteWorld` d'une
+/// écriture de l'inspecteur : la boîte de la scène se rafraîchit tout de suite).
+bool applyHistoryRequests(app::App& app, Editor& editor)
+{
+    const bool changed =
+        applyEditorRequests(editor.requests, editor.undo, app.world, editor.mode.current)
+            .changedWorld();
+    app.recomposeAfterUi = app.recomposeAfterUi || changed;
+    return changed;
+}
+
 /// La barre de menus, la barre d'outils et la barre d'état, et la fenêtre Aide : ce qu'elles
 /// atteignent (`MenuRequests`, la barre d'outils) revient, et le mode que le bouton propose va à
 /// `requested` si la Vue n'en a pas déjà demandé un.
 std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>& requested)
 {
     const auto windows = windowEntriesOf(editor, app);
-    const MenuBarInputs inputs{
-        .table = editor.shortcuts, .keyAtPosition = app.keyAtPosition, .windows = windows};
+    const MenuBarInputs inputs{.table = editor.shortcuts,
+                               .keyAtPosition = app.keyAtPosition,
+                               .windows = windows,
+                               .history = historyStateOf(editor)};
     MenuRequests menus = drawMenuBar(inputs, editor.menu, editor.bar, editor.help);
     const ToolbarResult toolbar = drawToolbar(editor.mode.current, editor.mode.paused,
                                               editor.camera.flySpeed, app.realTime, editor.toolbar);
@@ -412,7 +436,7 @@ std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>&
 /// Vue est « active » selon `viewActiveOf`, et le vol est celui des gestes (`inFlight`), qui
 /// commande aussi la capture de la souris. `capturing` : la saisie d'un accord **au début de
 /// l'image** (voir `ui`), non ce qu'elle est devenue depuis.
-void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reached, bool capturing)
+bool runReachedActions(app::App& app, Editor& editor, std::vector<Action> reached, bool capturing)
 {
     editor.lastShortcuts =
         shortcutsPressed({.table = editor.shortcuts,
@@ -422,7 +446,12 @@ void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reache
                           .viewActive = viewActiveOf(app, editor),
                           .flight = inFlight(editor.gestures),
                           .textInput = ImGui::GetIO().WantTextInput});
-    reached.insert(reached.end(), editor.lastShortcuts.begin(), editor.lastShortcuts.end());
+    // Ctrl+Z pendant un glissé est refusé (un clic de menu ne l'est pas).
+    for (const Action action :
+         withoutHistoryWhileActive(editor.lastShortcuts, ImGui::IsAnyItemActive(), editor.actions))
+    {
+        reached.push_back(action);
+    }
     for (const Action action : reached)
     {
         if (playControlOf(action)) // Pause et Image suivante, de la barre d'outils
@@ -441,8 +470,14 @@ void runReachedActions(app::App& app, Editor& editor, std::vector<Action> reache
         if (editor.actions.performed.at(indexOf(action)) > before)
         {
             applyShowAction(editor.view.show, action);
+            if (isHistoryAction(action))
+            {
+                editor.requests.push_back(action == Action::Undo ? HistoryRequest::Undo
+                                                                 : HistoryRequest::Redo);
+            }
         }
     }
+    return applyHistoryRequests(app, editor);
 }
 
 /// **La grille** : sa passe pour la cible de la scène, créée une fois, et son étape dans l'étape
@@ -582,7 +617,9 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .savePreferencesNext = false,
                    .shortcutWindow = {},
                    .keymapSeen = 0,
-                   .grid = {}});
+                   .grid = {},
+                   .undo = {},
+                   .requests = {}});
         editor->console.font = fonts->console;
         if (options.select)
         {
@@ -671,7 +708,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 drawInspector(app.world, editor->inspector, editor->selected, app.ui.dock.inspector,
                               &editor->windows.inspector);
                 app.world.defer_end();
-                wroteWorld = editor->inspector.wrote;
+                wroteWorld = applyHistoryRequests(app, *editor); // ce que les fenêtres ont demandé
+                wroteWorld = wroteWorld || editor->inspector.wrote;
                 if (wroteWorld)
                 {
                     app.recomposeAfterUi = true; // la valeur tapée se voit dans l'image même
@@ -707,7 +745,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 }
                 app.quitRequested = true;
             }
-            runReachedActions(app, *editor, std::move(reached), capturing);
+            wroteWorld =
+                runReachedActions(app, *editor, std::move(reached), capturing) || wroteWorld;
             // La barre de mode : en calque de la Vue panneaux ouverts, bandeau flottant sinon (le
             // bandeau de « Jouer » et le rappel de la touche valent panneaux fermés aussi).
             // `modeRequested` décide, avec Alt+P, qui ne joue pas sous la modale.

@@ -56,6 +56,23 @@ bool actionItem(Action action, const MenuBarInputs& inputs)
     return false;
 }
 
+/// Annuler ou Rétablir : active quand la pile et le mode le permettent, sinon grisée et la raison
+/// dite au survol (hors de l'Édition la pile est gelée, ADR-0038, décision 9). Vrai au clic.
+bool historyItem(Action action, const MenuBarInputs& inputs, bool& enabled)
+{
+    const HistoryRefusal refusal =
+        action == Action::Undo ? inputs.history.undo : inputs.history.redo;
+    enabled = refusal == HistoryRefusal::None;
+    if (enabled)
+    {
+        return actionItem(action, inputs);
+    }
+    greyedMenuItem(ui::labelOf(nameOf(action)).c_str(),
+                   shortcutTextOf(inputs.table, action, inputs.keyAtPosition).c_str());
+    sayReason(historyReasonOf(refusal, action == Action::Redo), SoonSide::Right);
+    return false;
+}
+
 /// Une entrée sans action de la table, grisée jusqu'à son milestone.
 void soonItem(const char* french, const char* milestone)
 {
@@ -96,11 +113,13 @@ void drawEditMenu(const MenuBarInputs& inputs, MenuBarLayout& layout, MenuReques
     }
     for (const Action action : {Action::Undo, Action::Redo})
     {
-        if (actionItem(action, inputs))
+        bool enabled = false;
+        if (historyItem(action, inputs, enabled))
         {
             requests.actions.push_back(action);
         }
-        layout.undo = action == Action::Undo ? centerOfLastItem() : layout.undo;
+        (action == Action::Undo ? layout.undo : layout.redo) = centerOfLastItem();
+        (action == Action::Undo ? layout.undoEnabled : layout.redoEnabled) = enabled;
     }
     ImGui::Separator();
     const bool preferences = ImGui::BeginMenu(ui::labelOf("Préférences").c_str());
@@ -191,6 +210,12 @@ MenuRequests drawMenuBar(const MenuBarInputs& inputs, WindowMenuLayout& windowLa
     drawEntityMenu(layout);
     requests.resetLayout = drawWindowMenuItems(inputs.windows, windowLayout);
     drawHelpMenu(layout, help);
+    // Le « * » de la scène modifiée (le titre de la fenêtre reste ASCII, ADR-0036).
+    layout.modifiedShown = inputs.history.modified;
+    if (inputs.history.modified)
+    {
+        ImGui::TextUnformatted("*");
+    }
     ImGui::EndMainMenuBar();
     return requests;
 }

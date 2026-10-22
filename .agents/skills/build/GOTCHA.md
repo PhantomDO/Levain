@@ -3,6 +3,16 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## Un filtre doctest `-tc` avec une virgule en fait deux filtres, et un contre-test passe au vert (2026-10-22)
+
+- **Symptôme** : un contre-test (faute injectée, test lancé par `-tc="*en jeu, Annuler*"`) restait vert, trois cas
+  passaient là où un seul devait échouer.
+- **Cause** : la virgule sépare les filtres de doctest (`*en jeu` ou ` Annuler*`) ; le cas visé n'était pas dans ceux
+  qui tournaient, ou ne tournait pas seul. Un contre-test qui ne compile pas (paramètre inutilisé sous `-Werror`) laisse
+  aussi l'ancien binaire, vert.
+- **Parade** : pas de virgule dans un nom de test qu'on filtre (ou un seul morceau sans virgule : `-tc="*grisés même*"`),
+  `-ltc` pour lister ce qui tourne, et lire « 1 failed » avant de conclure ; la faute doit compiler.
+
 ## `CAPTURE` d'un `std::string_view` ne compile pas sous clang-cl sans `<ostream>` (2026-10-22)
 
 - **Symptôme** : `windows-debug` échoue sur un test doctest (« implicit instantiation of undefined template

@@ -33,16 +33,15 @@ struct Availability
     const char* milestone = ""; ///< « M7.3 » : le texte tel que la console le dit ; vide si là.
 };
 
-/// **La disponibilité des actions** (décision 12) : Enregistrer, Annuler et Rétablir arrivent en
-/// M7.3 (la scène sur disque et l'historique), les outils en M7.4. Le reste est là : jouer,
+/// **La disponibilité des actions** (décision 12) : Enregistrer arrive en M7.3 (la scène sur
+/// disque), les outils en M7.4. Annuler et Rétablir sont là (M7.3, A4) ; ce que le mode et la pile
+/// en permettent est dit ailleurs (`historyRefusalOf`). Le reste est là : jouer,
 /// simuler, arrêter, le temps réel, et les actions de navigation (le morceau 11).
 [[nodiscard]] constexpr Availability availabilityOf(Action action)
 {
     switch (action)
     {
     case Action::Save:
-    case Action::Undo:
-    case Action::Redo:
         return {.available = false, .milestone = "M7.3"};
     case Action::ToolMove:
     case Action::ToolRotate:
@@ -59,6 +58,12 @@ struct Availability
 {
     return action == Action::ToolMove || action == Action::ToolRotate ||
            action == Action::ToolScale || action == Action::NextTool;
+}
+
+/// Annuler et Rétablir : les actions de la pile (`undo.hpp`), actives en Édition seulement.
+[[nodiscard]] constexpr bool isHistoryAction(Action action)
+{
+    return action == Action::Undo || action == Action::Redo;
 }
 
 inline constexpr std::size_t ActionCount = static_cast<std::size_t>(Action::Count);
@@ -86,7 +91,9 @@ void switchRealTime(Mode from, Mode to, bool& appRealTime, bool& editChoice);
 /// Atteint une action. **Grisée** : le compteur `declined` monte et la console dit « {action} :
 /// arrive en {milestone} » ; rien d'autre ne change. **Là** : `performed` monte et l'effet part :
 /// « Temps réel » bascule `realTime` (`App::realTime`) **en Édition** ; ailleurs il est grisé
-/// (`declined`, dit à la console « seulement en Édition »), de même que Jouer et Simuler. Jouer,
+/// (`declined`, dit à la console « seulement en Édition »), de même que Jouer, Simuler, Annuler et
+/// Rétablir (la pile est gelée en jeu, ADR-0038, décision 9). Annuler et Rétablir comptées faites
+/// laissent leur effet à l'appelant (`applyEditorRequests`). Jouer,
 /// Simuler et Arrêter rendent le mode où passer (Jouer ne fait que jouer, Simuler que simuler,
 /// Arrêter que revenir : `modeRequested`). Les autres actions (la navigation) sont comptées et
 /// n'ont pas d'effet ici.
@@ -99,6 +106,14 @@ void switchRealTime(Mode from, Mode to, bool& appRealTime, bool& editChoice);
 /// pourquoi (`carryOutPlayTransition`). À appeler une fois, juste après un `runAction` qui a rendu
 /// un mode, quand le changement n'a pas eu lieu.
 void countRefusedTransition(ActionCounters& counters, Action action);
+
+/// **Ctrl+Z pendant qu'un élément est actif** (un glissé en cours) est refusé : ImGui le laisse
+/// passer (`WantTextInput` à 0, `Shortcut(RouteGlobal)` vrai, essayé), et la pile changerait sous
+/// la main qui glisse (ADR-0038, décision 9). Retire Annuler et Rétablir des raccourcis atteints ;
+/// chaque refus monte `declined` et se dit à la console. Les menus n'y passent pas : un clic de
+/// menu n'est pas un glissé.
+[[nodiscard]] std::vector<Action>
+withoutHistoryWhileActive(std::vector<Action> shortcuts, bool itemActive, ActionCounters& counters);
 
 /// Une touche d'outil (`isToolAction`) appuyée dans la Vue : l'action de l'outil, ou rien.
 /// **En vol (clic droit tenu), aucune** : `actionFor` rend Avancer pour W et ne laisse rien à la

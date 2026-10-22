@@ -166,13 +166,15 @@ struct BarBench
     float flySpeed = DefaultFlySpeed;
     bool realTime = true;
     std::function<std::uint32_t(std::uint16_t)> layout = levain::platform::qwertyKeyAtPosition;
+    HistoryState history; ///< Ce que la pile dit à la barre (rien à annuler par défaut).
 
     /// `render` : `ImGui::Render` au lieu de `EndFrame`, pour lire ce que l'image a dessiné.
     void frame(bool render = false)
     {
         levain::ui::prepareUiFrame(ImGui::GetIO(), {.width = 960, .height = 540}, 1.0 / 60.0);
         ImGui::NewFrame();
-        const MenuBarInputs inputs{.table = table, .keyAtPosition = layout, .windows = windows};
+        const MenuBarInputs inputs{
+            .table = table, .keyAtPosition = layout, .windows = windows, .history = history};
         const MenuRequests requests = drawMenuBar(inputs, windowLayout, bar, help);
         actions.insert(actions.end(), requests.actions.begin(), requests.actions.end());
         quit = quit || requests.quit;
@@ -238,15 +240,57 @@ TEST_CASE("le menu Fichier : Enregistrer est grisé et ne fait rien au clic, Qui
     CHECK(bench.actions.empty());
 }
 
-TEST_CASE("Édition et Entité s'ouvrent, leurs entrées grisées ne rendent rien au clic")
+TEST_CASE("Édition : Annuler et Rétablir sont grisés sans pile, et ne rendent rien au clic")
 {
     BarBench bench;
     bench.settle();
     bench.click(bench.bar.edit);
     REQUIRE(bench.bar.editOpen);
-    bench.click(bench.bar.undo); // Annuler arrive en M7.3
+    CHECK_FALSE(bench.bar.undoEnabled);
+    CHECK_FALSE(bench.bar.redoEnabled);
+    bench.click(bench.bar.undo); // rien à annuler
     CHECK(bench.actions.empty());
     CHECK_FALSE(bench.quit);
+}
+
+TEST_CASE("la bulle d'Annuler et de Rétablir dit pourquoi ils sont grisés")
+{
+    CHECK(std::string{historyReasonOf(HistoryRefusal::NotEditing, false)} ==
+          "Seulement en Édition");
+    CHECK(std::string{historyReasonOf(HistoryRefusal::NotEditing, true)} == "Seulement en Édition");
+    CHECK(std::string{historyReasonOf(HistoryRefusal::Nothing, false)} == "Rien à annuler");
+    CHECK(std::string{historyReasonOf(HistoryRefusal::Nothing, true)} == "Rien à rétablir");
+    CHECK(std::string{historyReasonOf(HistoryRefusal::None, false)}.empty());
+}
+
+TEST_CASE("Édition : avec une pile, Annuler et Rétablir sont actifs et rendent leur action au clic")
+{
+    BarBench bench;
+    bench.history = {.undo = HistoryRefusal::None, .redo = HistoryRefusal::None, .modified = true};
+    bench.settle();
+    bench.click(bench.bar.edit);
+    REQUIRE(bench.bar.editOpen);
+    CHECK(bench.bar.undoEnabled);
+    CHECK(bench.bar.redoEnabled);
+    CHECK(bench.bar.modifiedShown); // le « * » de la scène modifiée
+    bench.click(bench.bar.undo);
+    CHECK(bench.actions == std::vector<Action>{Action::Undo});
+}
+
+TEST_CASE("en jeu, Annuler et Rétablir sont grisés même avec une pile : elle est gelée")
+{
+    BarBench bench;
+    bench.mode = Mode::Play;
+    bench.history = {
+        .undo = HistoryRefusal::NotEditing, .redo = HistoryRefusal::NotEditing, .modified = false};
+    bench.settle();
+    bench.click(bench.bar.edit);
+    REQUIRE(bench.bar.editOpen);
+    CHECK_FALSE(bench.bar.undoEnabled);
+    CHECK_FALSE(bench.bar.redoEnabled);
+    CHECK_FALSE(bench.bar.modifiedShown);
+    bench.click(bench.bar.undo);
+    CHECK(bench.actions.empty());
 }
 
 TEST_CASE("Entité > Créer… arrive en M7.3 : grisé, il ne rend rien au clic")

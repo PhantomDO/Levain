@@ -54,8 +54,8 @@ TEST_CASE("une action grisée dit son milestone, les autres sont là")
 {
     CHECK_FALSE(availabilityOf(Action::Save).available);
     CHECK(std::string{availabilityOf(Action::Save).milestone} == "M7.3");
-    CHECK(std::string{availabilityOf(Action::Undo).milestone} == "M7.3");
-    CHECK(std::string{availabilityOf(Action::Redo).milestone} == "M7.3");
+    CHECK(availabilityOf(Action::Undo).available); // M7.3, A4 : la pile est là
+    CHECK(availabilityOf(Action::Redo).available);
     for (const Action tool :
          {Action::ToolMove, Action::ToolRotate, Action::ToolScale, Action::NextTool})
     {
@@ -90,6 +90,45 @@ TEST_CASE("atteindre une action grisée la compte et le dit à la console, rien 
     const levain::core::LogSnapshot snapshot = levain::core::snapshotOf(*capture.ring);
     REQUIRE(snapshot.entries.size() == 1);
     CHECK(snapshot.entries.front().text == "Enregistrer : arrive en M7.3");
+}
+
+TEST_CASE("Annuler et Rétablir : comptées faites en Édition, grisées et dites en jeu")
+{
+    levain::core::LogCapture capture = levain::core::captureLog(16);
+    ActionCounters counters;
+    bool realTime = true;
+    for (const Action action : {Action::Undo, Action::Redo})
+    {
+        CHECK_FALSE(runAction(action, counters, realTime, Mode::Edit).has_value());
+        CHECK(counters.performed.at(indexOf(action)) == 1);
+        for (const Mode playing : {Mode::Play, Mode::Simulate})
+        {
+            CHECK_FALSE(runAction(action, counters, realTime, playing).has_value());
+        }
+        CHECK(counters.performed.at(indexOf(action)) == 1); // rien de plus en jeu
+        CHECK(counters.declined.at(indexOf(action)) == 2);
+    }
+    const levain::core::LogSnapshot snapshot = levain::core::snapshotOf(*capture.ring);
+    REQUIRE(snapshot.entries.size() == 4);
+    CHECK(snapshot.entries.front().text == "Annuler : seulement en Édition");
+    CHECK(snapshot.entries.back().text == "Rétablir : seulement en Édition");
+}
+
+TEST_CASE("Ctrl+Z pendant qu'un élément est actif est refusé et dit, Ctrl+S passe")
+{
+    levain::core::LogCapture capture = levain::core::captureLog(16);
+    ActionCounters counters;
+    const std::vector<Action> pressed{Action::Undo, Action::Save, Action::Redo};
+
+    CHECK(withoutHistoryWhileActive(pressed, false, counters) == pressed);
+    CHECK(counters.declined.at(indexOf(Action::Undo)) == 0);
+    CHECK(withoutHistoryWhileActive(pressed, true, counters) == std::vector<Action>{Action::Save});
+    CHECK(counters.declined.at(indexOf(Action::Undo)) == 1);
+    CHECK(counters.declined.at(indexOf(Action::Redo)) == 1);
+    CHECK(counters.declined.at(indexOf(Action::Save)) == 0);
+    const levain::core::LogSnapshot snapshot = levain::core::snapshotOf(*capture.ring);
+    REQUIRE(snapshot.entries.size() == 2);
+    CHECK(snapshot.entries.front().text == "Annuler : refusé pendant qu'un champ est actif");
 }
 
 TEST_CASE("les actions qui sont là : le temps réel bascule, jouer et arrêter rendent leur mode")

@@ -21,6 +21,7 @@
 #include <imgui.h>
 
 #include "levain/editor/shortcuts.hpp"
+#include "levain/editor/undo.hpp"
 #include "levain/editor/window_menu.hpp"
 #include "levain/platform/input.hpp"
 
@@ -136,11 +137,15 @@ struct MenuBarLayout
     ImVec2 edit{};
     ImVec2 entity{};
     ImVec2 help{};
-    ImVec2 save{};           ///< « Enregistrer », valable `fileOpen`.
-    ImVec2 undo{};           ///< « Annuler », valable `editOpen`.
-    ImVec2 create{};         ///< « Créer… », valable `entityOpen`.
-    ImVec2 preferences{};    ///< « Préférences », valable `editOpen`.
-    ImVec2 shortcutsEntry{}; ///< « Raccourcis… », valable `preferencesOpen`.
+    ImVec2 save{};            ///< « Enregistrer », valable `fileOpen`.
+    ImVec2 undo{};            ///< « Annuler », valable `editOpen`.
+    ImVec2 redo{};            ///< « Rétablir », valable `editOpen`.
+    bool undoEnabled = false; ///< « Annuler » n'est pas grisée, valable `editOpen`.
+    bool redoEnabled = false;
+    bool modifiedShown = false; ///< Le « * » de la scène modifiée est dans la barre.
+    ImVec2 create{};            ///< « Créer… », valable `entityOpen`.
+    ImVec2 preferences{};       ///< « Préférences », valable `editOpen`.
+    ImVec2 shortcutsEntry{};    ///< « Raccourcis… », valable `preferencesOpen`.
     bool editOpen = false;
     bool preferencesOpen = false;
     bool entityOpen = false;
@@ -172,12 +177,38 @@ struct MenuRequests
     bool openShortcuts = false; ///< « Préférences > Raccourcis… » (morceau 16).
 };
 
+/// Ce que la pile dit à la barre : pourquoi Annuler et Rétablir sont grisés (`historyRefusalOf`),
+/// et si la scène est modifiée (le « * » de la barre ; le titre de la fenêtre reste ASCII).
+struct HistoryState
+{
+    HistoryRefusal undo = HistoryRefusal::Nothing;
+    HistoryRefusal redo = HistoryRefusal::Nothing;
+    bool modified = false;
+};
+
+/// Pourquoi Annuler (`redo` faux) ou Rétablir est grisé, clé du catalogue : ce que la bulle dit au
+/// survol. Vide si l'entrée est active.
+[[nodiscard]] constexpr const char* historyReasonOf(HistoryRefusal refusal, bool redo)
+{
+    switch (refusal)
+    {
+    case HistoryRefusal::None:
+        return "";
+    case HistoryRefusal::NotEditing:
+        return "Seulement en Édition";
+    case HistoryRefusal::Nothing:
+        return redo ? "Rien à rétablir" : "Rien à annuler";
+    }
+    return "";
+}
+
 /// Ce dont la barre a besoin, tout en paramètres.
 struct MenuBarInputs
 {
     const ShortcutTable& table;
     const platform::KeyAtPosition& keyAtPosition;
     std::span<const WindowEntry> windows;
+    HistoryState history{};
 };
 
 /// Dessine la barre de menus principale : Fichier, Édition, Entité, Fenêtre (`windowLayout`), Aide.

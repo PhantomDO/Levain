@@ -160,6 +160,9 @@ Trois choses du code d'aujourd'hui pèsent encore :
      `applyEditorRequests`, juste après `defer_end` ; les raccourcis et les menus, déjà hors du `defer`, l'appellent
      directement. La file que l'ADR-0037 jugeait inutile pour Stop devient nécessaire ici.
    - *Annuler n'est actif qu'en Édition.* En Jouer et en Simuler, Ctrl+Z, Ctrl+Y et le menu sont grisés, la raison dite.
+     **Amendement du 2026-10-22 (relecture de A4)** : en Jouer ou en Simuler, la Vue focalisée sous la route *jeu*
+     donne le clavier au jeu (ADR-0036, décision 4) : Ctrl+Z va au jeu, l'éditeur ne le voit pas ; un panneau
+     focalisé, lui, le reçoit : refusé et dit (« seulement en Édition »), et le menu est grisé avec la raison.
      La pile est **gelée, pas vidée** : Stop rend la scène identique (identifiants compris), donc les commandes d'avant
      Play restent valables. Ce qu'on change en jeu, valeur ou structure, **n'est pas enregistré** : c'est perdu à Stop
      (ADR-0037, décision 6), et il n'y a donc rien à jeter. Les opérations sont les mêmes fonctions libres dans tous les

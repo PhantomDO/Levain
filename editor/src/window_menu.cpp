@@ -1,6 +1,7 @@
 #include "levain/editor/window_menu.hpp"
 
 #include <algorithm>
+#include <string>
 
 #include <imgui.h>
 
@@ -16,7 +17,11 @@ ImVec2 centerOfLastItem()
     return {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f};
 }
 
-void saySoon(const char* milestone, SoonSide side)
+namespace
+{
+
+/// La bulle de la dernière entrée, à son côté, si elle est survolée (grisée comprise).
+void tooltipBeside(const std::string& text, SoonSide side)
 {
     if (!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     {
@@ -27,7 +32,19 @@ void saySoon(const char* milestone, SoonSide side)
     constexpr float Gap = 6.0f;
     ImGui::SetNextWindowPos(side == SoonSide::Right ? ImVec2(max.x + Gap, min.y)
                                                     : ImVec2(min.x, max.y + Gap));
-    ImGui::SetTooltip("%s", ui::trf("Arrive en {}", milestone).c_str());
+    ImGui::SetTooltip("%s", text.c_str());
+}
+
+} // namespace
+
+void saySoon(const char* milestone, SoonSide side)
+{
+    tooltipBeside(ui::trf("Arrive en {}", milestone), side);
+}
+
+void sayReason(const char* french, SoonSide side)
+{
+    tooltipBeside(ui::tr(french), side);
 }
 
 void greyedMenuItem(const char* label, const char* shortcut)
