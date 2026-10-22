@@ -66,6 +66,33 @@ Subtree subtreeOf(const flecs::world& world, flecs::entity_t root)
     return subtree;
 }
 
+/// L'index est dans la plage d'identifiants active du monde (sans plage active : partout). Les
+/// entités de l'édition ne se suppriment pas, ne se réveillent pas, ne se libèrent pas en jeu :
+/// voir `removeKeepingIndex`.
+bool inActiveRange(const flecs::world& world, flecs::entity_t entity)
+{
+    const ecs_entity_range_t* range = ecs_entity_range_get(world);
+    const std::uint32_t index = indexOf(entity);
+    return range == nullptr || (index >= range->min && (range->max == 0 || index <= range->max));
+}
+
+core::Result<void> refuseOutsideRange(const flecs::world& world, const Tombstones& tombstones,
+                                      const char* gesture)
+{
+    for (const ReservedIndex& reserved : tombstones.reserved)
+    {
+        if (!inActiveRange(world, reserved.entity))
+        {
+            return core::makeError(
+                core::ErrorCode::InvalidData,
+                std::format("{} : l'index {} est hors de la plage d'identifiants "
+                            "active (jeu ou édition), le monde n'est pas touché",
+                            gesture, indexOf(reserved.entity)));
+        }
+    }
+    return {};
+}
+
 bool isTombstone(const flecs::world& world, flecs::entity_t entity)
 {
     return ecs_has_id(world, entity, world.id<Tombstone>());
@@ -78,10 +105,27 @@ bool holds(const flecs::world& world, const ReservedIndex& reserved)
            isTombstone(world, reserved.stone);
 }
 
+core::Result<void> refuseDeferred(const flecs::world& world, const char* gesture)
+{
+    // Les écritures de flecs (réveil, destruction) seraient mises en file : la garde lirait un
+    // monde pas encore écrit.
+    if (ecs_is_deferred(world))
+    {
+        return core::makeError(
+            core::ErrorCode::InvalidData,
+            std::format("{} : appelée en mode différé, le monde n'est pas touché", gesture));
+    }
+    return {};
+}
+
 } // namespace
 
 core::Result<Tombstones> removeKeepingIndex(flecs::world& world, flecs::entity_t entity)
 {
+    if (auto deferred = refuseDeferred(world, "Supprimer"); !deferred)
+    {
+        return std::unexpected(deferred.error());
+    }
     // Avant toute destruction : passés les 256 identifiants bas de flecs, un composant enregistré
     // après une destruction prend l'index libéré (et devient sa propre pierre).
     const flecs::entity_t tag = world.component<Tombstone>().id();
@@ -116,6 +160,10 @@ core::Result<Tombstones> removeKeepingIndex(flecs::world& world, flecs::entity_t
     {
         // La génération que flecs va poser dans l'index libéré (ECS_GENERATION_INC, src/entity.c).
         tombstones.reserved.push_back({.entity = id, .stone = ECS_GENERATION_INC(id)});
+    }
+    if (auto inRange = refuseOutsideRange(world, tombstones, "Supprimer"); !inRange)
+    {
+        return std::unexpected(inRange.error());
     }
 
     ecs_delete(world, entity);
@@ -181,6 +229,14 @@ void destroyStones(flecs::world& world, const Tombstones& tombstones)
 
 core::Result<void> reviveFromTombstones(flecs::world& world, const Tombstones& tombstones)
 {
+    if (auto deferred = refuseDeferred(world, "Annuler"); !deferred)
+    {
+        return std::unexpected(deferred.error());
+    }
+    if (auto inRange = refuseOutsideRange(world, tombstones, "Annuler"); !inRange)
+    {
+        return inRange;
+    }
     if (auto held = checkTombstonesHold(world, tombstones); !held)
     {
         return held;
@@ -192,6 +248,20 @@ core::Result<void> reviveFromTombstones(flecs::world& world, const Tombstones& t
     {
         ecs_make_alive(world, reserved.entity);
     }
+    return {};
+}
+
+core::Result<void> releaseTombstones(flecs::world& world, const Tombstones& tombstones)
+{
+    if (auto deferred = refuseDeferred(world, "Libérer"); !deferred)
+    {
+        return deferred;
+    }
+    if (auto inRange = refuseOutsideRange(world, tombstones, "Libérer"); !inRange)
+    {
+        return inRange;
+    }
+    destroyStones(world, tombstones);
     return {};
 }
 
