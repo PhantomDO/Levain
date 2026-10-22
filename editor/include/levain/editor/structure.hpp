@@ -1,6 +1,6 @@
 #pragma once
 
-// Créer, supprimer et renommer une entité (ADR-0038, décisions 3, 6, 8, 9 et 10) : les commandes
+// Créer, supprimer et renommer une entité (ADR-0038, décisions 3, 4, 6, 8, 9 et 10) : les commandes
 // de structure de la pile et leurs opérations, **sans la pile** (qui est dans `undo.hpp`). Les deux
 // sortes de commandes qui remplacent l'écriture d'une valeur :
 //   - `SubtreeCommand` garde un sous-arbre (`readSubtree`) et les pierres tombales de ses index
@@ -16,9 +16,11 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <flecs.h>
 
+#include "levain/assets/asset_ref.hpp"
 #include "levain/core/error.hpp"
 #include "levain/scene/subtree.hpp"
 #include "levain/scene/tombstone.hpp"
@@ -46,6 +48,9 @@ struct SubtreeCommand
     /// l'annulation d'une création, détruites au réveil, rendues quand la commande sort de la pile.
     /// Vides tant qu'une création est faite (l'entité est vivante).
     scene::Tombstones tombstones;
+    /// Les assets que `record` peut rendre en se réveillant (`MeshRef`) : épinglés, sans quoi la
+    /// suppression de la seule instance d'un modèle le ferait décharger (décision 4).
+    assets::AssetPin pin;
 };
 
 struct RenameCommand
@@ -56,6 +61,16 @@ struct RenameCommand
     std::optional<std::string> before;
     std::string after;
 };
+
+/// Les assets que la valeur d'un composant désigne et que l'annulation doit pouvoir rendre : un
+/// `MeshRef` aujourd'hui, `ModelInstance` et `MeshCollider` avec leurs gestes (S2, S3). **Le seul
+/// endroit à compléter** quand un composant porte un `AssetRef`.
+[[nodiscard]] std::vector<assets::AssetId>
+assetsDesignatedBy(const flecs::world& world, flecs::entity_t component, const void* value);
+
+/// Les assets de toutes les valeurs d'un sous-arbre enregistré.
+[[nodiscard]] std::vector<assets::AssetId> assetsOfSubtree(const flecs::world& world,
+                                                           const scene::SubtreeRecord& record);
 
 // --- Les refus, dits avant d'écrire -------------------------------------------------------------
 
