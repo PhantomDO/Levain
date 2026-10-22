@@ -309,6 +309,12 @@ void reachPlayControl(app::App& app, Editor& editor, Action action)
 bool changeMode(app::App& app, Editor& editor, Mode mode)
 {
     const Mode from = editor.mode.current;
+    if (from == Mode::Edit && mode != Mode::Edit)
+    {
+        // **Tout geste ouvert est fermé avant Play** (ADR-0038, décision 2) : l'instantané prend
+        // le glissé tel qu'il l'a écrit, et sa commande est posée, ni perdue ni doublée.
+        std::ignore = closeOpenGesture(editor.inspector.gesture, editor.undo, app.world, from);
+    }
     if (!carryOutPlayTransition(app, editor, mode))
     {
         return false;
@@ -388,6 +394,13 @@ bool applyHistoryRequests(app::App& app, Editor& editor)
     const bool changed =
         applyEditorRequests(editor.requests, editor.undo, app.world, editor.mode.current)
             .changedWorld();
+    if (changed)
+    {
+        // Les angles tapés ne valent que tant qu'ils donnent la rotation du composant : une
+        // annulation en remet une que l'inspecteur n'a pas tapée, il la relit du quaternion
+        // (`eulerHint`) plutôt que de ressusciter une valeur d'avant (ADR-0038, décision 2).
+        editor.inspector.typedAngles.clear();
+    }
     app.recomposeAfterUi = app.recomposeAfterUi || changed;
     return changed;
 }
@@ -621,6 +634,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .undo = {},
                    .requests = {}});
         editor->console.font = fonts->console;
+        editor->inspector.history =
+            &editor->undo; // les gestes de l'inspecteur posent leurs commandes
         if (options.select)
         {
             const flecs::entity chosen = app.world.lookup(options.select->c_str());
@@ -702,6 +717,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 drawConsole(editor->console, *editor->log->ring, app.ui.dock.bottom,
                             &editor->windows.console);
                 // Les écritures de l'inspecteur et leurs observateurs passent après le parcours.
+                editor->inspector.mode = editor->mode.current;
                 app.world.defer_begin();
                 drawHierarchy(app.world, editor->hierarchy, editor->selected, app.ui.dock.left,
                               &editor->windows.hierarchy);

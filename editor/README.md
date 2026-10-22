@@ -24,8 +24,6 @@ d'entité et d'asset. Il n'a pas encore :
   autres (Entité, M7.3) viennent avec leur milestone ;
 - **d'enregistrement** : rien n'écrit la scène (M7.3) ; fermer la fenêtre demande « Quitter l'éditeur ? », sans rien
   proposer d'enregistrer ;
-- **d'annulation depuis l'inspecteur** : la pile existe (voir plus bas) mais `commitEdit` écrit encore la copie par
-  `setComponentValue` sans poser de commande (editor/src/inspector.cpp:543-552) ; M7.3, morceau A5 ;
 - ni raccourci d'édition, sauf Ctrl+Z, Ctrl+Y et Ctrl+Maj+Z (M7.3, A4) : Ctrl+S et les outils sont grisés jusqu'à leur
   milestone (invariant 16 et le paragraphe des menus ci-dessous) ; ceux de M7.7 jouent, arrêtent, règlent le temps réel, cadrent (F) et basculent
   la vue de jeu (G).
@@ -43,6 +41,19 @@ d'ImGui est actif (un glissé) est refusé. **`applyEditorRequests`** est le poi
 fenêtres dessinées dans le `defer` ne font que mettre une demande en file, qui part juste après `defer_end` ;
 raccourcis et menus, hors du `defer`, passent par le même point. Équivalents : `Undo` d'Unity, `FScopedTransaction`
 d'Unreal, `UndoRedo` de Godot. Tests : `tests/editor_undo_test.cpp` et, de bout en bout, `gpu.editor-undo.*`.
+
+**L'inspecteur pose ses commandes, un geste, une commande** (M7.3, morceau A5, `edit_gesture.hpp`, ADR-0038 décision 2).
+Le monde est écrit **en direct** à chaque image d'un glissé ; le geste s'ouvre à `IsItemActivated` (l'avant est la valeur
+du monde au début de l'image) et se ferme à `IsItemDeactivatedAfterEdit` : une commande. Relâcher puis reprendre le champ
+en donne deux (pas de clé de fusion). Une écriture **sans geste ouvert** (une liste déroulante, qui ne donne aucun bord
+d'ImGui) est une commande d'une image, l'avant copié avant `commitEdit`. Tab de x à y ferme x avant d'ouvrir y (deux
+commandes) ; retaper la même valeur n'en donne aucune ; **Échap non plus, et il rend l'avant exact** (ImGui rejoue le texte formaté à
+l'activation, « 0.123 » pour 0.12345678f, et l'applique comme un changement : la machine remet la valeur du début du geste,
+`GestureEdges::cancelled`) ; tout geste ouvert est fermé avant Jouer, et si le glissé continue (Jouer refusé), sa suite rouvre
+un geste : deux commandes, rien de perdu ; une annulation
+vide `Inspector::typedAngles`. La machine (`settleGestures`, `closeOpenGesture`) est en fonctions libres, sans ImGui :
+chaque composant dessiné laisse un `ComponentFrame`, et tout se règle à la fin de l'image, quel que soit l'ordre de dessin.
+Tests : `tests/editor_edit_gesture_test.cpp` (image par image).
 
 **La console est écrite** (M7.7, morceau 14) : la fenêtre « Console » lit le journal du processus par un récepteur de
 `core::log` (`withEditor` le pose avant `runApp` : ce que la fenêtre et le device écrivent en s'ouvrant y est), dans un
@@ -584,7 +595,8 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
 - `selectedIfAlive(world, selected)` : l'entité choisie si elle vit encore.
 - `drawHierarchy(world, hierarchy, selected, dock, open)` : la fenêtre (`open` : le drapeau de sa croix et du menu) ; `listHierarchyRows` et `singletonsOf`, ses
   lignes, sans ImGui.
-- `drawInspector(world, inspector, selected, dock, open)` : la fenêtre, dans son nœud ;
+- `drawInspector(world, inspector, selected, dock, open)` : la fenêtre, dans son nœud, puis le règlement des gestes de
+  l'image (`settleGestures`, si `Inspector::history` est branchée) ;
   `inspectComponent`, les champs d'un composant, rend leur nombre ; `componentLabelOf`, le nom d'un composant ;
   `commitEdit`, l'écriture d'une copie éditée ; `enumNameOf`, la constante qu'une valeur désigne.
 - `createInspector(world, registry)` : les types des dessinateurs, lus une fois ; le registre d'assets de
