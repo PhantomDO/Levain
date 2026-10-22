@@ -52,6 +52,14 @@ struct ValueCommand
 /// Les sortes de commandes. Une seule aujourd'hui ; les autres arrivent avec leurs gestes.
 using CommandKind = std::variant<ValueCommand>;
 
+/// Les assets qu'une commande épingle, pour que le test de la pile lise la même vérité que le
+/// décompte d'`AssetUsage` : une surcharge par sorte, un visiteur les atteint (une sorte de plus
+/// ajoute la sienne ici).
+[[nodiscard]] inline const std::vector<assets::AssetId>& pinnedAssetsOf(const ValueCommand& command)
+{
+    return command.pin.assets;
+}
+
 struct Command
 {
     /// Le numéro de la commande, croissant, jamais réutilisé : « modifié » compare des numéros
@@ -118,7 +126,9 @@ enum class HistoryRefusal : std::uint8_t
 /// editValue : l'écriture d'un geste d'une image, par la **même** porte que l'annulation
 /// (`setComponentValue`) : copie l'avant, écrit, pose la commande (`recordValueChange`). Rend vrai
 /// si une commande est posée ; une erreur nommée, le monde intact, pour une entité morte, un
-/// composant absent ou un type sans valeur. `value` est une valeur du type du composant.
+/// composant absent, un type sans valeur, ou **un type que `sameValue` ne sait pas comparer**
+/// (`isComparableValue` : refusé avant d'écrire, sinon l'assertion de `sameValue` s'arrêterait sur
+/// une valeur déjà écrite). `value` est une valeur du type du composant.
 [[nodiscard]] core::Result<bool> editValue(UndoStack& stack, flecs::world& world, Mode mode,
                                            flecs::entity_t entity, flecs::entity_t component,
                                            const void* value);
