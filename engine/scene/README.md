@@ -62,6 +62,7 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` ; `advanceWorld` (avec l'arrêt, et le pas unique d'« Image suivante » : `planFrame`, `singleStepPlan`) et `composeWorldTransforms` |
 | [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf`, `componentOfKey`, puis `setComponentValue` et `sameValue` |
 | [`include/levain/scene/tombstone.hpp`](include/levain/scene/tombstone.hpp) | La pierre tombale (ADR-0038) : `Tombstone`, `removeKeepingIndex`, `checkTombstonesHold`, `reviveFromTombstones`, `releaseTombstones` |
+| [`include/levain/scene/entity_name.hpp`](include/levain/scene/entity_name.hpp) | Les noms d'entités : `refusalOfName` et `reasonOf`, `isValidEntityName` |
 | [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient`, `takeSnapshot`, `differencesFrom`, `compareWithSnapshot` et sa `Comparison` (le compte des vraies différences, sans plafond, et les enfants internes perdus à part), `entityIndexOf` et `byEntityIndex` (l’ordre par index, partagé avec la physique et la Hiérarchie), `createIdRanges`, `useEditIds`/`usePlayIds`, `bornInPlay`, `restoreSnapshot` et son `RestoreReport` |
 
 ## L'instantané de la scène
@@ -164,6 +165,20 @@ range l'acteur supprimé dans la transaction (`FScopedTransaction`, **documenté
 le sort de l'acteur) ; Godot garde les objets que l'action d'annulation référence (`UndoRedo`, **documenté** [4]). Ce
 qu'aucun des trois n'a est notre problème d'index : c'est **supposé**, leurs identifiants n'étant pas recyclés comme ceux de
 flecs, mais rien n'est lu là-dessus dans leurs sources.
+
+## Les noms
+
+`entity_name.hpp` : un nom est ce que `lookup` et le fichier de scène retrouvent (ADR-0038, décision 6). `refusalOfName`
+dit pourquoi un nom est refusé, `reasonOf` en donne la phrase pour le champ de renommage :
+
+| Refusé | Cause |
+|---|---|
+| vide | `lookup("")` ne trouve rien |
+| contient « . » | le chemin « a.b » éclate au rechargement (#254) |
+| contient « :: » | le séparateur de chemin de flecs |
+| « # » suivi de chiffres | `lookup` rend l'entité n° 12 de flecs, pas la nôtre |
+| commence par « # », **à la racine** | flecs lit le début du chemin comme un identifiant : « #abc » ne se retrouve pas (essayé sur la 4.1.6) |
+| « _ », « * », « $ » seuls, **à la racine** | `EcsAny`, `Wildcard`, une variable ; sous un parent, `lookup` les retrouve |
 
 ## Trois notions de flecs
 

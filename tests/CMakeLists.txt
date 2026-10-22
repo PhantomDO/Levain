@@ -14,6 +14,7 @@ set(cpuTests
     cooked_test.cpp
     cooked_texture_test.cpp
     described_components_test.cpp
+    entity_name_test.cpp
     environment_variable_test.cpp
     error_test.cpp
     file_test.cpp

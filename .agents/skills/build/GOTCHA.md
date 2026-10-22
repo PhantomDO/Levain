@@ -3,6 +3,15 @@
 Un piège par entrée : symptôme, cause, parade. Le plus récent en haut. Les pièges propres à SDL sont détaillés
 dans `engine/platform/README.md`, ceux de flecs dans `engine/scene/README.md`, section « Pièges connus ».
 
+## `CAPTURE` d'un `std::string_view` ne compile pas sous clang-cl sans `<ostream>` (2026-10-22)
+
+- **Symptôme** : `windows-debug` échoue sur un test doctest (« implicit instantiation of undefined template
+  'std::basic_ostream<char>' » dans `__msvc_string_view.hpp`) ; le même fichier compile sous Linux.
+- **Cause** : doctest écrit la valeur capturée par `operator<<`, et la STL de Microsoft ne déclare `basic_ostream` que si
+  `<ostream>` est inclus (libstdc++ le tire d'ailleurs).
+- **Parade** : `#include <ostream>` dans le test qui capture un `string_view`, et compiler `windows-debug` avant de rendre
+  un test.
+
 ## Un contre-test sur une cible laisse les autres exécutables liés à la faute (2026-10-16)
 
 - **Symptôme** : après un contre-test rouge puis vert (le fichier remis, `touch`), `gpu.editor-play.vulkan` restait rouge dans
