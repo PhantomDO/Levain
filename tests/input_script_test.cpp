@@ -243,6 +243,21 @@ TEST_CASE("un script se lit dans un fichier, et un refus nomme ce fichier")
     CHECK_FALSE(levain::platform::loadInputScript(file).has_value()); // effacé
 }
 
+TEST_CASE("text : le texte tapé d'une image, en UTF-8, un seul mot")
+{
+    const Events events = eventsAt(parsed("2 text Caisse\n2 text éé\n"), 2);
+    CHECK(events.text == "Caisseéé"); // deux lignes de la même image se suivent
+    CHECK(events.input.empty());
+    CHECK(events.ui.empty());
+    refused("0 text\n", "ligne 1", "champs");
+    refused("0 text deux mots\n", "ligne 1", "champs");
+    // Ajouté aux événements d'une image comme les autres, après ceux de la fenêtre.
+    levain::platform::Events real;
+    real.text = "ab";
+    levain::platform::addScriptedEvents(real, parsed("0 text cd\n"), 0);
+    CHECK(real.text == "abcd");
+}
+
 TEST_CASE("keymap changed : l'événement de disposition, sans rien d'autre")
 {
     const Events events = eventsAt(parsed("3 keymap changed\n"), 3);

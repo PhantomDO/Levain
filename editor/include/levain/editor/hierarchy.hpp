@@ -1,9 +1,17 @@
 #pragma once
 
 // La hiérarchie de l'éditeur (ADR-0034, « Les panneaux ») : les entités placées (`Transform`),
-// rangées par `flecs::Parent` (ADR-0015), et un nœud des singletons. En M7.2, elle sélectionne
-// seulement. Ses lignes se calculent sans ImGui : les tests les lisent.
+// rangées par `flecs::Parent` (ADR-0015), et un nœud des singletons. Elle sélectionne, et depuis
+// M7.3 (A6) elle crée, supprime et renomme : un clic droit ouvre le menu (« Créer un enfant »,
+// « Renommer », « Supprimer » sur une ligne, « Créer une entité » sur le vide).
+// **Elle n'écrit jamais dans le monde** : elle dessine entre `defer_begin`
+// et `defer_end`, ses demandes sont mises en file (`EditorRequest`) et `applyEditorRequests` les
+// exécute juste après. Équivalents : l'Outliner d'Unreal, la fenêtre Hierarchy d'Unity, le dock
+// Scène de Godot. Ses lignes se calculent sans ImGui : les tests les lisent.
 
+#include <array>
+#include <optional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -11,6 +19,7 @@
 #include <flecs.h>
 #include <imgui.h>
 
+#include "levain/editor/undo.hpp"
 #include "levain/scene/components.hpp"
 
 namespace levain::editor
@@ -33,6 +42,33 @@ struct RowRect
     ImVec2 max{};
 };
 
+/// Le champ de renommage d'une ligne (F2, « Renommer » du menu, une entité qu'on vient de créer).
+struct RenameField
+{
+    /// L'entité en renommage, 0 s'il n'y en a pas : la ligne montre un champ à la place du nom.
+    flecs::entity_t entity = 0;
+    /// Ce qui est tapé, terminé par un zéro. 255 octets : un nom plus long est coupé.
+    std::array<char, 256> text{};
+    /// Le champ vient d'être ouvert : il prend le focus et sélectionne tout à sa première image.
+    bool justOpened = false;
+    /// Le texte a été tapé depuis l'ouverture. Sans cela, un nom plus long que le tampon (coupé à
+    /// l'ouverture) serait renommé en sa version coupée par un simple Entrée.
+    bool edited = false;
+    /// Pourquoi ce qui est tapé est refusé (`renameRefusalOf`), vide si c'est bon : dit sous le
+    /// champ. Un refus ne change rien dans le monde.
+    std::string refusal;
+};
+
+/// Où le menu contextuel a dessiné ses entrées à la dernière image (les tests les visent), `open`
+/// faux et les centres nuls quand il est fermé.
+struct HierarchyMenuLayout
+{
+    bool open = false;
+    ImVec2 create{}; ///< « Créer une entité » (le vide) ou « Créer un enfant » (une ligne).
+    ImVec2 rename{}; ///< « Renommer » (une ligne).
+    ImVec2 remove{}; ///< « Supprimer » (une ligne).
+};
+
 /// Ce que la hiérarchie garde d'une image à l'autre.
 struct Hierarchy
 {
@@ -49,6 +85,8 @@ struct Hierarchy
     /// test vise une ligne par son rectangle, et la hiérarchie qui défile jusqu'à la sélection
     /// (M7.4) en aura besoin.
     std::unordered_map<flecs::entity_t, RowRect> rects;
+    RenameField rename;
+    HierarchyMenuLayout menu;
 };
 
 [[nodiscard]] Hierarchy createHierarchy(const flecs::world& world);
@@ -74,12 +112,24 @@ void revealInHierarchy(Hierarchy& hierarchy, flecs::entity entity);
 /// nom, qui se répète (« cube » sous deux parents), ni l'index seul, que flecs recycle.
 void pushEntityId(flecs::entity_t entity);
 
+/// beginRename : ouvre le champ de renommage de `entity` (F2, « Renommer », une entité qu'on vient
+/// de créer), son nom dedans, révélée dans l'arbre. Rend le refus nommé, et n'ouvre rien, si
+/// l'entité ne se renomme pas (un nœud `Generated`, une entité hors de la scène) : l'appelant le
+/// dit à la console. Ne touche pas au monde.
+[[nodiscard]] std::optional<std::string>
+beginRename(Hierarchy& hierarchy, const flecs::world& world, flecs::entity_t entity);
+
+/// Ferme le champ de renommage sans rien changer (Échap).
+void cancelRename(Hierarchy& hierarchy);
+
 /// La fenêtre « Hiérarchie », ancrée au premier affichage au nœud `dock` de la disposition d'`app`.
-/// Un clic choisit l'entité (`selected`), la flèche ouvre ou ferme son nœud.
+/// Un clic choisit l'entité (`selected`), la flèche ouvre ou ferme son nœud. Elle ne touche jamais
+/// au monde (elle dessine dans le `defer`) : créer, supprimer et renommer sont des demandes
+/// ajoutées à `requests`, que `applyEditorRequests` exécute.
 ///
 /// `open` : le drapeau que la croix de la fenêtre et le menu « Fenêtre » partagent ; faux, rien
 /// n'est dessiné (les lignes sont tout de même listées, la CI compte les entités).
 void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entity_t& selected,
-                   ImGuiID dock, bool* open = nullptr);
+                   std::vector<EditorRequest>& requests, ImGuiID dock, bool* open = nullptr);
 
 } // namespace levain::editor

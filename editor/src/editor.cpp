@@ -407,6 +407,16 @@ HistoryState historyStateOf(const Editor& editor)
             .modified = isModified(editor.undo)};
 }
 
+/// Le refus d'un renommage ouvert (F2, menu, entité créée) : une ligne de la console, rien ne
+/// s'ouvre.
+void sayRenameRefusal(const std::optional<std::string>& refusal)
+{
+    if (refusal)
+    {
+        core::log("editor", core::LogLevel::Warning, "{}", ui::trf("Renommer : {}", *refusal));
+    }
+}
+
 /// **Le point nommé des demandes** (ADR-0038, décision 9) : juste après `defer_end` pour ce que
 /// les fenêtres ont demandé, et après les raccourcis et les menus pour les leurs. Ce qui a changé
 /// se voit dans l'image même. Vrai si le monde a changé (comme `wroteWorld` d'une écriture de
@@ -422,6 +432,10 @@ bool applyQueuedRequests(app::App& app, Editor& editor)
     }
     // Une entité que l'étape vient d'enlever ne reste pas choisie (`selectedIfAlive`).
     editor.selected = selectedIfAlive(app.world, editor.selected);
+    if (report.beginRename != 0) // Unity ouvre le renommage d'une entité créée (documenté [U12])
+    {
+        sayRenameRefusal(beginRename(editor.hierarchy, app.world, report.beginRename));
+    }
     if (report.undone + report.redone > 0)
     {
         // Les angles tapés ne valent que tant qu'ils donnent la rotation du composant : une
@@ -763,8 +777,8 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 // Les écritures de l'inspecteur et leurs observateurs passent après le parcours.
                 editor->inspector.mode = editor->mode.current;
                 app.world.defer_begin();
-                drawHierarchy(app.world, editor->hierarchy, editor->selected, app.ui.dock.left,
-                              &editor->windows.hierarchy);
+                drawHierarchy(app.world, editor->hierarchy, editor->selected, editor->requests,
+                              app.ui.dock.left, &editor->windows.hierarchy);
                 drawInspector(app.world, editor->inspector, editor->selected, app.ui.dock.inspector,
                               &editor->windows.inspector);
                 app.world.defer_end();

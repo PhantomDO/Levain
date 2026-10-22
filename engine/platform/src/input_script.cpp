@@ -287,6 +287,19 @@ core::Result<void> addKeymapChange(Events& events, int line, const Words& words)
     return {};
 }
 
+/// `text <mot>` : le texte que SDL rendrait pour des caractères tapés (`SDL_EVENT_TEXT_INPUT`),
+/// qu'un champ de texte actif reçoit. Un seul mot : les blancs séparent les mots d'une ligne et
+/// « # » ouvre un commentaire, donc ni l'un ni l'autre ne se tape ici. L'UTF-8 passe tel quel.
+core::Result<void> addText(Events& events, int line, const Words& words)
+{
+    if (words.size() != 3)
+    {
+        return refusal(line, "champs", "text <mot> est attendu (un mot, sans blanc ni #)");
+    }
+    events.text += words[2];
+    return {};
+}
+
 /// `window close` : la croix de la fenêtre (CLOSE_REQUESTED). Pas de signal scripté : celui-ci se
 /// lève pour de vrai (`raise`), dans le test.
 core::Result<void> addWindowClose(Events& events, int line, const Words& words)
@@ -382,9 +395,11 @@ core::Result<InputScript> parseInputScript(std::string_view text)
             : kind == "mouse"  ? addMouse(events, line, words)
             : kind == "wheel"  ? addWheel(events, line, words)
             : kind == "keymap" ? addKeymapChange(events, line, words)
+            : kind == "text"   ? addText(events, line, words)
             : kind == "window"
                 ? addWindow(events, line, words)
-                : refusal(line, "type", "key, button, mouse, wheel, keymap ou window est attendu");
+                : refusal(line, "type",
+                          "key, button, mouse, wheel, text, keymap ou window est attendu");
         if (!added)
         {
             return std::unexpected(added.error());
@@ -442,6 +457,7 @@ void addScriptedEvents(Events& events, const InputScript& script, int frame)
         events.input.insert(events.input.end(), extra.input.begin(), extra.input.end());
         events.ui.insert(events.ui.end(), extra.ui.begin(), extra.ui.end());
         events.window.insert(events.window.end(), extra.window.begin(), extra.window.end());
+        events.text += extra.text;
     }
 }
 

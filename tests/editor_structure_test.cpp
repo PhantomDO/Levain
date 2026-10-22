@@ -658,6 +658,31 @@ TEST_CASE(
     CHECK(selectedIfAlive(bench.world, selected).id() == created);
 }
 
+TEST_CASE("le champ de renommage s'ouvre sur une entité de la scène, pas sur un nœud généré")
+{
+    Bench bench;
+    const flecs::entity root = bench.scene("Modèle");
+    const flecs::entity node = bench.child(root, "os");
+    node.add<Generated>();
+    Hierarchy hierarchy = createHierarchy(bench.world);
+
+    CHECK(beginRename(hierarchy, bench.world, node.id()).has_value()); // refusé, nommé
+    CHECK(hierarchy.rename.entity == 0);
+
+    CHECK_FALSE(beginRename(hierarchy, bench.world, root.id()).has_value());
+    CHECK(hierarchy.rename.entity == root.id());
+    CHECK(std::string{hierarchy.rename.text.data()} == "Modèle");
+    CHECK(hierarchy.rename.justOpened);
+    cancelRename(hierarchy);
+    CHECK(hierarchy.rename.entity == 0);
+
+    // Une entité morte ne s'ouvre pas non plus.
+    const flecs::entity_t dead = bench.scene("Éphémère").id();
+    bench.world.entity(dead).destruct();
+    CHECK(beginRename(hierarchy, bench.world, dead).has_value());
+    CHECK(hierarchy.rename.entity == 0);
+}
+
 TEST_CASE("supprimer un enfant du milieu puis annuler le rend à sa place parmi ses frères")
 {
     Bench bench;

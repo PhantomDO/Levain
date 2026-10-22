@@ -107,7 +107,7 @@ Ce sont le script et la boucle qui le reçoit (`app::setUiStyle`) qui sont couve
 
 | Événement | Morceau | Pour quel scénario |
 |---|---|---|
-| le texte | 12 | un champ texte qui garde son Ctrl+Z |
+| le texte, plusieurs mots ou un « # » | aucun | `<image> text <mot>` (M7.3, A6) tape **un** mot, sans blanc ni « # » : un nom de scène à taper dans le champ de renommage de la Hiérarchie |
 | la répétition d'une touche | aucun | rien ne la demande |
 
 **Le piège du morceau 8, réglé** : `platform::cursorPosition` interroge SDL, pas les événements : une position
