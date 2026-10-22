@@ -73,9 +73,10 @@ struct Tombstones
 };
 
 /// removeKeepingIndex : détruit l'entité et son sous-arbre, puis pose une pierre sur l'index libéré
-/// de chaque entité de la scène du sous-arbre (`flecs::Parent`). Les enfants rangés par `ChildOf`
-/// partent aussi et sont rapportés dans `lost`. Refus nommés, **dans tous les builds**, le monde
-/// intact :
+/// de chaque entité de la scène du sous-arbre (`flecs::Parent`, hors `Generated` : un nœud généré
+/// part sans pierre, son générateur le refait). Ce qui n'est pas de la scène (enfants rangés par
+/// `ChildOf`, préfabs) part aussi et est rapporté dans `lost`. Refus nommés, **dans tous les
+/// builds**, le monde intact :
 ///  - en mode différé (les écritures de flecs seraient mises en file) ;
 ///  - une entité morte, une pierre, ou qui n'est pas de la scène (`isSceneEntity` : un composant,
 ///    un module) ;
@@ -83,6 +84,8 @@ struct Tombstones
 ///    jeu une entité de l'édition rangerait l'index libéré dans la liste de la plage du jeu, à la
 ///    génération de la pierre ; à Stop flecs s'arrête (Debug) ou donne l'identifiant de la pierre à
 ///    la prochaine entité (Release) ;
+///  - une entité de la scène **non générée** sous un nœud `Generated` (une épée sur un os) :
+///    l'annuler la réveillerait sous un parent mort (ADR-0038, décision 10) ;
 ///  - la plage du **jeu** active, sans exception.
 ///
 /// **En jeu (Play, Simulate), supprimer n'est pas une commande** : le chemin est un `ecs_delete`
@@ -100,7 +103,8 @@ struct Tombstones
 /// sa propre pierre, essai du relecteur).
 ///
 /// Ne lit rien de l'entité : types, valeurs, noms et parents sont à garder avant, par l'appelant
-/// (`EntityRecord`, morceau A2).
+/// (`readSubtree`). Les nœuds `Generated` du sous-arbre partent avec lui, sans pierre : leur
+/// générateur les refait, et la pierre les réveillerait vides.
 [[nodiscard]] core::Result<Tombstones> removeKeepingIndex(flecs::world& world,
                                                           flecs::entity_t entity);
 

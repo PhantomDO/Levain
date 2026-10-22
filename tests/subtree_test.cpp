@@ -1,5 +1,8 @@
 #include <algorithm>
 #include <cstdint>
+#include <memory>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -9,15 +12,19 @@
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
 #include "levain/scene/snapshot.hpp"
+#include "levain/scene/subtree.hpp"
 #include "levain/scene/tombstone.hpp"
 
 // Un sous-arbre que la commande garde, supprime, puis rend (ADR-0038, décisions 3, 5, 10, morceau
 // A2) : l'égalité se mesure par `differencesFrom` de M7.5, sur les entités du sous-arbre et sur
 // toute la scène.
 
+using levain::scene::Generated;
+using levain::scene::readSubtree;
 using levain::scene::removeKeepingIndex;
 using levain::scene::sceneEntities;
 using levain::scene::Snapshot;
+using levain::scene::SubtreeRecord;
 using levain::scene::takeSnapshot;
 
 namespace
@@ -36,6 +43,11 @@ struct Link
 
 struct Tag
 {
+};
+
+struct Unique
+{
+    std::unique_ptr<int> owned; // la copie est supprimée : readSubtree la refuse
 };
 
 flecs::world makeWorld()
@@ -58,6 +70,19 @@ Snapshot snapshotOf(const flecs::world& world)
     auto snapshot = takeSnapshot(world);
     REQUIRE(snapshot.has_value());
     return std::move(*snapshot);
+}
+
+flecs::entity_t deadEntity(const flecs::world& world)
+{
+    const flecs::entity entity = world.entity();
+    const flecs::entity_t id = entity.id();
+    entity.destruct();
+    return id;
+}
+
+bool mentions(const std::string& text, std::string_view fragment)
+{
+    return text.find(fragment) != std::string::npos;
 }
 
 /// La scène du critère : « Haut » porte A, Cube et B ; Cube porte trois enfants, dont le deuxième
@@ -97,6 +122,62 @@ Scene makeScene(flecs::world& world)
 
 } // namespace
 
+TEST_CASE("un enfant ChildOf n'est pas dans l'enregistrement : la pierre le rapporte")
+{
+    flecs::world world = makeWorld();
+    const Scene s = makeScene(world);
+    world.entity("observateur").child_of(s.cube);
+
+    auto record = readSubtree(world, s.cube.id());
+    REQUIRE(record.has_value());
+
+    CHECK(record->entities.size() == 5);
+    CHECK(record->entities[0].internalChildren.size() == 1);
+    auto removed = removeKeepingIndex(world, s.cube.id());
+    REQUIRE(removed.has_value());
+    CHECK(removed->lost.size() == 1);
+}
+
+TEST_CASE(
+    "readSubtree refuse, nommé et le monde intact : différé, mort, pierre, composant, généré, "
+    "ne se copie pas")
+{
+    flecs::world world = makeWorld();
+    const Scene s = makeScene(world);
+    const flecs::entity generated = child(world, s.cube, "nœud").add<Generated>();
+    const flecs::entity unique = world.entity("clé").set(Unique{});
+    const flecs::entity_t deadId = deadEntity(world);
+
+    world.defer_begin();
+    const auto deferred = readSubtree(world, s.cube.id());
+    world.defer_end();
+    REQUIRE_FALSE(deferred.has_value());
+    CHECK(mentions(deferred.error().message, "mode différé"));
+
+    const auto dead = readSubtree(world, deadId);
+    REQUIRE_FALSE(dead.has_value());
+    CHECK(mentions(dead.error().message, "n'est pas vivante"));
+
+    auto removed = removeKeepingIndex(world, s.b.id());
+    REQUIRE(removed.has_value());
+    const auto stone = readSubtree(world, removed->reserved[0].stone);
+    REQUIRE_FALSE(stone.has_value());
+    CHECK(mentions(stone.error().message, "pierre tombale"));
+
+    const auto component = readSubtree(world, world.id<Mass>());
+    REQUIRE_FALSE(component.has_value());
+    CHECK(mentions(component.error().message, "n'est pas une entité de la scène"));
+
+    const auto node = readSubtree(world, generated.id());
+    REQUIRE_FALSE(node.has_value());
+    CHECK(mentions(node.error().message, "nœud généré"));
+
+    const auto uncopyable = readSubtree(world, unique.id());
+    REQUIRE_FALSE(uncopyable.has_value());
+    CHECK(mentions(uncopyable.error().message, "Unique"));
+    CHECK(mentions(uncopyable.error().message, "clé"));
+}
+
 TEST_CASE(
     "une pierre vivante n'est pas une entité de la scène : elle n'entre ni dans sceneEntities "
     "ni dans l'instantané")
@@ -124,6 +205,24 @@ TEST_CASE(
                                               levain::scene::entityIndexOf(reserved.stone);
                                    }));
     }
+}
+
+TEST_CASE("une entité faite à la main sous un nœud Generated est refusée, nommée, le monde intact")
+{
+    flecs::world world = makeWorld();
+    const Scene s = makeScene(world);
+    const flecs::entity bone = child(world, s.cube, "os").add<Generated>();
+    const flecs::entity sword = child(world, bone, "épée"); // à la main, sous un nœud généré
+
+    const auto read = readSubtree(world, s.cube.id());
+    REQUIRE_FALSE(read.has_value());
+    CHECK(mentions(read.error().message, "épée"));
+    CHECK(mentions(read.error().message, "nœud généré"));
+    const auto removal = removeKeepingIndex(world, s.cube.id());
+    REQUIRE_FALSE(removal.has_value());
+    CHECK(mentions(removal.error().message, "épée"));
+    CHECK(world.is_alive(sword.id())); // rien n'a été détruit
+    CHECK(world.is_alive(s.cube.id()));
 }
 
 TEST_CASE("isSceneEntity ne crée aucune entité quand le module de la scène est importé")
