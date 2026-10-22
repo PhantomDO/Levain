@@ -68,9 +68,12 @@ struct SubtreeMembers
     /// Une entité de la scène **non générée** sous un nœud `Generated` (une épée sur un os) : la
     /// première trouvée, 0 s'il n'y en a pas. Annuler la réveillerait sous un parent mort.
     flecs::entity_t handMadeUnderGenerated = 0;
-    /// Tout le reste (enfants `ChildOf` d'un observateur, préfabs, avec leurs descendants) :
-    /// détruit, jamais réservé ni réveillé, rapporté par son nom.
+    /// Tout le reste sous la **scène** (enfants `ChildOf` d'un observateur, préfabs, avec leurs
+    /// descendants) : détruit, jamais réservé ni réveillé, rapporté par son nom.
     std::vector<flecs::entity_t> other;
+    /// Le reste sous un nœud `Generated` : détruit aussi, mais **pas rapporté** (`lostChildrenOf`
+    /// ne le lit pas) : le générateur le refait avec le nœud, un avertissement serait faux.
+    std::vector<flecs::entity_t> otherUnderGenerated;
 };
 
 [[nodiscard]] SubtreeMembers subtreeMembersOf(const flecs::world& world, flecs::entity_t root);
@@ -81,6 +84,13 @@ struct SubtreeMembers
 [[nodiscard]] core::Result<void> refuseHandMadeUnderGenerated(const flecs::world& world,
                                                               const SubtreeMembers& members,
                                                               const char* gesture);
+
+/// Le refus d'une racine dont le **parent** est un nœud `Generated` (une épée sur un os) :
+/// `refuseHandMadeUnderGenerated` ne regarde que le dedans du sous-arbre. Le générateur peut
+/// refaire l'os avec un autre identifiant, et l'annulation n'aurait plus de parent (ADR-0038,
+/// décision 10). Le monde n'est pas touché.
+[[nodiscard]] core::Result<void>
+refuseRootUnderGenerated(const flecs::world& world, flecs::entity_t root, const char* gesture);
 
 /// Ce que la suppression perd et ne rend pas (`SubtreeMembers::other`), nom lu **avant** la
 /// destruction.

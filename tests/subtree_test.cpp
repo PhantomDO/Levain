@@ -19,6 +19,8 @@
 // A2) : l'égalité se mesure par `differencesFrom` de M7.5, sur les entités du sous-arbre et sur
 // toute la scène.
 
+using levain::scene::checkSubtreeRestorable;
+using levain::scene::checkTombstonesHold;
 using levain::scene::differencesFrom;
 using levain::scene::Generated;
 using levain::scene::readSubtree;
@@ -438,4 +440,89 @@ TEST_CASE("isSceneEntity ne crée aucune entité quand le module de la scène es
     CHECK(levain::scene::sceneEntities(world).size() == 1);
 
     CHECK(ecs_get_entities(world).alive_count == before);
+}
+
+TEST_CASE(
+    "une racine dont le parent est un nœud Generated est refusée, nommée, le monde intact (Q2)")
+{
+    flecs::world world = makeWorld();
+    const Scene s = makeScene(world);
+    const flecs::entity bone = child(world, s.cube, "os").add<Generated>();
+    const flecs::entity sword = child(world, bone, "épée");
+
+    const auto read = readSubtree(world, sword.id());
+    REQUIRE_FALSE(read.has_value());
+    CHECK(mentions(read.error().message, "épée"));
+    CHECK(mentions(read.error().message, "nœud généré"));
+    const auto removal = removeKeepingIndex(world, sword.id());
+    REQUIRE_FALSE(removal.has_value());
+    CHECK(mentions(removal.error().message, "nœud généré"));
+    CHECK(world.is_alive(sword.id())); // rien n'a été détruit
+}
+
+TEST_CASE("checkSubtreeRestorable refuse un parent mort avant le réveil : la pierre tient, "
+          "aucune entité vide n'est laissée (Q2)")
+{
+    flecs::world world = makeWorld();
+    const flecs::entity top = world.entity("Haut");
+    const flecs::entity sword = child(world, top, "épée").set(Mass{3.0F});
+    auto record = readSubtree(world, sword.id());
+    REQUIRE(record.has_value());
+    auto removed = removeKeepingIndex(world, sword.id());
+    REQUIRE(removed.has_value());
+    REQUIRE(checkTombstonesHold(world, *removed).has_value());
+    REQUIRE(checkSubtreeRestorable(world, *record).has_value()); // le parent vit : permis
+
+    top.destruct(); // le parent disparaît entre la suppression et l'annulation
+    const std::size_t sceneSize = sceneEntities(world).size();
+    const auto refused = checkSubtreeRestorable(world, *record);
+
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(mentions(refused.error().message, "est mort"));
+    CHECK(checkTombstonesHold(world, *removed).has_value()); // la pierre tient toujours
+    CHECK(sceneEntities(world).size() == sceneSize);         // rien n'a été réveillé
+}
+
+TEST_CASE(
+    "un enfant ChildOf d'un nœud Generated n'est pas rapporté perdu : le générateur le refait")
+{
+    flecs::world world = makeWorld();
+    const Scene s = makeScene(world);
+    const flecs::entity node = child(world, s.cube, "nœud").add<Generated>();
+    const flecs::entity inner = world.entity("rappel du générateur").child_of(node);
+    world.entity("observateur").child_of(s.cube); // celui-ci, sous la scène, l'est
+
+    auto removed = removeKeepingIndex(world, s.cube.id());
+
+    REQUIRE(removed.has_value());
+    REQUIRE(removed->lost.size() == 1);
+    CHECK(removed->lost[0].name == "observateur");
+    CHECK_FALSE(world.is_alive(inner.id())); // détruit quand même avec le nœud
+}
+
+TEST_CASE("des milliers de frères générés refaits : la racine revient à sa place")
+{
+    flecs::world world = makeWorld();
+    const flecs::entity top = world.entity("Haut");
+    const flecs::entity first = child(world, top, "Premier");
+    constexpr int Siblings = 3000;
+    std::vector<flecs::entity_t> generated;
+    generated.reserve(Siblings);
+    for (int i = 0; i < Siblings; ++i)
+    {
+        generated.push_back(child(world, top, "g").add<Generated>().id());
+    }
+    const flecs::entity last = child(world, top, "Dernier");
+    auto record = readSubtree(world, last.id());
+    REQUIRE(record.has_value());
+    auto removed = removeKeepingIndex(world, last.id());
+    REQUIRE(removed.has_value());
+    REQUIRE(checkTombstonesHold(world, *removed).has_value());
+    REQUIRE(reviveFromTombstones(world, *removed).has_value());
+    REQUIRE(restoreSubtree(world, *record).has_value());
+
+    std::vector<flecs::entity_t> expected{first.id()};
+    expected.insert(expected.end(), generated.begin(), generated.end());
+    expected.push_back(last.id());
+    CHECK(levain::scene::orderedChildrenOf(world, top) == expected);
 }

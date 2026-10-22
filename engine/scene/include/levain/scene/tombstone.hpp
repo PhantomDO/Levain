@@ -36,9 +36,10 @@ struct ReservedIndex
     flecs::entity_t stone = 0;  ///< Celui de la pierre qui tient l'index.
 };
 
-/// Un enfant rangé par `ChildOf` (l'observateur d'un `onEnter`), détruit avec son parent. Il ne
-/// revient pas (ADR-0038, décision 3) : la suppression le rapporte, la console le nomme (comme
-/// l'ADR-0037, A8). Son nom est lu **avant** la destruction.
+/// Une entité qui n'est pas de la scène (un enfant rangé par `ChildOf`, l'observateur d'un
+/// `onEnter`, un préfab), détruite avec son parent. Elle ne revient pas (ADR-0038, décision 3) : la
+/// suppression le rapporte, la console le nomme (comme l'ADR-0037, A8). Son nom est lu **avant** la
+/// destruction.
 struct LostChild
 {
     flecs::entity_t id = 0;
@@ -56,19 +57,26 @@ struct LostChild
 /// récente, dont l'annulation serait alors refusée. La pile vide donc ses commandes refaisables
 /// (en les libérant) **avant** d'exécuter une nouvelle commande, et ne libère jamais une commande
 /// déjà annulée puis supplantée.
+///
+/// **Et pour annuler** : `checkTombstonesHold` et `checkSubtreeRestorable` (subtree.hpp), qui ne
+/// touchent à rien, d'abord ; `reviveFromTombstones` et `restoreSubtree` ensuite, sans rien
+/// d'autre entre eux. Un refus de `restoreSubtree` après le réveil laisserait des entités vides.
 struct Tombstones
 {
     /// L'entité supprimée d'abord, puis ses descendants `flecs::Parent`, un parent avant ses
     /// enfants.
     std::vector<ReservedIndex> reserved;
-    /// Les enfants rangés par `ChildOf` : détruits, jamais réservés ni réveillés.
+    /// Ce qui est détruit avec le sous-arbre sans y être réservé (enfants rangés par `ChildOf`,
+    /// préfabs, avec leurs descendants) : jamais réservé ni réveillé. Les enfants d'un nœud
+    /// `Generated` n'y sont pas : le générateur les refait, un avertissement serait faux.
     std::vector<LostChild> lost;
     /// Vide si la suppression est annulable. Sinon la raison : **la suppression est faite** mais
-    /// `reserved` est vide, et `reviveFromTombstones` refuse. À la différence d'un refus (une
-    /// erreur, le monde intact), l'appelant doit alors traiter la suppression comme faite : la
-    /// pile ne pose pas de commande à annuler, mais marque la scène modifiée, rend la sélection et
-    /// les épingles, et imprime `lost`. Un type de retour plutôt qu'un code d'erreur : une erreur
-    /// dit « rien n'a changé » dans tout le module, et un `Result` en échec perdrait `lost`.
+    /// `reserved` est vide, et `checkTombstonesHold` comme
+    /// `reviveFromTombstones` refusent. À la différence d'un refus (une erreur, le monde intact),
+    /// l'appelant doit alors traiter la suppression comme faite : la pile ne pose pas de commande à
+    /// annuler, mais marque la scène modifiée, rend la sélection et les épingles, et imprime
+    /// `lost`. Un type de retour plutôt qu'un code d'erreur : une erreur dit « rien n'a changé »
+    /// dans tout le module, et un `Result` en échec perdrait `lost`.
     std::string notUndoable;
 };
 
@@ -80,13 +88,12 @@ struct Tombstones
 ///  - en mode différé (les écritures de flecs seraient mises en file) ;
 ///  - une entité morte, une pierre, ou qui n'est pas de la scène (`isSceneEntity` : un composant,
 ///    un module) ;
-///  - un index hors de la plage d'identifiants **active** (`ecs_entity_range_get`) : supprimer en
-///    jeu une entité de l'édition rangerait l'index libéré dans la liste de la plage du jeu, à la
-///    génération de la pierre ; à Stop flecs s'arrête (Debug) ou donne l'identifiant de la pierre à
-///    la prochaine entité (Release) ;
-///  - une entité de la scène **non générée** sous un nœud `Generated` (une épée sur un os) :
-///    l'annuler la réveillerait sous un parent mort (ADR-0038, décision 10) ;
-///  - la plage du **jeu** active, sans exception.
+///  - la plage du **jeu** active, sans exception (Play, Simulate), refusée avant tout le reste ;
+///  - un index hors de la plage d'identifiants active (`ecs_entity_range_get`), ce qu'une plage
+///    d'édition active ne produit pas : garde de dernier recours ;
+///  - une entité de la scène **non générée dans le sous-arbre** sous un nœud `Generated`, ou une
+///    racine dont le **parent** est `Generated` (une épée sur un os) : l'annuler la réveillerait
+///    sous un parent que le générateur peut avoir refait (ADR-0038, décision 10).
 ///
 /// **En jeu (Play, Simulate), supprimer n'est pas une commande** : le chemin est un `ecs_delete`
 /// simple, que Stop défait (il réveille l'entité avec son identifiant, `restoreSnapshot`). Une
@@ -110,8 +117,9 @@ struct Tombstones
 
 /// La garde de l'index, avant chaque réveil, **dans tous les builds** : chaque index réservé doit
 /// être vivant, à la génération de sa pierre, et porter `Tombstone`. Sinon une erreur qui nomme
-/// l'index. En Release `ecs_make_alive` écraserait sans rien dire l'entité qui a pris la place ;
-/// en Debug flecs s'arrête (src/entity.c:3133-3139).
+/// l'index. Une suppression `notUndoable` (aucune pierre posée) est refusée d'emblée. En Release
+/// `ecs_make_alive` écraserait sans rien dire l'entité qui a pris la place ; en Debug flecs
+/// s'arrête (src/entity.c:3133-3139).
 [[nodiscard]] core::Result<void> checkTombstonesHold(const flecs::world& world,
                                                      const Tombstones& tombstones);
 
