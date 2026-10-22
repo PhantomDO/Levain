@@ -15,6 +15,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <imgui_internal.h> // GetActiveID : l'élément actif, pour ranger le geste
 
 #include "levain/assets/asset_id.hpp"
 #include "levain/assets/registry.hpp"
@@ -71,6 +72,7 @@ struct Walk
     Inspector& inspector;
     int fields = 0;
     bool changed = false;
+    GestureEdges edges{}; ///< les bords des widgets numériques de ce composant, à cette image
 };
 
 /// Les bornes d'un champ, si `.range` lui en a posé (`scene::rangeOf`).
@@ -305,6 +307,7 @@ void drawElements(Walk& walk, const char* label, flecs::entity_t type, std::int3
         {
             walk.changed |=
                 dragNumbers(*number, row.c_str(), fieldAt(value, first * size), inRow, {});
+            walk.edges |= edgesOfLastItem();
             noteFrames(walk, inRow);
             ++walk.fields;
         }
@@ -327,12 +330,15 @@ bool drawRotation(Walk& walk, const char* label, void* value)
     glm::vec3 degrees =
         eulerHint(rotation, typed != walk.inspector.typedAngles.end() ? std::optional{typed->second}
                                                                       : std::nullopt);
-    if (!rejectNonFinite(&degrees.x, 3,
-                         [&]
-                         {
-                             return ImGui::DragFloat3(label, &degrees.x, RotationSpeed, 0.0f, 0.0f,
-                                                      "%.3f", AxisMarkers);
-                         }))
+    const bool dragged =
+        rejectNonFinite(&degrees.x, 3,
+                        [&]
+                        {
+                            return ImGui::DragFloat3(label, &degrees.x, RotationSpeed, 0.0f, 0.0f,
+                                                     "%.3f", AxisMarkers);
+                        });
+    walk.edges |= edgesOfLastItem();
+    if (!dragged)
     {
         return false;
     }
@@ -390,6 +396,7 @@ void drawValue(Walk& walk, const char* label, flecs::entity_t type, void* value,
     {
         walk.changed |= dragAs<float>(ImGuiDataType_Float, label, value,
                                       type == inspector.vec2 ? 2 : 3, {}, AxisMarkers);
+        walk.edges |= edgesOfLastItem();
         noteFrames(walk, type == inspector.vec2 ? 2 : 3);
     }
     else if (type == inspector.quat)
@@ -415,6 +422,7 @@ void drawValue(Walk& walk, const char* label, flecs::entity_t type, void* value,
     else if (const std::optional<ecs_primitive_kind_t> number = numberKindOf(world, type))
     {
         walk.changed |= dragNumbers(*number, label, value, 1, range);
+        walk.edges |= edgesOfLastItem();
         noteFrames(walk, 1);
     }
     else if (primitive != nullptr && primitive->kind == EcsBool)
@@ -617,12 +625,38 @@ int inspectComponent(flecs::world& world, Inspector& inspector, flecs::entity en
     ImGui::BeginDisabled(!isAuthored(world, component));
     drawMembers(walk, *description, copy);
     ImGui::EndDisabled();
-    if (walk.changed && commitEdit(world, entity, component, current, copy))
+    // **L'avant se copie avant d'écrire** (ADR-0038, décision 2) : `flecs_defer_set` écrit tout de
+    // suite un composant que l'entité a déjà, et `current` pointe la table. C'est la valeur du
+    // monde au début de l'image, celle qu'un geste qui s'ouvre garde.
+    ComponentFrame frame;
+    const bool tracked = inspector.history != nullptr && inspector.mode == Mode::Edit;
+    if (tracked && (walk.changed || walk.edges.activated))
+    {
+        frame.before.emplace(world, ecs_get_typeid(world, component), current);
+    }
+    const bool wrote = walk.changed && commitEdit(world, entity, component, current, copy);
+    if (wrote)
     {
         inspector.wrote = true;
     }
+    if (tracked &&
+        (wrote || walk.edges.activated || walk.edges.deactivatedAfterEdit || walk.edges.cancelled))
+    {
+        frame.entity = entity;
+        frame.component = component;
+        frame.edges = walk.edges;
+        frame.wrote = wrote;
+        inspector.frames.push_back(std::move(frame));
+    }
     ecs_value_free(world, component, copy);
     return walk.fields;
+}
+
+GestureEdges edgesOfLastItem()
+{
+    return {.activated = ImGui::IsItemActivated(),
+            .deactivatedAfterEdit = ImGui::IsItemDeactivatedAfterEdit(),
+            .cancelled = ImGui::IsItemDeactivated() && ImGui::IsKeyPressed(ImGuiKey_Escape, false)};
 }
 
 float numberCellWidth()
@@ -644,16 +678,18 @@ float labelColumnFor(float available, float wanted, float minimum, float cell, f
     return std::clamp(room, minimum, wanted);
 }
 
-void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t selected,
-                   ImGuiID dock, bool* open)
+namespace
 {
-    LEVAIN_ASSERT(world.is_deferred(), "drawInspector : le monde doit être différé (defer_begin)");
-    inspector.fieldsDrawn = 0;
-    inspector.wrote = false;
-    inspector.narrowestFrame = std::numeric_limits<float>::max();
+
+/// La fenêtre elle-même ; rend l'entité dessinée (0 si aucune : fenêtre fermée ou repliée, pas de
+/// sélection), ce que `settleGestures` compare à l'entité du geste ouvert.
+flecs::entity_t drawInspectorWindow(flecs::world& world, Inspector& inspector,
+                                    flecs::entity_t selected, ImGuiID dock, bool* open)
+{
+    flecs::entity_t inspected = 0;
     if (open != nullptr && !*open)
     {
-        return;
+        return inspected;
     }
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
     if (ImGui::Begin(ui::labelOf(InspectorWindow).c_str(), open))
@@ -665,6 +701,7 @@ void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t se
         }
         else
         {
+            inspected = entity;
             ImGui::TextUnformatted(entity.path("::", "").c_str());
             // Négative, la largeur laisse cette place au libellé, à droite (imgui.h,
             // `PushItemWidth`). Mesurée : à 125 % et 150 % la colonne fixe de 10 em prenait la
@@ -686,6 +723,34 @@ void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t se
         }
     }
     ImGui::End();
+    return inspected;
+}
+
+} // namespace
+
+void drawInspector(flecs::world& world, Inspector& inspector, flecs::entity_t selected,
+                   ImGuiID dock, bool* open)
+{
+    LEVAIN_ASSERT(world.is_deferred(), "drawInspector : le monde doit être différé (defer_begin)");
+    inspector.fieldsDrawn = 0;
+    inspector.wrote = false;
+    inspector.narrowestFrame = std::numeric_limits<float>::max();
+    inspector.frames.clear();
+    const flecs::entity_t inspected = drawInspectorWindow(world, inspector, selected, dock, open);
+    // **Même fenêtre fermée ou repliée** : un glissé dont l'élément n'est plus l'actif se ferme
+    // à la fin de l'image, quoi que l'inspecteur ait dessiné.
+    if (inspector.history != nullptr)
+    {
+        // Échap a rendu l'avant au monde : un angle tapé avant ne doit pas le recouvrir.
+        const bool cancelled = std::ranges::any_of(inspector.frames, [](const ComponentFrame& frame)
+                                                   { return frame.edges.cancelled; });
+        if (cancelled)
+        {
+            inspector.typedAngles.clear();
+        }
+        settleGestures(inspector.gesture, *inspector.history, world, inspector.mode,
+                       inspector.frames, inspected, ImGui::GetActiveID());
+    }
 }
 
 } // namespace levain::editor

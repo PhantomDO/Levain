@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include <flecs.h>
 #include <glm/glm.hpp>
@@ -16,6 +17,9 @@
 
 #include "levain/assets/asset_id.hpp"
 #include "levain/assets/registry.hpp"
+#include "levain/editor/edit_gesture.hpp"
+#include "levain/editor/mode.hpp"
+#include "levain/editor/undo.hpp"
 
 namespace levain::editor
 {
@@ -48,6 +52,17 @@ struct Inspector
     /// d'un vecteur, une cellule de matrice), lue sur le rectangle de l'item d'ImGui : ce que lit
     /// le test des échelles pour dire qu'une valeur y tient. Maximal sans nombre dessiné.
     float narrowestFrame = std::numeric_limits<float>::max();
+    /// **La pile où les gestes de l'inspecteur posent leurs commandes** (ADR-0038, décision 2) ;
+    /// l'éditeur la branche à la création. Nulle (un test de l'inspecteur seul), l'inspecteur
+    /// écrit comme avant, sans commande.
+    UndoStack* history = nullptr;
+    /// Le mode de l'image, posé par l'éditeur avant le dessin : en jeu, aucune commande.
+    Mode mode = Mode::Edit;
+    /// Le geste ouvert (un glissé en cours), d'une image à l'autre.
+    EditGesture gesture{};
+    /// Ce que les composants ont vécu à cette image : `drawInspector` les règle en fin d'image
+    /// (`settleGestures`).
+    std::vector<ComponentFrame> frames{};
 };
 
 /// numberCellWidth : la largeur minimale du cadre d'un nombre : « -0.000 » (le plus large des
@@ -105,6 +120,11 @@ struct Inspector
 /// écrit hors des constantes).
 [[nodiscard]] const char* enumNameOf(const flecs::world& world, flecs::entity_t type,
                                      const void* value);
+
+/// Le bord que l'interface a vu sur le dernier élément dessiné (`IsItemActivated`,
+/// `IsItemDeactivatedAfterEdit`) : l'inspecteur l'ajoute à ceux de son composant après chaque
+/// widget numérique. Une liste déroulante n'en donne aucun (ADR-0038, décision 2, essayé).
+[[nodiscard]] GestureEdges edgesOfLastItem();
 
 /// commitEdit : la seule écriture de l'inspecteur. Écrit `edited`, la copie que les widgets ont
 /// changée, par `setComponentValue` (un `OnSet`), si le composant est une donnée d'auteur
