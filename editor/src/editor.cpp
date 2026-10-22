@@ -407,22 +407,22 @@ HistoryState historyStateOf(const Editor& editor)
             .modified = isModified(editor.undo)};
 }
 
-/// **Le point nommé des demandes d'historique** (ADR-0038, décision 9) : juste après `defer_end`
-/// pour ce que les fenêtres ont demandé, et après les raccourcis et les menus pour les leurs. Ce
-/// qui a changé se voit dans l'image même. Vrai si le monde a changé (comme `wroteWorld` d'une
-/// écriture de l'inspecteur : la boîte de la scène se rafraîchit tout de suite).
-bool applyHistoryRequests(app::App& app, Editor& editor)
+/// **Le point nommé des demandes** (ADR-0038, décision 9) : juste après `defer_end` pour ce que
+/// les fenêtres ont demandé, et après les raccourcis et les menus pour les leurs. Ce qui a changé
+/// se voit dans l'image même. Vrai si le monde a changé (comme `wroteWorld` d'une écriture de
+/// l'inspecteur : la boîte de la scène se rafraîchit tout de suite).
+bool applyQueuedRequests(app::App& app, Editor& editor)
 {
-    const bool changed =
-        applyEditorRequests(editor.requests, editor.undo, app.world, editor.mode.current)
-            .changedWorld();
-    if (changed)
+    const RequestsReport report =
+        applyEditorRequests(editor.requests, editor.undo, app.world, editor.mode.current);
+    if (report.undone + report.redone > 0)
     {
         // Les angles tapés ne valent que tant qu'ils donnent la rotation du composant : une
         // annulation en remet une que l'inspecteur n'a pas tapée, il la relit du quaternion
         // (`eulerHint`) plutôt que de ressusciter une valeur d'avant (ADR-0038, décision 2).
         editor.inspector.typedAngles.clear();
     }
+    const bool changed = report.changedWorld();
     app.recomposeAfterUi = app.recomposeAfterUi || changed;
     return changed;
 }
@@ -507,12 +507,12 @@ bool runReachedActions(app::App& app, Editor& editor, std::vector<Action> reache
             applyShowAction(editor.view.show, action);
             if (isHistoryAction(action))
             {
-                editor.requests.push_back(action == Action::Undo ? HistoryRequest::Undo
-                                                                 : HistoryRequest::Redo);
+                editor.requests.push_back(action == Action::Undo ? RequestKind::Undo
+                                                                 : RequestKind::Redo);
             }
         }
     }
-    return applyHistoryRequests(app, editor);
+    return applyQueuedRequests(app, editor);
 }
 
 /// **La grille** : sa passe pour la cible de la scène, créée une fois, et son étape dans l'étape
@@ -761,7 +761,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                 drawInspector(app.world, editor->inspector, editor->selected, app.ui.dock.inspector,
                               &editor->windows.inspector);
                 app.world.defer_end();
-                wroteWorld = applyHistoryRequests(app, *editor); // ce que les fenêtres ont demandé
+                wroteWorld = applyQueuedRequests(app, *editor); // ce que les fenêtres ont demandé
                 wroteWorld = wroteWorld || editor->inspector.wrote;
                 if (wroteWorld)
                 {

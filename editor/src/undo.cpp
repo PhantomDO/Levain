@@ -122,6 +122,18 @@ core::Result<void> stepOnce(UndoStack& stack, flecs::world& world, bool redo)
     return {};
 }
 
+/// Pose une commande au sommet : le numéro suivant, puis la plus ancienne sort si la pile dépasse
+/// `UndoDepth`. Les refaisables sont déjà vidés par l'appelant (le contrat de la pile, avant que la
+/// commande ne s'exécute).
+void pushCommand(UndoStack& stack, flecs::world& world, CommandKind kind)
+{
+    stack.done.push_back({.number = stack.nextNumber++, .kind = std::move(kind)});
+    if (stack.done.size() > UndoDepth)
+    {
+        pushOutOldest(stack, world);
+    }
+}
+
 } // namespace
 
 bool canUndo(const UndoStack& stack)
@@ -195,16 +207,12 @@ bool recordValueChange(UndoStack& stack, flecs::world& world, Mode mode, flecs::
     {
         pin = assets::pinAssets(*usage, assetsDesignatedBy(world, component, before, after));
     }
-    stack.done.push_back({.number = stack.nextNumber++,
-                          .kind = ValueCommand{.entity = entity,
-                                               .component = component,
-                                               .before = std::move(before),
-                                               .after = std::move(after),
-                                               .pin = std::move(pin)}});
-    if (stack.done.size() > UndoDepth)
-    {
-        pushOutOldest(stack, world);
-    }
+    pushCommand(stack, world,
+                ValueCommand{.entity = entity,
+                             .component = component,
+                             .before = std::move(before),
+                             .after = std::move(after),
+                             .pin = std::move(pin)});
     return true;
 }
 
@@ -243,7 +251,43 @@ core::Result<bool> editValue(UndoStack& stack, flecs::world& world, Mode mode,
                              std::move(after));
 }
 
-RequestsReport applyEditorRequests(std::vector<HistoryRequest>& queue, UndoStack& stack,
+namespace
+{
+
+/// Une étape d'historique de la file : Annuler ou Rétablir.
+void applyHistoryStep(RequestsReport& report, UndoStack& stack, flecs::world& world, Mode mode,
+                      bool redo)
+{
+    const std::string name = ui::tr(redo ? "Rétablir" : "Annuler");
+    switch (historyRefusalOf(stack, mode, redo))
+    {
+    case HistoryRefusal::NotEditing:
+        ++report.refused;
+        core::log("editor", core::LogLevel::Info, "{}", ui::trf("{} : seulement en Édition", name));
+        return;
+    case HistoryRefusal::Nothing:
+        ++report.refused;
+        core::log("editor", core::LogLevel::Info, "{}",
+                  redo ? ui::trf("{} : rien à rétablir", name)
+                       : ui::trf("{} : rien à annuler", name));
+        return;
+    case HistoryRefusal::None:
+        break;
+    }
+    const auto stepped = stepOnce(stack, world, redo);
+    if (!stepped)
+    {
+        ++report.failed;
+        core::log("editor", core::LogLevel::Warning, "{}",
+                  ui::trf("{} : commande abandonnée, {}", name, stepped.error().message));
+        return;
+    }
+    ++(redo ? report.redone : report.undone);
+}
+
+} // namespace
+
+RequestsReport applyEditorRequests(std::vector<EditorRequest>& queue, UndoStack& stack,
                                    flecs::world& world, Mode mode)
 {
     RequestsReport report;
@@ -257,34 +301,15 @@ RequestsReport applyEditorRequests(std::vector<HistoryRequest>& queue, UndoStack
                   ui::tr("Historique : demande appliquée en mode différé, gardée pour plus tard"));
         return report;
     }
-    for (const HistoryRequest request : std::exchange(queue, {}))
+    for (const EditorRequest& request : std::exchange(queue, {}))
     {
-        const bool redo = request == HistoryRequest::Redo;
-        const std::string name = ui::tr(redo ? "Rétablir" : "Annuler");
-        switch (historyRefusalOf(stack, mode, redo))
+        switch (request.kind)
         {
-        case HistoryRefusal::NotEditing:
-            ++report.refused;
-            core::log("editor", core::LogLevel::Info, "{}",
-                      ui::trf("{} : seulement en Édition", name));
-            continue;
-        case HistoryRefusal::Nothing:
-            ++report.refused;
-            core::log("editor", core::LogLevel::Info, "{}",
-                      redo ? ui::trf("{} : rien à rétablir", name)
-                           : ui::trf("{} : rien à annuler", name));
-            continue;
-        case HistoryRefusal::None:
+        case RequestKind::Undo:
+        case RequestKind::Redo:
+            applyHistoryStep(report, stack, world, mode, request.kind == RequestKind::Redo);
             break;
         }
-        if (auto stepped = stepOnce(stack, world, redo); !stepped)
-        {
-            ++report.failed;
-            core::log("editor", core::LogLevel::Warning, "{}",
-                      ui::trf("{} : commande abandonnée, {}", name, stepped.error().message));
-            continue;
-        }
-        ++(redo ? report.redone : report.undone);
     }
     return report;
 }

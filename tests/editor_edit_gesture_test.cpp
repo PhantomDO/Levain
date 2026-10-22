@@ -344,7 +344,7 @@ TEST_CASE("annuler la commande d'un glissé rend l'avant du début, pas celui d'
         rig.frame(10.0F + static_cast<float>(i), None, FieldX);
     }
     rig.frame(std::nullopt, Release, FieldX);
-    std::vector<HistoryRequest> queue{HistoryRequest::Undo};
+    std::vector<EditorRequest> queue{RequestKind::Undo};
     CHECK(applyEditorRequests(queue, rig.stack, rig.world, Mode::Edit).undone == 1);
     CHECK(rig.mass(rig.first) == 1.0F);
 }
