@@ -82,6 +82,14 @@ struct EntityRecord
     std::vector<flecs::entity_t> internalChildren;
 };
 
+/// Les enfants d'une entité dans l'ordre de flecs, la scène et les internes mêlés. Un nom pour le
+/// piège : `ecs_get_ordered_children` n'existe que pour un parent de `flecs::Parent` ; sur une
+/// entité sans enfant, ou dont les enfants sont tous sous `ChildOf` (les observateurs d'un
+/// `onEnter`), flecs s'arrête sur une assertion (src/entity.c:2520, vérifié sur la 4.1.6). La
+/// fonction ne l'appelle donc que si un enfant porte `flecs::Parent` (ADR-0038, décision 5).
+[[nodiscard]] std::vector<flecs::entity_t> orderedChildrenOf(const flecs::world& world,
+                                                             flecs::entity_t parent);
+
 /// Toute la scène, une entité par ligne, triée par index.
 struct Snapshot
 {
