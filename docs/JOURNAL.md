@@ -34,9 +34,15 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ## 2026-10-16 — M7.5 — Clôture : Jouer et Arrêter, la scène rendue à l'identique
 
-- **Temps Donnovan : 0,25 h à ce jour** (le sondage du 15/10 ; estimé 0,75 h). Sa lecture de la synthèse d'une page
-  s'y ajoutera (sondage du 15/10, « Une page, puis l'éditeur »). **Pas de ratio avant son temps total** : celui de M7.7
-  est passé de 2,0 à 4,5 une fois sa lecture comptée (note dans son entrée).
+- **Temps Donnovan : 1,0 h** (estimé 0,75 h), **ratio 1,33** (`awk 'BEGIN { printf "%.2f\n", 1 / 0.75 }'`) : sa réponse
+  au sondage du 22/10, « ≈ 1 h », pour tout son temps depuis le 15/10 (le sondage du 15/10 et la lecture de la synthèse
+  d'une page comprise), mis sur M7.5. Au board, « Passé (h) » de #258 : 1,0. La phase 7 en est à 7,25 h pour 4,1
+  (M7.1, M7.2, M7.7, M7.5), **1,77 à titre provisoire**
+  (`awk 'BEGIN { printf "%.2f\n", (1 + 0.75 + 4.5 + 1) / (1.1 + 1.25 + 1 + 0.75) }'`) : son ratio, et un recalibrage
+  s'il le faut, se jugent à sa clôture, après M7.8 (cloture/SKILL.md). Le « Cumul » prendra la phase 7 à ce moment-là.
+  **Note du 2026-10-22** : la ligne de la clôture du 16/10 disait « 0,25 h à ce jour », sans ratio avant son temps total
+  (le sondage du 15/10 seul) ; elle est remplacée par la réponse de Donnovan, qui est ce temps total. Le texte plus bas
+  (« Prochaine étape ») est celui du 16/10, laissé tel quel.
 - Sessions Claude Code : 1 (estimé 1) : un seul `Claude-Session` dans les commits du milestone
   (`git log 594f418..c3e5e3e --format=%b | grep Claude-Session | sort | uniq -c`).
 - Définition de « terminé » (SPECS §9) :
