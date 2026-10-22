@@ -898,6 +898,15 @@ jobs:
         working-directory: ${{ env.MIRROR }}
         run: tools/ci-programs.sh editor-play build/${{ matrix.preset }}
 
+      # La session d'annulation de l'éditeur (M7.3, ADR-0038) : 150 changements de valeur, 100 annulations, et la ligne
+      # `editor.undo` doit dire exactement `changes=150 undone=100 differences=0`. **Sous Windows seulement**, comme l'étape
+      # d'au-dessus : sous Linux, le test ctest `editor.undo` lit la même ligne dans l'étape « Tests » de chaque configuration.
+      - name: L'éditeur, annuler
+        if: matrix.preset == 'windows-debug'
+        shell: bash
+        working-directory: ${{ env.MIRROR }}
+        run: tools/ci-programs.sh editor-undo build/${{ matrix.preset }}
+
       # Sans cache des fichiers cuits : le cuiseur repart de zéro à chaque passage (le contrôle du cache du job Linux
       # n'a donc rien à vérifier ici), et Sponza cuite lit ce qu'il vient d'écrire.
       - name: Cuire les assets de test

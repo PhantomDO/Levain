@@ -248,6 +248,10 @@ target_link_libraries(levain_bench PRIVATE levain::core)
 add_executable(levain_scene_bench scene_bench.cpp)
 target_link_libraries(levain_scene_bench PRIVATE levain::scene)
 
+# Le coût de l'annulation (ADR-0038) : un banc, hors de ctest, lancé par tools/undo-cost.sh.
+add_executable(levain_undo_bench undo_bench.cpp)
+target_link_libraries(levain_undo_bench PRIVATE levain::editor levain::scene)
+
 # Le critère de M6.1 : 1 000 caisses en chute libre, aucun pas au-dessus de 4 ms (ADR-0026).
 # Sa scène est celle de `levain_sandbox --view physics`, dans un en-tête du sandbox : le chiffre du
 # banc est celui de la démo.
@@ -443,6 +447,23 @@ if(NOT EMSCRIPTEN)
             ENVIRONMENT "${testVideo}"
             PASS_REGULAR_EXPRESSION "editor.stop steps=120 differences=0 ms=[0-9.]+ from=simulate "
             FAIL_REGULAR_EXPRESSION "${pickFailure}")
+    endif()
+
+    # La ligne de la CI de l'annulation (ADR-0038, « Les contrôles ») : la session scriptée (`--undo-session`, editor/undo_session.hpp)
+    # fait 150 changements de valeur sur une caisse de la vue physics, en annule 100 et compare le monde à celui d'après le
+    # 50e changement. Le motif écrit les nombres en toutes lettres (`changes=150 undone=100 differences=0`) : un autre compte
+    # (une pile de 99 niveaux donne `undone=99 differences=1` à la première annulation refusée) laisse le test rouge, comme une
+    # différence non nulle (FAIL). 270 images : 150 changements et 100 annulations, une par image, et la comparaison à la suivante.
+    # Windows ne l'exécute pas ici : `tools/ci-programs.sh editor-undo` (ci.yml) rejoue le même lancement.
+    if(NOT WIN32)
+        add_test(NAME editor.undo
+            COMMAND ${CMAKE_COMMAND}
+                    "-DCOMMAND_LINE=$<TARGET_FILE:levain_sandbox_editor>;--view;physics;--steps;270;--undo-session;crate_3_0_8"
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect_exit_zero.cmake)
+        set_tests_properties(editor.undo PROPERTIES
+            ENVIRONMENT "${testVideo}"
+            PASS_REGULAR_EXPRESSION "editor.undo changes=150 undone=100 differences=0 -- "
+            FAIL_REGULAR_EXPRESSION "editor.undo changes=[0-9]+ undone=[0-9]+ differences=[1-9]|[[]error[]] [[]editor[]]|${pickFailure}")
     endif()
 
     # L'exécutable éditeur refuse `--gpu webgpu` avant d'ouvrir fenêtre ni device (ADR-0036, décision 7) : le message de

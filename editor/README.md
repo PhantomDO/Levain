@@ -56,6 +56,13 @@ chaque composant dessiné laisse un `ComponentFrame`, et tout se règle à la fi
 Tests : `tests/editor_edit_gesture_test.cpp` (image par image), et le vrai inspecteur cliqué et glissé dans
 `gpu.editor-undo.*`, qui lit où cliquer dans `Inspector::fieldCenters`.
 
+**La ligne de la CI** (`undo_session.hpp`) : `--undo-session entité` fait 150 changements de valeur sur le `Transform` d'une
+entité, en annule 100 (la porte de Ctrl+Z) et compare le monde à celui d'après le 50e changement ; la ligne
+`editor.undo changes=150 undone=100 differences=0 -- …` est lue par le test ctest `editor.undo` (Linux) et par
+`tools/ci-programs.sh editor-undo` (Windows). C'est une API de commandes et non un script d'input : 150 glissés au pixel
+près ne tiennent pas d'une machine à l'autre. `tools/undo-cost.sh` mesure la suppression et l'annulation d'un sous-arbre de
+1 000 entités, et la session de 150 changements.
+
 **La console est écrite** (M7.7, morceau 14) : la fenêtre « Console » lit le journal du processus par un récepteur de
 `core::log` (`withEditor` le pose avant `runApp` : ce que la fenêtre et le device écrivent en s'ouvrant y est), dans un
 anneau de 2 000 messages ; niveaux, compteurs de tous les messages reçus, recherche, Effacer, Réduire. Elle s'ancre
