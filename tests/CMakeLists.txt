@@ -510,7 +510,7 @@ add_test(NAME gpu.app-loop.vulkan COMMAND levain_app_loop vulkan)
 set_tests_properties(gpu.app-loop.vulkan PROPERTIES ENVIRONMENT "${testVideo}")
 
 # Annuler et Rétablir (ADR-0038, morceau A4) : Ctrl+Z, Ctrl+Y et Ctrl+Maj+Z en QWERTY et en AZERTY, la pile gelée en
-# jeu, dans la vraie boucle hors écran.
+# jeu, le menu Édition grisé, Ctrl+Z refusé pendant un glissé, dans la vraie boucle hors écran.
 add_executable(levain_editor_undo editor_undo_gpu.cpp)
 target_link_libraries(levain_editor_undo PRIVATE levain::editor levain::app levain::platform levain::scene)
 target_compile_definitions(levain_editor_undo PRIVATE LEVAIN_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
