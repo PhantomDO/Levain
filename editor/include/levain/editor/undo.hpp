@@ -117,7 +117,8 @@ enum class HistoryRefusal : std::uint8_t
 
 /// editValue : l'écriture d'un geste d'une image, par la **même** porte que l'annulation
 /// (`setComponentValue`) : copie l'avant, écrit, pose la commande (`recordValueChange`). Rend vrai
-/// si une commande est posée. `value` est une valeur du type du composant.
+/// si une commande est posée ; une erreur nommée, le monde intact, pour une entité morte, un
+/// composant absent ou un type sans valeur. `value` est une valeur du type du composant.
 [[nodiscard]] core::Result<bool> editValue(UndoStack& stack, flecs::world& world, Mode mode,
                                            flecs::entity_t entity, flecs::entity_t component,
                                            const void* value);
@@ -135,6 +136,8 @@ struct RequestsReport
     int undone = 0;
     int redone = 0;
     int refused = 0; ///< Hors de l'Édition, ou rien à faire : dit à la console.
+    int failed =
+        0; ///< La commande n'a pas pu s'appliquer : elle est abandonnée, dite à la console.
 
     [[nodiscard]] bool changedWorld() const { return undone + redone > 0; }
 };
@@ -142,7 +145,8 @@ struct RequestsReport
 /// **Le point nommé où les demandes d'historique s'exécutent** (décision 9). Les fenêtres,
 /// dessinées entre `defer_begin` et `defer_end`, ne font que `queue.push_back` ; ce point passe
 /// **juste après `defer_end`**. Les raccourcis et les menus, hors du `defer`, y passent
-/// directement.
+/// directement. Appelé dans le mode différé, il refuse bruyamment et garde la file : les écritures
+/// de flecs y seraient mises en file et le monde lu ne serait pas celui qu'on a écrit.
 [[nodiscard]] RequestsReport applyEditorRequests(std::vector<HistoryRequest>& queue,
                                                  UndoStack& stack, flecs::world& world, Mode mode);
 

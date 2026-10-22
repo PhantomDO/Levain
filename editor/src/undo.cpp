@@ -71,29 +71,55 @@ void pushOutOldest(UndoStack& stack, flecs::world& world)
     stack.done.erase(stack.done.begin());
 }
 
-/// Écrit l'avant (annuler) ou l'après (refaire) d'une commande de valeur.
+/// Écrit l'avant (annuler) ou l'après (refaire) d'une commande de valeur. Une erreur dit pourquoi,
+/// sans nom de geste : l'appelant le met devant.
 struct Stepper
 {
     flecs::world& world;
     bool redo;
 
-    void operator()(const ValueCommand& command) const
+    core::Result<void> operator()(const ValueCommand& command) const
     {
+        const auto refuse = [](const char* why)
+        {
+            return core::makeError(core::ErrorCode::InvalidData,
+                                   std::format("{}, le monde n'est pas touché", why));
+        };
+        if (ecs_is_deferred(world))
+        {
+            return refuse("appelée en mode différé");
+        }
+        if (!ecs_is_alive(world, command.entity))
+        {
+            return refuse("l'entité n'existe plus");
+        }
+        if (!ecs_has_id(world, command.entity, command.component))
+        {
+            return refuse("l'entité n'a plus le composant");
+        }
         scene::setComponentValue(world, command.entity, command.component,
                                  (redo ? command.after : command.before).data());
+        return {};
     }
 };
 
 /// Annule (`redo` faux) ou refait la commande du sommet de la liste d'où elle vient, et la range
-/// dans l'autre. Un visiteur : une sorte de commande de plus ajoute sa surcharge ici.
-void stepOnce(UndoStack& stack, flecs::world& world, bool redo)
+/// dans l'autre. Échec : la commande est abandonnée (libérée), pour que la pile ne reste pas
+/// bloquée sur elle. Un visiteur : une sorte de commande de plus ajoute sa surcharge ici.
+core::Result<void> stepOnce(UndoStack& stack, flecs::world& world, bool redo)
 {
     std::vector<Command>& from = redo ? stack.undone : stack.done;
     std::vector<Command>& to = redo ? stack.done : stack.undone;
     Command command = std::move(from.back());
     from.pop_back();
-    std::visit(Stepper{world, redo}, command.kind);
+    auto written = std::visit(Stepper{world, redo}, command.kind);
+    if (!written)
+    {
+        releaseCommand(world, command);
+        return written;
+    }
     to.push_back(std::move(command));
+    return {};
 }
 
 } // namespace
@@ -185,7 +211,30 @@ bool recordValueChange(UndoStack& stack, flecs::world& world, Mode mode, flecs::
 core::Result<bool> editValue(UndoStack& stack, flecs::world& world, Mode mode,
                              flecs::entity_t entity, flecs::entity_t component, const void* value)
 {
+    const auto refuse = [&](const char* why)
+    {
+        return core::makeError(core::ErrorCode::InvalidData,
+                               std::format("Modifier : {}, le monde n'est pas touché", why));
+    };
+    if (ecs_is_deferred(world))
+    {
+        return refuse("appelée en mode différé");
+    }
+    if (!ecs_is_alive(world, entity) || !ecs_has_id(world, entity, component))
+    {
+        return refuse("l'entité n'existe plus ou n'a pas le composant");
+    }
     const flecs::entity_t type = ecs_get_typeid(world, component);
+    if (type == 0)
+    {
+        return refuse("le composant n'a pas de valeur");
+    }
+    // Avant toute écriture : `sameValue` s'arrête sur une assertion pour un type qu'il ne sait pas
+    // comparer, et la valeur serait déjà écrite.
+    if (!scene::isComparableValue(world, type))
+    {
+        return refuse("le type du composant n'est pas décrit, il ne se compare pas");
+    }
     // L'avant se copie avant l'écriture : `set` écrit tout de suite un composant déjà là.
     scene::ValueBox before{world, type, ecs_get_id(world, entity, component)};
     scene::setComponentValue(world, entity, component, value);
@@ -198,6 +247,16 @@ RequestsReport applyEditorRequests(std::vector<HistoryRequest>& queue, UndoStack
                                    flecs::world& world, Mode mode)
 {
     RequestsReport report;
+    if (queue.empty())
+    {
+        return report;
+    }
+    if (ecs_is_deferred(world))
+    {
+        core::log("editor", core::LogLevel::Error, "{}",
+                  ui::tr("Historique : demande appliquée en mode différé, gardée pour plus tard"));
+        return report;
+    }
     for (const HistoryRequest request : std::exchange(queue, {}))
     {
         const bool redo = request == HistoryRequest::Redo;
@@ -218,7 +277,13 @@ RequestsReport applyEditorRequests(std::vector<HistoryRequest>& queue, UndoStack
         case HistoryRefusal::None:
             break;
         }
-        stepOnce(stack, world, redo);
+        if (auto stepped = stepOnce(stack, world, redo); !stepped)
+        {
+            ++report.failed;
+            core::log("editor", core::LogLevel::Warning, "{}",
+                      ui::trf("{} : commande abandonnée, {}", name, stepped.error().message));
+            continue;
+        }
         ++(redo ? report.redone : report.undone);
     }
     return report;

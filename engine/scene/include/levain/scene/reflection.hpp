@@ -260,6 +260,12 @@ void setComponentValue(flecs::world& world, flecs::entity_t entity, flecs::entit
 [[nodiscard]] bool sameValue(const flecs::world& world, flecs::entity_t type, const void* first,
                              const void* second);
 
+/// isComparableValue : `sameValue` sait comparer ce type (une étiquette, une struct ou un tableau
+/// décrits, un nombre, une enum, un bitmask, un `flecs::entity`). `sameValue` s'arrête sur une
+/// assertion pour un autre ; l'appelant qui reçoit un type quelconque (une commande d'annulation)
+/// refuse d'abord, par un message nommé, avant d'écrire quoi que ce soit.
+[[nodiscard]] bool isComparableValue(const flecs::world& world, flecs::entity_t type);
+
 /// stableKeyOf : la clé d'un composant dans une sauvegarde, son symbole (le nom C++,
 /// `levain.scene.Transform`), quel que soit le module qui l'a enregistré en premier. Pas son
 /// chemin, qui en dépend (`levain.scene.SceneModule.Transform`). Vide pour une entité sans symbole.
