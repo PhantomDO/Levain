@@ -61,6 +61,7 @@ lever la grille dans l'explorer lève les 10 000 cubes.
 | [`include/levain/scene/camera_control.hpp`](include/levain/scene/camera_control.hpp) | La caméra libre : `FpsController`, `FpsInput`, `applyFpsInput`, et les pièges nommés `normalizeOrZero`, `clampPitch` (des bornes inversées sont remises dans l'ordre), `horizontalBasisFrom` |
 | [`include/levain/scene/scene.hpp`](include/levain/scene/scene.hpp) | `SceneModule` — `world.import<levain::scene::SceneModule>()` ; `advanceWorld` (avec l'arrêt, et le pas unique d'« Image suivante » : `planFrame`, `singleStepPlan`) et `composeWorldTransforms` |
 | [`include/levain/scene/reflection.hpp`](include/levain/scene/reflection.hpp) | La réflexion : `describe`, `describeAuthored`, `.range`, `Authored`, `rangeOf`, `stableKeyOf`, `componentOfKey`, puis `setComponentValue` et `sameValue` |
+| [`include/levain/scene/tombstone.hpp`](include/levain/scene/tombstone.hpp) | La pierre tombale (ADR-0038) : `Tombstone`, `removeKeepingIndex`, `checkTombstonesHold`, `reviveFromTombstones`, `releaseTombstones` |
 | [`include/levain/scene/snapshot.hpp`](include/levain/scene/snapshot.hpp) | L'instantané de la scène pour Play/Stop (ADR-0037) : `isSceneEntity`, `isEngineInternal`, `Transient`, `takeSnapshot`, `differencesFrom`, `compareWithSnapshot` et sa `Comparison` (le compte des vraies différences, sans plafond, et les enfants internes perdus à part), `entityIndexOf` et `byEntityIndex` (l’ordre par index, partagé avec la physique et la Hiérarchie), `createIdRanges`, `useEditIds`/`usePlayIds`, `bornInPlay`, `restoreSnapshot` et son `RestoreReport` |
 
 ## L'instantané de la scène
@@ -113,6 +114,56 @@ Un instantané garde le monde pour libérer ses valeurs : il ne lui survit pas.
 
 Ailleurs : Unity ne relit que « le contenu modifié de la scène » au retour de Play quand il ne la recharge pas
 (**documenté**) ; Unreal joue dans une copie du monde (**supposé**) ; Godot dans un autre processus (**documenté**).
+
+## La pierre tombale
+
+Supprimer une entité pour de bon, et pouvoir la rendre avec **le même identifiant**, génération comprise
+([ADR-0038](../../docs/adr/0038-annulation-et-scenes.md), décision 3). `tombstone.hpp`, sans éditeur ni GPU :
+
+- **Le problème.** Dès qu'une entité est détruite, flecs redonne son index à la **prochaine** création, et pas seulement
+  à celles de l'éditeur : une requête, un observateur suffisent. `ecs_make_alive` ne peut plus alors rendre l'ancien
+  identifiant. L'ordre « dernier fait, premier défait » ne protège pas contre une entité de l'infrastructure.
+- **La parade.** `removeKeepingIndex` détruit l'entité et son sous-arbre, puis réveille sur chaque index libéré une
+  **pierre** (`Tombstone`, une étiquette) à la génération suivante : l'index est vivant, personne ne le reprend. Les
+  `Tombstones` rendues appartiennent à la commande. `reviveFromTombstones` détruit les pierres et réveille les entités
+  avec leur identifiant d'avant ; elles reviennent **vides** (types, valeurs, noms et parents sont l'affaire de
+  l'enregistrement de la commande, morceau A2). `releaseTombstones` rend les index quand la commande sort de la pile.
+- **Invariants, vérifiés dans tous les builds** (un refus nommé, le monde intact) :
+  - avant chaque réveil, chaque index réservé est vivant, à la génération de sa pierre, et porte `Tombstone`
+    (`checkTombstonesHold`). En Release `ecs_make_alive` écraserait sans rien dire l'entité qui a pris la place (elle
+    meurt), en Debug flecs s'arrête ;
+  - tout index est dans la plage d'identifiants **active** (`ecs_entity_range_get`) : supprimer en jeu une entité de
+    l'édition rangerait l'index dans la liste de la plage du jeu, à la génération de la pierre, et Stop s'arrêterait
+    (Debug) ou donnerait l'identifiant de la pierre à une autre entité (Release). Une suppression en jeu ne passe pas par
+    la pile (ADR-0038, 9) ;
+  - le mode différé est refusé, comme une entité morte, une pierre, ou ce qui n'est pas de la scène (`isSceneEntity` : un
+    composant, un module) ;
+  - si un observateur `OnRemove` crée une entité pendant la destruction et prend un index libéré (un `onExit` de
+    gameplay), aucune pierre n'est posée et l'erreur le dit : la suppression est faite, l'annulation impossible.
+- **Ce qui ne revient pas** : les paires `(R, E)` d'une autre entité vers l'entité détruite, tout ce que portait l'entité
+  (composants, nom, `flecs::Parent`), et les enfants rangés par `ChildOf` (l'observateur d'un `onEnter`). Ces derniers ne
+  sont pas réservés (ils reviendraient en entités vides que `isSceneEntity` compterait) : `Tombstones::lost` les
+  rapporte, nom lu avant la destruction, pour l'avertissement de la console. Un champ d'entité d'un composant d'auteur
+  garde l'identifiant mort, et redevient valide au réveil.
+- **Contrat pour la pile (morceau A4).** Supprimer, annuler, supprimer encore donne les **mêmes** pierres (même index, même
+  génération). Libérer les pierres d'une commande ancienne après qu'une plus récente a supprimé la même entité détruit
+  les pierres de la récente, dont l'annulation est alors refusée. La pile vide donc ses commandes refaisables, en les
+  libérant, **avant** d'exécuter une nouvelle commande.
+- **`Tombstone` est enregistré avant la destruction** : passés les 256 identifiants bas que flecs réserve aux composants,
+  un composant enregistré après une destruction prend l'index libéré et devient sa propre pierre.
+- **Pas encore faits** (morceau A2) : `isSceneEntity` n'écarte pas encore les pierres, et le sous-arbre n'est pas lu.
+
+Les comportements de flecs dont tout cela dépend sont **épinglés** dans `tests/flecs_tombstone_pins_test.cpp`, en Debug
+et en Release (a : l'index recyclé sans pierre ; b : rien ne le prend avec ; c : réveil de la génération d'avant ;
+d : un sous-arbre ; e : une création annulée puis refaite ; f : « Cube 2 » se retrouve par `lookup` ; puis ce qui ne
+revient pas, et en Release seulement l'écrasement silencieux). Si flecs change, c'est là que ça rougit.
+
+Ailleurs (sources numérotées de l'[ADR-0038](../../docs/adr/0038-annulation-et-scenes.md)) : Unity annule
+`Undo.DestroyObjectImmediate` en recréant l'objet (**documenté** [1]), depuis un état sérialisé (**supposé**) ; Unreal
+range l'acteur supprimé dans la transaction (`FScopedTransaction`, **documenté** [8] pour la transaction, **supposé** pour
+le sort de l'acteur) ; Godot garde les objets que l'action d'annulation référence (`UndoRedo`, **documenté** [4]). Ce
+qu'aucun des trois n'a est notre problème d'index : c'est **supposé**, leurs identifiants n'étant pas recyclés comme ceux de
+flecs, mais rien n'est lu là-dessus dans leurs sources.
 
 ## Trois notions de flecs
 

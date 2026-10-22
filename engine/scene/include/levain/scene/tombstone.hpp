@@ -48,6 +48,14 @@ struct LostChild
 /// Les pierres d'une suppression, que **la commande possède** : elle les rend en sortant de la pile
 /// (`releaseTombstones`) ou à l'annulation (`reviveFromTombstones`). Un monde ne survit pas à ses
 /// pierres : elles ne se gardent pas d'un monde à l'autre.
+///
+/// **Contrat pour la pile de commandes (morceau A4).** L'identifiant d'une pierre est celui de
+/// l'entité, génération suivante : deux suppressions successives de la même entité (supprimer,
+/// annuler, supprimer encore) donnent les **mêmes** pierres. Libérer les pierres d'une commande
+/// ancienne après qu'une plus récente a supprimé la même entité détruirait les pierres de la
+/// récente, dont l'annulation serait alors refusée. La pile vide donc ses commandes refaisables
+/// (en les libérant) **avant** d'exécuter une nouvelle commande, et ne libère jamais une commande
+/// déjà annulée puis supplantée.
 struct Tombstones
 {
     /// L'entité supprimée d'abord, puis ses descendants `flecs::Parent`, un parent avant ses
@@ -60,8 +68,15 @@ struct Tombstones
 /// removeKeepingIndex : détruit l'entité et son sous-arbre, puis pose une pierre sur l'index libéré
 /// de chaque entité de la scène du sous-arbre (`flecs::Parent`). Les enfants rangés par `ChildOf`
 /// partent aussi et sont rapportés dans `lost`. Refus nommés, **dans tous les builds**, le monde
-/// intact : une entité morte, une pierre, ou qui n'est pas de la scène (`isSceneEntity` : un
-/// composant, un module).
+/// intact :
+///  - en mode différé (les écritures de flecs seraient mises en file) ;
+///  - une entité morte, une pierre, ou qui n'est pas de la scène (`isSceneEntity` : un composant,
+///    un module) ;
+///  - un index hors de la plage d'identifiants **active** (`ecs_entity_range_get`) : supprimer en
+///  jeu
+///    une entité de l'édition rangerait l'index libéré dans la liste de la plage du jeu, à la
+///    génération de la pierre ; à Stop flecs s'arrête (Debug) ou donne l'identifiant de la pierre à
+///    la prochaine entité (Release). Une suppression en jeu ne passe pas par la pile (ADR-0038, 9).
 /// Si un observateur `OnRemove` crée une entité pendant la destruction et prend un index libéré,
 /// la suppression est faite mais l'erreur le dit : aucune pierre n'est posée, l'annulation est
 /// impossible (c'est préférable à une pierre posée sur l'entité d'un autre).
@@ -82,12 +97,21 @@ struct Tombstones
 [[nodiscard]] core::Result<void> checkTombstonesHold(const flecs::world& world,
                                                      const Tombstones& tombstones);
 
-/// reviveFromTombstones : annule la suppression. Garde d'abord (`checkTombstonesHold`, le monde
-/// intact si elle refuse), détruit les pierres puis réveille chaque entité avec son identifiant
-/// d'avant. Elles reviennent **vides** : ni type, ni valeur, ni nom, ni parent. Les rendre est
-/// l'affaire de l'enregistrement de la commande (`restoreSnapshot` en donne les étapes). Les mêmes
-/// `Tombstones` resservent à refaire : `removeKeepingIndex` repose les mêmes pierres.
+/// reviveFromTombstones : annule la suppression. Refuse le mode différé et tout index hors de la
+/// plage active, garde ensuite (`checkTombstonesHold`, le monde intact si elle refuse), détruit les
+/// pierres puis réveille chaque entité avec son identifiant d'avant. Elles reviennent **vides** :
+/// ni type, ni valeur, ni nom, ni parent. Les rendre est l'affaire de l'enregistrement de la
+/// commande (`restoreSnapshot` en donne les étapes). Les mêmes `Tombstones` resservent à refaire :
+/// `removeKeepingIndex` repose les mêmes pierres (voir le contrat ci-dessus).
 [[nodiscard]] core::Result<void> reviveFromTombstones(flecs::world& world,
                                                       const Tombstones& tombstones);
+
+/// releaseTombstones : détruit les pierres sans réveiller personne, quand la commande sort de la
+/// pile (débordement, refaisables vidés, scène chargée). Les index repartent dans la liste de
+/// flecs. Refuse, le monde intact, le mode différé et un index hors de la plage active (même
+/// raison que `removeKeepingIndex`). Ignore une pierre déjà détruite ; ne touche jamais autre chose
+/// qu'une pierre.
+[[nodiscard]] core::Result<void> releaseTombstones(flecs::world& world,
+                                                   const Tombstones& tombstones);
 
 } // namespace levain::scene

@@ -16,11 +16,14 @@
 // (`flecs_tombstone_pins_test.cpp`).
 
 using levain::scene::checkTombstonesHold;
+using levain::scene::releaseTombstones;
 using levain::scene::removeKeepingIndex;
 using levain::scene::reviveFromTombstones;
 using levain::scene::sceneEntities;
 using levain::scene::Tombstone;
 using levain::scene::Tombstones;
+using levain::scene::useEditIds;
+using levain::scene::usePlayIds;
 
 namespace
 {
@@ -263,7 +266,8 @@ TEST_CASE("une pierre qui n'est plus une pierre est un refus aussi")
     CHECK_FALSE(reviveFromTombstones(world, *removed).has_value());
 }
 
-TEST_CASE("supprimer refuse ce qui n'est pas une entité vivante de la scène, le monde intact")
+TEST_CASE("supprimer refuse ce qui n'est pas une entité vivante, ou le mode différé, le monde "
+          "intact")
 {
     flecs::world world = makeWorld();
     const flecs::entity_t cube = world.entity("Cube").id();
@@ -293,6 +297,107 @@ TEST_CASE("supprimer refuse ce qui n'est pas une entité vivante de la scène, l
         CHECK(again.error().message.find("pierre tombale") != std::string::npos);
         CHECK(ecs_is_alive(world, removed->reserved[0].stone));
     }
+    SUBCASE("le mode différé")
+    {
+        world.defer_begin();
+        const auto removed = removeKeepingIndex(world, cube);
+        REQUIRE_FALSE(removed.has_value());
+        CHECK(removed.error().message.find("mode différé") != std::string::npos);
+        world.defer_end();
+        CHECK(ecs_is_alive(world, cube)); // rien n'a été détruit
+    }
+}
+
+TEST_CASE("annuler refuse aussi le mode différé, les pierres intactes")
+{
+    flecs::world world = makeWorld();
+    const flecs::entity_t cube = world.entity("Cube").id();
+    auto removed = removeKeepingIndex(world, cube);
+    REQUIRE(removed.has_value());
+
+    world.defer_begin();
+    const auto revived = reviveFromTombstones(world, *removed);
+    world.defer_end();
+
+    REQUIRE_FALSE(revived.has_value());
+    CHECK(revived.error().message.find("mode différé") != std::string::npos);
+    CHECK(checkTombstonesHold(world, *removed).has_value());
+}
+
+TEST_CASE("releaseTombstones rend les index à flecs et ne touche à rien d'autre")
+{
+    flecs::world world = makeWorld();
+    const flecs::entity_t cube = world.entity("Cube").id();
+    const flecs::entity_t bystander = world.entity("passante").id();
+    auto removed = removeKeepingIndex(world, cube);
+    REQUIRE(removed.has_value());
+
+    CHECK(releaseTombstones(world, *removed).has_value());
+    CHECK_FALSE(ecs_is_alive(world, removed->reserved[0].stone));
+    CHECK(ecs_is_alive(world, bystander));
+    // Appelée deux fois, ou après que la pierre est déjà partie : sans effet.
+    CHECK(releaseTombstones(world, *removed).has_value());
+    // L'index est libre : la prochaine entité le reprend, à la génération de l'ancienne pierre.
+    const flecs::entity taker = world.entity("repreneur");
+    REQUIRE(indexOf(taker.id()) == indexOf(cube));
+
+    // Une « pierre » qui n'en est plus une (son identifiant désigne le repreneur) n'est pas
+    // détruite.
+    const Tombstones stale{.reserved = {{.entity = cube, .stone = taker.id()}}, .lost = {}};
+    CHECK(releaseTombstones(world, stale).has_value());
+    CHECK(ecs_is_alive(world, taker.id()));
+}
+
+TEST_CASE("releaseTombstones refuse le mode différé, les pierres intactes")
+{
+    flecs::world world = makeWorld();
+    auto removed = removeKeepingIndex(world, world.entity("Cube").id());
+    REQUIRE(removed.has_value());
+
+    world.defer_begin();
+    const auto released = releaseTombstones(world, *removed);
+    world.defer_end();
+
+    REQUIRE_FALSE(released.has_value());
+    CHECK(released.error().message.find("mode différé") != std::string::npos);
+    CHECK(checkTombstonesHold(world, *removed).has_value());
+}
+
+TEST_CASE("en jeu, supprimer, annuler et libérer une entité de l'édition sont refusés, nommés")
+{
+    // Une suppression en jeu d'une entité de l'édition rangerait l'index libéré dans la liste de la
+    // plage du jeu, à la génération de la pierre : à Stop, flecs s'arrête (Debug) ou donne
+    // l'identifiant de la pierre à la prochaine entité (Release).
+    flecs::world world;
+    const auto ranges = levain::scene::createIdRanges(world);
+    REQUIRE(ranges.has_value());
+    world.component<Marker>();
+    const flecs::entity_t cube = world.entity("Cube").id();
+    const flecs::entity_t other = world.entity("Autre").id();
+    auto removed = removeKeepingIndex(world, other); // dans l'édition : permis
+    REQUIRE(removed.has_value());
+
+    usePlayIds(world, *ranges);
+    const auto removal = removeKeepingIndex(world, cube);
+    REQUIRE_FALSE(removal.has_value());
+    CHECK(removal.error().message.find("plage d'identifiants") != std::string::npos);
+    CHECK(ecs_is_alive(world, cube)); // le monde est intact
+
+    const auto revival = reviveFromTombstones(world, *removed);
+    REQUIRE_FALSE(revival.has_value());
+    CHECK(revival.error().message.find("plage d'identifiants") != std::string::npos);
+    const auto release = releaseTombstones(world, *removed);
+    REQUIRE_FALSE(release.has_value());
+    CHECK(release.error().message.find("plage d'identifiants") != std::string::npos);
+    useEditIds(world, *ranges);
+    CHECK(checkTombstonesHold(world, *removed).has_value()); // les pierres n'ont pas bougé
+
+    // En jeu, une entité née en jeu se supprime : son index est dans la plage active.
+    usePlayIds(world, *ranges);
+    const flecs::entity_t born = world.entity("née en jeu").id();
+    CHECK(removeKeepingIndex(world, born).has_value());
+    useEditIds(world, *ranges);
+    CHECK(reviveFromTombstones(world, *removed).has_value());
 }
 
 TEST_CASE("un observateur qui crée une entité pendant la destruction ne fait pas d'une entité "
@@ -326,4 +431,25 @@ TEST_CASE("un observateur qui crée une entité pendant la destruction ne fait p
             ecs_has_id(world, id, world.id<Tombstone>())); // l'entité d'un autre n'est pas marquée
         CHECK(ecs_is_alive(world, id));
     }
+}
+
+TEST_CASE("contrat de la pile : libérer les pierres d'une commande supplantée détruit celles de la "
+          "nouvelle")
+{
+    // Supprimer, annuler, supprimer encore donne les MÊMES pierres : la pile vide ses refaisables
+    // avant d'exécuter une commande (tombstone.hpp). Ce test montre pourquoi.
+    flecs::world world = makeWorld();
+    const flecs::entity_t cube = world.entity("Cube").id();
+    auto first = removeKeepingIndex(world, cube);
+    REQUIRE(first.has_value());
+    REQUIRE(reviveFromTombstones(world, *first).has_value());
+    auto second = removeKeepingIndex(world, cube);
+    REQUIRE(second.has_value());
+    CHECK(first->reserved[0].stone == second->reserved[0].stone);
+
+    CHECK(
+        releaseTombstones(world, *first).has_value()); // la commande supplantée, libérée trop tard
+    const auto revival = reviveFromTombstones(world, *second);
+    REQUIRE_FALSE(revival.has_value());
+    CHECK(revival.error().message.find("pierre tombale") != std::string::npos);
 }
