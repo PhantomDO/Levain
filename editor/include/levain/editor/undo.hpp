@@ -9,6 +9,11 @@
 // La logique est en fonctions libres dont toutes les dépendances sont des paramètres (ADR-0011) ;
 // la glu d'`editor.cpp` tient en une ligne (`applyHistoryRequests`).
 //
+// **Le contrat de la pile** (tombstone.hpp) : une commande nouvelle vide d'abord les refaisables,
+// en les libérant (`releaseCommand`), puis s'exécute ; une commande qui sort de la pile
+// (débordement, refaisables vidés, scène chargée) rend ce qu'elle retient (ses épingles d'assets,
+// plus tard ses pierres tombales), et une commande annulée puis supplantée n'est jamais libérée
+// deux fois.
 // **Annuler n'est actif qu'en Édition** (décision 9) : en jeu la pile est **gelée**, pas vidée
 // (Stop rend la scène identique, les commandes d'avant Play restent vraies), et rien de ce qu'on
 // fait en jeu n'y entre. Équivalents : `Undo` d'Unity (groupes par geste), `FScopedTransaction`
@@ -21,6 +26,7 @@
 
 #include <flecs.h>
 
+#include "levain/assets/asset_ref.hpp"
 #include "levain/core/error.hpp"
 #include "levain/editor/mode.hpp"
 #include "levain/scene/snapshot.hpp"
@@ -38,6 +44,9 @@ struct ValueCommand
     flecs::entity_t component = 0;
     scene::ValueBox before;
     scene::ValueBox after;
+    /// Les assets que `before` et `after` désignent (`MeshRef`) : épinglés tant que la commande est
+    /// dans la pile, pour que le modèle ne se décharge pas sous elle (ADR-0038, décision 4).
+    assets::AssetPin pin;
 };
 
 /// Les sortes de commandes. Une seule aujourd'hui ; les autres arrivent avec leurs gestes.
@@ -78,6 +87,13 @@ struct UndoStack
 
 /// Note le sommet comme l'état enregistré.
 void markSaved(UndoStack& stack);
+
+/// La pile du chargement d'une scène et de « Nouveau » : tout est libéré (épingles, plus tard les
+/// pierres), les numéros continuent, l'état d'ouverture est propre.
+void clearUndoStack(UndoStack& stack, flecs::world& world);
+
+/// Ce que la commande retient et que la pile doit rendre en la laissant partir.
+void releaseCommand(flecs::world& world, Command& command);
 
 /// Pourquoi Annuler ou Rétablir ne part pas maintenant.
 enum class HistoryRefusal : std::uint8_t
