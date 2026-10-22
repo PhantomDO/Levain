@@ -5,6 +5,8 @@
 #include <span>
 #include <utility>
 
+#include "entity_record.hpp"
+
 #include "levain/scene/snapshot.hpp"
 
 namespace levain::scene
@@ -16,54 +18,6 @@ namespace
 std::uint32_t indexOf(flecs::entity_t entity)
 {
     return static_cast<std::uint32_t>(entity);
-}
-
-/// Le sous-arbre de la scène (`flecs::Parent`), un parent avant ses enfants, et à part tout ce qui
-/// est rangé par `ChildOf` (l'observateur d'un `onEnter`) avec ses descendants : cela ne revient
-/// pas. Copié avant toute destruction : la moindre écriture invaliderait l'itérateur.
-struct Subtree
-{
-    std::vector<flecs::entity_t> scene;
-    std::vector<LostChild> lost;
-};
-
-Subtree subtreeOf(const flecs::world& world, flecs::entity_t root)
-{
-    Subtree subtree{.scene = {root}, .lost = {}};
-    std::vector<flecs::entity_t> lostIds;
-    const auto walk = [&](flecs::entity_t parent, bool inScene)
-    {
-        ecs_iter_t it = ecs_children(world, parent);
-        while (ecs_children_next(&it))
-        {
-            for (const flecs::entity_t child :
-                 std::span{it.entities, static_cast<std::size_t>(it.count)})
-            {
-                if (inScene && world.entity(child).table().has<flecs::Parent>())
-                {
-                    subtree.scene.push_back(child);
-                }
-                else
-                {
-                    lostIds.push_back(child);
-                }
-            }
-        }
-    };
-    for (std::size_t next = 0; next < subtree.scene.size(); ++next)
-    {
-        walk(subtree.scene[next], true);
-    }
-    for (std::size_t next = 0; next < lostIds.size(); ++next)
-    {
-        walk(lostIds[next], false);
-    }
-    for (const flecs::entity_t id : lostIds)
-    {
-        const char* name = ecs_get_name(world, id);
-        subtree.lost.push_back({.id = id, .name = name != nullptr ? name : "(sans nom)"});
-    }
-    return subtree;
 }
 
 /// L'index est dans la plage d'identifiants active du monde (sans plage active : partout). Les
@@ -105,19 +59,6 @@ bool holds(const flecs::world& world, const ReservedIndex& reserved)
            isTombstone(world, reserved.stone);
 }
 
-core::Result<void> refuseDeferred(const flecs::world& world, const char* gesture)
-{
-    // Les écritures de flecs (réveil, destruction) seraient mises en file : la garde lirait un
-    // monde pas encore écrit.
-    if (ecs_is_deferred(world))
-    {
-        return core::makeError(
-            core::ErrorCode::InvalidData,
-            std::format("{} : appelée en mode différé, le monde n'est pas touché", gesture));
-    }
-    return {};
-}
-
 } // namespace
 
 core::Result<Tombstones> removeKeepingIndex(flecs::world& world, flecs::entity_t entity)
@@ -139,6 +80,8 @@ core::Result<Tombstones> removeKeepingIndex(flecs::world& world, flecs::entity_t
     // Avant toute destruction : passés les 256 identifiants bas de flecs, un composant enregistré
     // après une destruction prend l'index libéré (et devient sa propre pierre).
     const flecs::entity_t tag = world.component<Tombstone>().id();
+    world.component<Generated>(); // même raison : `isGenerated` l'enregistrerait après la
+                                  // destruction
     if (!ecs_is_alive(world, entity))
     {
         return core::makeError(core::ErrorCode::InvalidData,
@@ -162,11 +105,15 @@ core::Result<Tombstones> removeKeepingIndex(flecs::world& world, flecs::entity_t
                                            indexOf(entity)));
     }
 
-    Subtree subtree = subtreeOf(world, entity);
+    const SubtreeMembers members = subtreeMembersOf(world, entity);
+    if (auto handMade = refuseHandMadeUnderGenerated(world, members, "Supprimer"); !handMade)
+    {
+        return std::unexpected(handMade.error());
+    }
     Tombstones tombstones;
-    tombstones.lost = std::move(subtree.lost);
-    tombstones.reserved.reserve(subtree.scene.size());
-    for (const flecs::entity_t id : subtree.scene)
+    tombstones.lost = lostChildrenOf(world, members);
+    tombstones.reserved.reserve(members.scene.size());
+    for (const flecs::entity_t id : members.scene)
     {
         // La génération que flecs va poser dans l'index libéré (ECS_GENERATION_INC, src/entity.c).
         tombstones.reserved.push_back({.entity = id, .stone = ECS_GENERATION_INC(id)});

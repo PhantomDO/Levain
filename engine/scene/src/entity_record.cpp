@@ -205,6 +205,99 @@ const ecs_type_info_t* comparingHook(const flecs::world& world, flecs::entity_t 
 
 } // namespace
 
+bool isGenerated(const flecs::world& world, flecs::entity_t entity)
+{
+    return ecs_has_id(world, entity, world.id<Generated>());
+}
+
+SubtreeMembers subtreeMembersOf(const flecs::world& world, flecs::entity_t root)
+{
+    SubtreeMembers members{
+        .scene = {root}, .generated = {}, .handMadeUnderGenerated = 0, .other = {}};
+    // Les listes se parcourent par indice : `push_back` déplace le tableau.
+    for (std::size_t next = 0; next < members.scene.size(); ++next)
+    {
+        for (const flecs::entity_t child : orderedChildrenOf(world, members.scene[next]))
+        {
+            if (!isSceneEntity(world, child))
+            {
+                members.other.push_back(child);
+            }
+            else if (isGenerated(world, child))
+            {
+                members.generated.push_back(child);
+            }
+            else
+            {
+                members.scene.push_back(child);
+            }
+        }
+    }
+    for (std::size_t next = 0; next < members.generated.size(); ++next)
+    {
+        for (const flecs::entity_t child : orderedChildrenOf(world, members.generated[next]))
+        {
+            if (!isSceneEntity(world, child))
+            {
+                members.other.push_back(child);
+            }
+            else if (isGenerated(world, child))
+            {
+                members.generated.push_back(child);
+            }
+            else if (members.handMadeUnderGenerated == 0)
+            {
+                members.handMadeUnderGenerated = child;
+            }
+        }
+    }
+    for (std::size_t next = 0; next < members.other.size(); ++next)
+    {
+        for (const flecs::entity_t child : orderedChildrenOf(world, members.other[next]))
+        {
+            members.other.push_back(child);
+        }
+    }
+    return members;
+}
+
+core::Result<void> refuseHandMadeUnderGenerated(const flecs::world& world,
+                                                const SubtreeMembers& members, const char* gesture)
+{
+    if (members.handMadeUnderGenerated == 0)
+    {
+        return {};
+    }
+    return core::makeError(
+        core::ErrorCode::InvalidData,
+        std::format("{} : {} est faite à la main sous un nœud généré : l'annuler la réveillerait "
+                    "sous un parent mort, le monde n'est pas touché",
+                    gesture, pathOf(world, members.handMadeUnderGenerated)));
+}
+
+std::vector<LostChild> lostChildrenOf(const flecs::world& world, const SubtreeMembers& members)
+{
+    std::vector<LostChild> lost;
+    lost.reserve(members.other.size());
+    for (const flecs::entity_t id : members.other)
+    {
+        const char* name = ecs_get_name(world, id);
+        lost.push_back({.id = id, .name = name != nullptr ? name : "(sans nom)"});
+    }
+    return lost;
+}
+
+core::Result<void> refuseDeferred(const flecs::world& world, const char* gesture)
+{
+    if (ecs_is_deferred(world))
+    {
+        return core::makeError(
+            core::ErrorCode::InvalidData,
+            std::format("{} : appelée en mode différé, le monde n'est pas touché", gesture));
+    }
+    return {};
+}
+
 /// Les valeurs des composants du type, copiées par `ValueBox`. Le premier composant que Stop ne
 /// saurait pas rendre arrête la lecture : « chemin : cause », que l'appelant met dans son erreur.
 std::optional<std::string> readValues(const flecs::world& world, EntityRecord& record)

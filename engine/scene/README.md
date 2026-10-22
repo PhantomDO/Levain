@@ -162,7 +162,7 @@ Supprimer une entité pour de bon, et pouvoir la rendre avec **le même identifi
   libérant, **avant** d'exécuter une nouvelle commande.
 - **`Tombstone` est enregistré avant la destruction** : passés les 256 identifiants bas que flecs réserve aux composants,
   un composant enregistré après une destruction prend l'index libéré et devient sa propre pierre.
-- **Pas encore fait** (morceau A2) : le sous-arbre n'est pas lu.
+- **Pas encore fait** (morceau A2) : le sous-arbre se lit (`readSubtree`, `subtree.hpp`), mais ne se rend pas.
 
 Les comportements de flecs dont tout cela dépend sont **épinglés** dans `tests/flecs_tombstone_pins_test.cpp`, en Debug
 et en Release (a : l'index recyclé sans pierre ; b : rien ne le prend avec ; c : réveil de la génération d'avant ;

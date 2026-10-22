@@ -9,6 +9,7 @@
 
 #include "levain/core/error.hpp"
 #include "levain/scene/snapshot.hpp"
+#include "levain/scene/tombstone.hpp"
 
 /// Lire et rendre un enregistrement d'entité (`EntityRecord`) : ce que Play/Stop (`snapshot.cpp`)
 /// et la commande d'un sous-arbre (`subtree.cpp`, ADR-0038) partagent, **un seul chemin** pour les
@@ -47,6 +48,47 @@ namespace levain::scene
 [[nodiscard]] bool isComparable(const flecs::world& world, flecs::entity_t type);
 [[nodiscard]] bool sameComponentValue(const flecs::world& world, flecs::entity_t type,
                                       const void* first, const void* second);
+
+/// Qui est dans le sous-arbre d'une suppression : **une seule règle**, que `removeKeepingIndex`
+/// (les pierres) et `readSubtree` (l'enregistrement) lisent toutes les deux. Deux règles avaient
+/// donné un préfab sous `flecs::Parent` réservé mais pas enregistré, qui revenait en racine vide.
+struct SubtreeMembers
+{
+    /// La racine, puis ses descendants de la scène (`isSceneEntity`, hors `Generated`), largeur
+    /// d'abord, les frères dans leur ordre : ce qu'on enregistre et ce qui reçoit une pierre.
+    std::vector<flecs::entity_t> scene;
+    /// Les nœuds `Generated` et leurs descendants générés : détruits avec le sous-arbre, sans
+    /// pierre ni enregistrement, leur générateur les refait.
+    std::vector<flecs::entity_t> generated;
+    /// Une entité de la scène **non générée** sous un nœud `Generated` (une épée sur un os) : la
+    /// première trouvée, 0 s'il n'y en a pas. Annuler la réveillerait sous un parent mort.
+    flecs::entity_t handMadeUnderGenerated = 0;
+    /// Tout le reste (enfants `ChildOf` d'un observateur, préfabs, avec leurs descendants) :
+    /// détruit, jamais réservé ni réveillé, rapporté par son nom.
+    std::vector<flecs::entity_t> other;
+};
+
+[[nodiscard]] SubtreeMembers subtreeMembersOf(const flecs::world& world, flecs::entity_t root);
+
+/// Le refus de `SubtreeMembers::handMadeUnderGenerated`, nommé : annuler réveillerait l'entité sous
+/// un parent mort, et le fichier ne saurait pas nommer ce parent (ADR-0038, décision 10). Le monde
+/// n'est pas touché.
+[[nodiscard]] core::Result<void> refuseHandMadeUnderGenerated(const flecs::world& world,
+                                                              const SubtreeMembers& members,
+                                                              const char* gesture);
+
+/// Ce que la suppression perd et ne rend pas (`SubtreeMembers::other`), nom lu **avant** la
+/// destruction.
+[[nodiscard]] std::vector<LostChild> lostChildrenOf(const flecs::world& world,
+                                                    const SubtreeMembers& members);
+
+/// L'entité porte `Generated` : elle se recrée depuis sa racine et n'entre pas dans un sous-arbre.
+[[nodiscard]] bool isGenerated(const flecs::world& world, flecs::entity_t entity);
+
+/// Le refus du mode différé, **dans tous les builds** : les écritures de flecs (réveil,
+/// destruction, ordre des enfants) y seraient mises en file, et la lecture suivante verrait un
+/// monde pas encore écrit. `gesture` ouvre le message ; le monde n'est pas touché.
+[[nodiscard]] core::Result<void> refuseDeferred(const flecs::world& world, const char* gesture);
 
 /// L'ordre des enfants d'un parent (étape 5) : `sceneChildren` d'abord dans cet ordre, puis les
 /// enfants internes. Une erreur, le monde intact, si ce n'est pas une permutation des enfants.
