@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "levain/core/log.hpp"
+#include "levain/scene/entity_name.hpp"
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/subtree.hpp"
 #include "levain/ui/tr.hpp"
@@ -37,9 +38,11 @@ assets::AssetUsage* usageOf(flecs::world& world)
     return world.try_get_mut<assets::AssetUsage>();
 }
 
-/// La commande sort de la pile : elle rend ce qu'elle retient. Les pierres d'une suppression se
-/// détruisent ici ; celles d'une suppression annulée sont déjà détruites au réveil,
-/// `releaseTombstones` les ignore (la pile vide les refaisables avant toute nouvelle suppression).
+/// La commande sort de la pile : elle rend ce qu'elle retient. Les pierres d'une suppression
+/// (ou d'une création défaite) se détruisent ici. Celles d'une commande dont l'entité est
+/// vivante ne sont plus là : le réveil les vide (`stepSubtree`). Il le faut, car une suppression
+/// plus récente de la même entité reçoit des pierres de mêmes identifiants, que cette commande,
+/// plus ancienne, détruirait en sortant de la pile.
 struct Releaser
 {
     flecs::world& world;
@@ -323,11 +326,49 @@ bool recordDeletion(UndoStack& stack, flecs::world& world, scene::SubtreeRecord 
         return false;
     }
     pushCommand(stack, world,
-                SubtreeCommand{.record = std::move(record), .tombstones = std::move(tombstones)});
+                SubtreeCommand{.op = SubtreeOp::Delete,
+                               .record = std::move(record),
+                               .tombstones = std::move(tombstones)});
     return true;
 }
 
 } // namespace
+
+core::Result<flecs::entity_t> createEntity(UndoStack& stack, flecs::world& world, Mode mode,
+                                           flecs::entity_t parent, std::string_view wanted)
+{
+    if (ecs_is_deferred(world))
+    {
+        return refuseStructure(ui::tr("Créer"), ui::tr("appelée en mode différé"));
+    }
+    if (const auto refusal = createRefusalOf(world, parent))
+    {
+        return refuseStructure(ui::tr("Créer"), *refusal);
+    }
+    auto name = scene::uniqueNameAmong(world, parent, wanted.empty() ? NewEntityName : wanted);
+    if (!name)
+    {
+        return refuseStructure(ui::tr("Créer"), name.error().message);
+    }
+    if (mode != Mode::Edit)
+    {
+        return makeEntity(world, parent, *name); // perdu à Stop : pas de commande
+    }
+    dropRedo(stack, world); // le contrat de la pile : avant que la commande ne s'exécute
+    const flecs::entity_t entity = makeEntity(world, parent, *name);
+    auto record = scene::readSubtree(world, entity);
+    if (!record)
+    {
+        // Ne devrait pas arriver pour une entité qu'on vient de faire : on la défait plutôt que de
+        // laisser une création que la pile ne saurait pas annuler.
+        world.entity(entity).destruct();
+        return std::unexpected(record.error());
+    }
+    pushCommand(
+        stack, world,
+        SubtreeCommand{.op = SubtreeOp::Create, .record = std::move(*record), .tombstones = {}});
+    return entity;
+}
 
 core::Result<bool> deleteEntity(UndoStack& stack, flecs::world& world, Mode mode,
                                 flecs::entity_t entity)
@@ -462,6 +503,18 @@ RequestsReport applyEditorRequests(std::vector<EditorRequest>& queue, UndoStack&
         case RequestKind::Undo:
         case RequestKind::Redo:
             applyHistoryStep(report, stack, world, mode, request.kind == RequestKind::Redo);
+            break;
+        case RequestKind::Create:
+            if (const auto made = createEntity(stack, world, mode, request.entity, request.name))
+            {
+                ++report.created;
+                report.select = *made;
+                report.beginRename = *made;
+            }
+            else
+            {
+                sayRefused(report, made.error());
+            }
             break;
         case RequestKind::Delete:
             if (const auto removed = deleteEntity(stack, world, mode, request.entity))

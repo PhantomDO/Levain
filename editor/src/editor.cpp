@@ -415,7 +415,7 @@ bool applyQueuedRequests(app::App& app, Editor& editor)
 {
     const RequestsReport report =
         applyEditorRequests(editor.requests, editor.undo, app.world, editor.mode.current);
-    if (report.select != 0) // l'entité réveillée devient la sélection (décision 8)
+    if (report.select != 0) // l'entité créée ou réveillée devient la sélection (décision 8)
     {
         editor.selected = report.select;
         revealInHierarchy(editor.hierarchy, app.world.entity(report.select));

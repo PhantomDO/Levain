@@ -1,15 +1,17 @@
 #pragma once
 
-// Supprimer et renommer une entité (ADR-0038, décisions 3, 6, 8, 9 et 10) : les commandes de
-// structure de la pile et leurs opérations, **sans la pile** (qui est dans `undo.hpp`). Les deux
+// Créer, supprimer et renommer une entité (ADR-0038, décisions 3, 6, 8, 9 et 10) : les commandes
+// de structure de la pile et leurs opérations, **sans la pile** (qui est dans `undo.hpp`). Les deux
 // sortes de commandes qui remplacent l'écriture d'une valeur :
 //   - `SubtreeCommand` garde un sous-arbre (`readSubtree`) et les pierres tombales de ses index
 //     (`removeKeepingIndex`) : supprimer l'enlève, annuler le rend avec les mêmes identifiants ;
+//     créer est le même objet à l'envers (la pierre n'est posée qu'à l'annulation, le réveil
+//     refait l'entité à son identifiant d'origine) ;
 //   - `RenameCommand` garde les deux noms.
 //
 // La logique est en fonctions libres dont toutes les dépendances sont des paramètres (ADR-0011).
-// Équivalents : `Undo.DestroyObjectImmediate` d'Unity (qui recrée l'objet, sans garantir son
-// identifiant), une transaction `FScopedTransaction` d'Unreal.
+// Équivalents : `Undo.DestroyObjectImmediate` et `Undo.RegisterCreatedObjectUndo` d'Unity (qui
+// recréent l'objet, sans garantir son identifiant), une transaction `FScopedTransaction` d'Unreal.
 
 #include <optional>
 #include <string>
@@ -24,13 +26,25 @@
 namespace levain::editor
 {
 
-/// Un sous-arbre supprimé : de quoi le rendre, et les index qui l'attendent.
+/// Le nom qu'une entité créée à la main reçoit d'abord (Unity : « GameObject »), numéroté s'il est
+/// pris (`uniqueNameAmong`).
+inline constexpr const char* NewEntityName = "Entité";
+
+/// Ce que la commande d'un sous-arbre a fait quand elle a été posée.
+enum class SubtreeOp : std::uint8_t
+{
+    Create, ///< L'entité vient d'être créée : l'annuler l'enlève, la refaire la réveille.
+    Delete, ///< Le sous-arbre vient d'être supprimé : l'annuler le réveille.
+};
+
 struct SubtreeCommand
 {
-    /// Le sous-arbre tel qu'il était : types, valeurs, noms, parents, ordre des frères.
+    SubtreeOp op = SubtreeOp::Delete;
+    /// Le sous-arbre tel qu'il était (supprimer) ou venait d'être créé (créer) : de quoi le rendre.
     scene::SubtreeRecord record;
-    /// Les pierres de ses index, **possédées par la commande** : posées à la suppression,
-    /// détruites au réveil, rendues quand la commande sort de la pile.
+    /// Les pierres de ses index, **possédées par la commande** : posées à la suppression ou à
+    /// l'annulation d'une création, détruites au réveil, rendues quand la commande sort de la pile.
+    /// Vides tant qu'une création est faite (l'entité est vivante).
     scene::Tombstones tombstones;
 };
 
@@ -53,6 +67,12 @@ struct RenameCommand
 [[nodiscard]] std::optional<std::string>
 renameRefusalOf(const flecs::world& world, flecs::entity_t entity, std::string_view wanted);
 
+/// Pourquoi `parent` ne peut pas recevoir un enfant créé à la main (0 : une racine, toujours bon) :
+/// morte, hors de la scène, ou un nœud `Generated` (annuler la réveillerait sous un parent que son
+/// générateur peut avoir refait, décision 10).
+[[nodiscard]] std::optional<std::string> createRefusalOf(const flecs::world& world,
+                                                         flecs::entity_t parent);
+
 /// Pourquoi `entity` ne se supprime pas **en jeu** (un `ecs_delete` simple, sans `readSubtree`) :
 /// les refus que `readSubtree` fait en Édition et qui ne dépendent pas de l'historique (morte, hors
 /// de la scène, nœud `Generated`, racine sous un nœud `Generated`).
@@ -61,16 +81,24 @@ renameRefusalOf(const flecs::world& world, flecs::entity_t entity, std::string_v
 
 // --- Les opérations, sans la pile ---------------------------------------------------------------
 
+/// makeEntity : l'entité qu'on crée à la main, nommée `name` (déjà libre, `uniqueNameAmong`), sous
+/// `parent` (par `flecs::Parent`, jamais `child_of`, ADR-0015) ou à la racine. **Elle reçoit un
+/// `Transform`** : la Hiérarchie ne montre que les entités placées, et sans lui la nouvelle entité
+/// serait invisible dans l'arbre (Unity : tout `GameObject` a un `Transform`, documenté [U12]).
+/// Hors du mode différé (flecs mettrait les écritures en file).
+[[nodiscard]] flecs::entity_t makeEntity(flecs::world& world, flecs::entity_t parent,
+                                         std::string_view name);
+
 /// Ce qu'une étape d'annulation ou de rétablissement a fait de la sélection.
 struct StepEffect
 {
-    /// L'entité que l'étape vient de rendre (annuler une suppression) : elle devient la sélection
-    /// (décision 8). 0 sinon : une destruction se voit à `selectedIfAlive`.
+    /// L'entité que l'étape vient de rendre (annuler une suppression, refaire une création) : elle
+    /// devient la sélection (décision 8). 0 sinon : une destruction se voit à `selectedIfAlive`.
     flecs::entity_t revived = 0;
 };
 
 /// stepSubtree : annule (`redo` faux) ou refait une commande de sous-arbre. L'état d'après l'étape
-/// est « vivant » pour annuler une suppression, « enlevé » pour la refaire.
+/// est « vivant » pour annuler une suppression et refaire une création, « enlevé » sinon.
 ///  - Vivant : **les deux gardes d'abord** (`checkTombstonesHold`, `checkSubtreeRestorable`), puis
 ///    `reviveFromTombstones` et `restoreSubtree` à la suite, sans rien entre eux (le contrat de
 ///    `tombstone.hpp`). Un refus laisse le monde intact.

@@ -73,6 +73,24 @@ std::optional<std::string> renameRefusalOf(const flecs::world& world, flecs::ent
     return std::nullopt;
 }
 
+std::optional<std::string> createRefusalOf(const flecs::world& world, flecs::entity_t parent)
+{
+    if (parent == 0)
+    {
+        return std::nullopt;
+    }
+    if (!ecs_is_alive(world, parent) || !scene::isSceneEntity(world, parent))
+    {
+        return ui::tr("le parent n'est pas une entité de la scène");
+    }
+    if (isGeneratedNode(world, parent))
+    {
+        return ui::tr("un nœud généré ne reçoit pas d'enfant fait à la main : "
+                      "son générateur peut le refaire");
+    }
+    return std::nullopt;
+}
+
 std::optional<std::string> plainDeleteRefusalOf(const flecs::world& world, flecs::entity_t entity)
 {
     if (!ecs_is_alive(world, entity) || !scene::isSceneEntity(world, entity))
@@ -89,6 +107,16 @@ std::optional<std::string> plainDeleteRefusalOf(const flecs::world& world, flecs
         return ui::tr("l'entité est sous un nœud généré : son générateur peut le refaire");
     }
     return std::nullopt;
+}
+
+flecs::entity_t makeEntity(flecs::world& world, flecs::entity_t parent, std::string_view name)
+{
+    const std::string owned{name}; // flecs lit une chaîne C
+    const flecs::entity entity =
+        parent != 0 ? world.entity(flecs::Parent{world.entity(parent)}, owned.c_str())
+                    : world.entity(owned.c_str());
+    entity.set(scene::Transform{});
+    return entity.id();
 }
 
 void writeName(flecs::world& world, flecs::entity_t entity, const std::optional<std::string>& name)
@@ -112,8 +140,8 @@ std::size_t warnAboutLostChildren(const scene::Tombstones& tombstones, std::stri
 core::Result<StepEffect> stepSubtree(flecs::world& world, SubtreeCommand& command, bool redo)
 {
     const flecs::entity_t root = command.record.entities.front().id;
-    // Annuler une suppression : l'entité revient ; la refaire l'enlève de nouveau.
-    const bool comesBack = !redo;
+    // Annuler une suppression ou refaire une création : l'entité revient.
+    const bool comesBack = (command.op == SubtreeOp::Delete) != redo;
     const std::string verb = ui::tr(redo ? "Rétablir" : "Annuler");
     if (comesBack)
     {
@@ -136,7 +164,23 @@ core::Result<StepEffect> stepSubtree(flecs::world& world, SubtreeCommand& comman
             return std::unexpected(restored.error());
         }
         warnAboutLostChildren(command.tombstones, verb);
+        // Les pierres sont rendues au réveil : la commande n'en retient plus. Sinon, en sortant de
+        // la pile, elle détruirait celles d'une suppression plus récente de la même entité (mêmes
+        // identifiants, tombstone.hpp). `lost` reste : l'avertissement du prochain tour s'en sert.
+        command.tombstones.reserved.clear();
         return StepEffect{.revived = root};
+    }
+    if (command.op == SubtreeOp::Create)
+    {
+        // Le relevé de la création date de la création : un enfant ajouté depuis, hors de la pile,
+        // partirait avec l'annulation mais reviendrait vide au rétablissement. On relit le
+        // sous-arbre tel qu'il est avant de l'enlever (N2). Un refus laisse le monde intact.
+        auto current = scene::readSubtree(world, root);
+        if (!current)
+        {
+            return std::unexpected(current.error());
+        }
+        command.record = std::move(*current);
     }
     auto stones = scene::removeKeepingIndex(world, root);
     if (!stones)
