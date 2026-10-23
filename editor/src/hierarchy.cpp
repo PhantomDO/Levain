@@ -1,12 +1,18 @@
 #include "levain/editor/hierarchy.hpp"
 
+#include <algorithm>
 #include <bit>
+#include <cfloat>
 #include <cstddef>
 #include <cstdint>
 #include <format>
 #include <span>
 #include <string>
+#include <string_view>
 
+#include "levain/core/log.hpp"
+#include "levain/editor/structure.hpp"
+#include "levain/editor/window_menu.hpp"
 #include "levain/scene/snapshot.hpp"
 #include "levain/ui/flags.hpp"
 #include "levain/ui/style.hpp"
@@ -102,13 +108,124 @@ void drawSingletons(const flecs::world& world, flecs::entity_t& selected)
     ImGui::TreePop();
 }
 
-void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow& row,
-             flecs::entity_t& selected)
+/// Le texte du champ de renommage : le nom de l'entité, coupé à la taille du tampon.
+void fillRenameText(RenameField& field, std::string_view name)
 {
+    const std::size_t length = std::min(name.size(), field.text.size() - 1);
+    std::ranges::copy(name.substr(0, length), field.text.begin());
+    field.text.at(length) = '\0';
+    field.edited = false;
+}
+
+/// Ce que le champ a à dire de ce qui est tapé : vide si c'est bon.
+std::string refusalOfTyped(const flecs::world& world, const RenameField& field)
+{
+    return renameRefusalOf(world, field.entity, field.text.data()).value_or(std::string{});
+}
+
+/// Le champ de renommage, à la place du nom de la ligne. **Entrée ou un clic ailleurs valide,
+/// Échap annule** ; un nom refusé (`renameRefusalOf`) ne change rien : le refus est dit sous le
+/// champ, Entrée le laisse ouvert, un clic ailleurs l'abandonne en le disant à la console. Un nom
+/// inchangé ne pose aucune demande. Rien n'est écrit ici : la demande part dans `requests`.
+void drawRenameField(const flecs::world& world, Hierarchy& hierarchy,
+                     std::vector<EditorRequest>& requests)
+{
+    RenameField& field = hierarchy.rename;
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (field.justOpened)
+    {
+        ImGui::SetKeyboardFocusHere();
+        ImGui::SetScrollHereY();
+    }
+    const bool entered = ImGui::InputText(
+        "##renommer", field.text.data(), field.text.size(),
+        ui::withFlags(ImGuiInputTextFlags_EnterReturnsTrue, ImGuiInputTextFlags_AutoSelectAll));
+    const ImVec2 below{ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y};
+    const bool active = ImGui::IsItemActive();
+    field.edited = field.edited || ImGui::IsItemEdited();
+    // Un texte non tapé est le nom d'aujourd'hui (peut-être coupé) : `beginRename` l'a déjà
+    // accepté.
+    field.refusal = field.edited ? refusalOfTyped(world, field) : std::string{};
+    if (!field.refusal.empty())
+    {
+        ImGui::SetNextWindowPos(below);
+        ImGui::BeginTooltip();
+        ImGui::TextColored({1.0f, 0.45f, 0.4f, 1.0f}, "%s", field.refusal.c_str());
+        ImGui::EndTooltip();
+    }
+    if (field.justOpened)
+    {
+        field.justOpened = !active; // le focus se prend à l'image suivante
+        return;
+    }
+    const bool escaped = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    if (active && !entered)
+    {
+        return; // en cours de frappe
+    }
+    if (escaped)
+    {
+        cancelRename(hierarchy);
+        return;
+    }
+    if (entered && !field.refusal.empty())
+    {
+        field.justOpened = true; // refusé : le champ reste ouvert, tout est resélectionné
+        return;
+    }
+    if (!field.refusal.empty())
+    {
+        core::log("editor", core::LogLevel::Warning, "{}",
+                  ui::trf("Renommer : {}", field.refusal)); // un clic ailleurs abandonne
+    }
+    else
+    {
+        const char* current = ecs_get_name(world, field.entity);
+        if (field.edited &&
+            std::string_view{field.text.data()} != (current != nullptr ? current : ""))
+        {
+            requests.push_back({RequestKind::Rename, field.entity, field.text.data()});
+        }
+    }
+    cancelRename(hierarchy);
+}
+
+/// Les entrées du menu d'une ligne : créer un enfant, renommer, supprimer. Rien d'écrit ici.
+void drawRowMenu(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow& row,
+                 std::vector<EditorRequest>& requests)
+{
+    hierarchy.menu.open = true;
+    if (ImGui::MenuItem(ui::labelOf("Créer un enfant").c_str()))
+    {
+        requests.push_back({RequestKind::Create, row.entity});
+    }
+    hierarchy.menu.create = centerOfLastItem();
+    if (ImGui::MenuItem(ui::labelOf("Renommer").c_str()))
+    {
+        if (const auto refusal = beginRename(hierarchy, world, row.entity))
+        {
+            core::log("editor", core::LogLevel::Warning, "{}", ui::trf("Renommer : {}", *refusal));
+        }
+    }
+    hierarchy.menu.rename = centerOfLastItem();
+    if (ImGui::MenuItem(ui::labelOf("Supprimer").c_str()))
+    {
+        requests.push_back({RequestKind::Delete, row.entity});
+    }
+    hierarchy.menu.remove = centerOfLastItem();
+}
+
+void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow& row,
+             flecs::entity_t& selected, std::vector<EditorRequest>& requests)
+{
+    const bool renaming = hierarchy.rename.entity == row.entity;
     // Pas de TreePush : l'arbre est déjà aplati en lignes, la profondeur donne le retrait.
-    ImGuiTreeNodeFlags flags = ui::withFlags(
-        ui::withFlags(ImGuiTreeNodeFlags_NoTreePushOnOpen, ImGuiTreeNodeFlags_OpenOnArrow),
-        ImGuiTreeNodeFlags_SpanAvailWidth);
+    ImGuiTreeNodeFlags flags =
+        ui::withFlags(ImGuiTreeNodeFlags_NoTreePushOnOpen, ImGuiTreeNodeFlags_OpenOnArrow);
+    // Le champ de renommage prend la place du nom : la ligne ne couvre pas toute la largeur, pour
+    // que le champ, posé par-dessus, ne se dispute pas la souris avec elle.
+    flags = renaming ? flags : ui::withFlags(flags, ImGuiTreeNodeFlags_SpanAvailWidth);
     if (!hasShownChildren(world, row.entity))
     {
         flags = ui::withFlags(flags, ImGuiTreeNodeFlags_Leaf);
@@ -124,7 +241,8 @@ void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow
     pushEntityId(row.entity);
     ImGui::SetNextItemOpen(hierarchy.open.contains(row.entity));
     const int accent = ui::pushSelectedRowColors(row.entity == selected);
-    ImGui::TreeNodeEx("##entité", flags, "%s", labelOf(world.entity(row.entity)).c_str());
+    ImGui::TreeNodeEx("##entité", flags, "%s",
+                      renaming ? "" : labelOf(world.entity(row.entity)).c_str());
     ImGui::PopStyleColor(accent);
     if (ImGui::IsItemToggledOpen())
     {
@@ -139,8 +257,14 @@ void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow
         {
             selected = row.entity;
         }
+        // Un clic droit choisit la ligne avant d'ouvrir son menu (Unity et Unreal le font).
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+        {
+            selected = row.entity;
+        }
         // Le double-clic choisit aussi la ligne, puis demande le cadrage : Unreal cadre au
-        // double-clic dans l'Outliner (supposé, ADR-0036 [E3]).
+        // double-clic dans l'Outliner (supposé, ADR-0036 [E3]). Il ne renomme pas : F2 et le menu
+        // le font (GESTES.md, geste 25 couvert).
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
         {
             selected = row.entity;
@@ -148,7 +272,34 @@ void drawRow(const flecs::world& world, Hierarchy& hierarchy, const HierarchyRow
         }
     }
     hierarchy.rects[row.entity] = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
+    if (ImGui::BeginPopupContextItem("##menu-ligne"))
+    {
+        drawRowMenu(world, hierarchy, row, requests);
+        ImGui::EndPopup();
+    }
+    if (renaming)
+    {
+        drawRenameField(world, hierarchy, requests);
+    }
     ImGui::PopID();
+}
+
+/// Le menu du vide de la fenêtre : créer une racine. Pas sur une ligne (`NoOpenOverItems`).
+void drawEmptySpaceMenu(Hierarchy& hierarchy, std::vector<EditorRequest>& requests)
+{
+    constexpr ImGuiPopupFlags Flags =
+        ui::withFlags(ImGuiPopupFlags_MouseButtonRight, ImGuiPopupFlags_NoOpenOverItems);
+    if (!ImGui::BeginPopupContextWindow("##menu-vide", Flags))
+    {
+        return;
+    }
+    hierarchy.menu.open = true;
+    if (ImGui::MenuItem(ui::labelOf("Créer une entité").c_str()))
+    {
+        requests.push_back({RequestKind::Create, 0});
+    }
+    hierarchy.menu.create = centerOfLastItem();
+    ImGui::EndPopup();
 }
 
 } // namespace
@@ -169,7 +320,9 @@ Hierarchy createHierarchy(const flecs::world& world)
             .open = {},
             .rows = {},
             .frameRequested = false,
-            .rects = {}};
+            .rects = {},
+            .rename = {},
+            .menu = {}};
 }
 
 void listHierarchyRows(const Hierarchy& hierarchy, std::vector<HierarchyRow>& rows)
@@ -243,14 +396,45 @@ void pushEntityId(flecs::entity_t entity)
     ImGui::PushID(std::bit_cast<const void*>(entity));
 }
 
+std::optional<std::string> beginRename(Hierarchy& hierarchy, const flecs::world& world,
+                                       flecs::entity_t entity)
+{
+    const char* name = ecs_is_alive(world, entity) ? ecs_get_name(world, entity) : nullptr;
+    // Le nom d'aujourd'hui comme nom voulu : un nom égal au sien n'est jamais refusé, seule
+    // l'entité peut l'être (un nœud généré, hors de la scène).
+    if (const auto refusal = renameRefusalOf(world, entity, name != nullptr ? name : ""))
+    {
+        return refusal;
+    }
+    RenameField& field = hierarchy.rename;
+    field.entity = entity;
+    field.justOpened = true;
+    field.refusal.clear();
+    fillRenameText(field, name != nullptr ? name : "");
+    revealInHierarchy(hierarchy, world.entity(entity));
+    return std::nullopt;
+}
+
+void cancelRename(Hierarchy& hierarchy)
+{
+    hierarchy.rename = {};
+}
+
 void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entity_t& selected,
-                   ImGuiID dock, bool* open)
+                   std::vector<EditorRequest>& requests, ImGuiID dock, bool* open)
 {
     listHierarchyRows(hierarchy, hierarchy.rows);
     hierarchy.frameRequested = false;
     hierarchy.rects.clear();
+    hierarchy.menu = {};
+    if (hierarchy.rename.entity != 0 && !world.is_alive(hierarchy.rename.entity))
+    {
+        cancelRename(hierarchy); // l'entité a disparu (annuler, supprimer) : plus de champ
+    }
     if (open != nullptr && !*open)
     {
+        cancelRename(
+            hierarchy); // un champ qu'on ne voit pas ne reste pas ouvert (F2, Vue focalisée)
         return;
     }
     ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
@@ -262,14 +446,25 @@ void drawHierarchy(const flecs::world& world, Hierarchy& hierarchy, flecs::entit
         // Une ligne par racine, sans widget : ImGui ne dessine que les lignes visibles.
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(hierarchy.rows.size()));
+        if (hierarchy.rename.justOpened)
+        {
+            // Le champ à peine ouvert se montre, même si sa ligne était hors de la fenêtre.
+            const auto row =
+                std::ranges::find(hierarchy.rows, hierarchy.rename.entity, &HierarchyRow::entity);
+            if (row != hierarchy.rows.end())
+            {
+                clipper.IncludeItemByIndex(static_cast<int>(row - hierarchy.rows.begin()));
+            }
+        }
         while (clipper.Step())
         {
             for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
             {
                 drawRow(world, hierarchy, hierarchy.rows.at(static_cast<std::size_t>(row)),
-                        selected);
+                        selected, requests);
             }
         }
+        drawEmptySpaceMenu(hierarchy, requests);
     }
     ImGui::End();
 }

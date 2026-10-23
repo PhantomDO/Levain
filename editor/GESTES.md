@@ -31,8 +31,8 @@ qu'un tableau à lire.
   geste est « à faire » : la PR qui écrit le scénario peut le renommer, ici aussi.
   Le banc sait écrire des touches, des boutons, la position de la souris (morceau 5), un changement de disposition du
   clavier (`keymap changed`, morceau 10), le mouvement relatif et la molette (`mouse motion`, `wheel`, morceau 11) et la
-  croix de la fenêtre (`window close`, morceau 13) ; le texte (12) vient avec le morceau qui en a besoin
-  ([platform/README](../engine/platform/README.md)).
+  croix de la fenêtre (`window close`, morceau 13) ; le texte (un mot, `text`, M7.3 A6 : le champ de renommage de la
+  Hiérarchie) ([platform/README](../engine/platform/README.md)).
 - **L'état** prend l'un de trois mots, et la commande refuse tout autre :
   - `à faire` : aucun test ne prouve le geste ;
   - `couvert` : le scénario existe sous ce nom et passe ; la PR qui l'ajoute change l'état ;

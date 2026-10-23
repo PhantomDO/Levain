@@ -879,6 +879,7 @@ TEST_CASE("la ligne choisie de la hiérarchie prend l'accent, les autres restent
     world.entity("première").set(levain::scene::Transform{});
     const flecs::entity second = world.entity("seconde").set(levain::scene::Transform{});
     levain::editor::Hierarchy hierarchy = levain::editor::createHierarchy(world);
+    std::vector<levain::editor::EditorRequest> requests;
     const ImU32 accent = ImGui::ColorConvertFloat4ToU32(levain::ui::EditorAccentDark);
     const auto frames = [&](flecs::entity_t selected)
     {
@@ -889,7 +890,7 @@ TEST_CASE("la ligne choisie de la hiérarchie prend l'accent, les autres restent
                     {
                         ImGui::SetNextWindowPos({0.0f, 0.0f});
                         ImGui::SetNextWindowSize({300.0f, 200.0f});
-                        levain::editor::drawHierarchy(world, hierarchy, selected, 0);
+                        levain::editor::drawHierarchy(world, hierarchy, selected, requests, 0);
                     });
             ImGui::Render();
         }

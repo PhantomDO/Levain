@@ -601,8 +601,11 @@ des boutons pour que le banc d'essai les clique (`gpu.editor-close.*`).
 - `takeEditorOptions(arguments, options)` : retire `--select chemin` de la ligne de commande avant que le programme
   ne lise ses options, qu'il refuserait sinon.
 - `selectedIfAlive(world, selected)` : l'entité choisie si elle vit encore.
-- `drawHierarchy(world, hierarchy, selected, dock, open)` : la fenêtre (`open` : le drapeau de sa croix et du menu) ; `listHierarchyRows` et `singletonsOf`, ses
-  lignes, sans ImGui.
+- `drawHierarchy(world, hierarchy, selected, requests, dock, open)` : la fenêtre (`open` : le drapeau de sa croix et du
+  menu ; `requests` : la file des demandes) ; `listHierarchyRows` et `singletonsOf`, ses lignes, sans ImGui ;
+  `beginRename` et `cancelRename`, le champ de renommage.
+- `createEntity`, `deleteEntity`, `renameEntity` (`undo.hpp`) : les opérations de la pile, `renameRefusalOf` et
+  `createRefusalOf` (`structure.hpp`), les phrases que le champ montre.
 - `drawInspector(world, inspector, selected, dock, open)` : la fenêtre, dans son nœud, puis le règlement des gestes de
   l'image (`settleGestures`, si `Inspector::history` est branchée) ;
   `inspectComponent`, les champs d'un composant, rend leur nombre ; `componentLabelOf`, le nom d'un composant ;

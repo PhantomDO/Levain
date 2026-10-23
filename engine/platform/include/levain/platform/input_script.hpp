@@ -3,8 +3,9 @@
 // Le banc d'essai de l'input (ADR-0036, morceau 2) : des événements écrits dans un fichier, rejoués
 // image par image à la place d'un clavier et d'une souris. Ce que le moteur en voit est du type de
 // ce que `pollEvents` rend, `Events` : toute la chaîne qui suit (ImGui, `gameInputOf`, les actions)
-// est celle du vrai programme. À une différence près : pas de répétition de touche, pas de texte,
-// et la lettre d'une ponctuation sans `as` est son scancode au lieu du caractère que SDL donnerait.
+// est celle du vrai programme. À une différence près : pas de répétition de touche, un texte d'un
+// seul mot (`text`), et la lettre d'une ponctuation sans `as` est son scancode au lieu du caractère
+// que SDL donnerait.
 // **Le temps de l'interface compte en images**, non en secondes : sous un script, la boucle donne à
 // ImGui le pas fixe de 1/60 s à chaque image (`app::uiFrameSecondsFor`), quelle que soit la
 // lenteur de la machine. Un double-clic (0,30 s, `io.MouseDoubleClickTime`) veut donc deux appuis
@@ -58,6 +59,7 @@ struct InputScript
 ///     <image> mouse motion <dx> <dy>               le déplacement relatif (le vol, le jeu), sans
 ///                                                  bouger le curseur
 ///     <image> wheel <crans>                        la molette, positive vers l'avant (SDL)
+///     <image> text <mot>                           le texte tapé (un mot, sans blanc ni #)
 ///     <image> keymap changed                       la disposition du clavier a changé
 ///     <image> window close                         la croix de la fenêtre
 ///     <image> window scale <échelle>               le zoom du système change (> 0)
