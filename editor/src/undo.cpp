@@ -7,6 +7,7 @@
 
 #include "levain/core/log.hpp"
 #include "levain/scene/reflection.hpp"
+#include "levain/scene/subtree.hpp"
 #include "levain/ui/tr.hpp"
 
 namespace levain::editor
@@ -36,7 +37,9 @@ assets::AssetUsage* usageOf(flecs::world& world)
     return world.try_get_mut<assets::AssetUsage>();
 }
 
-/// La commande sort de la pile : elle rend ce qu'elle retient.
+/// La commande sort de la pile : elle rend ce qu'elle retient. Les pierres d'une suppression se
+/// détruisent ici ; celles d'une suppression annulée sont déjà détruites au réveil,
+/// `releaseTombstones` les ignore (la pile vide les refaisables avant toute nouvelle suppression).
 struct Releaser
 {
     flecs::world& world;
@@ -46,6 +49,15 @@ struct Releaser
         if (assets::AssetUsage* usage = usageOf(world))
         {
             assets::releasePin(*usage, command.pin);
+        }
+    }
+
+    void operator()(SubtreeCommand& command) const
+    {
+        if (auto released = scene::releaseTombstones(world, command.tombstones); !released)
+        {
+            core::log("editor", core::LogLevel::Warning, "{}",
+                      ui::trf("Historique : pierre tombale gardée, {}", released.error().message));
         }
     }
 
@@ -73,6 +85,20 @@ void pushOutOldest(UndoStack& stack, flecs::world& world)
     stack.done.erase(stack.done.begin());
 }
 
+/// Le préfixe d'un geste (« Supprimer : », « Annuler : ») que les messages de `scene` portent : la
+/// console répète déjà « Annuler : commande abandonnée, … », il ne s'y met pas deux fois.
+std::string withoutGestureVerb(std::string message)
+{
+    for (const std::string_view verb : {"Supprimer : ", "Annuler : ", "Rétablir : "})
+    {
+        if (message.starts_with(verb))
+        {
+            return message.substr(verb.size());
+        }
+    }
+    return message;
+}
+
 /// Annule (`redo` faux) ou refait une commande, selon sa sorte : un visiteur, une sorte de commande
 /// de plus ajoute sa surcharge ici. Une erreur dit pourquoi, sans nom de geste (l'appelant le met
 /// devant).
@@ -81,7 +107,7 @@ struct Stepper
     flecs::world& world;
     bool redo;
 
-    core::Result<void> operator()(const ValueCommand& command) const
+    core::Result<StepEffect> operator()(ValueCommand& command) const
     {
         const auto refuse = [](const char* why)
         {
@@ -102,32 +128,48 @@ struct Stepper
         }
         scene::setComponentValue(world, command.entity, command.component,
                                  (redo ? command.after : command.before).data());
-        return {};
+        return StepEffect{};
     }
 
-    core::Result<void> operator()(const RenameCommand& command) const
+    core::Result<StepEffect> operator()(SubtreeCommand& command) const
     {
-        return stepRename(world, command, redo);
+        auto stepped = stepSubtree(world, command, redo);
+        if (!stepped)
+        {
+            return core::makeError(stepped.error().code,
+                                   withoutGestureVerb(std::move(stepped.error().message)));
+        }
+        return stepped;
+    }
+
+    core::Result<StepEffect> operator()(RenameCommand& command) const
+    {
+        auto stepped = stepRename(world, command, redo);
+        if (!stepped)
+        {
+            return std::unexpected(stepped.error());
+        }
+        return StepEffect{};
     }
 };
 
 /// Annule (`redo` faux) ou refait la commande du sommet de la liste d'où elle vient, et la range
 /// dans l'autre. Échec : la commande est abandonnée (libérée), pour que la pile ne reste pas
 /// bloquée sur elle.
-core::Result<void> stepOnce(UndoStack& stack, flecs::world& world, bool redo)
+core::Result<StepEffect> stepOnce(UndoStack& stack, flecs::world& world, bool redo)
 {
     std::vector<Command>& from = redo ? stack.undone : stack.done;
     std::vector<Command>& to = redo ? stack.done : stack.undone;
     Command command = std::move(from.back());
     from.pop_back();
-    auto written = std::visit(Stepper{world, redo}, command.kind);
-    if (!written)
+    auto stepped = std::visit(Stepper{world, redo}, command.kind);
+    if (!stepped)
     {
         releaseCommand(world, command);
-        return written;
+        return stepped;
     }
     to.push_back(std::move(command));
-    return {};
+    return stepped;
 }
 
 /// Pose une commande au sommet : le numéro suivant, puis la plus ancienne sort si la pile dépasse
@@ -269,7 +311,56 @@ std::unexpected<core::Error> refuseStructure(std::string_view gesture, std::stri
                            std::format("{} : {}, le monde n'est pas touché", gesture, why));
 }
 
+/// Les pierres d'une suppression sont posées (ou ne le sont pas) : la commande, ou rien, dit à la
+/// console. Rend vrai si la commande est posée.
+bool recordDeletion(UndoStack& stack, flecs::world& world, scene::SubtreeRecord record,
+                    scene::Tombstones tombstones)
+{
+    if (!tombstones.notUndoable.empty())
+    {
+        core::log("editor", core::LogLevel::Warning, "{}",
+                  ui::trf("Supprimer : ne s'annulera pas, {}", tombstones.notUndoable));
+        return false;
+    }
+    pushCommand(stack, world,
+                SubtreeCommand{.record = std::move(record), .tombstones = std::move(tombstones)});
+    return true;
+}
+
 } // namespace
+
+core::Result<bool> deleteEntity(UndoStack& stack, flecs::world& world, Mode mode,
+                                flecs::entity_t entity)
+{
+    if (ecs_is_deferred(world))
+    {
+        return refuseStructure(ui::tr("Supprimer"), ui::tr("appelée en mode différé"));
+    }
+    if (mode != Mode::Edit)
+    {
+        // `removeKeepingIndex` refuse toute entité de l'édition en jeu : un `ecs_delete` simple,
+        // que Stop défait en réveillant l'entité avec son identifiant (décision 9, amendement).
+        if (const auto refusal = plainDeleteRefusalOf(world, entity))
+        {
+            return refuseStructure(ui::tr("Supprimer"), *refusal);
+        }
+        world.entity(entity).destruct();
+        return false;
+    }
+    auto record = scene::readSubtree(world, entity);
+    if (!record)
+    {
+        return std::unexpected(record.error());
+    }
+    dropRedo(stack, world); // le contrat de la pile : avant que la commande ne s'exécute
+    auto tombstones = scene::removeKeepingIndex(world, entity);
+    if (!tombstones)
+    {
+        return std::unexpected(tombstones.error());
+    }
+    warnAboutLostChildren(*tombstones, ui::tr("Supprimer"));
+    return recordDeletion(stack, world, std::move(*record), std::move(*tombstones));
+}
 
 core::Result<bool> renameEntity(UndoStack& stack, flecs::world& world, Mode mode,
                                 flecs::entity_t entity, std::string_view wanted)
@@ -342,6 +433,10 @@ void applyHistoryStep(RequestsReport& report, UndoStack& stack, flecs::world& wo
         return;
     }
     ++(redo ? report.redone : report.undone);
+    if (stepped->revived != 0)
+    {
+        report.select = stepped->revived; // décision 8 : l'entité réveillée devient la sélection
+    }
 }
 
 } // namespace
@@ -367,6 +462,16 @@ RequestsReport applyEditorRequests(std::vector<EditorRequest>& queue, UndoStack&
         case RequestKind::Undo:
         case RequestKind::Redo:
             applyHistoryStep(report, stack, world, mode, request.kind == RequestKind::Redo);
+            break;
+        case RequestKind::Delete:
+            if (const auto removed = deleteEntity(stack, world, mode, request.entity))
+            {
+                ++report.deleted;
+            }
+            else
+            {
+                sayRefused(report, removed.error());
+            }
             break;
         case RequestKind::Rename:
             if (const auto renamed = renameEntity(stack, world, mode, request.entity, request.name))

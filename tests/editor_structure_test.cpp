@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -5,13 +7,14 @@
 #include <flecs.h>
 
 #include "levain/assets/asset_ref.hpp"
+#include "levain/editor/hierarchy.hpp"
 #include "levain/editor/undo.hpp"
 #include "levain/scene/reflection.hpp"
 #include "levain/scene/scene.hpp"
 #include "levain/scene/snapshot.hpp"
 
-// Renommer, avec son annulation (ADR-0038, décisions 6 et 10, morceau A6) : la pile, le monde de
-// l'éditeur (deux plages d'identifiants).
+// Supprimer et renommer, avec leur annulation (ADR-0038, décisions 3, 6, 8, 9 et 10, morceau A6) :
+// la pile, ses pierres tombales, le monde de l'éditeur (deux plages d'identifiants).
 
 using namespace levain::editor;
 using levain::scene::Transform;
@@ -23,6 +26,11 @@ struct Mass
 {
     float kilograms = 1.0F;
 };
+
+std::uint32_t indexOf(flecs::entity_t id)
+{
+    return static_cast<std::uint32_t>(id);
+}
 
 /// Le monde de l'éditeur : les plages d'identifiants, la scène, les assets, une valeur décrite.
 struct Bench
@@ -85,7 +93,93 @@ struct Bench
     }
 };
 
+/// Ce qu'un éditeur crée sans le savoir entre une suppression et son annulation : mille entités,
+/// une requête nommée, un observateur. Rend leurs index.
+std::vector<std::uint32_t> createBystanders(flecs::world& world)
+{
+    std::vector<std::uint32_t> indexes;
+    indexes.reserve(1002);
+    for (int i = 0; i < 1000; ++i)
+    {
+        indexes.push_back(indexOf(world.entity().set(Mass{}).id()));
+    }
+    indexes.push_back(indexOf(world.query_builder<Mass>("la requête").build().entity().id()));
+    indexes.push_back(indexOf(world.observer<Mass>().event(flecs::OnAdd).each([](Mass&) {}).id()));
+    return indexes;
+}
+
+/// Les lignes que la Hiérarchie montre, dans l'ordre : un test de l'ordre des racines.
+std::vector<flecs::entity_t> rootsOf(const flecs::world& world)
+{
+    const Hierarchy hierarchy = createHierarchy(world);
+    std::vector<HierarchyRow> rows;
+    listHierarchyRows(hierarchy, rows);
+    std::vector<flecs::entity_t> roots;
+    roots.reserve(rows.size());
+    for (const HierarchyRow& row : rows)
+    {
+        roots.push_back(row.entity);
+    }
+    return roots;
+}
+
 } // namespace
+
+TEST_CASE("supprimer puis annuler rend la même entité, ses enfants, leur ordre et leurs valeurs, "
+          "malgré mille créations, une requête et un observateur")
+{
+    Bench bench;
+    const flecs::entity first = bench.scene("A");
+    const flecs::entity cube = bench.scene("Cube", 3.0F);
+    bench.scene("B");
+    bench.child(cube, "un", 2.0F);
+    const flecs::entity two = bench.child(cube, "deux", 5.0F);
+    bench.child(cube, "trois");
+    bench.child(two, "petit-enfant", 7.0F);
+    const auto before = bench.snapshot();
+    const std::vector<flecs::entity_t> rootsBefore = rootsOf(bench.world);
+    REQUIRE(rootsBefore.size() == 3);
+
+    REQUIRE(deleteEntity(bench.stack, bench.world, Mode::Edit, cube).value());
+    CHECK_FALSE(bench.world.is_alive(cube));
+    CHECK(rootsOf(bench.world).size() == 2);
+    const auto bystanders = createBystanders(bench.world);
+    CHECK(std::ranges::find(bystanders, indexOf(cube)) == bystanders.end()); // la pierre tient
+
+    const RequestsReport undone = bench.undo();
+    CHECK(undone.undone == 1);
+    CHECK(undone.select == cube.id()); // décision 8 : l'entité réveillée devient la sélection
+    CHECK(bench.world.is_alive(cube));
+    CHECK(rootsOf(bench.world) ==
+          std::vector<flecs::entity_t>{rootsBefore[0], cube.id(), rootsBefore[2]});
+    CHECK(bench.world.lookup("Cube::deux::petit-enfant").is_valid());
+    CHECK(first.is_alive());
+    // Les entités des mille créations sont de trop dans l'instantané : on les compare à part.
+    const auto differences = bench.differences(before);
+    CHECK(std::ranges::none_of(differences, [](const std::string& line)
+                               { return line.find("Cube") != std::string::npos; }));
+
+    CHECK(bench.redo().redone == 1);
+    CHECK_FALSE(bench.world.is_alive(cube));
+    CHECK(bench.undo().undone == 1); // et de nouveau : les pierres sont celles de la suppression
+    CHECK(bench.world.is_alive(cube));
+    CHECK(cube.get<Mass>().kilograms == 3.0F);
+    CHECK(bench.world.lookup("Cube::deux::petit-enfant").get<Mass>().kilograms == 7.0F);
+}
+
+TEST_CASE("supprimer puis annuler sans rien d'autre : le monde est celui d'avant, à l'identique")
+{
+    Bench bench;
+    bench.scene("A");
+    const flecs::entity cube = bench.scene("Cube", 3.0F);
+    bench.child(cube, "un");
+    bench.child(cube, "deux");
+    bench.scene("B");
+    const auto before = bench.snapshot();
+    REQUIRE(deleteEntity(bench.stack, bench.world, Mode::Edit, cube).value());
+    REQUIRE(bench.undo().undone == 1);
+    CHECK(bench.differences(before).empty());
+}
 
 TEST_CASE("les noms piégés sont refusés, rien ne change, aucune commande n'est posée")
 {
@@ -128,6 +222,23 @@ TEST_CASE("renommer : un nom libre s'annule et se refait, un nom inchangé ne po
     CHECK(bench.world.lookup("Cube") == cube);
     CHECK(bench.redo().redone == 1);
     CHECK(bench.world.lookup("Caisse") == cube);
+}
+
+TEST_CASE("supprimer un enfant du milieu puis annuler le rend à sa place parmi ses frères")
+{
+    Bench bench;
+    const flecs::entity cube = bench.scene("Cube");
+    bench.child(cube, "un");
+    const flecs::entity two = bench.child(cube, "deux");
+    bench.child(cube, "trois");
+    const auto before = bench.snapshot();
+    REQUIRE(deleteEntity(bench.stack, bench.world, Mode::Edit, two).value());
+    bench.child(cube, "quatre"); // un frère apparu entre-temps garde sa place
+    REQUIRE(bench.undo().undone == 1);
+    CHECK(levain::scene::orderedChildrenOf(bench.world, cube.id())[1] == two.id());
+    CHECK(levain::scene::orderedChildrenOf(bench.world, cube.id()).size() == 4);
+    CHECK(bench.world.entity(two.id()).get<flecs::Parent>().value == cube.id());
+    CHECK(before.entities.size() == 4); // l'instantané d'avant : Cube et ses trois enfants
 }
 
 TEST_CASE("un nom refusé n'est jamais écrit, même demandé directement à la file")

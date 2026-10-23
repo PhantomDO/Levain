@@ -3,9 +3,9 @@
 // La pile d'annulation de l'éditeur (ADR-0038, décisions 1, 8 et 9) : 100 commandes, Annuler et
 // Rétablir. Une commande de **valeur** garde l'entité (identifiant complet), le composant et deux
 // `ValueBox`, l'avant et l'après, copiées par les crochets du type (jamais du JSON, qui arrondit).
-// Les sortes de structure (`structure.hpp`) : renommer garde deux noms (M7.3, A6) ; créer,
-// supprimer, déplacer, ajouter ou retirer un composant prendront leur place dans `CommandKind`
-// ensuite (A6, A7 et A8).
+// Les sortes de structure (`structure.hpp`) : supprimer garde un sous-arbre et ses pierres
+// tombales, renommer deux noms (M7.3, A6) ; créer, déplacer, ajouter ou retirer un composant
+// prendront leur place dans `CommandKind` ensuite (A6, A7 et A8).
 //
 // La logique est en fonctions libres dont toutes les dépendances sont des paramètres (ADR-0011) ;
 // la glu d'`editor.cpp` tient en une ligne (`applyQueuedRequests`).
@@ -54,8 +54,8 @@ struct ValueCommand
     assets::AssetPin pin;
 };
 
-/// Les sortes de commandes : une valeur écrite, un nom changé.
-using CommandKind = std::variant<ValueCommand, RenameCommand>;
+/// Les sortes de commandes : une valeur écrite, un sous-arbre créé ou supprimé, un nom changé.
+using CommandKind = std::variant<ValueCommand, SubtreeCommand, RenameCommand>;
 
 /// Les assets qu'une commande épingle, pour que le test de la pile lise la même vérité que le
 /// décompte d'`AssetUsage` : une surcharge par sorte, un visiteur les atteint (une sorte de plus
@@ -63,6 +63,11 @@ using CommandKind = std::variant<ValueCommand, RenameCommand>;
 [[nodiscard]] inline const std::vector<assets::AssetId>& pinnedAssetsOf(const ValueCommand& command)
 {
     return command.pin.assets;
+}
+
+[[nodiscard]] inline std::vector<assets::AssetId> pinnedAssetsOf(const SubtreeCommand&)
+{
+    return {}; // le sous-arbre n'épingle rien encore : ses assets viennent en A6e
 }
 
 [[nodiscard]] inline std::vector<assets::AssetId> pinnedAssetsOf(const RenameCommand&)
@@ -146,6 +151,15 @@ enum class HistoryRefusal : std::uint8_t
 // --- Créer, supprimer, renommer : les opérations de la pile
 // ---------------------------------------
 
+/// deleteEntity : supprime `entity` et son sous-arbre, avec sa commande : `readSubtree` (les
+/// refus : mode différé, nœud `Generated`, racine sous un nœud `Generated`, composant qui ne se
+/// copie pas), les refaisables libérés, puis `removeKeepingIndex`. Les observateurs d'un volume
+/// perdus sont nommés à la console. **En jeu, un `ecs_delete` simple, jamais une commande**
+/// (décision 9, amendement du 2026-10-22). Rend vrai si une commande est posée. Une suppression
+/// que les pierres n'ont pas pu tenir (`notUndoable`) est faite, sans commande.
+[[nodiscard]] core::Result<bool> deleteEntity(UndoStack& stack, flecs::world& world, Mode mode,
+                                              flecs::entity_t entity);
+
 /// renameEntity : donne `wanted` à `entity`. Un nom que `renameRefusalOf` refuse (vide, « . », « ::
 /// », « #12 », « _ », « * », « $ » à la racine, un frère identique, un nœud `Generated`) est une
 /// erreur qui dit pourquoi, le monde intact ; un nom égal au sien ne change rien (faux, pas de
@@ -160,6 +174,7 @@ enum class RequestKind : std::uint8_t
 {
     Undo,
     Redo,
+    Delete, ///< `entity` : l'entité à supprimer.
     Rename, ///< `entity` : l'entité ; `name` : son nouveau nom.
 };
 
@@ -181,12 +196,15 @@ struct RequestsReport
 {
     int undone = 0;
     int redone = 0;
+    int deleted = 0;
     int renamed = 0;
     int refused = 0; ///< Hors de l'Édition, rien à faire, ou un refus nommé : dit à la console.
     int failed =
         0; ///< La commande n'a pas pu s'appliquer : elle est abandonnée, dite à la console.
+    /// L'entité que l'éditeur sélectionne (décision 8) : la dernière réveillée.
+    flecs::entity_t select = 0;
 
-    [[nodiscard]] bool changedWorld() const { return undone + redone + renamed > 0; }
+    [[nodiscard]] bool changedWorld() const { return undone + redone + deleted + renamed > 0; }
 };
 
 /// **Le point nommé où les demandes s'exécutent** (décision 9). Les fenêtres, dessinées entre

@@ -1,11 +1,15 @@
 #pragma once
 
-// Renommer une entité (ADR-0038, décisions 6 et 10) : la commande de structure de la pile et son
-// opération, **sans la pile** (qui est dans `undo.hpp`). `RenameCommand` garde les deux noms.
+// Supprimer et renommer une entité (ADR-0038, décisions 3, 6, 8, 9 et 10) : les commandes de
+// structure de la pile et leurs opérations, **sans la pile** (qui est dans `undo.hpp`). Les deux
+// sortes de commandes qui remplacent l'écriture d'une valeur :
+//   - `SubtreeCommand` garde un sous-arbre (`readSubtree`) et les pierres tombales de ses index
+//     (`removeKeepingIndex`) : supprimer l'enlève, annuler le rend avec les mêmes identifiants ;
+//   - `RenameCommand` garde les deux noms.
 //
 // La logique est en fonctions libres dont toutes les dépendances sont des paramètres (ADR-0011).
-// Équivalents : `Undo.RecordObject` d'Unity sur le nom, une transaction `FScopedTransaction`
-// d'Unreal.
+// Équivalents : `Undo.DestroyObjectImmediate` d'Unity (qui recrée l'objet, sans garantir son
+// identifiant), une transaction `FScopedTransaction` d'Unreal.
 
 #include <optional>
 #include <string>
@@ -14,9 +18,21 @@
 #include <flecs.h>
 
 #include "levain/core/error.hpp"
+#include "levain/scene/subtree.hpp"
+#include "levain/scene/tombstone.hpp"
 
 namespace levain::editor
 {
+
+/// Un sous-arbre supprimé : de quoi le rendre, et les index qui l'attendent.
+struct SubtreeCommand
+{
+    /// Le sous-arbre tel qu'il était : types, valeurs, noms, parents, ordre des frères.
+    scene::SubtreeRecord record;
+    /// Les pierres de ses index, **possédées par la commande** : posées à la suppression,
+    /// détruites au réveil, rendues quand la commande sort de la pile.
+    scene::Tombstones tombstones;
+};
 
 struct RenameCommand
 {
@@ -37,6 +53,32 @@ struct RenameCommand
 [[nodiscard]] std::optional<std::string>
 renameRefusalOf(const flecs::world& world, flecs::entity_t entity, std::string_view wanted);
 
+/// Pourquoi `entity` ne se supprime pas **en jeu** (un `ecs_delete` simple, sans `readSubtree`) :
+/// les refus que `readSubtree` fait en Édition et qui ne dépendent pas de l'historique (morte, hors
+/// de la scène, nœud `Generated`, racine sous un nœud `Generated`).
+[[nodiscard]] std::optional<std::string> plainDeleteRefusalOf(const flecs::world& world,
+                                                              flecs::entity_t entity);
+
+// --- Les opérations, sans la pile ---------------------------------------------------------------
+
+/// Ce qu'une étape d'annulation ou de rétablissement a fait de la sélection.
+struct StepEffect
+{
+    /// L'entité que l'étape vient de rendre (annuler une suppression) : elle devient la sélection
+    /// (décision 8). 0 sinon : une destruction se voit à `selectedIfAlive`.
+    flecs::entity_t revived = 0;
+};
+
+/// stepSubtree : annule (`redo` faux) ou refait une commande de sous-arbre. L'état d'après l'étape
+/// est « vivant » pour annuler une suppression, « enlevé » pour la refaire.
+///  - Vivant : **les deux gardes d'abord** (`checkTombstonesHold`, `checkSubtreeRestorable`), puis
+///    `reviveFromTombstones` et `restoreSubtree` à la suite, sans rien entre eux (le contrat de
+///    `tombstone.hpp`). Un refus laisse le monde intact.
+///  - Enlevé : `removeKeepingIndex`, dont les pierres remplacent celles de la commande.
+/// Un volume dont l'observateur est perdu est nommé à la console (Warning).
+[[nodiscard]] core::Result<StepEffect> stepSubtree(flecs::world& world, SubtreeCommand& command,
+                                                   bool redo);
+
 /// stepRename : remet l'ancien nom (annuler) ou le nouveau (refaire). Refuse, le monde intact, une
 /// entité morte ou un nom que `renameRefusalOf` ne laisserait plus passer.
 [[nodiscard]] core::Result<void> stepRename(flecs::world& world, const RenameCommand& command,
@@ -44,5 +86,10 @@ renameRefusalOf(const flecs::world& world, flecs::entity_t entity, std::string_v
 
 /// Écrit le nom d'une entité : le crochet de flecs qui met l'index de noms à jour (`lookup`).
 void writeName(flecs::world& world, flecs::entity_t entity, const std::optional<std::string>& name);
+
+/// Nomme à la console, en Warning, ce qui est perdu avec un sous-arbre supprimé ou réveillé : les
+/// observateurs d'un volume (`LostChild`) reviennent sans leur rappel (décision 3). Rend leur
+/// nombre.
+std::size_t warnAboutLostChildren(const scene::Tombstones& tombstones, std::string_view verb);
 
 } // namespace levain::editor

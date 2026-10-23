@@ -415,6 +415,13 @@ bool applyQueuedRequests(app::App& app, Editor& editor)
 {
     const RequestsReport report =
         applyEditorRequests(editor.requests, editor.undo, app.world, editor.mode.current);
+    if (report.select != 0) // l'entité réveillée devient la sélection (décision 8)
+    {
+        editor.selected = report.select;
+        revealInHierarchy(editor.hierarchy, app.world.entity(report.select));
+    }
+    // Une entité que l'étape vient d'enlever ne reste pas choisie (`selectedIfAlive`).
+    editor.selected = selectedIfAlive(app.world, editor.selected);
     if (report.undone + report.redone > 0)
     {
         // Les angles tapés ne valent que tant qu'ils donnent la rotation du composant : une
