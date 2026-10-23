@@ -26,7 +26,7 @@ scene::Transform transformAfterChange(const scene::Transform& current, int numbe
 /// Une demande d'annulation, par la file de l'éditeur (la porte de Ctrl+Z) ; vrai si elle a défait.
 bool undoOnce(UndoStack& stack, flecs::world& world, Mode mode)
 {
-    std::vector<HistoryRequest> queue{HistoryRequest::Undo};
+    std::vector<EditorRequest> queue{RequestKind::Undo};
     return applyEditorRequests(queue, stack, world, mode).undone == 1;
 }
 

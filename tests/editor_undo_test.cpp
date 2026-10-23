@@ -38,7 +38,7 @@ struct Bench
 {
     flecs::world world;
     UndoStack stack;
-    std::vector<HistoryRequest> queue;
+    std::vector<EditorRequest> queue;
     flecs::entity entity;
 
     Bench()
@@ -63,7 +63,7 @@ struct Bench
 
     float kilograms() { return entity.get<Mass>().kilograms; }
 
-    RequestsReport apply(std::vector<HistoryRequest> requests, Mode mode = Mode::Edit)
+    RequestsReport apply(std::vector<EditorRequest> requests, Mode mode = Mode::Edit)
     {
         queue = std::move(requests);
         return applyEditorRequests(queue, stack, world, mode);
@@ -71,16 +71,14 @@ struct Bench
 
     RequestsReport undo(int times = 1, Mode mode = Mode::Edit)
     {
-        return apply(
-            std::vector<HistoryRequest>(static_cast<std::size_t>(times), HistoryRequest::Undo),
-            mode);
+        return apply(std::vector<EditorRequest>(static_cast<std::size_t>(times), RequestKind::Undo),
+                     mode);
     }
 
     RequestsReport redo(int times = 1, Mode mode = Mode::Edit)
     {
-        return apply(
-            std::vector<HistoryRequest>(static_cast<std::size_t>(times), HistoryRequest::Redo),
-            mode);
+        return apply(std::vector<EditorRequest>(static_cast<std::size_t>(times), RequestKind::Redo),
+                     mode);
     }
 };
 
@@ -291,7 +289,7 @@ TEST_CASE("une demande faite en mode différé est refusée bruyamment et gardé
     REQUIRE(bench.setMass(4.0F));
 
     bench.world.defer_begin();
-    bench.queue = {HistoryRequest::Undo};
+    bench.queue = {RequestKind::Undo};
     const RequestsReport inside =
         applyEditorRequests(bench.queue, bench.stack, bench.world, Mode::Edit);
     bench.world.defer_end();

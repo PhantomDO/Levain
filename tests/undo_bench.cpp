@@ -120,7 +120,7 @@ void valueCosts(Costs& costs)
     const flecs::entity entity = world.entity("cible").set(levain::scene::Transform{});
     const flecs::entity_t component = world.id<levain::scene::Transform>();
     levain::editor::UndoStack stack;
-    std::vector<levain::editor::HistoryRequest> queue;
+    std::vector<levain::editor::EditorRequest> queue;
 
     const auto start = Clock::now();
     for (int i = 1; i <= 150; ++i)
@@ -131,7 +131,7 @@ void valueCosts(Costs& costs)
                                                         entity, component, &value);
         require(recorded.has_value() && *recorded, "un changement de valeur");
     }
-    queue.assign(100, levain::editor::HistoryRequest::Undo);
+    queue.assign(100, levain::editor::RequestKind::Undo);
     const auto report =
         levain::editor::applyEditorRequests(queue, stack, world, levain::editor::Mode::Edit);
     costs.valuesMs = millisecondsSince(start);

@@ -7,7 +7,7 @@
 // prendront leur place dans `CommandKind` aux morceaux A6 à A8.
 //
 // La logique est en fonctions libres dont toutes les dépendances sont des paramètres (ADR-0011) ;
-// la glu d'`editor.cpp` tient en une ligne (`applyHistoryRequests`).
+// la glu d'`editor.cpp` tient en une ligne (`applyQueuedRequests`).
 //
 // **Le contrat de la pile** (tombstone.hpp) : une commande nouvelle vide d'abord les refaisables,
 // en les libérant (`releaseCommand`), puis s'exécute ; une commande qui sort de la pile
@@ -21,6 +21,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -133,11 +135,26 @@ enum class HistoryRefusal : std::uint8_t
                                            flecs::entity_t entity, flecs::entity_t component,
                                            const void* value);
 
-/// Ce que la file demande : une étape d'historique.
-enum class HistoryRequest : std::uint8_t
+// --- La file des demandes ------------------------------------------------------------------------
+
+/// Ce que la file demande.
+enum class RequestKind : std::uint8_t
 {
     Undo,
     Redo,
+};
+
+struct EditorRequest
+{
+    // Implicite, pour qu'un test écrive `{RequestKind::Undo, RequestKind::Redo}`.
+    EditorRequest(RequestKind kind, flecs::entity_t entity = 0, std::string name = {})
+        : kind(kind), entity(entity), name(std::move(name))
+    {
+    }
+
+    RequestKind kind;
+    flecs::entity_t entity = 0;
+    std::string name;
 };
 
 /// Le bilan d'`applyEditorRequests`, pour la console et les tests.
@@ -152,12 +169,12 @@ struct RequestsReport
     [[nodiscard]] bool changedWorld() const { return undone + redone > 0; }
 };
 
-/// **Le point nommé où les demandes d'historique s'exécutent** (décision 9). Les fenêtres,
-/// dessinées entre `defer_begin` et `defer_end`, ne font que `queue.push_back` ; ce point passe
-/// **juste après `defer_end`**. Les raccourcis et les menus, hors du `defer`, y passent
-/// directement. Appelé dans le mode différé, il refuse bruyamment et garde la file : les écritures
-/// de flecs y seraient mises en file et le monde lu ne serait pas celui qu'on a écrit.
-[[nodiscard]] RequestsReport applyEditorRequests(std::vector<HistoryRequest>& queue,
+/// **Le point nommé où les demandes s'exécutent** (décision 9). Les fenêtres, dessinées entre
+/// `defer_begin` et `defer_end`, ne font que `queue.push_back` ; ce point passe **juste après
+/// `defer_end`**. Les raccourcis et les menus, hors du `defer`, y passent directement. Appelé dans
+/// le mode différé, il refuse bruyamment et garde la file : les écritures de flecs y seraient mises
+/// en file et le monde lu ne serait pas celui qu'on a écrit.
+[[nodiscard]] RequestsReport applyEditorRequests(std::vector<EditorRequest>& queue,
                                                  UndoStack& stack, flecs::world& world, Mode mode);
 
 } // namespace levain::editor

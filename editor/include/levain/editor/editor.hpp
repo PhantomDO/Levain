@@ -193,7 +193,7 @@ struct Editor
     /// demandes d'Annuler et de Rétablir faites pendant le dessin (entre `defer_begin` et
     /// `defer_end`), exécutées par `applyEditorRequests` juste après.
     UndoStack undo;
-    std::vector<HistoryRequest> requests;
+    std::vector<EditorRequest> requests;
     /// La session scriptée de la CI, si `--undo-session` l'a demandée.
     std::optional<UndoSession> undoSession;
 };
