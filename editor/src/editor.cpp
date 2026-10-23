@@ -168,11 +168,19 @@ GestureContext gestureContextOf(const app::App& app, const Editor& editor)
 void frameGestures(app::App& app, Editor& editor)
 {
     editor.presses.clear(); // les touches de l'éditeur seulement, hors de la modale
+    const auto playHeld =
+        std::exchange(editor.playKeys, heldKeysAfter(app.rawFrameEvents, editor.playKeys));
     if (!editorOwnsViewIn(editor.mode.current))
     {
         editor.gestures = idleGestures(editor.gestures);
         // Jouer : le clic droit est au jeu (le bac à sable regarde à la souris), pas de menu.
         editor.view.menuAllowed = false;
+        // Suppr et F2 d'un panneau focalisé valent en jeu aussi : seules ces touches-là se lisent
+        // (`sceneKeysActiveIn` ignore la Vue, dont le clavier est au jeu).
+        if (cameraGesturesAllowed(editor.quit))
+        {
+            editor.presses = keyPressesOf(app.rawFrameEvents, playHeld);
+        }
         return;
     }
     if (!cameraGesturesAllowed(editor.quit))
@@ -448,6 +456,31 @@ bool applyQueuedRequests(app::App& app, Editor& editor)
     return changed;
 }
 
+/// Atteint Créer, Supprimer ou Renommer (`runAction` les a comptées faites) : Créer et Supprimer
+/// mettent une demande en file, que `applyQueuedRequests` exécute ; Renommer ouvre le champ de la
+/// Hiérarchie, sur la sélection. Sans sélection, la console le dit.
+void reachEntityAction(app::App& app, Editor& editor, Action action)
+{
+    if (action == Action::CreateEntity)
+    {
+        editor.requests.push_back({RequestKind::Create, 0});
+        return;
+    }
+    const flecs::entity selected = selectedIfAlive(app.world, editor.selected);
+    if (!selected)
+    {
+        core::log("editor", core::LogLevel::Info, "{}",
+                  ui::trf("{} : aucune entité choisie", ui::tr(nameOf(action))));
+        return;
+    }
+    if (action == Action::DeleteEntity)
+    {
+        editor.requests.push_back({RequestKind::Delete, selected.id()});
+        return;
+    }
+    sayRenameRefusal(beginRename(editor.hierarchy, app.world, selected.id()));
+}
+
 /// La barre de menus, la barre d'outils et la barre d'état, et la fenêtre Aide : ce qu'elles
 /// atteignent (`MenuRequests`, la barre d'outils) revient, et le mode que le bouton propose va à
 /// `requested` si la Vue n'en a pas déjà demandé un.
@@ -494,14 +527,17 @@ std::vector<Action> drawBars(app::App& app, Editor& editor, std::optional<Mode>&
 /// l'image** (voir `ui`), non ce qu'elle est devenue depuis.
 bool runReachedActions(app::App& app, Editor& editor, std::vector<Action> reached, bool capturing)
 {
-    editor.lastShortcuts =
-        shortcutsPressed({.table = editor.shortcuts,
-                          .presses = editor.presses,
-                          .editing = editorOwnsViewIn(editor.mode.current),
-                          .globalAllowed = globalChordsAllowed(editor.quit) && !capturing,
-                          .viewActive = viewActiveOf(app, editor),
-                          .flight = inFlight(editor.gestures),
-                          .textInput = ImGui::GetIO().WantTextInput});
+    editor.lastShortcuts = shortcutsPressed(
+        {.table = editor.shortcuts,
+         .presses = editor.presses,
+         .editing = editorOwnsViewIn(editor.mode.current),
+         .globalAllowed = globalChordsAllowed(editor.quit) && !capturing,
+         .viewActive = viewActiveOf(app, editor),
+         .flight = inFlight(editor.gestures),
+         .textInput = ImGui::GetIO().WantTextInput,
+         .sceneActive =
+             app.ui.panelsOpen && sceneKeysActiveIn(editor.hierarchy.focused, editor.view.focused,
+                                                    editor.mode.current)});
     // Ctrl+Z pendant un glissé est refusé (un clic de menu ne l'est pas).
     for (const Action action :
          withoutHistoryWhileActive(editor.lastShortcuts, ImGui::IsAnyItemActive(), editor.actions))
@@ -530,6 +566,10 @@ bool runReachedActions(app::App& app, Editor& editor, std::vector<Action> reache
             {
                 editor.requests.push_back(action == Action::Undo ? RequestKind::Undo
                                                                  : RequestKind::Redo);
+            }
+            else if (action == Action::CreateEntity || isSceneAction(action))
+            {
+                reachEntityAction(app, editor, action);
             }
         }
     }
@@ -681,6 +721,7 @@ app::StartFunction withEditor(app::StartFunction start, EditorOptions options)
                    .grid = {},
                    .undo = {},
                    .requests = {},
+                   .playKeys = {},
                    .undoSession = {}});
         editor->console.font = fonts->console;
         editor->inspector.history =

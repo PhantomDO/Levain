@@ -20,7 +20,7 @@ namespace
 // par la disposition du banc d'essai.
 constexpr std::uint16_t ScanA = 4, ScanD = 7, ScanE = 8, ScanF = 9, ScanG = 10, ScanQ = 20,
                         ScanR = 21, ScanS = 22, ScanW = 26, ScanEscape = 41, ScanSpace = 44,
-                        ScanF1 = 58, ScanF12 = 69, ScanPause = 72;
+                        ScanF1 = 58, ScanF2 = 59, ScanF12 = 69, ScanPause = 72, ScanDelete = 76;
 // Left Ctrl à Right GUI : les modificateurs seuls, que ni Ctrl ni Maj ne lient (USB HID 0xE0-0xE7).
 constexpr std::uint32_t FirstModifierScancode = 224, LastModifierScancode = 231;
 constexpr std::uint32_t ScancodeMask = 1U
@@ -70,6 +70,8 @@ const char* namedKeyOf(std::uint32_t keycode)
         return "Haut";
     case ScancodeMask | ScanPause:
         return "Pause";
+    case 0x7F: // SDLK_DELETE : une touche qui tape un caractère de contrôle
+        return "Suppr";
     default:
         return nullptr;
     }
@@ -145,6 +147,12 @@ const char* nameOf(Action action)
         return "Image suivante";
     case Action::GiveMouseBack:
         return "Rendre la souris";
+    case Action::CreateEntity:
+        return "Créer une entité";
+    case Action::DeleteEntity:
+        return "Supprimer";
+    case Action::RenameEntity:
+        return "Renommer";
     case Action::Count:
         break;
     }
@@ -180,6 +188,10 @@ ShortcutTable defaultShortcuts()
             bind(Redo, Global, letterChord('y', Ctrl), letterChord('z', CtrlShift)),
             bind(Play, Global, letterChord('p', Alt)),
             bind(Simulate, Global, letterChord('s', Alt)),
+            bind(CreateEntity, Global, letterChord('n', CtrlShift)),
+            // La sélection : Suppr et F2 par position, quand la Hiérarchie ou la Vue a le focus.
+            bind(DeleteEntity, Scene, positionChord(ScanDelete)),
+            bind(RenameEntity, Scene, positionChord(ScanF2)),
             // Le jeu : Échap arrête, la touche Pause met en pause, Maj+F1 rend la souris (F1 seule
             // ouvre les panneaux). « Image suivante » n'a pas d'accord (voir `defaultShortcuts`).
             bind(Stop, Game, positionChord(ScanEscape)),
@@ -301,15 +313,16 @@ std::optional<Action> actionFor(const ShortcutTable& table, const KeyPress& pres
     // Le premier contexte qui reconnaît l'appui l'emporte : l'ordre de la liste est la précédence.
     // Sous la route jeu, le jeu seul : Ctrl+S ne part pas en jouant.
     // Un champ de texte actif ne laisse rien aux contextes de l'éditeur (`textInput`).
-    const auto contexts = active.game ? std::vector{Context::Game}
-                          : active.textInput
-                              ? std::vector<Context>{}
-                              : std::vector{Context::Flight, Context::View, Context::Global};
+    const auto contexts = active.game        ? std::vector{Context::Game}
+                          : active.textInput ? std::vector<Context>{}
+                                             : std::vector{Context::Flight, Context::View,
+                                                           Context::Scene, Context::Global};
     for (const Context context : contexts)
     {
         // En vol, la Vue se tait : ni R ni Espace ne changent d'outil sous le clic droit tenu.
         const bool inactive = (context == Context::Flight && !active.flight) ||
-                              (context == Context::View && (!active.view || active.flight));
+                              (context == Context::View && (!active.view || active.flight)) ||
+                              (context == Context::Scene && (!active.scene || active.flight));
         if (inactive)
         {
             continue;

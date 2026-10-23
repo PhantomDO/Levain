@@ -170,7 +170,8 @@ l'anglais de M7.8 ; des polices sous OFL, une console, une disposition gardée. 
     message, les compteurs d'avertissements et d'erreurs).
 13. **Les raccourcis, ceux d'Unreal, que chacun peut changer.** Une table, dans un seul fichier : par action, son nom
     (catalogue), au plus deux accords comme chez Unreal [3], un contexte. *Vol* (clic droit tenu) passe avant *Vue*
-    (survolée ou en focus), qui passe avant *global* ; *jeu* ne vaut que sous la route *jeu*, seul. **Vol et outils
+    (survolée ou en focus), qui passe avant *scène* (la Hiérarchie ou la Vue a le focus : Suppr, F2, ajouté en M7.3,
+    A6), qui passe avant *global* ; *jeu* ne vaut que sous la route *jeu*, seul. **Vol et outils
     vont par position** : sur l'AZERTY, déplacer, tourner, mettre à l'échelle sont Z, E, R, aux places du W, E, R
     d'un QWERTY, et s'affichent ainsi. **Les accords à Ctrl vont par lettre** (`ImGui::Shortcut`, route globale pour
     Fichier, du focus pour les outils) ; un champ de texte actif garde son Ctrl+Z, l'élément actif passant avant ces
@@ -180,8 +181,9 @@ l'anglais de M7.8 ; des polices sous OFL, une console, une disposition gardée. 
     un clic, puis la touche, pour changer, et pendant la saisie aucun raccourci ne part (ni `ImGui::Shortcut`, ni
     les positions, ni F1). Un accord pris est un conflit, nommé (« Ctrl+S : Enregistrer ») : rien ne change sans
     « Remplacer », qui le retire à l'autre action, comme l'*Override* d'Unreal [3]. Conflit dans un même contexte,
-    et entre *global* et tout autre ; une position se compare à une lettre par `keyAtPosition`, de nouveau quand la
-    disposition change (un conflit né ainsi va à la console). F1 est réservée ; « Réinitialiser » rend les défauts,
+    entre *global* et tout autre, et entre *scène* et *Vue* (la Vue focalisée rend les deux
+    actifs) ; une position se compare à une lettre par `keyAtPosition`, de nouveau quand la disposition change
+    (un conflit né ainsi va à la console). F1 est réservée ; « Réinitialiser » rend les défauts,
     d'une action ou de toutes (un défaut qu'une autre action tient est un conflit nommé, comme une saisie).
     **Échap annule la saisie : aucune action ne peut la tenir par un clic.** « Arrêter » peut s'en éloigner, et la
     retrouve par « Réinitialiser ». La table s'enregistre avec les préférences : une position par son numéro de
@@ -197,6 +199,8 @@ l'anglais de M7.8 ; des polices sous OFL, une console, une disposition gardée. 
     | Déplacer, tourner, échelle (M7.4) ; outil suivant | W, E, R (Z, E, R) ; Espace | position | Vue | [6] |
     | Enregistrer ; annuler (M7.3) | Ctrl+S ; Ctrl+Z | lettre | global | supposé |
     | Rétablir (M7.3) | Ctrl+Y, et Ctrl+Maj+Z (en plus, de Godot) | lettre | global | supposé |
+    | Supprimer ; renommer (M7.3, A6) | Suppr ; F2 | position | scène | supposé, proposé |
+    | Créer une entité (M7.3, A6) | Ctrl+Maj+N | lettre | global | supposé, proposé |
     | Jouer ; simuler, si M7.5 le garde | Alt+P ; Alt+S | lettre | global | supposé ; [2] |
     | Arrêter (M7.5) ; rendre la souris | Échap ; Maj+F1 | position | jeu | [2] |
     | Pause ; image suivante (M7.5, ADR-0037) | Pause ; aucun accord | position | jeu | supposé ; [2] |

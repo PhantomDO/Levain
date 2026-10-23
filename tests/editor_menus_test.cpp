@@ -293,14 +293,14 @@ TEST_CASE("en jeu, Annuler et Rétablir sont grisés même avec une pile : elle 
     CHECK(bench.actions.empty());
 }
 
-TEST_CASE("Entité > Créer… arrive en M7.3 : grisé, il ne rend rien au clic")
+TEST_CASE("Entité > Créer une entité demande l'action Créer une entité, au clic")
 {
     BarBench bench;
     bench.settle();
     bench.click(bench.bar.entity);
     REQUIRE(bench.bar.entityOpen);
     bench.click(bench.bar.create);
-    CHECK(bench.actions.empty());
+    CHECK(bench.actions == std::vector<Action>{Action::CreateEntity});
 }
 
 TEST_CASE("le menu Fenêtre, maintenant dans la barre complète, ferme et rouvre sa fenêtre")

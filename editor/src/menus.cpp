@@ -73,13 +73,6 @@ bool historyItem(Action action, const MenuBarInputs& inputs, bool& enabled)
     return false;
 }
 
-/// Une entrée sans action de la table, grisée jusqu'à son milestone.
-void soonItem(const char* french, const char* milestone)
-{
-    greyedMenuItem(ui::labelOf(french).c_str(), nullptr);
-    saySoon(milestone, SoonSide::Right);
-}
-
 void drawFileMenu(const MenuBarInputs& inputs, MenuBarLayout& layout, MenuRequests& requests)
 {
     const bool opened = ImGui::BeginMenu(ui::labelOf("Fichier").c_str());
@@ -134,7 +127,7 @@ void drawEditMenu(const MenuBarInputs& inputs, MenuBarLayout& layout, MenuReques
     ImGui::EndMenu();
 }
 
-void drawEntityMenu(MenuBarLayout& layout)
+void drawEntityMenu(const MenuBarInputs& inputs, MenuBarLayout& layout, MenuRequests& requests)
 {
     const bool opened = ImGui::BeginMenu(ui::labelOf("Entité").c_str());
     layout.entity = centerOfLastItem();
@@ -143,7 +136,12 @@ void drawEntityMenu(MenuBarLayout& layout)
     {
         return;
     }
-    soonItem("Créer…", "M7.3");
+    // Une racine, en renommage (Unity : GameObject > Create Empty, documenté [U12]) ; sur une ligne
+    // de la Hiérarchie, le menu contextuel crée un enfant.
+    if (actionItem(Action::CreateEntity, inputs))
+    {
+        requests.actions.push_back(Action::CreateEntity);
+    }
     layout.create = centerOfLastItem();
     ImGui::EndMenu();
 }
@@ -207,7 +205,7 @@ MenuRequests drawMenuBar(const MenuBarInputs& inputs, WindowMenuLayout& windowLa
     }
     drawFileMenu(inputs, layout, requests);
     drawEditMenu(inputs, layout, requests);
-    drawEntityMenu(layout);
+    drawEntityMenu(inputs, layout, requests);
     requests.resetLayout = drawWindowMenuItems(inputs.windows, windowLayout);
     drawHelpMenu(layout, help);
     // Le « * » de la scène modifiée (le titre de la fenêtre reste ASCII, ADR-0036).

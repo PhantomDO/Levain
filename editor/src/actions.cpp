@@ -139,6 +139,13 @@ std::optional<Action> toolActionOf(const ShortcutTable& table, const KeyPress& p
     return action && isToolAction(*action) ? action : std::nullopt;
 }
 
+std::optional<Action> sceneKeyActionOf(const ShortcutTable& table, const KeyPress& press,
+                                       const ActiveContexts& active)
+{
+    const auto action = actionFor(table, press, active);
+    return action && isSceneAction(*action) ? action : std::nullopt;
+}
+
 std::optional<Action> viewKeyActionOf(const ShortcutTable& table, const KeyPress& press,
                                       const ActiveContexts& active)
 {
@@ -205,19 +212,19 @@ std::vector<Action> shortcutsPressed(const ShortcutInputs& inputs)
             reached.push_back(binding.action);
         }
     }
-    if (!inputs.editing)
-    {
-        return reached;
-    }
     const ActiveContexts active{.flight = inputs.flight,
                                 .view = inputs.viewActive,
+                                .scene = inputs.sceneActive,
                                 .game = false,
                                 .textInput = inputs.textInput};
     for (const KeyPress& press : inputs.presses)
     {
-        if (const auto tool = viewKeyActionOf(inputs.table, press, active))
+        // Les outils ne valent qu'en Édition ; Suppr et F2, là où la sélection a le focus.
+        const auto tool =
+            inputs.editing ? viewKeyActionOf(inputs.table, press, active) : std::nullopt;
+        if (const auto action = tool ? tool : sceneKeyActionOf(inputs.table, press, active))
         {
-            reached.push_back(*tool);
+            reached.push_back(*action);
         }
     }
     return reached;

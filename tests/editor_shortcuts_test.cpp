@@ -9,6 +9,7 @@
 
 #include <doctest/doctest.h>
 
+#include "levain/editor/shortcut_edit.hpp"
 #include "levain/editor/shortcuts.hpp"
 #include "levain/platform/input_script.hpp"
 
@@ -311,4 +312,35 @@ TEST_CASE("un accord de lettre pour ImGui::Shortcut : Ctrl+Z, par la touche marq
     CHECK_FALSE(
         imguiChordOf(positionChord(ScanW)).has_value()); // une position n'est pas pour ImGui
     CHECK_FALSE(imguiChordOf(Chord{}).has_value());
+}
+
+TEST_CASE("Suppr et F2 sont du contexte de la sélection, Créer une entité du global : noms, "
+          "précédence, conflit avec la Vue")
+{
+    constexpr std::uint16_t ScanDelete = 76, ScanF2 = 59;
+    const ShortcutTable table = defaultShortcuts();
+    CHECK(bindingOf(table, Action::DeleteEntity)->context == Context::Scene);
+    CHECK(bindingOf(table, Action::DeleteEntity)->chords[0] == positionChord(ScanDelete));
+    CHECK(bindingOf(table, Action::RenameEntity)->chords[0] == positionChord(ScanF2));
+    CHECK(bindingOf(table, Action::CreateEntity)->context == Context::Global);
+    CHECK(bindingOf(table, Action::CreateEntity)->chords[0] ==
+          letterChord('n', {.ctrl = true, .shift = true}));
+    const auto qwerty = levain::platform::qwertyKeyAtPosition;
+    CHECK(displayOf(Action::DeleteEntity, 0, qwerty) == "Suppr");
+    CHECK(displayOf(Action::RenameEntity, 0, qwerty) == "F2");
+    CHECK(displayOf(Action::CreateEntity, 0, qwerty) == "Ctrl+Maj+N");
+
+    // La sélection vaut quand elle est active, sauf en vol et dans un champ de texte.
+    const KeyPress del = pressOf(ScanDelete, qwerty);
+    CHECK(actionFor(table, del, {.scene = true}) == Action::DeleteEntity);
+    CHECK_FALSE(actionFor(table, del, {}).has_value());
+    CHECK_FALSE(actionFor(table, del, {.flight = true, .scene = true}).has_value());
+    CHECK_FALSE(actionFor(table, del, {.scene = true, .textInput = true}).has_value());
+    CHECK_FALSE(actionFor(table, del, {.scene = true, .game = true}).has_value());
+    // La Vue focalisée rend la Vue et la sélection actives ensemble : elles se disputent un accord.
+    CHECK(contextsOverlap(Context::Scene, Context::View));
+    CHECK(contextsOverlap(Context::View, Context::Scene));
+    CHECK(contextsOverlap(Context::Scene, Context::Global));
+    CHECK_FALSE(contextsOverlap(Context::Scene, Context::Flight));
+    CHECK_FALSE(contextsOverlap(Context::Scene, Context::Game));
 }
