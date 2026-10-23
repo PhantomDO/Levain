@@ -32,6 +32,68 @@ les chiffres de performance viennent de commandes versionnées, sur la machine d
 
 ---
 
+## 2026-10-23 — M7.3 — Réestimation après A6 : le livré vaut 3,1 fois l'estimé
+
+- Temps Donnovan : 0 h depuis le sondage du 22/10 (les PR portent « 0 h », il lira la synthèse d'une page à la fin
+  de M7.3).
+- Sessions Claude Code : 1.
+- Pourquoi cette entrée : l'ADR-0038 (« Les morceaux ») demande de réestimer si, **après A6**, le livré dépasse 1,5 fois
+  l'estimé, et que le journal le dise. A0 à A6 sont dans `m7.3/annulation`, en 36 PR (#549 à #584, du 22 au 23/10).
+- Mesures, en lignes changées par les PR de chaque morceau, ses suites (A2h, A4h) comprises ; la PR de l'ADR s'y
+  nomme « piece 0 »
+  (`gh pr list --base m7.3/annulation --state merged --limit 100 --json number,title,additions,deletions --jq '.[] |
+  select(.number <= 584) | "\(.title | capture("piece (?<p>[A-Z0-9]+)").p) \(.additions + .deletions)"' | awk '{
+  s[$1] += $2; t += $2 } END { for (p in s) print p, s[p]; print "total", t }'`), contre l'estimé du tableau de l'ADR,
+  code et tests plus banc (`awk -F'|' '/^\| (A[0-9]|S[0-9]+|A fin|S fin)/ { c = $4; b = $5; gsub(/[^0-9]/, "", c);
+  gsub(/[^0-9]/, "", b); print $2, c + b }' docs/adr/0038-annulation-et-scenes.md`) ; les ratios, et celui des
+  bancs plus bas, par `awk 'BEGIN { printf "%.1f %.1f %.1f %.1f %.1f %.1f %.1f %.2f %.1f %.1f\n", 469 / 380, 1841 / 450,
+  2273 / 450, 254 / 200, 1860 / 700, 1967 / 750, 3210 / 950, 11874 / 3880, (11874 - 621) / 3880, 1645 / 1050 }'` :
+
+  | Morceau | Estimé | Livré | Ratio |
+  |---|---:|---:|---:|
+  | A0, l'ADR | 380 | 469 | 1,2 |
+  | A1, la pierre tombale | 450 | 1 841 | 4,1 |
+  | A2, le sous-arbre (dont #558 : 886 lignes, 621 déplacées sans changement selon sa description) | 450 | 2 273 | 5,1 |
+  | A3, les épingles | 200 | 254 | 1,3 |
+  | A4, la pile (et A4h) | 700 | 1 860 | 2,7 |
+  | A5, les gestes de l'inspecteur | 750 | 1 967 | 2,6 |
+  | A6, la Hiérarchie | 950 | 3 210 | 3,4 |
+  | **Total** | **3 880** | **11 874** | **3,1** |
+
+  Sans les 621 lignes déplacées (le compte de la description de #558), le total fait 2,9 fois l'estimé. Dans le diff
+  de la branche (`git diff --numstat 058bcb8 436119d`, 058bcb8 étant la fusion de M7.5 d'où elle part), sur 11 008
+  lignes :
+  - les tests en font 5 474, la moitié
+    (`git diff --numstat 058bcb8 436119d | awk '{ n = $1 + $2; t += n; if ($3 ~ /^tests\//) s += n } END { print s,
+    t }'`), contre 57 % pour M7.5 ;
+  - le C++ hors des tests en fait 4 707, plus que tout l'estimé
+    (`git diff --numstat 058bcb8 436119d | awk '$3 !~ /^tests\// && $3 ~ /\.(cpp|hpp)$/ { s += $1 + $2 } END { print s
+    }'`) ;
+  - les trois bancs en font 1 645, pour 1 050 estimées, 1,6 fois
+    (`cd tests && git diff --numstat 058bcb8 436119d -- editor_undo_gpu.cpp editor_hierarchy_gpu.cpp undo_bench.cpp |
+    awk '{ s += $1 + $2 } END { print s }'`).
+- Ce que ça dit : les morceaux d'éditeur avec banc (A4 à A6) coûtent **2,6 à 3,4 fois** leur estimation, autant que
+  M7.5 dans son ensemble (3,2 ; ses morceaux d'éditeur, 4 à 8). Les bancs, comptés à part cette fois, dépassent moins
+  (1,6) : l'écart est surtout dans le code et ses tests. C'est ce que chaque morceau a dû tenir :
+  - les refus et les gardes (un nom pris, un nœud généré, un index repris, une commande en jeu), chacun avec son test ;
+  - les défauts trouvés en relecture, chacun corrigé avec son test et son contre-test. Dans A5, Échap, au lieu de
+    rendre la valeur d'avant, réappliquait le texte arrondi d'ImGui (0,12345678 devenait 0,123), et un glissé coupé
+    par un Jouer refusé perdait ses écritures. Dans A6, des pierres tombales périmées détruisaient celle d'une
+    suppression plus récente ;
+  - les preuves de flecs d'abord, en Debug et en Release (A1).
+- Réestimation : il reste 9 600 lignes estimées (A7 à A9, S1 à S11, les deux fins ; la somme du tableau fait
+  13 480, le texte de l'ADR dit 13 300). Au même ratio, **M7.3 fera environ 41 000 lignes** et **environ 125 PR**, au
+  lieu de 13 300 lignes et 38 PR (36 PR pour 3 880 lignes estimées, la même densité sur le reste :
+  `awk 'BEGIN { printf "%d %d\n", 11874 + 9600 * 11874 / 3880, 36 + 9600 * 36 / 3880 }'`).
+- Décision : le plan des morceaux ne change pas, et rien n'est coupé : aucune fonctionnalité n'a été ajoutée en
+  route, ce sont les refus, les tests et les corrections qui pèsent. Le temps de Donnovan ne bouge pas : 0 h par PR et
+  une synthèse d'une page à la fin de M7.3. Ce qui s'allonge, c'est le temps de l'agent : S1 à S3 avancent déjà en
+  parallèle d'A7, dans un autre worktree. Le ratio en heures de M7.3 se jugera à sa clôture (cloture/SKILL.md), comme
+  les autres.
+- Prochaine étape : A7 (dupliquer, copier-coller, reparenter, réordonner), puis A8 et A9, puis la PR vers `main` et
+  sa CI. La CI lancée à la main après A5 (run 39853203374, sur ac6e905, `ci.yml` changé) est verte sur ses sept
+  jobs ; `pages` est sauté, il ne tourne que sur `main`.
+
 ## 2026-10-16 — M7.5 — Clôture : Jouer et Arrêter, la scène rendue à l'identique
 
 - **Temps Donnovan : 1,0 h** (estimé 0,75 h), **ratio 1,33** (`awk 'BEGIN { printf "%.2f\n", 1 / 0.75 }'`) : sa réponse
