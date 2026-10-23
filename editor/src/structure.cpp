@@ -33,6 +33,31 @@ bool isGeneratedNode(const flecs::world& world, flecs::entity_t entity)
 
 } // namespace
 
+std::vector<assets::AssetId> assetsDesignatedBy(const flecs::world& world,
+                                                flecs::entity_t component, const void* value)
+{
+    if (component == world.id<assets::MeshRef>())
+    {
+        return {static_cast<const assets::MeshRef*>(value)->mesh.asset};
+    }
+    return {};
+}
+
+std::vector<assets::AssetId> assetsOfSubtree(const flecs::world& world,
+                                             const scene::SubtreeRecord& record)
+{
+    std::vector<assets::AssetId> found;
+    for (const scene::EntityRecord& entity : record.entities)
+    {
+        for (const scene::ComponentValue& component : entity.values)
+        {
+            const auto designated = assetsDesignatedBy(world, component.id, component.value.data());
+            found.insert(found.end(), designated.begin(), designated.end());
+        }
+    }
+    return found;
+}
+
 std::optional<std::string> renameRefusalOf(const flecs::world& world, flecs::entity_t entity,
                                            std::string_view wanted)
 {
@@ -190,8 +215,10 @@ core::Result<StepEffect> stepSubtree(flecs::world& world, SubtreeCommand& comman
     warnAboutLostChildren(*stones, verb);
     if (!stones->notUndoable.empty())
     {
-        // Détruite pour de bon, sans pierre : la commande ne saurait plus la rendre.
+        // Détruite pour de bon, sans pierre : la commande ne saurait plus la rendre. La raison
+        // reste dans la commande : `stepOnce` y reconnaît une entité déjà partie.
         command.tombstones = {};
+        command.tombstones.notUndoable = stones->notUndoable;
         return core::makeError(
             core::ErrorCode::InvalidData,
             std::format("l'entité est enlevée mais ne reviendra plus : {}", stones->notUndoable));

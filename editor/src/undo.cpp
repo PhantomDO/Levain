@@ -17,21 +17,6 @@ namespace levain::editor
 namespace
 {
 
-/// Les assets que les deux valeurs d'un `MeshRef` désignent, ceux à épingler. Un autre composant
-/// ne désigne rien en A4 (`ModelInstance` et `MeshCollider` viennent avec leurs gestes).
-std::vector<assets::AssetId> assetsDesignatedBy(const flecs::world& world,
-                                                flecs::entity_t component,
-                                                const scene::ValueBox& before,
-                                                const scene::ValueBox& after)
-{
-    if (component != world.id<assets::MeshRef>())
-    {
-        return {};
-    }
-    return {static_cast<const assets::MeshRef*>(before.data())->mesh.asset,
-            static_cast<const assets::MeshRef*>(after.data())->mesh.asset};
-}
-
 /// Le décompte d'épingles du monde, absent d'un monde sans le module des assets (un test).
 assets::AssetUsage* usageOf(flecs::world& world)
 {
@@ -47,16 +32,19 @@ struct Releaser
 {
     flecs::world& world;
 
-    void operator()(ValueCommand& command) const
+    void releasePin(assets::AssetPin& pin) const
     {
         if (assets::AssetUsage* usage = usageOf(world))
         {
-            assets::releasePin(*usage, command.pin);
+            assets::releasePin(*usage, pin);
         }
     }
 
+    void operator()(ValueCommand& command) const { releasePin(command.pin); }
+
     void operator()(SubtreeCommand& command) const
     {
+        releasePin(command.pin);
         if (auto released = scene::releaseTombstones(world, command.tombstones); !released)
         {
             core::log("editor", core::LogLevel::Warning, "{}",
@@ -159,7 +147,8 @@ struct Stepper
 /// Annule (`redo` faux) ou refait la commande du sommet de la liste d'où elle vient, et la range
 /// dans l'autre. Échec : la commande est abandonnée (libérée), pour que la pile ne reste pas
 /// bloquée sur elle.
-core::Result<StepEffect> stepOnce(UndoStack& stack, flecs::world& world, bool redo)
+core::Result<StepEffect> stepOnce(UndoStack& stack, flecs::world& world, bool redo,
+                                  bool& worldChanged)
 {
     std::vector<Command>& from = redo ? stack.undone : stack.done;
     std::vector<Command>& to = redo ? stack.done : stack.undone;
@@ -168,6 +157,14 @@ core::Result<StepEffect> stepOnce(UndoStack& stack, flecs::world& world, bool re
     auto stepped = std::visit(Stepper{world, redo}, command.kind);
     if (!stepped)
     {
+        // Une suppression refaite dont l'index a été repris : l'entité est partie malgré l'échec
+        // (`stepSubtree` en laisse la raison). La scène a changé sans retour possible.
+        const auto* subtree = std::get_if<SubtreeCommand>(&command.kind);
+        worldChanged = subtree != nullptr && !subtree->tombstones.notUndoable.empty();
+        if (worldChanged)
+        {
+            markUnrecoverable(stack);
+        }
         releaseCommand(world, command);
         return stepped;
     }
@@ -258,7 +255,11 @@ bool recordValueChange(UndoStack& stack, flecs::world& world, Mode mode, flecs::
     assets::AssetPin pin;
     if (assets::AssetUsage* usage = usageOf(world))
     {
-        pin = assets::pinAssets(*usage, assetsDesignatedBy(world, component, before, after));
+        std::vector<assets::AssetId> designated =
+            assetsDesignatedBy(world, component, before.data());
+        const auto afterAssets = assetsDesignatedBy(world, component, after.data());
+        designated.insert(designated.end(), afterAssets.begin(), afterAssets.end());
+        pin = assets::pinAssets(*usage, designated);
     }
     pushCommand(stack, world,
                 ValueCommand{.entity = entity,
@@ -314,8 +315,8 @@ std::unexpected<core::Error> refuseStructure(std::string_view gesture, std::stri
                            std::format("{} : {}, le monde n'est pas touché", gesture, why));
 }
 
-/// Les pierres d'une suppression sont posées (ou ne le sont pas) : la commande, ou rien, dit à la
-/// console. Rend vrai si la commande est posée.
+/// Les pierres d'une suppression sont posées (ou ne le sont pas) : la commande, ou la scène marquée
+/// modifiée sans retour. Rend vrai si la commande est posée.
 bool recordDeletion(UndoStack& stack, flecs::world& world, scene::SubtreeRecord record,
                     scene::Tombstones tombstones)
 {
@@ -323,16 +324,29 @@ bool recordDeletion(UndoStack& stack, flecs::world& world, scene::SubtreeRecord 
     {
         core::log("editor", core::LogLevel::Warning, "{}",
                   ui::trf("Supprimer : ne s'annulera pas, {}", tombstones.notUndoable));
+        markUnrecoverable(stack);
         return false;
+    }
+    assets::AssetPin pin;
+    if (assets::AssetUsage* usage = usageOf(world))
+    {
+        pin = assets::pinAssets(*usage, assetsOfSubtree(world, record));
     }
     pushCommand(stack, world,
                 SubtreeCommand{.op = SubtreeOp::Delete,
                                .record = std::move(record),
-                               .tombstones = std::move(tombstones)});
+                               .tombstones = std::move(tombstones),
+                               .pin = std::move(pin)});
     return true;
 }
 
 } // namespace
+
+void markUnrecoverable(UndoStack& stack)
+{
+    // Un numéro que la pile ne portera jamais : « modifié » le reste, sans retour possible.
+    stack.savedNumber = stack.nextNumber++;
+}
 
 core::Result<flecs::entity_t> createEntity(UndoStack& stack, flecs::world& world, Mode mode,
                                            flecs::entity_t parent, std::string_view wanted)
@@ -364,9 +378,16 @@ core::Result<flecs::entity_t> createEntity(UndoStack& stack, flecs::world& world
         world.entity(entity).destruct();
         return std::unexpected(record.error());
     }
-    pushCommand(
-        stack, world,
-        SubtreeCommand{.op = SubtreeOp::Create, .record = std::move(*record), .tombstones = {}});
+    assets::AssetPin pin;
+    if (assets::AssetUsage* usage = usageOf(world))
+    {
+        pin = assets::pinAssets(*usage, assetsOfSubtree(world, *record));
+    }
+    pushCommand(stack, world,
+                SubtreeCommand{.op = SubtreeOp::Create,
+                               .record = std::move(*record),
+                               .tombstones = {},
+                               .pin = std::move(pin)});
     return entity;
 }
 
@@ -465,10 +486,12 @@ void applyHistoryStep(RequestsReport& report, UndoStack& stack, flecs::world& wo
     case HistoryRefusal::None:
         break;
     }
-    const auto stepped = stepOnce(stack, world, redo);
+    bool removedAnyway = false;
+    const auto stepped = stepOnce(stack, world, redo, removedAnyway);
     if (!stepped)
     {
         ++report.failed;
+        report.deleted += removedAnyway ? 1 : 0; // la scène a perdu l'entité : `changedWorld`
         core::log("editor", core::LogLevel::Warning, "{}",
                   ui::trf("{} : commande abandonnée, {}", name, stepped.error().message));
         return;

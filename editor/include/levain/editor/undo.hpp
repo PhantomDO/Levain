@@ -65,9 +65,10 @@ using CommandKind = std::variant<ValueCommand, SubtreeCommand, RenameCommand>;
     return command.pin.assets;
 }
 
-[[nodiscard]] inline std::vector<assets::AssetId> pinnedAssetsOf(const SubtreeCommand&)
+[[nodiscard]] inline const std::vector<assets::AssetId>&
+pinnedAssetsOf(const SubtreeCommand& command)
 {
-    return {}; // le sous-arbre n'épingle rien encore : ses assets viennent en A6e
+    return command.pin.assets;
 }
 
 [[nodiscard]] inline std::vector<assets::AssetId> pinnedAssetsOf(const RenameCommand&)
@@ -163,10 +164,11 @@ enum class HistoryRefusal : std::uint8_t
 
 /// deleteEntity : supprime `entity` et son sous-arbre, avec sa commande : `readSubtree` (les
 /// refus : mode différé, nœud `Generated`, racine sous un nœud `Generated`, composant qui ne se
-/// copie pas), les refaisables libérés, puis `removeKeepingIndex`. Les observateurs d'un volume
-/// perdus sont nommés à la console. **En jeu, un `ecs_delete` simple, jamais une commande**
-/// (décision 9, amendement du 2026-10-22). Rend vrai si une commande est posée. Une suppression
-/// que les pierres n'ont pas pu tenir (`notUndoable`) est faite, sans commande.
+/// copie pas), les refaisables libérés, puis `removeKeepingIndex`. Les assets du sous-arbre sont
+/// épinglés (décision 4) ; les observateurs d'un volume perdus sont nommés à la console. **En jeu,
+/// un `ecs_delete` simple, jamais une commande** (décision 9, amendement du 2026-10-22). Rend vrai
+/// si une commande est posée. Une suppression que les pierres n'ont pas pu tenir (`notUndoable`)
+/// est faite, sans commande : la scène est marquée modifiée sans retour (`markUnrecoverable`).
 [[nodiscard]] core::Result<bool> deleteEntity(UndoStack& stack, flecs::world& world, Mode mode,
                                               flecs::entity_t entity);
 
@@ -176,6 +178,11 @@ enum class HistoryRefusal : std::uint8_t
 /// commande). Hors de l'Édition, le nom change sans commande. Rend vrai si le nom a changé.
 [[nodiscard]] core::Result<bool> renameEntity(UndoStack& stack, flecs::world& world, Mode mode,
                                               flecs::entity_t entity, std::string_view wanted);
+
+/// La scène a changé sans qu'aucune commande puisse le défaire (une suppression dont les pierres
+/// n'ont pas tenu) : « modifié » le reste jusqu'au prochain enregistrement. Le point
+/// d'enregistrement devient un numéro que la pile ne portera jamais.
+void markUnrecoverable(UndoStack& stack);
 
 // --- La file des demandes ------------------------------------------------------------------------
 

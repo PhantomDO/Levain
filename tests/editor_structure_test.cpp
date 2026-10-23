@@ -16,10 +16,12 @@
 #include "levain/scene/snapshot.hpp"
 #include "levain/scene/tombstone.hpp"
 
-// Créer, supprimer et renommer, avec leur annulation (ADR-0038, décisions 3, 6, 8, 9 et 10,
+// Créer, supprimer et renommer, avec leur annulation (ADR-0038, décisions 3, 4, 6, 8, 9 et 10,
 // morceau A6) : la pile, ses pierres tombales, le monde de l'éditeur (deux plages d'identifiants).
 
 using namespace levain::editor;
+using levain::assets::AssetId;
+using levain::assets::MeshRef;
 using levain::scene::Generated;
 using levain::scene::Transform;
 
@@ -29,6 +31,12 @@ namespace
 struct Mass
 {
     float kilograms = 1.0F;
+};
+
+/// Un composant sans réflexion : l'observateur qui reprend un index le porte (tombstone_test).
+struct Marker
+{
+    int unused = 0;
 };
 
 std::uint32_t indexOf(flecs::entity_t id)
@@ -194,6 +202,76 @@ TEST_CASE("supprimer puis annuler sans rien d'autre : le monde est celui d'avant
     CHECK(bench.differences(before).empty());
 }
 
+TEST_CASE("une pierre détruite à la main avant l'annulation : refus nommé, le nouveau reste vivant")
+{
+    levain::core::LogCapture capture = levain::core::captureLog(32);
+    Bench bench;
+    const flecs::entity cube = bench.scene("Cube");
+    REQUIRE(deleteEntity(bench.stack, bench.world, Mode::Edit, cube).value());
+    const auto& command = std::get<SubtreeCommand>(bench.stack.done.back().kind);
+    ecs_delete(bench.world, command.tombstones.reserved.front().stone); // hors de la pile
+    const flecs::entity newcomer = bench.world.entity("nouveau").set(Mass{4.0F});
+    REQUIRE(indexOf(newcomer.id()) == indexOf(cube.id())); // l'index est repris
+
+    const RequestsReport undone = bench.undo();
+    CHECK(undone.undone == 0);
+    CHECK(undone.failed == 1);
+    // La garde n'est pas une assertion : en Release aussi, le nouveau n'est pas écrasé.
+    CHECK(newcomer.is_alive());
+    CHECK(newcomer.get<Mass>().kilograms == 4.0F);
+    CHECK(newcomer.name().c_str() == std::string{"nouveau"});
+    CHECK(bench.stack.done.empty()); // abandonnée, la pile n'est pas bloquée
+    CHECK(logged(capture, levain::core::LogLevel::Warning, "commande abandonnée"));
+}
+
+TEST_CASE("un volume supprimé revient sans son rappel, la console nomme l'observateur perdu")
+{
+    levain::core::LogCapture capture = levain::core::captureLog(32);
+    Bench bench;
+    const flecs::entity volume = bench.scene("Zone");
+    // Ce que `onEnter` range sous le volume : un observateur rangé par `ChildOf`.
+    const flecs::entity callback = bench.world.entity("rappel").child_of(volume);
+    REQUIRE(callback.is_alive());
+
+    REQUIRE(deleteEntity(bench.stack, bench.world, Mode::Edit, volume).value());
+    CHECK(logged(capture, levain::core::LogLevel::Warning, "« rappel »"));
+    const std::size_t afterDelete = levain::core::snapshotOf(*capture.ring).entries.size();
+
+    REQUIRE(bench.undo().undone == 1);
+    CHECK(volume.is_alive());
+    CHECK_FALSE(callback.is_alive()); // il ne revient pas
+    const auto entries = levain::core::snapshotOf(*capture.ring).entries;
+    CHECK(std::ranges::any_of(entries.begin() + static_cast<std::ptrdiff_t>(afterDelete),
+                              entries.end(), [](const auto& entry)
+                              { return entry.text.find("« rappel »") != std::string::npos; }));
+}
+
+TEST_CASE(
+    "le modèle supprimé reste chargé pour l'annulation : l'asset est épinglé, rendu à la sortie")
+{
+    Bench bench;
+    const AssetId fox = levain::assets::generateAssetId();
+    const flecs::entity model = bench.scene("Renard");
+    model.set(MeshRef{.mesh = {.asset = fox}});
+    REQUIRE(levain::assets::referenceCount(bench.world, fox) == 1);
+
+    REQUIRE(deleteEntity(bench.stack, bench.world, Mode::Edit, model).value());
+    CHECK(levain::assets::referenceCount(bench.world, fox) == 0);
+    // Une image passe : `takeUnusedAssets` décharge ce qui est tombé à zéro, sauf l'épinglé.
+    CHECK(levain::assets::takeUnusedAssets(bench.world).empty());
+    CHECK(bench.world.get<levain::assets::AssetUsage>().pinned.at(fox) == 1);
+
+    REQUIRE(bench.undo().undone == 1);
+    CHECK(levain::assets::referenceCount(bench.world, fox) == 1);
+    CHECK(levain::assets::takeUnusedAssets(bench.world).empty());
+
+    // La commande sort de la pile : l'épingle est rendue, l'asset n'est plus utilisé nulle part.
+    REQUIRE(bench.redo().redone == 1);
+    clearUndoStack(bench.stack, bench.world);
+    CHECK(bench.world.get<levain::assets::AssetUsage>().pinned.empty());
+    CHECK(levain::assets::takeUnusedAssets(bench.world) == std::vector<AssetId>{fox});
+}
+
 TEST_CASE(
     "créer, annuler, refaire : l'identifiant d'origine, un nom libre, un Transform, la plage de "
     "l'édition")
@@ -258,6 +336,39 @@ TEST_CASE("créer sous un nœud généré est refusé, nommé, le monde intact")
     CHECK(bench.stack.done.empty());
 }
 
+TEST_CASE("supprimer un nœud généré, ou une entité sous lui, est refusé et nommé")
+{
+    Bench bench;
+    const flecs::entity root = bench.scene("Modèle");
+    const flecs::entity node = bench.child(root, "os");
+    node.add<Generated>();
+    const flecs::entity sword = bench.child(node, "épée");
+    const auto onNode = deleteEntity(bench.stack, bench.world, Mode::Edit, node.id());
+    REQUIRE_FALSE(onNode.has_value());
+    CHECK(onNode.error().message.find("Supprimer") != std::string::npos);
+    CHECK(node.is_alive());
+    const auto underNode = deleteEntity(bench.stack, bench.world, Mode::Edit, sword.id());
+    REQUIRE_FALSE(underNode.has_value());
+    CHECK(sword.is_alive());
+    CHECK(bench.stack.done.empty());
+    // En jeu, supprimer est un `ecs_delete` simple, mais le même refus vaut.
+    CHECK_FALSE(deleteEntity(bench.stack, bench.world, Mode::Play, node.id()).has_value());
+    CHECK(node.is_alive());
+}
+
+TEST_CASE("renommer un nœud généré est refusé et nommé")
+{
+    Bench bench;
+    const flecs::entity root = bench.scene("Modèle");
+    const flecs::entity node = bench.child(root, "os");
+    node.add<Generated>();
+    const auto refused = renameEntity(bench.stack, bench.world, Mode::Edit, node.id(), "autre");
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().message.find("nœud généré") != std::string::npos);
+    CHECK(node.name().c_str() == std::string{"os"});
+    CHECK(bench.stack.done.empty());
+}
+
 TEST_CASE("les noms piégés sont refusés, rien ne change, aucune commande n'est posée")
 {
     Bench bench;
@@ -299,6 +410,52 @@ TEST_CASE("renommer : un nom libre s'annule et se refait, un nom inchangé ne po
     CHECK(bench.world.lookup("Cube") == cube);
     CHECK(bench.redo().redone == 1);
     CHECK(bench.world.lookup("Caisse") == cube);
+}
+
+TEST_CASE("après un renommage, Stop retrouve les entités par leur chemin : zéro différence")
+{
+    Bench bench;
+    const flecs::entity cube = bench.scene("Cube");
+    const flecs::entity kid = bench.child(cube, "enfant");
+    REQUIRE(renameEntity(bench.stack, bench.world, Mode::Edit, cube.id(), "Caisse").value());
+    REQUIRE(renameEntity(bench.stack, bench.world, Mode::Edit, kid.id(), "petit").value());
+
+    const auto snapshot = bench.snapshot();
+    levain::scene::usePlayIds(bench.world, bench.ranges);
+    bench.world.entity("née en jeu").set(Transform{});
+    levain::scene::useEditIds(bench.world, bench.ranges);
+    const auto restored = levain::scene::restoreSnapshot(bench.world, bench.ranges, snapshot);
+    REQUIRE(restored.has_value());
+    CHECK(bench.differences(snapshot).empty());
+    CHECK(bench.world.lookup("Caisse::petit") == kid);
+}
+
+TEST_CASE(
+    "en jeu, créer, supprimer et renommer sont simples : la pile ne bouge pas, Stop rend tout")
+{
+    Bench bench;
+    const flecs::entity cube = bench.scene("Cube");
+    const flecs::entity crate = bench.scene("Caisse");
+    REQUIRE(bench.stack.done.empty());
+    const auto snapshot = bench.snapshot();
+
+    levain::scene::usePlayIds(bench.world, bench.ranges);
+    REQUIRE(deleteEntity(bench.stack, bench.world, Mode::Play, crate.id()).has_value());
+    CHECK_FALSE(crate.is_alive());
+    REQUIRE(renameEntity(bench.stack, bench.world, Mode::Play, cube.id(), "Autre").value());
+    const auto born = createEntity(bench.stack, bench.world, Mode::Play, 0, NewEntityName);
+    REQUIRE(born.has_value());
+    CHECK(indexOf(*born) >= levain::scene::PlayFirstIndex);
+    CHECK(bench.stack.done.empty()); // perdu à Stop : rien n'entre dans la pile
+    CHECK(bench.stack.undone.empty());
+    CHECK_FALSE(isModified(bench.stack));
+
+    levain::scene::useEditIds(bench.world, bench.ranges);
+    const auto restored = levain::scene::restoreSnapshot(bench.world, bench.ranges, snapshot);
+    REQUIRE(restored.has_value());
+    CHECK(crate.is_alive()); // Stop réveille l'entité avec son identifiant
+    CHECK(cube.name().c_str() == std::string{"Cube"});
+    CHECK(bench.differences(snapshot).empty());
 }
 
 TEST_CASE("une demande de création, de suppression et de renommage passe par la file")
@@ -368,6 +525,25 @@ TEST_CASE("une commande nouvelle après une annulation libère les pierres du re
     CHECK_FALSE(bench.world.is_alive(stone)); // la nouvelle commande a libéré le refaisable
 }
 
+TEST_CASE("la 101e commande fait sortir une suppression, qui rend sa pierre")
+{
+    Bench bench;
+    const flecs::entity cube = bench.scene("Cube");
+    REQUIRE(deleteEntity(bench.stack, bench.world, Mode::Edit, cube).value());
+    const flecs::entity_t stone =
+        std::get<SubtreeCommand>(bench.stack.done.front().kind).tombstones.reserved.front().stone;
+    CHECK(bench.world.is_alive(stone));
+    const flecs::entity other = bench.scene("Autre");
+    for (int i = 0; i < static_cast<int>(UndoDepth); ++i)
+    {
+        REQUIRE(renameEntity(bench.stack, bench.world, Mode::Edit, other.id(),
+                             "Autre " + std::to_string(i))
+                    .value());
+    }
+    CHECK(bench.stack.done.size() == UndoDepth);
+    CHECK_FALSE(bench.world.is_alive(stone));
+}
+
 TEST_CASE(
     "une création défaite puis refaite ne garde pas les pierres de son annulation : en sortir "
     "ne détruit pas celles d'une suppression plus récente")
@@ -396,6 +572,37 @@ TEST_CASE(
     CHECK(bench.world.is_alive(entity)); // la suppression s'annule : l'entité revient
 }
 
+TEST_CASE("une suppression refaite dont l'index est repris : dite perdue, la scène reste modifiée")
+{
+    Bench bench;
+    bool armed = false;
+    bench.world.observer<Marker>()
+        .event(flecs::OnRemove)
+        .each(
+            [&](flecs::entity entity, Marker&)
+            {
+                if (armed)
+                {
+                    armed = false;
+                    entity.world().entity("née pendant la suppression");
+                }
+            });
+    const flecs::entity volume = bench.scene("Volume").set(Marker{});
+    bench.child(volume, "enfant");
+    markSaved(bench.stack);
+    REQUIRE(deleteEntity(bench.stack, bench.world, Mode::Edit, volume).value());
+    REQUIRE(bench.undo().undone == 1);
+    markSaved(bench.stack); // l'état enregistré est celui d'avant la suppression, refaite ensuite
+    CHECK_FALSE(isModified(bench.stack));
+
+    armed = true;
+    const RequestsReport redone = bench.redo();
+    CHECK(redone.failed == 1);
+    CHECK_FALSE(bench.world.is_alive(volume.id())); // la suppression est faite
+    CHECK(redone.changedWorld());
+    CHECK(isModified(bench.stack)); // S1 : la scène a perdu une entité, elle le dit
+}
+
 TEST_CASE("annuler une création relit le sous-arbre : un enfant ajouté hors de la pile revient "
           "entier au rétablissement")
 {
@@ -414,6 +621,27 @@ TEST_CASE("annuler une création relit le sous-arbre : un enfant ajouté hors de
     CHECK(back.get<flecs::Parent>().value == parent);
     CHECK(back.has<Transform>());
     CHECK(back.get<Mass>().kilograms == 3.0F);
+}
+
+TEST_CASE("« modifié » suit les créations, les suppressions et les noms, et une pierre perdue le "
+          "reste")
+{
+    Bench bench;
+    const flecs::entity cube = bench.scene("Cube");
+    CHECK_FALSE(isModified(bench.stack));
+    REQUIRE(renameEntity(bench.stack, bench.world, Mode::Edit, cube.id(), "Caisse").value());
+    CHECK(isModified(bench.stack));
+    markSaved(bench.stack);
+    REQUIRE(bench.undo().undone == 1);
+    CHECK(isModified(bench.stack));
+    REQUIRE(bench.redo().redone == 1);
+    CHECK_FALSE(isModified(bench.stack));
+    markUnrecoverable(bench.stack); // une suppression que les pierres n'ont pas tenue
+    CHECK(isModified(bench.stack));
+    CHECK(bench.undo().undone == 1);
+    CHECK(isModified(bench.stack));
+    markSaved(bench.stack);
+    CHECK_FALSE(isModified(bench.stack));
 }
 
 TEST_CASE(
@@ -445,6 +673,24 @@ TEST_CASE("supprimer un enfant du milieu puis annuler le rend à sa place parmi 
     CHECK(levain::scene::orderedChildrenOf(bench.world, cube.id()).size() == 4);
     CHECK(bench.world.entity(two.id()).get<flecs::Parent>().value == cube.id());
     CHECK(before.entities.size() == 4); // l'instantané d'avant : Cube et ses trois enfants
+}
+
+TEST_CASE("un parent mort refuse l'annulation avant le réveil : rien n'est réveillé vide")
+{
+    levain::core::LogCapture capture = levain::core::captureLog(32);
+    Bench bench;
+    const flecs::entity parent = bench.scene("Parent");
+    const flecs::entity kid = bench.child(parent, "enfant");
+    REQUIRE(deleteEntity(bench.stack, bench.world, Mode::Edit, kid).value());
+    parent.destruct(); // hors de la pile : le parent a disparu
+    const RequestsReport undone = bench.undo();
+    CHECK(undone.undone == 0);
+    CHECK(undone.failed == 1);
+    // Les deux gardes passent avant le réveil : aucune entité vide, sans nom ni parent, ne traîne
+    // dans la scène (la commande abandonnée rend sa pierre).
+    CHECK(bench.stack.done.empty());
+    CHECK_FALSE(bench.world.is_alive(kid.id()));
+    CHECK(logged(capture, levain::core::LogLevel::Warning, "est mort"));
 }
 
 TEST_CASE("un nom refusé n'est jamais écrit, même demandé directement à la file")
