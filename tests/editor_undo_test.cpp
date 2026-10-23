@@ -115,6 +115,19 @@ TEST_CASE(
     CHECK(bench.kilograms() == 150.0F);
 }
 
+TEST_CASE("Annuler et Rétablir disent que le monde a changé, un refus non")
+{
+    // Le bilan nourrit `wroteWorld` : la boîte de la scène se rafraîchit tout de suite après un
+    // Ctrl+Z, sans attendre 60 images (N3 de la relecture de A4).
+    Bench bench;
+    REQUIRE(bench.setMass(4.0F));
+    CHECK(bench.undo().changedWorld());
+    CHECK(bench.redo().changedWorld());
+    CHECK_FALSE(bench.redo().changedWorld());              // rien à refaire : refusé
+    CHECK_FALSE(bench.undo(1, Mode::Play).changedWorld()); // la pile est gelée en jeu
+    CHECK(bench.kilograms() == 4.0F);
+}
+
 TEST_CASE("une commande dont l'avant égale l'après est jetée, la pile ne bouge pas")
 {
     Bench bench;
@@ -396,7 +409,11 @@ std::map<AssetId, int> expectedPins(const UndoStack& stack)
     {
         for (const Command& command : *list)
         {
-            for (const AssetId asset : std::get<ValueCommand>(command.kind).pin.assets)
+            // Un visiteur, non `std::get<ValueCommand>` : chaque sorte de commande dit ses
+            // épingles.
+            const auto assets =
+                std::visit([](const auto& kind) { return pinnedAssetsOf(kind); }, command.kind);
+            for (const AssetId asset : assets)
             {
                 ++pins[asset];
             }

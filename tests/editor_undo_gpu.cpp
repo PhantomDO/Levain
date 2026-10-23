@@ -126,6 +126,12 @@ struct Run
 };
 
 /// Une bulle d'ImGui est montrée à cette image (`SetTooltip` : la fenêtre « ##Tooltip_00 »).
+///
+/// **Dépend d'un détail interne d'ImGui** (`imgui_internal.h`, le nom que `BeginTooltipEx` donne à
+/// la première bulle, vrai en 1.92.8) : ImGui n'offre aucune route publique pour demander « une
+/// bulle est-elle ouverte ? ». Le piège est borné : si une montée de version renomme la fenêtre,
+/// cette fonction rend toujours faux, et l'assertion **positive** du banc (la bulle d'Annuler grisé
+/// survolé, `playMenu`) échoue bruyamment, ce n'est pas un test qui passe sans rien vérifier.
 bool tooltipShown()
 {
     const ImGuiWindow* window = ImGui::FindWindowByName("##Tooltip_00");

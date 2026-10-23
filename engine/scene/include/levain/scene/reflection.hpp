@@ -264,6 +264,12 @@ void setComponentValue(flecs::world& world, flecs::entity_t entity, flecs::entit
 /// décrits, un nombre, une enum, un bitmask, un `flecs::entity`). `sameValue` s'arrête sur une
 /// assertion pour un autre ; l'appelant qui reçoit un type quelconque (une commande d'annulation)
 /// refuse d'abord, par un message nommé, avant d'écrire quoi que ce soit.
+///
+/// **Ne regarde que le type de tête** : une struct décrite passe, sans que ses membres soient
+/// vérifiés un à un. Un membre opaque (ni nombre, ni enum, ni struct, ni tableau, ni
+/// `flecs::entity`) ferait donc s'arrêter `sameValue` sur son assertion, une fois l'écriture faite.
+/// Aucun composant décrit n'en a aujourd'hui ; en ajouter un demande de descendre ici dans les
+/// membres.
 [[nodiscard]] bool isComparableValue(const flecs::world& world, flecs::entity_t type);
 
 /// stableKeyOf : la clé d'un composant dans une sauvegarde, son symbole (le nom C++,

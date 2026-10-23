@@ -25,8 +25,8 @@ d'entité et d'asset. Il n'a pas encore :
 - **d'enregistrement** : rien n'écrit la scène (M7.3) ; fermer la fenêtre demande « Quitter l'éditeur ? », sans rien
   proposer d'enregistrer ;
 - ni raccourci d'édition, sauf Ctrl+Z, Ctrl+Y et Ctrl+Maj+Z (M7.3, A4) : Ctrl+S et les outils sont grisés jusqu'à leur
-  milestone (invariant 16 et le paragraphe des menus ci-dessous) ; ceux de M7.7 jouent, arrêtent, règlent le temps réel, cadrent (F) et basculent
-  la vue de jeu (G).
+  milestone (invariant 16 et le paragraphe des menus ci-dessous) ; ceux de M7.7 jouent, arrêtent, règlent le temps
+  réel, cadrent (F) et basculent la vue de jeu (G).
 
 **La pile d'annulation est écrite** (M7.3, morceau A4, `undo.hpp`, ADR-0038 décisions 1 et 9) : 100 commandes, une
 101e fait sortir la plus ancienne en lui faisant rendre ce qu'elle retient (ses épingles d'assets ; plus tard ses
